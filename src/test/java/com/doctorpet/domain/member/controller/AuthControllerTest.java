@@ -16,6 +16,7 @@ import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.AuthService;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +49,12 @@ class AuthControllerTest {
 
     @MockitoBean
     private AuthService authService;
+
+    // addFilters=false는 MockMvc가 필터를 "실행"하지 않게 할 뿐, @WebMvcTest는 Filter 타입 빈을
+    // 기본 포함 대상으로 슬라이스 컨텍스트에 여전히 생성한다. JwtAuthenticationFilter가 생성자에서
+    // JwtTokenProvider를 요구하므로, 이 빈이 없으면 컨텍스트 로딩 자체가 실패한다(실제 호출은 없다).
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
     @DisplayName("회원가입 성공 시 201과 memberId를 반환한다")
