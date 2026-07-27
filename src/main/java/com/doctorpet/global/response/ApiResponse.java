@@ -8,12 +8,14 @@ public record ApiResponse<T>(
         T data
 ) {
 
+    private static final String DEFAULT_SUCCESS_MESSAGE = "요청이 성공했습니다.";
+
     public static <T> ApiResponse<T> success(T data) {
-        return new ApiResponse<>("SUCCESS", "요청이 처리되었습니다.", data);
+        return new ApiResponse<>("SUCCESS", DEFAULT_SUCCESS_MESSAGE, data);
     }
 
     public static ApiResponse<Void> success() {
-        return new ApiResponse<>("SUCCESS", "요청이 처리되었습니다.", null);
+        return new ApiResponse<>("SUCCESS", DEFAULT_SUCCESS_MESSAGE, null);
     }
 
     public static ApiResponse<Void> error(ErrorCode errorCode) {
