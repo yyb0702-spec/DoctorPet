@@ -2,7 +2,7 @@ package com.doctorpet.global.exception;
 
 import com.doctorpet.global.response.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
-import java.util.Locale;
+import java.sql.SQLException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
@@ -53,15 +53,24 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
     }
 
-    private ErrorCode resolveDataIntegrityErrorCode(DataIntegrityViolationException exception) {
-        String message = exception.getMostSpecificCause().getMessage();
-        String lowerCaseMessage = message == null ? "" : message.toLowerCase(Locale.ROOT);
+    // MySQL이 UNIQUE 제약 위반(ER_DUP_ENTRY)에 실제로 내려주는 SQLState·벤더 오류 코드.
+    // 메시지 문자열에 컬럼명이 아니라 Hibernate가 생성한 제약/인덱스 이름(예: UK_...)이 들어있는 경우가
+    // 많아 컬럼명 기준 문자열 매칭은 신뢰할 수 없다 — SQLState/벤더 코드는 제약 이름과 무관하게 항상 같다.
+    private static final String MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE = "23000";
+    private static final int MYSQL_DUPLICATE_ENTRY_ERROR_CODE = 1062;
 
-        boolean isUniqueViolation = lowerCaseMessage.contains("nickname") || lowerCaseMessage.contains("email");
-        if (isUniqueViolation) {
+    private ErrorCode resolveDataIntegrityErrorCode(DataIntegrityViolationException exception) {
+        Throwable cause = exception.getMostSpecificCause();
+
+        if (cause instanceof SQLException sqlException && isDuplicateEntry(sqlException)) {
             return CommonErrorCode.DUPLICATE_RESOURCE;
         }
 
         return CommonErrorCode.INTERNAL_SERVER_ERROR;
+    }
+
+    private boolean isDuplicateEntry(SQLException sqlException) {
+        return MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())
+                && sqlException.getErrorCode() == MYSQL_DUPLICATE_ENTRY_ERROR_CODE;
     }
 }
