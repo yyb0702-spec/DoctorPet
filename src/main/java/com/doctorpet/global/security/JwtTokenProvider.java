@@ -23,6 +23,7 @@ public class JwtTokenProvider {
 
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_ROLE = "role";
+    private static final String CLAIM_TOKEN_TYPE = "tokenType";
 
     private final JwtProperties jwtProperties;
 
@@ -34,14 +35,14 @@ public class JwtTokenProvider {
     }
 
     public String generateAccessToken(Long memberId, String email, String role) {
-        return generateToken(memberId, email, role, jwtProperties.getAccessTokenExpiration());
+        return generateToken(memberId, email, role, TokenType.ACCESS, jwtProperties.getAccessTokenExpiration());
     }
 
     public String generateRefreshToken(Long memberId, String email, String role) {
-        return generateToken(memberId, email, role, jwtProperties.getRefreshTokenExpiration());
+        return generateToken(memberId, email, role, TokenType.REFRESH, jwtProperties.getRefreshTokenExpiration());
     }
 
-    private String generateToken(Long memberId, String email, String role, long expirationMillis) {
+    private String generateToken(Long memberId, String email, String role, TokenType tokenType, long expirationMillis) {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + expirationMillis);
 
@@ -49,6 +50,7 @@ public class JwtTokenProvider {
                 .subject(String.valueOf(memberId))
                 .claim(CLAIM_EMAIL, email)
                 .claim(CLAIM_ROLE, role)
+                .claim(CLAIM_TOKEN_TYPE, tokenType.name())
                 .issuedAt(now)
                 .expiration(expiration)
                 .signWith(key)
@@ -65,15 +67,35 @@ public class JwtTokenProvider {
         }
     }
 
+    /**
+     * 토큰의 용도(ACCESS/REFRESH)를 반환한다. {@link #validateToken(String)}으로 서명·만료를
+     * 먼저 검증한 뒤에만 호출해야 한다 — 이 메서드 자체는 파싱 실패 시 예외를 그대로 던진다.
+     * 클레임이 없거나(구버전 토큰) 값이 깨졌으면 알 수 없는 용도로 취급해 어느 쪽 검사에도
+     * 통과하지 못하도록 {@code null}을 반환한다(fail-closed).
+     */
+    public TokenType getTokenType(String token) {
+        Claims claims = parseClaims(token);
+        String tokenType = claims.get(CLAIM_TOKEN_TYPE, String.class);
+        try {
+            return tokenType == null ? null : TokenType.valueOf(tokenType);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     public MemberPrincipal getMemberPrincipal(String token) {
-        Claims claims = Jwts.parser().verifyWith(key).build()
-                .parseSignedClaims(token)
-                .getPayload();
+        Claims claims = parseClaims(token);
 
         return new MemberPrincipal(
                 Long.valueOf(claims.getSubject()),
                 claims.get(CLAIM_EMAIL, String.class),
                 claims.get(CLAIM_ROLE, String.class)
         );
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser().verifyWith(key).build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 }
