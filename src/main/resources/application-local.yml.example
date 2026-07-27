@@ -17,3 +17,12 @@ jwt:
   secret: change-this-to-a-long-random-base64-secret-at-least-256-bits
   access-token-expiration: 3600000       # 1시간 (ms)
   refresh-token-expiration: 1209600000   # 14일 (ms)
+
+public-data:
+  animal-hospital:
+    base-url: https://apis.data.go.kr/1741000/animal_hospitals
+    service-key: ${PUBLIC_DATA_SERVICE_KEY:}
+    seed-enabled: false
+    page-size: 100
+    local-government-codes:
+      - "3130000"
