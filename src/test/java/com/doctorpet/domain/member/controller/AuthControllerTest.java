@@ -278,6 +278,20 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("같은 회원의 다른 재발급 요청이 이미 처리 중이면 409와 MEMBER_007을 반환한다")
+    void reissue_alreadyInProgress() throws Exception {
+        ReissueRequest request = new ReissueRequest("some-refresh-token");
+        given(authService.reissue(any(ReissueRequest.class)))
+                .willThrow(new ServiceException(MemberErrorCode.REISSUE_IN_PROGRESS));
+
+        mockMvc.perform(post("/api/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_007"));
+    }
+
+    @Test
     @DisplayName("재발급 요청에 refreshToken이 비어있으면 400과 COMMON_001을 반환한다")
     void reissue_blankToken() throws Exception {
         ReissueRequest request = new ReissueRequest("");

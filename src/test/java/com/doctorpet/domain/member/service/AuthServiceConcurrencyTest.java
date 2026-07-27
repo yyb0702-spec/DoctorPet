@@ -82,8 +82,13 @@ class AuthServiceConcurrencyTest {
     }
 
     @Test
-    @DisplayName("동일 Refresh Token으로 동시에 재발급을 요청하면 정확히 하나만 성공하고, 그 새 토큰은 삭제되지 않는다(Redis 원자 교체)")
+    @DisplayName("동일 Refresh Token으로 동시에 재발급을 요청하면 락으로 직렬화되어 정확히 하나만 성공하고, 그 새 토큰은 삭제되지 않는다")
     void concurrentReissue_onlyOneSucceeds() throws InterruptedException {
+        // 리뷰 대응 이력: 처음엔 CAS 실패 시 무조건 세션을 삭제해 승자의 새 토큰까지 지워지는
+        // 버그가 있었고, 그다음엔 5초 유예 창으로 "동시 중복"과 "진짜 재사용"을 구분했지만 그 창
+        // 안에서 탈취 토큰 재사용을 놓칠 수 있다는 지적을 받았다. 지금은 회원당 재발급을 Redis
+        // 락(tryLock/unlock)으로 직렬화해 애초에 여러 요청이 동시에 CAS를 다투지 않게 한다 —
+        // 시간 기반 추측 없이도 승자의 세션이 안전하다.
         String refreshToken = authService.login(new LoginRequest(email, CORRECT_PASSWORD)).refreshToken();
         ReissueRequest reissueRequest = new ReissueRequest(refreshToken);
         List<Boolean> results = new CopyOnWriteArrayList<>();
@@ -95,6 +100,8 @@ class AuthServiceConcurrencyTest {
                 successes.add(response);
                 results.add(true);
             } catch (ServiceException e) {
+                // 락을 못 얻은 요청은 REISSUE_IN_PROGRESS(409), CAS에 실패한 요청은
+                // REFRESH_TOKEN_REUSED(401) — 둘 다 "성공하지 못함"으로만 집계한다.
                 results.add(false);
             }
         });
@@ -102,8 +109,7 @@ class AuthServiceConcurrencyTest {
         long successCount = results.stream().filter(Boolean::booleanValue).count();
         assertThat(successCount).isEqualTo(1);
 
-        // 회귀 검증: CAS에 실패한 나머지 요청들이 "동시 중복 요청"으로 판별되어 방금 성공한 요청의
-        // 새 Refresh Token까지 지워버리지 않아야 한다(리뷰에서 지적된 deleteByMemberId 오남용 버그).
+        // 핵심 회귀 검증: 나머지 요청들이 승자가 방금 받은 새 Refresh Token을 지워버리지 않아야 한다.
         String winningRefreshToken = successes.get(0).refreshToken();
         assertThat(refreshTokenRepository.findByMemberId(memberId)).contains(winningRefreshToken);
     }

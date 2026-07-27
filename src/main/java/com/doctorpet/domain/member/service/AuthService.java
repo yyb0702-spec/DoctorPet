@@ -17,6 +17,7 @@ import com.doctorpet.global.security.TokenType;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -119,18 +120,18 @@ public class AuthService {
      * 토큰 재발급. SA §8-1 + A 도메인 결정 #6(Refresh 회전 — 화이트리스트 방식).
      *
      * 1) JWT 자체의 서명·만료와 tokenType(REFRESH)을 검증한다 — Access Token으로는 재발급할 수 없다.
-     * 2) 회원이 여전히 존재하는지 확인한다.
-     * 3) Redis에 저장된 "현재 유효한" Refresh Token과 제시된 토큰을 비교(compare)하고 새 토큰으로
-     *    교체(swap)하는 것을 하나의 원자 연산(Lua)으로 처리한다 — 조회 후 저장을 분리하면, 같은
-     *    Refresh Token으로 동시에 재발급 요청이 오는 경우 둘 다 비교를 통과해 두 응답 모두 200을
-     *    받는 경쟁 상태가 생긴다. 원자 연산이 실패하면(불일치) REFRESH_TOKEN_REUSED로 응답한다.
+     * 2) 회원당 재발급 요청을 락으로 직렬화한다(tryLock/unlock) — 같은 토큰으로 동시에 들어온
+     *    재발급 요청들이 서로 CAS를 다투는 상황 자체를 없앤다. 락을 못 얻으면 다른 요청이 이미
+     *    처리 중이라는 뜻이므로 REISSUE_IN_PROGRESS(409)로 응답한다.
+     * 3) 회원이 여전히 존재하는지 확인한다.
+     * 4) Redis에 저장된 "현재 유효한" Refresh Token과 제시된 토큰을 비교(compare)하고 새 토큰으로
+     *    교체(swap)하는 것을 하나의 원자 연산(Lua)으로 처리한다.
      *
-     *    다만 CAS 실패에는 두 가지 서로 다른 상황이 섞여 있다 — (a) 같은 토큰으로 거의 동시에 들어온
-     *    다른 요청이 이미 정상적으로 회전시켜버린 "동시 중복 요청", (b) 이미 여러 세대 전에 폐기된
-     *    토큰이 다시 제시된 "진짜 재사용(탈취 의심)". 리뷰에서 지적된 대로, 이 둘을 구분하지 않고
-     *    매번 세션을 통째로 삭제하면 (a)의 경우 방금 성공한 요청이 받아간 새 Refresh Token까지
-     *    함께 지워버리게 된다. wasRecentlyRotatedFrom으로 "직전에 정상 회전되어 나간 토큰"인지
-     *    확인해 (a)일 때는 세션을 지우지 않고, (b)일 때만 전체 무효화한다.
+     *    (이전 리뷰 대응에서는 CAS 실패 시 "동시 중복 요청"과 "진짜 재사용"을 5초 유예 창으로
+     *    구분했는데, 그 창 안에서는 실제 탈취 토큰 재사용도 눈감아주는 셈이라 보안 약화로 다시
+     *    지적됐다. 지금은 2)의 락이 "동시에 CAS를 다투는 상황" 자체를 원천 차단하므로, 락을 쥔
+     *    상태에서의 CAS 실패는 시간 기반 휴리스틱 없이 항상 "진짜 재사용(탈취 의심)"으로 보고
+     *    세션 전체를 무효화해도 안전하다.)
      */
     @Transactional(readOnly = true)
     public LoginResponse reissue(ReissueRequest request) {
@@ -144,22 +145,29 @@ public class AuthService {
         MemberPrincipal principal = jwtTokenProvider.getMemberPrincipal(presentedRefreshToken);
         Long memberId = principal.memberId();
 
-        Member member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ServiceException(MemberErrorCode.INVALID_REFRESH_TOKEN));
-
-        String newAccessToken = jwtTokenProvider.generateAccessToken(memberId, member.getEmail(), member.getRole().name());
-        String newRefreshToken = jwtTokenProvider.generateRefreshToken(memberId, member.getEmail(), member.getRole().name());
-        Duration ttl = Duration.ofMillis(jwtProperties.getRefreshTokenExpiration());
-
-        boolean rotated = refreshTokenRepository.rotateIfMatches(memberId, presentedRefreshToken, newRefreshToken, ttl);
-        if (!rotated) {
-            if (!refreshTokenRepository.wasRecentlyRotatedFrom(memberId, presentedRefreshToken)) {
-                refreshTokenRepository.deleteByMemberId(memberId);
-            }
-            throw new ServiceException(MemberErrorCode.REFRESH_TOKEN_REUSED);
+        String lockToken = UUID.randomUUID().toString();
+        if (!refreshTokenRepository.tryLock(memberId, lockToken)) {
+            throw new ServiceException(MemberErrorCode.REISSUE_IN_PROGRESS);
         }
 
-        return LoginResponse.of(newAccessToken, newRefreshToken);
+        try {
+            Member member = memberRepository.findById(memberId)
+                    .orElseThrow(() -> new ServiceException(MemberErrorCode.INVALID_REFRESH_TOKEN));
+
+            String newAccessToken = jwtTokenProvider.generateAccessToken(memberId, member.getEmail(), member.getRole().name());
+            String newRefreshToken = jwtTokenProvider.generateRefreshToken(memberId, member.getEmail(), member.getRole().name());
+            Duration ttl = Duration.ofMillis(jwtProperties.getRefreshTokenExpiration());
+
+            boolean rotated = refreshTokenRepository.rotateIfMatches(memberId, presentedRefreshToken, newRefreshToken, ttl);
+            if (!rotated) {
+                refreshTokenRepository.deleteByMemberId(memberId);
+                throw new ServiceException(MemberErrorCode.REFRESH_TOKEN_REUSED);
+            }
+
+            return LoginResponse.of(newAccessToken, newRefreshToken);
+        } finally {
+            refreshTokenRepository.unlock(memberId, lockToken);
+        }
     }
 
     /*

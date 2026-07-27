@@ -19,28 +19,39 @@ import org.springframework.stereotype.Repository;
 public class RefreshTokenRepository {
 
     private static final String KEY_PREFIX = "refresh:";
-    private static final String PREVIOUS_KEY_SUFFIX = ":prev";
+    private static final String LOCK_KEY_PREFIX = "refresh-lock:";
 
-    /*
-     * 같은 토큰으로 거의 동시에 여러 재발급 요청이 들어오는 경우(중복 클릭, 네트워크 재시도 등)를
-     * "진짜 재사용(탈취 의심)"과 구분하기 위한 유예 구간. rotateIfMatches가 성공할 때마다 "직전 토큰"을
-     * 이 기간만큼 별도 키에 남겨둔다 — 그래야 CAS에 실패한 동시 요청이 "혹시 방금 나와 같은 토큰을
-     * 다른 요청이 정상적으로 회전시킨 것뿐인지"를 판별할 수 있다. 공격 탐지 목적상 짧게 유지한다.
-     */
-    private static final Duration REUSE_GRACE_PERIOD = Duration.ofSeconds(5);
+    // 회원당 재발급 요청을 직렬화하는 락의 TTL. 크래시 등으로 unlock()이 못 불려도 이 시간 뒤엔
+    // 자동으로 풀린다 — 정상 처리(회원 조회 + JWT 2개 생성 + Redis CAS 1회)는 이보다 훨씬 빨리 끝난다.
+    private static final Duration LOCK_TTL = Duration.ofSeconds(3);
 
     /*
      * 현재 저장된 값이 oldToken과 일치할 때만 newToken으로 교체한다(compare-and-set).
      * "조회 후 저장"을 두 단계로 나누면 같은 Refresh Token으로 동시에 들어온 재발급 요청이
      * 둘 다 비교를 통과해 각자 새 토큰을 저장하는 경쟁 상태가 생긴다 — Redis에게 GET과 SET을
      * 하나의 원자 연산(Lua)으로 실행시켜, 동시 요청 중 정확히 하나만 성공하도록 만든다.
-     * 교체에 성공하면 직전 토큰(oldToken)을 REUSE_GRACE_PERIOD 동안 "prev" 키에 함께 남겨,
-     * 같은 토큰으로 온 다른 동시 요청이 CAS에 실패했을 때 재사용 여부를 구분할 수 있게 한다.
+     *
+     * (이전에는 CAS 실패 시 "동시 중복 요청"과 "진짜 재사용"을 5초 유예 창으로 구분했는데, 그
+     * 창 안에서는 실제 탈취 토큰 재사용도 눈감아주는 셈이라 리뷰에서 보안 약화로 지적됐다.
+     * 지금은 AuthService.reissue()가 CAS를 시도하기 전에 tryLock/unlock으로 회원당 재발급을
+     * 아예 직렬화한다 — 그러면 두 요청이 "동시에" CAS를 다투는 상황 자체가 생기지 않으므로,
+     * CAS 실패는 항상 "이미 다른 요청이 정상 처리한 뒤의 진짜 재사용"으로 취급해도 안전하다.)
      */
     private static final RedisScript<Long> ROTATE_IF_MATCHES_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                    + "redis.call('set', KEYS[2], ARGV[1], 'PX', ARGV[4]) "
                     + "redis.call('set', KEYS[1], ARGV[2], 'PX', ARGV[3]) "
+                    + "return 1 "
+                    + "else "
+                    + "return 0 "
+                    + "end",
+            Long.class
+    );
+
+    // 락을 쥔 요청만 스스로 풀 수 있게 한다(get-then-del을 원자적으로) — 그렇지 않으면 TTL 만료 후
+    // 다른 요청이 새로 잡은 락을, 뒤늦게 unlock()을 호출한 원래 요청이 실수로 풀어버릴 수 있다.
+    private static final RedisScript<Long> RELEASE_LOCK_IF_OWNED_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "redis.call('del', KEYS[1]) "
                     + "return 1 "
                     + "else "
                     + "return 0 "
@@ -66,33 +77,39 @@ public class RefreshTokenRepository {
     public boolean rotateIfMatches(Long memberId, String oldToken, String newToken, Duration ttl) {
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
-                List.of(key(memberId), previousKey(memberId)),
-                oldToken, newToken, String.valueOf(ttl.toMillis()), String.valueOf(REUSE_GRACE_PERIOD.toMillis())
+                List.of(key(memberId)),
+                oldToken, newToken, String.valueOf(ttl.toMillis())
         );
         return result != null && result == 1L;
     }
 
-    /**
-     * {@code oldToken}이 아주 최근(REUSE_GRACE_PERIOD 이내)에 이 회원의 토큰에서 "정상적으로" 회전되어
-     * 나간 직전 토큰과 같은지 확인한다. true면 같은 토큰으로 거의 동시에 들어온 다른 요청이 먼저
-     * 성공한 것뿐인 "동시 중복 요청"으로 보고, 세션 전체를 무효화하지 않아야 한다 — 그래야 먼저
-     * 성공한 요청이 이미 받아간 새 Refresh Token까지 함께 삭제되는 사고를 막을 수 있다.
-     */
-    public boolean wasRecentlyRotatedFrom(Long memberId, String oldToken) {
-        String previous = redisTemplate.opsForValue().get(previousKey(memberId));
-        return oldToken.equals(previous);
-    }
-
     /** 재사용 감지 시, 또는 로그아웃 시 세션을 완전히 무효화하기 위해 호출한다. */
     public void deleteByMemberId(Long memberId) {
-        redisTemplate.delete(List.of(key(memberId), previousKey(memberId)));
+        redisTemplate.delete(key(memberId));
+    }
+
+    /**
+     * 회원당 재발급 요청을 직렬화하는 락을 시도한다(SET NX PX). 성공하면 그 회원에 대한 다른
+     * 재발급 요청은 이 락이 풀릴 때까지(명시적 unlock 또는 TTL 만료) 즉시 실패해야 한다 — 그래야
+     * 같은 토큰으로 동시에 들어온 요청들이 서로 CAS를 다투는 상황 자체가 생기지 않는다.
+     * {@code lockToken}은 호출자를 식별하는 임의의 값(예: UUID)으로, unlock 시 본인 락인지
+     * 확인하는 데 쓴다.
+     */
+    public boolean tryLock(Long memberId, String lockToken) {
+        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey(memberId), lockToken, LOCK_TTL);
+        return Boolean.TRUE.equals(acquired);
+    }
+
+    /** tryLock으로 얻은 락을 해제한다. lockToken이 일치할 때만(즉 내가 쥔 락일 때만) 지운다. */
+    public void unlock(Long memberId, String lockToken) {
+        redisTemplate.execute(RELEASE_LOCK_IF_OWNED_SCRIPT, List.of(lockKey(memberId)), lockToken);
     }
 
     private String key(Long memberId) {
         return KEY_PREFIX + memberId;
     }
 
-    private String previousKey(Long memberId) {
-        return KEY_PREFIX + memberId + PREVIOUS_KEY_SUFFIX;
+    private String lockKey(Long memberId) {
+        return LOCK_KEY_PREFIX + memberId;
     }
 }

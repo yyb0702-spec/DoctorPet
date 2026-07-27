@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -208,6 +209,7 @@ class AuthServiceTest {
         given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
         given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
         given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
         given(refreshTokenRepository.rotateIfMatches(
                 1L, "old-refresh-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
         )).willReturn(true);
@@ -217,6 +219,8 @@ class AuthServiceTest {
         assertThat(response.accessToken()).isEqualTo("new-access-token");
         assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
         verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
+        // 성공하든 실패하든 락은 항상(finally) 해제돼야 한다.
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
     }
 
     @Test
@@ -248,8 +252,6 @@ class AuthServiceTest {
     @Test
     @DisplayName("Redis 원자 교체가 실패하면(이미 회전된 토큰 재사용) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
     void reissue_tokenReused() {
-        // wasRecentlyRotatedFrom을 stub하지 않으면 Mockito 기본값(false)이 반환되어
-        // "동시 중복 요청이 아니다(=진짜 재사용)"로 처리되고 deleteByMemberId가 호출된다.
         ReissueRequest request = new ReissueRequest("already-rotated-token");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
@@ -262,6 +264,7 @@ class AuthServiceTest {
         given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
         given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
         given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
         given(refreshTokenRepository.rotateIfMatches(
                 1L, "already-rotated-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
         )).willReturn(false);
@@ -271,37 +274,35 @@ class AuthServiceTest {
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
         verify(refreshTokenRepository).deleteByMemberId(1L);
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
     }
 
     @Test
-    @DisplayName("같은 토큰으로 온 동시 중복 요청이라 직전에 정상 회전된 토큰이면 세션을 삭제하지 않는다")
-    void reissue_concurrentDuplicate_doesNotDeleteSession() {
+    @DisplayName("같은 회원에 대한 다른 재발급 요청이 이미 처리 중(락 선점)이면, CAS를 시도하지도 않고 REISSUE_IN_PROGRESS 예외를 던진다")
+    void reissue_lockNotAcquired_throwsReissueInProgress() {
+        // 리뷰 대응: 이전에는 CAS 실패를 5초 유예 창으로 "동시 중복 요청"과 "진짜 재사용"을
+        // 구분했는데, 그 창 안에서는 진짜 탈취 토큰 재사용도 놓칠 수 있어 보안 약화로 지적됐다.
+        // 지금은 같은 회원의 재발급을 락으로 아예 직렬화해서, 동시 요청 중 락을 못 얻은 쪽은
+        // CAS 단계까지 가지도 않고 즉시 실패한다 — 세션 상태를 전혀 건드리지 않는다.
         ReissueRequest request = new ReissueRequest("old-refresh-token");
-        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
-        setId(member, 1L);
 
         given(jwtTokenProvider.validateToken("old-refresh-token")).willReturn(true);
         given(jwtTokenProvider.getTokenType("old-refresh-token")).willReturn(TokenType.REFRESH);
         given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
-                .willReturn(new MemberPrincipal(1L, member.getEmail(), "GUARDIAN"));
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
-        given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token-2");
-        given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token-2");
-        given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
-        given(refreshTokenRepository.rotateIfMatches(
-                1L, "old-refresh-token", "new-refresh-token-2", Duration.ofMillis(1_209_600_000L)
-        )).willReturn(false);
-        // 다른 요청이 같은 old-refresh-token을 거의 동시에 정상 회전시킨 상황을 재현한다.
-        given(refreshTokenRepository.wasRecentlyRotatedFrom(1L, "old-refresh-token")).willReturn(true);
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(false);
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
-                        .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
+                        .isEqualTo(MemberErrorCode.REISSUE_IN_PROGRESS));
 
-        // 핵심 회귀 검증: 동시 중복 요청으로 판단되면 먼저 성공한 요청의 새 Refresh Token을
-        // 지우지 않아야 한다.
+        // 핵심 회귀 검증: 락을 못 얻었으면 회원 조회·토큰 발급·CAS·세션 삭제 중 아무것도 하지 않는다.
+        verify(memberRepository, never()).findById(anyLong());
+        verify(refreshTokenRepository, never()).rotateIfMatches(anyLong(), anyString(), anyString(), any(Duration.class));
         verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
+        // 락을 애초에 얻지 못했으므로 해제할 필요도, 호출도 없다.
+        verify(refreshTokenRepository, never()).unlock(anyLong(), anyString());
     }
 
     @Test
@@ -312,12 +313,15 @@ class AuthServiceTest {
         given(jwtTokenProvider.getTokenType("valid-token")).willReturn(TokenType.REFRESH);
         given(jwtTokenProvider.getMemberPrincipal("valid-token"))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
+        // 회원 조회 단계에서 실패해도 락은 finally에서 반드시 해제돼야 한다.
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
     }
 
     @Test
