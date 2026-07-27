@@ -236,6 +236,14 @@ class AuthServiceTest {
                         .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
     }
 
+    @Test
+    @DisplayName("로그아웃하면 해당 회원의 Redis Refresh Token을 삭제한다")
+    void logout_success() {
+        authService.logout(1L);
+
+        verify(refreshTokenRepository).deleteByMemberId(1L);
+    }
+
     private void setId(Member member, Long id) {
         try {
             var field = Member.class.getDeclaredField("id");
