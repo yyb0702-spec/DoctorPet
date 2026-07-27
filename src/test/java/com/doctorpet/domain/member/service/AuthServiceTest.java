@@ -23,6 +23,7 @@ import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -81,6 +83,44 @@ class AuthServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.DUPLICATE_EMAIL));
+    }
+
+    @Test
+    @DisplayName("existsByEmail 사전 체크 이후 경쟁 상태로 이메일 UNIQUE 제약에 걸려도, 사전 체크와 같은 DUPLICATE_EMAIL로 응답한다")
+    void signup_duplicateEmailRaceCondition_mapsToSameErrorAsPrecheck() {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        given(memberRepository.existsByEmail(request.email())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(memberRepository.save(any(Member.class)))
+                .willThrow(new DataIntegrityViolationException(
+                        "could not execute statement",
+                        new SQLIntegrityConstraintViolationException(
+                                "Duplicate entry 'guardian@example.com' for key 'members.uk_members_email'",
+                                "23000",
+                                1062)
+                ));
+
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.DUPLICATE_EMAIL));
+    }
+
+    @Test
+    @DisplayName("이메일 제약이 아닌 다른 무결성 위반이면 도메인 에러로 바꾸지 않고 그대로 전파한다")
+    void signup_otherIntegrityViolation_propagatesAsIs() {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        DataIntegrityViolationException otherViolation = new DataIntegrityViolationException(
+                "could not execute statement",
+                new SQLIntegrityConstraintViolationException(
+                        "Column 'nickname' cannot be null", "23000", 1048)
+        );
+        given(memberRepository.existsByEmail(request.email())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(memberRepository.save(any(Member.class))).willThrow(otherViolation);
+
+        assertThatThrownBy(() -> authService.signup(request))
+                .isSameAs(otherViolation);
     }
 
     @Test

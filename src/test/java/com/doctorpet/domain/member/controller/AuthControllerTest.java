@@ -126,6 +126,43 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("비밀번호가 72자를 초과하면 400과 COMMON_001을 반환한다")
+    void signup_longPassword() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "a".repeat(73), "보호자닉네임");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("닉네임이 255자를 초과하면 400과 COMMON_001을 반환한다(DB 길이 초과로 500이 나던 버그 수정)")
+    void signup_longNickname() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "닉".repeat(256));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("이메일이 255자를 초과하면 400과 COMMON_001을 반환한다")
+    void signup_longEmail() throws Exception {
+        String longLocalPart = "a".repeat(250);
+        SignupRequest request = new SignupRequest(longLocalPart + "@example.com", "password1234", "보호자닉네임");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
     @DisplayName("로그인 성공 시 200과 토큰 쌍을 반환한다")
     void login_success() throws Exception {
         LoginRequest request = new LoginRequest("guardian@example.com", "password1234");

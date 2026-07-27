@@ -14,9 +14,11 @@ import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+
+    // MySQL이 UNIQUE 제약 위반(ER_DUP_ENTRY)에 실제로 내려주는 SQLState·벤더 오류 코드.
+    // GlobalExceptionHandler의 같은 이름 상수와 의미가 같다 — 여기서 다시 정의하는 이유는
+    // global이 domain(MemberErrorCode)을 참조하면 안 되기 때문에, "제약 위반 → 도메인 에러코드"
+    // 변환 자체를 이 서비스 계층에서 해야 하고, 그러려면 이 판별 로직도 여기 있어야 한다.
+    private static final String MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE = "23000";
+    private static final int MYSQL_DUPLICATE_ENTRY_ERROR_CODE = 1062;
+    private static final String EMAIL_UNIQUE_CONSTRAINT_NAME = "uk_members_email";
 
     private final MemberRepository memberRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -34,6 +44,13 @@ public class AuthService {
     /*
       회원가입. SA §8-1: 활성 회원 기준 이메일 중복 시 409({@link MemberErrorCode#DUPLICATE_EMAIL}).
       가입은 항상 GUARDIAN이며, 병원 스태프는 시드로만 생성된다(SA §6-2).
+
+      existsByEmail 사전 체크와 실제 save() 사이에는 틈이 있어, 그 사이 동시에 같은 이메일로
+      가입 요청이 들어오면 사전 체크는 둘 다 통과하고 DB의 UNIQUE 제약(uk_members_email)에서만
+      걸린다. 이 경쟁 상태를 GlobalExceptionHandler의 공통 DataIntegrityViolationException
+      처리기로 넘기면 COMMON_006(DUPLICATE_RESOURCE)으로 응답돼, 사전 체크로 걸렸을 때의
+      MEMBER_001과 같은 상황인데도 타이밍에 따라 code·message가 달라진다(리뷰 지적).
+      여기서 이메일 제약 위반임을 확인해 사전 체크와 같은 예외로 변환해 계약을 통일한다.
      */
     @Transactional
     public SignupResponse signup(SignupRequest request) {
@@ -43,9 +60,27 @@ public class AuthService {
 
         String encodedPassword = passwordEncoder.encode(request.password());
         Member member = Member.createGuardian(request.email(), encodedPassword, request.nickname());
-        Member savedMember = memberRepository.save(member);
+
+        Member savedMember;
+        try {
+            savedMember = memberRepository.save(member);
+        } catch (DataIntegrityViolationException exception) {
+            if (isEmailUniqueViolation(exception)) {
+                throw new ServiceException(MemberErrorCode.DUPLICATE_EMAIL);
+            }
+            throw exception;
+        }
 
         return SignupResponse.from(savedMember);
+    }
+
+    private boolean isEmailUniqueViolation(DataIntegrityViolationException exception) {
+        Throwable cause = exception.getMostSpecificCause();
+        return cause instanceof SQLException sqlException
+                && MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())
+                && sqlException.getErrorCode() == MYSQL_DUPLICATE_ENTRY_ERROR_CODE
+                && sqlException.getMessage() != null
+                && sqlException.getMessage().contains(EMAIL_UNIQUE_CONSTRAINT_NAME);
     }
 
     /*
