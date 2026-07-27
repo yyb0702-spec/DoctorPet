@@ -4,6 +4,18 @@ plugins {
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
+// Workaround for Gradle 9.x on Windows with non-ASCII project paths:
+// If the project path contains Korean (or other non-ASCII) characters, the @argfile
+// written for the test worker classpath gets corrupted (UTF-8 written, MS949 read).
+// To fix, set 'localBuildDir' to an ASCII-only base path in your personal
+// GRADLE_USER_HOME/gradle.properties (global, never committed):
+//   localBuildDir=C:/gradle-build
+// The build directory is placed under <localBuildDir>/<project name> so multiple
+// projects sharing one global value never collide (each keeps its own clean scope).
+if (project.hasProperty('localBuildDir')) {
+    layout.buildDirectory = file("${project.property('localBuildDir')}/${rootProject.name}")
+}
+
 group = 'com.doctorpet'
 version = '0.0.1-SNAPSHOT'
 description = 'DoctorPet'
