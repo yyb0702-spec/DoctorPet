@@ -3,6 +3,8 @@ package com.doctorpet.domain.hospital.publicdata.mapper;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalItem;
 import com.doctorpet.domain.hospital.publicdata.model.NormalizedAnimalHospitalData;
+import com.doctorpet.domain.hospital.publicdata.model.Wgs84Coordinate;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -14,15 +16,24 @@ import java.time.format.DateTimeFormatter;
  * 공공데이터의 빈 문자열과 문자열 값을 애플리케이션 타입으로 변환합니다.
  */
 @Component
+@RequiredArgsConstructor
 public class AnimalHospitalDataNormalizer {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    private final AnimalHospitalCoordinateConverter coordinateConverter;
+
     /**
      * 동물병원 원본 응답 한 건을 정규화된 데이터로 변환합니다.
      */
     public NormalizedAnimalHospitalData normalize(AnimalHospitalItem item) {
+        // 공공데이터의 투영 좌표를 거리 검색에 사용할 WGS84 경위도로 먼저 변환합니다.
+        Wgs84Coordinate coordinate = coordinateConverter.convert(
+                parseDecimal(item.coordinateX()),
+                parseDecimal(item.coordinateY())
+        );
+
         return new NormalizedAnimalHospitalData(
                 normalizeText(item.managementNumber()),
                 normalizeText(item.localGovernmentCode()),
@@ -31,8 +42,8 @@ public class AnimalHospitalDataNormalizer {
                 normalizeText(item.lotNumberAddress()),
                 normalizeText(item.roadNameAddress()),
                 normalizeText(item.roadNameZipcode()),
-                parseDecimal(item.coordinateX()),
-                parseDecimal(item.coordinateY()),
+                coordinate.longitude(),
+                coordinate.latitude(),
                 parseDate(item.licenseDate()),
                 parseBusinessStatus(item.businessStatusCode()),
                 parseDate(item.closureDate()),

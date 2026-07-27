@@ -3,7 +3,9 @@ package com.doctorpet.domain.hospital.publicdata.service;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.publicdata.config.AnimalHospitalApiProperties;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalItem;
+import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalCoordinateConverter;
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalDataNormalizer;
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalEntityMapper;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
@@ -13,7 +15,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,7 +33,9 @@ class AnimalHospitalImportServiceTest {
     private HospitalRepository hospitalRepository;
 
     private final AnimalHospitalDataNormalizer normalizer =
-            new AnimalHospitalDataNormalizer();
+            new AnimalHospitalDataNormalizer(
+                    new AnimalHospitalCoordinateConverter(properties())
+            );
 
     private final AnimalHospitalEntityMapper entityMapper =
             new AnimalHospitalEntityMapper();
@@ -129,6 +135,18 @@ class AnimalHospitalImportServiceTest {
                 "",
                 "",
                 telephoneNumber
+        );
+    }
+
+    private static AnimalHospitalApiProperties properties() {
+        return new AnimalHospitalApiProperties(
+                null,
+                null,
+                100,
+                List.of("3130000"),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(10),
+                "EPSG:5174"
         );
     }
 }

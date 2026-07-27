@@ -1,20 +1,25 @@
 package com.doctorpet.domain.hospital.publicdata.mapper;
 
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.publicdata.config.AnimalHospitalApiProperties;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalItem;
 import com.doctorpet.domain.hospital.publicdata.model.NormalizedAnimalHospitalData;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AnimalHospitalDataNormalizerTest {
 
     private final AnimalHospitalDataNormalizer normalizer =
-            new AnimalHospitalDataNormalizer();
+            new AnimalHospitalDataNormalizer(
+                    new AnimalHospitalCoordinateConverter(properties())
+            );
 
     @Test
     void 원본_문자열을_애플리케이션_타입으로_변환한다() {
@@ -33,13 +38,28 @@ class AnimalHospitalDataNormalizerTest {
         NormalizedAnimalHospitalData result = normalizer.normalize(item);
 
         // 문자열이 목적에 맞는 Java 타입과 영업상태로 변환됐는지 확인합니다.
-        assertThat(result.coordinateX()).isEqualByComparingTo("191409.240701388");
-        assertThat(result.coordinateY()).isEqualByComparingTo("451377.18304308");
+        // 변환 결과의 X는 서울 지역 경도, Y는 서울 지역 위도 범위여야 합니다.
+        assertThat(result.coordinateX())
+                .isBetween(new BigDecimal("126"), new BigDecimal("128"));
+        assertThat(result.coordinateY())
+                .isBetween(new BigDecimal("37"), new BigDecimal("38"));
         assertThat(result.area()).isEqualByComparingTo("144.6");
         assertThat(result.licenseDate()).isEqualTo(LocalDate.of(2026, 7, 24));
         assertThat(result.sourceModifiedAt())
                 .isEqualTo(LocalDateTime.of(2026, 7, 25, 22, 5, 5));
         assertThat(result.businessStatus()).isEqualTo(BusinessStatus.OPEN);
+    }
+
+    private AnimalHospitalApiProperties properties() {
+        return new AnimalHospitalApiProperties(
+                null,
+                null,
+                100,
+                List.of("3130000"),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(10),
+                "EPSG:5174"
+        );
     }
 
     @Test
