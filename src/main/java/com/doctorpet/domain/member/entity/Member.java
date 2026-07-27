@@ -15,10 +15,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
-/**
- * 회원. SA §4 members 테이블 스펙을 따른다.
- * 탈퇴는 Soft Delete(deleted_at)이며, 활성 회원({@code deleted_at IS NULL}) 기준으로만
- * 조회되도록 {@link SQLRestriction}을 적용한다(SA §6-3).
+/*
+  회원. SA §4 members 테이블 스펙을 따른다.
+  탈퇴는 Soft Delete(deleted_at)이며, 활성 회원({@code deleted_at IS NULL}) 기준으로만
+  조회되도록 {@link SQLRestriction}을 적용한다(SA §6-3).
  */
 @Getter
 @Entity
@@ -50,12 +50,26 @@ public class Member extends BaseEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    /**
+     * 로그인 실패 잠금 정책(A 도메인 결정 #1). SA §4엔 없는 컬럼으로, 로그인 기능 구현 시 새로 추가했다.
+     * 5회 연속 실패 시 30분 잠금, 30분 경과 시 자동 해제(실패 횟수도 함께 초기화).
+     */
+    @Column(name = "failed_login_attempts", nullable = false)
+    private int failedLoginAttempts;
+
+    @Column(name = "locked_until")
+    private LocalDateTime lockedUntil;
+
+    private static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
+    private static final long LOCK_DURATION_MINUTES = 30;
+
     private Member(String email, String password, String nickname, MemberRole role, Long hospitalId) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
         this.role = role;
         this.hospitalId = hospitalId;
+        this.failedLoginAttempts = 0;
     }
 
     /**
@@ -64,5 +78,31 @@ public class Member extends BaseEntity {
      */
     public static Member createGuardian(String email, String password, String nickname) {
         return new Member(email, password, nickname, MemberRole.GUARDIAN, null);
+    }
+
+    /** 잠금 시간이 지났으면 자동 해제한다(실패 횟수 초기화 포함). 로그인 시도마다 가장 먼저 호출한다. */
+    public void unlockIfExpired(LocalDateTime now) {
+        if (lockedUntil != null && !now.isBefore(lockedUntil)) {
+            this.lockedUntil = null;
+            this.failedLoginAttempts = 0;
+        }
+    }
+
+    public boolean isLocked() {
+        return lockedUntil != null;
+    }
+
+    /** 로그인 실패 기록. 임계값(5회) 도달 시 잠금을 건다. */
+    public void recordLoginFailure(LocalDateTime now) {
+        this.failedLoginAttempts++;
+        if (this.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+            this.lockedUntil = now.plusMinutes(LOCK_DURATION_MINUTES);
+        }
+    }
+
+    /** 로그인 성공. 실패 기록·잠금을 모두 초기화한다. */
+    public void recordLoginSuccess() {
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
     }
 }
