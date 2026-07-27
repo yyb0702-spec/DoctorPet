@@ -6,7 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.doctorpet.domain.member.dto.request.LoginRequest;
 import com.doctorpet.domain.member.dto.request.SignupRequest;
+import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.AuthService;
@@ -86,6 +88,63 @@ class AuthControllerTest {
         SignupRequest request = new SignupRequest("guardian@example.com", "short", "보호자닉네임");
 
         mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("로그인 성공 시 200과 토큰 쌍을 반환한다")
+    void login_success() throws Exception {
+        LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
+        given(authService.login(any(LoginRequest.class)))
+                .willReturn(new LoginResponse("access-token", "refresh-token"));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.accessToken").value("access-token"))
+                .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
+    }
+
+    @Test
+    @DisplayName("이메일·비밀번호가 틀리면 401과 MEMBER_002를 반환한다")
+    void login_invalidCredentials() throws Exception {
+        LoginRequest request = new LoginRequest("guardian@example.com", "wrong-password");
+        given(authService.login(any(LoginRequest.class)))
+                .willThrow(new CustomException(MemberErrorCode.INVALID_CREDENTIALS));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("MEMBER_002"));
+    }
+
+    @Test
+    @DisplayName("계정이 잠겨 있으면 401과 MEMBER_003을 반환한다")
+    void login_accountLocked() throws Exception {
+        LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
+        given(authService.login(any(LoginRequest.class)))
+                .willThrow(new CustomException(MemberErrorCode.ACCOUNT_LOCKED));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("MEMBER_003"));
+    }
+
+    @Test
+    @DisplayName("로그인 요청에 비밀번호가 비어있으면 400과 COMMON_001을 반환한다")
+    void login_blankPassword() throws Exception {
+        LoginRequest request = new LoginRequest("guardian@example.com", "");
+
+        mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
