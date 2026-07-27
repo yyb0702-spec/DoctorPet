@@ -32,12 +32,3 @@ payment:
     read-timeout-ms: 5000                  # 읽기 타임아웃
     max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
     backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
-
-public-data:
-  animal-hospital:
-    base-url: https://apis.data.go.kr/1741000/animal_hospitals
-    service-key: ${PUBLIC_DATA_SERVICE_KEY:}
-    seed-enabled: false
-    page-size: 100
-    local-government-codes:
-      - "3130000"

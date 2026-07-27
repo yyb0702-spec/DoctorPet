@@ -8,6 +8,7 @@ import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionRe
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalRegionCollectionResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 /**
  * 설정된 지자체별로 OpenAPI의 모든 페이지를 호출해 병원 데이터를 적재합니다.
@@ -94,6 +95,11 @@ public class AnimalHospitalCollectionService {
     }
 
     private void validateProperties() {
+        if (!StringUtils.hasText(properties.serviceKey())) {
+            throw new IllegalStateException(
+                    "공공데이터 인증키가 필요합니다."
+            );
+        }
         if (properties.pageSize() <= 0) {
             throw new IllegalStateException(
                     "공공데이터 페이지 크기는 1 이상이어야 합니다."

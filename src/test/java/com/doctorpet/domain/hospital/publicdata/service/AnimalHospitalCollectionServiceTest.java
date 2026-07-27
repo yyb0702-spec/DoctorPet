@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,7 +39,10 @@ class AnimalHospitalCollectionServiceTest {
                         "https://example.com",
                         "test-key",
                         2,
-                        List.of("3130000")
+                        List.of("3130000"),
+                        Duration.ofSeconds(3),
+                        Duration.ofSeconds(10),
+                        "EPSG:5174"
                 );
         collectionService = new AnimalHospitalCollectionService(
                 properties,
