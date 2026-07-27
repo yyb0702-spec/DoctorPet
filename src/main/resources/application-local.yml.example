@@ -17,3 +17,17 @@ jwt:
   secret: change-this-to-a-long-random-base64-secret-at-least-256-bits
   access-token-expiration: 3600000       # 1시간 (ms)
   refresh-token-expiration: 1209600000   # 14일 (ms)
+
+# 결제 게이트웨이(PortOne V2)
+# enabled=false(기본)이면 FakePaymentGateway가 동작해 외부 연동 없이 로컬/테스트가 가능합니다.
+# 실연동 시에만 enabled=true로 두고 base-url·api-secret·store-id를 실제 값으로 채웁니다(커밋 금지).
+payment:
+  portone:
+    enabled: false
+    base-url: https://api.portone.io      # 실연동 시 확정
+    api-secret: change-this-portone-api-secret
+    store-id: change-this-store-id
+    connect-timeout-ms: 2000               # 연결 타임아웃
+    read-timeout-ms: 5000                  # 읽기 타임아웃
+    max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
+    backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
