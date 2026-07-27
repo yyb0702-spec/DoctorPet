@@ -3,7 +3,6 @@ package com.doctorpet.domain.member.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,19 +14,25 @@ import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.AuthService;
+import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.security.JwtAccessDeniedHandler;
+import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
@@ -36,9 +41,16 @@ import tools.jackson.databind.ObjectMapper;
  * Level 2 — API 계약(상태코드·ApiResponse 포맷·Validation) 검증.
  * Security 필터 체인은 이 슬라이스 테스트의 관심사가 아니므로 addFilters=false로 끈다.
  * GlobalExceptionHandler(@RestControllerAdvice)는 @WebMvcTest가 자동으로 인식한다.
+ *
+ * SecurityConfig를 명시적으로 @Import하는 이유: @WebMvcTest는 @Configuration 클래스(SecurityConfig)를
+ * 슬라이스에서 제외한다. SecurityFilterChain 빈이 하나도 없으면 Boot의 WebSecurityEnablerConfiguration이
+ * @EnableWebSecurity를 트리거하지 않고, 그 결과 WebMvcSecurityConfiguration도 로드되지 않아
+ * AuthenticationPrincipalArgumentResolver 자체가 등록되지 않는다. JwtAccessDeniedHandler·
+ * JwtAuthenticationEntryPoint는 SecurityConfig 생성자가 요구해서 함께 import한다.
  */
 @WebMvcTest(controllers = AuthController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
 class AuthControllerTest {
 
     @Autowired
@@ -55,6 +67,11 @@ class AuthControllerTest {
     // JwtTokenProvider를 요구하므로, 이 빈이 없으면 컨텍스트 로딩 자체가 실패한다(실제 호출은 없다).
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     @DisplayName("회원가입 성공 시 201과 memberId를 반환한다")
@@ -223,8 +240,10 @@ class AuthControllerTest {
     @Test
     @DisplayName("로그아웃하면 200과 SUCCESS를 반환하고, 인증된 회원 id로 서비스를 호출한다")
     void logout_success() throws Exception {
+
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+
         mockMvc.perform(post("/api/auth/logout")
-                        .with(authentication(memberAuthentication(1L)))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
@@ -232,8 +251,6 @@ class AuthControllerTest {
         verify(authService).logout(1L);
     }
 
-    // addFilters=false로 JwtAuthenticationFilter가 비활성화돼 있으므로,
-    // 실제 필터가 채우는 SecurityContext(MemberPrincipal)를 테스트에서 직접 주입한다.
     private Authentication memberAuthentication(Long memberId) {
         MemberPrincipal principal = new MemberPrincipal(memberId, "guardian@example.com", "GUARDIAN");
         return new UsernamePasswordAuthenticationToken(
