@@ -18,7 +18,7 @@ import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
-import com.doctorpet.global.exception.CustomException;
+import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -77,8 +77,8 @@ class AuthServiceTest {
         given(memberRepository.existsByEmail(request.email())).willReturn(true);
 
         assertThatThrownBy(() -> authService.signup(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.DUPLICATE_EMAIL));
     }
 
@@ -110,8 +110,8 @@ class AuthServiceTest {
         given(memberRepository.findByEmail(request.email())).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_CREDENTIALS));
     }
 
@@ -126,8 +126,8 @@ class AuthServiceTest {
         given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(false);
 
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_CREDENTIALS));
         assertThat(member.getFailedLoginAttempts()).isEqualTo(1);
         verify(jwtTokenProvider, never()).generateAccessToken(anyLong(), anyString(), anyString());
@@ -146,8 +146,8 @@ class AuthServiceTest {
         given(memberRepository.findByEmail(request.email())).willReturn(Optional.of(member));
 
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.ACCOUNT_LOCKED));
         verify(passwordEncoder, never()).matches(anyString(), anyString());
     }
@@ -183,8 +183,8 @@ class AuthServiceTest {
         given(jwtTokenProvider.validateToken("broken-token")).willReturn(false);
 
         assertThatThrownBy(() -> authService.reissue(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
     }
 
@@ -198,8 +198,8 @@ class AuthServiceTest {
         given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("current-valid-token"));
 
         assertThatThrownBy(() -> authService.reissue(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
         verify(refreshTokenRepository).deleteByMemberId(1L);
     }
@@ -214,8 +214,8 @@ class AuthServiceTest {
         given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.reissue(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
         verify(refreshTokenRepository).deleteByMemberId(1L);
     }
@@ -231,8 +231,8 @@ class AuthServiceTest {
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.reissue(request))
-                .isInstanceOf(CustomException.class)
-                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
     }
 

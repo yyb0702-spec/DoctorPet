@@ -13,7 +13,7 @@ import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.AuthService;
-import com.doctorpet.global.exception.CustomException;
+import com.doctorpet.global.exception.ServiceException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,7 +52,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.memberId").value(1));
     }
 
@@ -61,13 +61,12 @@ class AuthControllerTest {
     void signup_duplicateEmail() throws Exception {
         SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
         given(authService.signup(any(SignupRequest.class)))
-                .willThrow(new CustomException(MemberErrorCode.DUPLICATE_EMAIL));
+                .willThrow(new ServiceException(MemberErrorCode.DUPLICATE_EMAIL));
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("MEMBER_001"));
     }
 
@@ -106,7 +105,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.accessToken").value("access-token"))
                 .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
     }
@@ -116,13 +115,12 @@ class AuthControllerTest {
     void login_invalidCredentials() throws Exception {
         LoginRequest request = new LoginRequest("guardian@example.com", "wrong-password");
         given(authService.login(any(LoginRequest.class)))
-                .willThrow(new CustomException(MemberErrorCode.INVALID_CREDENTIALS));
+                .willThrow(new ServiceException(MemberErrorCode.INVALID_CREDENTIALS));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("MEMBER_002"));
     }
 
@@ -131,7 +129,7 @@ class AuthControllerTest {
     void login_accountLocked() throws Exception {
         LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
         given(authService.login(any(LoginRequest.class)))
-                .willThrow(new CustomException(MemberErrorCode.ACCOUNT_LOCKED));
+                .willThrow(new ServiceException(MemberErrorCode.ACCOUNT_LOCKED));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -163,7 +161,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.accessToken").value("new-access-token"))
                 .andExpect(jsonPath("$.data.refreshToken").value("new-refresh-token"));
     }
@@ -173,7 +171,7 @@ class AuthControllerTest {
     void reissue_invalidToken() throws Exception {
         ReissueRequest request = new ReissueRequest("broken-token");
         given(authService.reissue(any(ReissueRequest.class)))
-                .willThrow(new CustomException(MemberErrorCode.INVALID_REFRESH_TOKEN));
+                .willThrow(new ServiceException(MemberErrorCode.INVALID_REFRESH_TOKEN));
 
         mockMvc.perform(post("/api/auth/reissue")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -187,7 +185,7 @@ class AuthControllerTest {
     void reissue_tokenReused() throws Exception {
         ReissueRequest request = new ReissueRequest("already-rotated-token");
         given(authService.reissue(any(ReissueRequest.class)))
-                .willThrow(new CustomException(MemberErrorCode.REFRESH_TOKEN_REUSED));
+                .willThrow(new ServiceException(MemberErrorCode.REFRESH_TOKEN_REUSED));
 
         mockMvc.perform(post("/api/auth/reissue")
                         .contentType(MediaType.APPLICATION_JSON)

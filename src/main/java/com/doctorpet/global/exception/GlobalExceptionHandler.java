@@ -15,11 +15,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(CustomException.class)
-    public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException exception) {
+    @ExceptionHandler(ServiceException.class)
+    public ResponseEntity<ApiResponse<Void>> handleServiceException(ServiceException exception) {
         ErrorCode errorCode = exception.getErrorCode();
         return ResponseEntity.status(errorCode.getHttpStatus())
-                .body(ApiResponse.fail(errorCode));
+                .body(ApiResponse.error(errorCode));
     }
 
     @ExceptionHandler({
@@ -30,7 +30,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleInvalidRequestException(Exception exception) {
         // 요청 DTO 검증 실패는 VALIDATION_FAILED로 통일한다.
         return ResponseEntity.status(CommonErrorCode.VALIDATION_FAILED.getHttpStatus())
-                .body(ApiResponse.fail(CommonErrorCode.VALIDATION_FAILED));
+                .body(ApiResponse.error(CommonErrorCode.VALIDATION_FAILED));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -42,7 +42,7 @@ public class GlobalExceptionHandler {
         // 여기는 그 체크를 우회한 경쟁 상태 등 예외적인 경우의 최종 방어선이다(global은 domain을 참조하지 않는다).
         ErrorCode errorCode = resolveDataIntegrityErrorCode(exception);
         return ResponseEntity.status(errorCode.getHttpStatus())
-                .body(ApiResponse.fail(errorCode));
+                .body(ApiResponse.error(errorCode));
     }
 
     @ExceptionHandler(Exception.class)
@@ -50,7 +50,7 @@ public class GlobalExceptionHandler {
         // 예상하지 못한 예외는 내부 서버 오류로 응답한다.
         log.error("처리되지 않은 예외", exception);
         return ResponseEntity.status(CommonErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus())
-                .body(ApiResponse.fail(CommonErrorCode.INTERNAL_SERVER_ERROR));
+                .body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
     }
 
     private ErrorCode resolveDataIntegrityErrorCode(DataIntegrityViolationException exception) {
