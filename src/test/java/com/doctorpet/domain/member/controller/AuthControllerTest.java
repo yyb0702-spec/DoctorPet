@@ -138,6 +138,21 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("비밀번호 문자 수는 72 이하지만 UTF-8 바이트 수가 BCrypt 한도(72)를 넘는 한글 비밀번호는 400과 COMMON_001을 반환한다")
+    void signup_passwordExceedsUtf8ByteLimit() throws Exception {
+        // 한글 25자 = UTF-8 75바이트. 문자 수(25)만 보면 통과할 것 같지만 바이트 수는 초과한다 —
+        // @Size(max = 72)였다면 이 요청이 통과해 passwordEncoder.encode()에서 500이 났을 케이스(리뷰 지적).
+        String longKoreanPassword = "가".repeat(25);
+        SignupRequest request = new SignupRequest("guardian@example.com", longKoreanPassword, "보호자닉네임");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
     @DisplayName("닉네임이 255자를 초과하면 400과 COMMON_001을 반환한다(DB 길이 초과로 500이 나던 버그 수정)")
     void signup_longNickname() throws Exception {
         SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "닉".repeat(256));
