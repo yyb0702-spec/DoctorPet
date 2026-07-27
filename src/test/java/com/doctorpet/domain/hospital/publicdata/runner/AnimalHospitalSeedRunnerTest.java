@@ -1,5 +1,8 @@
 package com.doctorpet.domain.hospital.publicdata.runner;
 
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
+import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalDetailSeedData;
+import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalOperatingHoursSeedData;
 import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalSeedData;
 import com.doctorpet.domain.hospital.partnership.infrastructure.PartnerHospitalSeedLoader;
 import com.doctorpet.domain.hospital.partnership.service.PartnerHospitalSeedService;
@@ -10,7 +13,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.DayOfWeek;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -36,7 +41,24 @@ class AnimalHospitalSeedRunnerTest {
                 new PartnerHospitalSeedData(
                         "3130000",
                         "313000001020260004",
-                        "시그널 동물의료센터"
+                        "시그널 동물의료센터",
+                        new PartnerHospitalDetailSeedData(
+                                Map.of(
+                                        DayOfWeek.MONDAY,
+                                        new PartnerHospitalOperatingHoursSeedData(
+                                                "09:00",
+                                                "20:00"
+                                        )
+                                ),
+                                true,
+                                true,
+                                false,
+                                false
+                        ),
+                        List.of(
+                                CapabilityValue.DOG,
+                                CapabilityValue.XRAY
+                        )
                 )
         );
         given(partnerHospitalSeedLoader.load())

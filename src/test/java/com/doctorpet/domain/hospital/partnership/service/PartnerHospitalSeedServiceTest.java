@@ -1,8 +1,11 @@
 package com.doctorpet.domain.hospital.partnership.service;
 
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalDetailSeedData;
+import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalOperatingHoursSeedData;
 import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalSeedData;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import org.junit.jupiter.api.Test;
@@ -11,6 +14,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.DayOfWeek;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,7 +40,24 @@ class PartnerHospitalSeedServiceTest {
         PartnerHospitalSeedData seedData = new PartnerHospitalSeedData(
                 "3130000",
                 "313000001020260004",
-                "시그널 동물의료센터"
+                "시그널 동물의료센터",
+                new PartnerHospitalDetailSeedData(
+                        Map.of(
+                                DayOfWeek.MONDAY,
+                                new PartnerHospitalOperatingHoursSeedData(
+                                        "09:00",
+                                        "20:00"
+                                )
+                        ),
+                        true,
+                        true,
+                        false,
+                        false
+                ),
+                List.of(
+                        CapabilityValue.DOG,
+                        CapabilityValue.XRAY
+                )
         );
 
         int appliedCount = service.applyPartnerships(List.of(seedData));
