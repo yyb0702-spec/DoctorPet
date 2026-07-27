@@ -23,9 +23,9 @@
 
 - 설정 prefix: `payment.portone` (`PortOneProperties`). 예시는 `application-local.yml.example` 참고.
 - **인증정보(`api-secret`·`store-id`)는 코드·문서·로그에 남기지 않는다**(보안 규칙). `application-local.yml`(gitignore) 또는 환경변수/시크릿 매니저로 주입한다.
-- 빈 선택은 `payment.portone.enabled`로 한다.
-  - `false`(기본) → `FakePaymentGateway` 활성화. PortOne 자격증명 없이 로컬 실행·CI 통과.
-  - `true` → `PortOnePaymentGateway` 활성화. `base-url`·`api-secret` 미설정 시 생성 시점에 실패(오설정 조기 감지).
+- 빈 선택은 `payment.gateway`로 한다. **미설정이면 어떤 게이트웨이도 등록되지 않는다(fail-safe)** — 운영 설정 누락이 곧 미청구 결제 성공으로 이어지지 않게 하기 위함이다.
+  - `fake` → `FakePaymentGateway`. `local`/`test`에서만 쓰고 운영에 설정 금지(`approve`가 PAID 반환).
+  - `portone` → `PortOnePaymentGateway`. `base-url`·`api-secret`·`store-id` 미설정 시 생성 시점에 실패(오설정 조기 감지).
 - 타임아웃·재시도 수치는 설정값이라 배포 없이 조정한다: `connect-timeout-ms`(기본 2000), `read-timeout-ms`(기본 5000), `max-retry`(기본 3, SA §9-4), `backoff-initial-ms`(기본 500).
 
 ## 미확정 · 실연동 시 확정 (SA 부록 A / 이슈 후속)

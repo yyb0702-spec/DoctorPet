@@ -15,7 +15,6 @@ class PortOnePaymentGatewayTest {
 
     private PortOneProperties configuredProperties() {
         PortOneProperties props = new PortOneProperties();
-        props.setEnabled(true);
         props.setBaseUrl("https://example.invalid");
         props.setApiSecret("test-secret");
         props.setStoreId("store-1");
@@ -26,10 +25,21 @@ class PortOnePaymentGatewayTest {
     @DisplayName("설정이 없으면 생성 시점에 IllegalStateException을 던진다")
     void requireConfiguration() {
         PortOneProperties empty = new PortOneProperties();
-        empty.setEnabled(true);
 
         assertThrows(IllegalStateException.class,
                 () -> new PortOnePaymentGateway(empty, errorCodeMapper));
+    }
+
+    @Test
+    @DisplayName("store-id가 누락되면 생성 시점에 실패한다")
+    void requireStoreId() {
+        PortOneProperties props = new PortOneProperties();
+        props.setBaseUrl("https://example.invalid");
+        props.setApiSecret("test-secret");
+        // store-id 미설정
+
+        assertThrows(IllegalStateException.class,
+                () -> new PortOnePaymentGateway(props, errorCodeMapper));
     }
 
     @Test

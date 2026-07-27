@@ -10,10 +10,12 @@ plugins {
 // To fix, set 'localBuildDir' to an ASCII-only base path in your personal
 // GRADLE_USER_HOME/gradle.properties (global, never committed):
 //   localBuildDir=C:/gradle-build
-// The build directory is placed under <localBuildDir>/<project name> so multiple
-// projects sharing one global value never collide (each keeps its own clean scope).
+// The build dir is <localBuildDir>/<project name>-<hash of absolute path> so that
+// separate clones or Git worktrees of the same repo never share one build directory
+// (a parallel build or clean in one would otherwise wipe the other's outputs).
 if (project.hasProperty('localBuildDir')) {
-    layout.buildDirectory = file("${project.property('localBuildDir')}/${rootProject.name}")
+    def pathHash = Integer.toHexString(rootDir.absolutePath.hashCode())
+    layout.buildDirectory = file("${project.property('localBuildDir')}/${rootProject.name}-${pathHash}")
 }
 
 group = 'com.doctorpet'

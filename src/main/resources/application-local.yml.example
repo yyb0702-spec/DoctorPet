@@ -18,12 +18,13 @@ jwt:
   access-token-expiration: 3600000       # 1시간 (ms)
   refresh-token-expiration: 1209600000   # 14일 (ms)
 
-# 결제 게이트웨이(PortOne V2)
-# enabled=false(기본)이면 FakePaymentGateway가 동작해 외부 연동 없이 로컬/테스트가 가능합니다.
-# 실연동 시에만 enabled=true로 두고 base-url·api-secret·store-id를 실제 값으로 채웁니다(커밋 금지).
+# 결제 게이트웨이 선택
+# payment.gateway를 명시해야 게이트웨이 빈이 등록됩니다(미설정 시 어떤 게이트웨이도 안 뜸 = fail-safe).
+#   fake    : 외부 연동 없이 로컬/테스트 (approve가 PAID 반환 — 운영 금지)
+#   portone : PortOne V2 실연동 (base-url·api-secret·store-id 필수, 커밋 금지)
 payment:
+  gateway: fake
   portone:
-    enabled: false
     base-url: https://api.portone.io      # 실연동 시 확정
     api-secret: change-this-portone-api-secret
     store-id: change-this-store-id

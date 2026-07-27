@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,8 +71,9 @@ class FakePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("단건 조회 상태를 주입해 타임아웃 후 재확정 시나리오를 만든다")
+    @DisplayName("승인 후 상태를 주입해 타임아웃 뒤 단건 조회로 재확정하는 시나리오를 만든다")
     void queryStatus() {
+        gateway.approve(new PaymentApproveCommand("mpid-4", "bk", 5000, "진료비"));
         gateway.stubQueryStatus(GatewayPaymentStatus.PAID);
 
         PaymentQueryResult result = gateway.query("mpid-4");
@@ -93,12 +95,26 @@ class FakePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("승인 이력이 없는 멱등키 조회는 PENDING·금액 0으로 미확정을 나타낸다")
+    @DisplayName("승인 이력이 없는 멱등키 조회는 PENDING·금액 0·pgPaymentId null로 미확정을 나타낸다")
     void queryUnknownIsPending() {
         PaymentQueryResult result = gateway.query("mpid-never");
 
         assertEquals(GatewayPaymentStatus.PENDING, result.status());
         assertEquals(0, result.paidAmount());
+        assertNull(result.pgPaymentId(), "존재하지 않는 결제는 외부 식별자가 없어야 한다");
+    }
+
+    @Test
+    @DisplayName("같은 멱등키 재승인은 첫 승인 결과를 유지한다(금액이 달라도 첫 결과 반환)")
+    void approveIsIdempotentPerMerchantPaymentId() {
+        PaymentApproveResult first = gateway.approve(
+                new PaymentApproveCommand("mpid-dup", "bk", 1000, "진료비"));
+        PaymentApproveResult second = gateway.approve(
+                new PaymentApproveCommand("mpid-dup", "bk", 2000, "진료비"));
+
+        assertEquals(1000, first.approvedAmount());
+        assertEquals(1000, second.approvedAmount(), "재요청 금액(2000)이 아니라 첫 승인 금액(1000)이 유지돼야 한다");
+        assertEquals(1000, gateway.query("mpid-dup").paidAmount());
     }
 
     @Test

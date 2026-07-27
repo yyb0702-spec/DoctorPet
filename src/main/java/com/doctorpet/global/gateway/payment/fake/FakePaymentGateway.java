@@ -21,10 +21,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 로컬·테스트용 결제 게이트웨이. 실제 PortOne 호출 없이 성공/실패/미확정 시나리오를 주입해
  * 상위 결제 서비스의 분기(재시도·오프라인 전환·조회)를 검증한다(이슈 #38 테스트 체크리스트).
  *
- * <p>{@code payment.portone.enabled}가 false이거나 미설정일 때 활성화된다(운영은 PortOne 구현체).
+ * <p><b>안전한 기본값</b>: {@code payment.gateway=fake}로 <b>명시할 때만</b> 등록된다. 설정을 빠뜨리면
+ * 이 빈이 생성되지 않으므로(fail-safe), 운영에서 설정 누락으로 Fake가 붙어 실제 청구 없이 {@code PAID}가
+ * 반환되는 사고를 원천 차단한다. 운영은 {@code payment.gateway=portone}으로 PortOne 구현체를 쓴다.
  */
 @Component
-@ConditionalOnProperty(prefix = "payment.portone", name = "enabled", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(name = "payment.gateway", havingValue = "fake")
 public class FakePaymentGateway implements PaymentGateway {
 
     /** 전달받은 멱등키 기록 — 멱등키 전달 검증용. 민감정보(빌링키·카드)는 저장하지 않는다. */
@@ -53,14 +55,15 @@ public class FakePaymentGateway implements PaymentGateway {
         if (approveFailure != null) {
             throw approveFailure;
         }
-        PaymentApproveResult result = new PaymentApproveResult(
-                approveStatus,
-                "FAKE-" + command.merchantPaymentId(),
-                command.amount(),
-                LocalDateTime.now()
-        );
-        approvedResults.put(command.merchantPaymentId(), result);
-        return result;
+        // 멱등: 같은 merchantPaymentId 재요청은 첫 승인 결과를 그대로 반환한다(실제 PG 멱등 동작 모사).
+        // 두 번째 요청의 금액이 달라도 첫 결과가 유지돼야 상위의 중복 승인·금액 대조 검증이 실제 계약과 일치한다.
+        return approvedResults.computeIfAbsent(command.merchantPaymentId(), key ->
+                new PaymentApproveResult(
+                        approveStatus,
+                        "FAKE-" + key,
+                        command.amount(),
+                        LocalDateTime.now()
+                ));
     }
 
     @Override
@@ -71,7 +74,9 @@ public class FakePaymentGateway implements PaymentGateway {
                 : (approved != null ? approved.status() : GatewayPaymentStatus.PENDING);
         // 조회 금액은 승인된 경우에만 보관된 실제 승인 금액을 돌려준다(상위의 금액 대조 검증용).
         int paidAmount = (status == GatewayPaymentStatus.PAID && approved != null) ? approved.approvedAmount() : 0;
-        String pgPaymentId = approved != null ? approved.pgPaymentId() : "FAKE-" + merchantPaymentId;
+        // 승인 이력이 없으면 외부 거래가 없으므로 pgPaymentId도 null이다(PaymentQueryResult 계약).
+        // 존재하지 않는 결제를 승인건처럼 오판하지 않게 한다.
+        String pgPaymentId = approved != null ? approved.pgPaymentId() : null;
         return new PaymentQueryResult(status, pgPaymentId, paidAmount);
     }
 

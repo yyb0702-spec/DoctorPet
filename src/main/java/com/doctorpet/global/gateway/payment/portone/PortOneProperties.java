@@ -13,9 +13,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "payment.portone")
 public class PortOneProperties {
 
-    /** PortOne 실연동 사용 여부. false(기본)면 FakePaymentGateway가 활성화된다. */
-    private boolean enabled = false;
-
     /** PortOne V2 API 베이스 URL(실연동 시 확정·주입). */
     private String baseUrl;
 

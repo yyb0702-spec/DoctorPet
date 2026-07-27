@@ -28,7 +28,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @EnableConfigurationProperties(PortOneProperties.class)
-@ConditionalOnProperty(prefix = "payment.portone", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(name = "payment.gateway", havingValue = "portone")
 public class PortOnePaymentGateway implements PaymentGateway {
 
     private final PortOneProperties properties;
@@ -73,11 +73,16 @@ public class PortOnePaymentGateway implements PaymentGateway {
     }
 
     private void requireConfigured() {
-        if (properties.getBaseUrl() == null || properties.getBaseUrl().isBlank()
-                || properties.getApiSecret() == null || properties.getApiSecret().isBlank()) {
+        if (isBlank(properties.getBaseUrl())
+                || isBlank(properties.getApiSecret())
+                || isBlank(properties.getStoreId())) {
             throw new IllegalStateException(
-                    "PortOne 실연동 설정이 없습니다. payment.portone.base-url·api-secret을 주입하세요(커밋 금지).");
+                    "PortOne 실연동 설정이 없습니다. payment.portone.base-url·api-secret·store-id를 모두 주입하세요(커밋 금지).");
         }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private UnsupportedOperationException integrationPending(String operation) {
