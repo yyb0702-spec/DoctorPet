@@ -14,7 +14,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Component;
 
 /**
- * PortOne V2 실연동 결제 게이트웨이. {@code payment.portone.enabled=true}일 때만 활성화된다(운영 프로파일).
+ * PortOne V2 실연동 결제 게이트웨이. {@code payment.gateway=portone}일 때만 활성화된다(운영).
  *
  * <p><b>범위 경계</b>: 이 클래스는 설정 주입·오류 분류·마스킹 로깅 구조를 갖춘 골격이다.
  * PortOne V2의 실제 엔드포인트·인증 헤더·요청/응답 JSON 필드 바인딩은 인증정보·엔드포인트가 확정되는
