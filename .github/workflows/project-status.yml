@@ -1,0 +1,206 @@
+name: Project status automation
+
+# PR 이벤트에 따라 "DoctorPet 개발 작업 보드"(yyb0702-spec/projects/3)의
+# 연결 이슈 Status를 자동으로 옮긴다.
+#   merge → Done / Draft → In progress
+#   그 외(열림·본문 수정·리뷰 제출)는 집계된 reviewDecision 기준:
+#   미해결 변경 요청 있으면 In progress, 없으면 In review
+#   (개별 승인이 다른 리뷰어의 변경 요청을 덮어쓰지 않게 — PR #54 리뷰 반영)
+# 전제:
+#   1. PR 본문에 Closes #이슈번호 (또는 Fixes/Resolves) 형식으로 이슈 연결
+#   2. 저장소 시크릿 PROJECT_TOKEN — 소유자가 project 권한 포함 PAT를 등록해야 함
+#      (기본 GITHUB_TOKEN으로는 user 소유 Projects를 수정할 수 없다)
+#      미등록 상태에서는 이 워크플로가 실패하지 않고 스킵된다
+#   3. 보드 Status 옵션 이름이 In progress / In review / Done 과 정확히 일치
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, ready_for_review, converted_to_draft, closed]
+  pull_request_review:
+    # dismissed도 구독한다 — 변경 요청이 dismiss되면 reviewDecision이 바뀌므로 재계산이 필요하다
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  update-project-status:
+    runs-on: ubuntu-latest
+    # PROJECT_TOKEN 미등록이면 실패 대신 스킵 (if:에서 secrets 직접 참조가 안 되므로 env로 우회)
+    env:
+      HAS_TOKEN: ${{ secrets.PROJECT_TOKEN != '' }}
+    steps:
+      - name: Update linked issue project status
+        if: env.HAS_TOKEN == 'true'
+        uses: actions/github-script@v7
+        env:
+          PROJECT_OWNER: yyb0702-spec
+          PROJECT_NUMBER: "3"
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull_request payload found; skipping.');
+              return;
+            }
+
+            // 본문 외 수정(제목 등)의 edited는 소음이므로 스킵
+            if (context.eventName === 'pull_request' && context.payload.action === 'edited'
+                && !context.payload.changes?.body) {
+              core.info('PR edit did not change body; skipping.');
+              return;
+            }
+
+            const body = pr.body || '';
+            const issueNumbers = new Set();
+            const closingKeywordPattern = /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s*:?\s+#\s*(\d+)\b/gi;
+
+            let match;
+            while ((match = closingKeywordPattern.exec(body)) !== null) {
+              issueNumbers.add(Number(match[1]));
+            }
+
+            if (issueNumbers.size === 0) {
+              core.info('No closing issue references like "Closes #12" found; skipping.');
+              return;
+            }
+
+            let targetStatus = null;
+            const action = context.payload.action;
+
+            if (context.eventName === 'pull_request' && action === 'closed') {
+              targetStatus = pr.merged ? 'Done' : null;
+            } else if (context.eventName === 'pull_request' && action === 'converted_to_draft') {
+              targetStatus = 'In progress';
+            } else if (pr.draft) {
+              // Draft 상태의 모든 이벤트는 작업 중
+              targetStatus = 'In progress';
+            } else {
+              // 열림·본문 수정·리뷰 제출: 개별 이벤트가 아니라 GitHub이 집계한
+              // reviewDecision으로 판단 — 리뷰어 A의 변경 요청이 미해결이면
+              // 리뷰어 B가 승인해도 In progress를 유지한다.
+              const decisionData = await github.graphql(`
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $number) {
+                      reviewDecision
+                    }
+                  }
+                }
+              `, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                number: pr.number,
+              });
+              const decision = decisionData.repository?.pullRequest?.reviewDecision;
+              targetStatus = decision === 'CHANGES_REQUESTED' ? 'In progress' : 'In review';
+            }
+
+            if (!targetStatus) {
+              core.info(`No status transition for ${context.eventName}:${context.payload.action}; skipping.`);
+              return;
+            }
+
+            const projectData = await github.graphql(`
+              query($login: String!, $number: Int!) {
+                user(login: $login) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first: 50) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options {
+                            id
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, {
+              login: process.env.PROJECT_OWNER,
+              number: Number(process.env.PROJECT_NUMBER),
+            });
+
+            const project = projectData.user?.projectV2;
+            if (!project) {
+              throw new Error(`Project ${process.env.PROJECT_OWNER}/${process.env.PROJECT_NUMBER} not found.`);
+            }
+
+            const statusField = project.fields.nodes.find((field) => field?.name === 'Status');
+            if (!statusField) {
+              throw new Error('Project field "Status" was not found.');
+            }
+
+            const statusOption = statusField.options.find((option) => option.name === targetStatus);
+            if (!statusOption) {
+              throw new Error(`Project status option "${targetStatus}" was not found.`);
+            }
+
+            for (const issueNumber of issueNumbers) {
+              const issueData = await github.graphql(`
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    issue(number: $number) {
+                      id
+                      number
+                      title
+                    }
+                  }
+                }
+              `, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                number: issueNumber,
+              });
+
+              const issue = issueData.repository?.issue;
+              if (!issue) {
+                core.warning(`Issue #${issueNumber} was not found; skipping.`);
+                continue;
+              }
+
+              const itemData = await github.graphql(`
+                mutation($projectId: ID!, $contentId: ID!) {
+                  addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                    item {
+                      id
+                    }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                contentId: issue.id,
+              });
+
+              const itemId = itemData.addProjectV2ItemById.item.id;
+
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId: $itemId
+                    fieldId: $fieldId
+                    value: { singleSelectOptionId: $optionId }
+                  }) {
+                    projectV2Item {
+                      id
+                    }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                itemId,
+                fieldId: statusField.id,
+                optionId: statusOption.id,
+              });
+
+              core.info(`Set issue #${issue.number} "${issue.title}" to "${targetStatus}".`);
+            }

@@ -1,0 +1,33 @@
+name: Harness Check
+
+# 하네스 문서·스크립트가 바뀐 PR에서만 실행 (코드 PR에는 영향 없음)
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "docs/**"
+      - "scripts/harness_check.py"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/workflows/harness-check.yml"
+      - ".github/pull_request_template.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Docs link and section check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run harness check
+        run: python scripts/harness_check.py

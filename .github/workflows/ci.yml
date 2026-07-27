@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+    # 문서 전용 변경은 CI 스킵 (Harness Check 워크플로가 담당)
+    # 주의: 이 워크플로를 required check로 지정하면 스킵된 PR이 merge 블록된다 — 그때는 이 필터를 제거할 것
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    # Level 3(DB·동시성) 통합 테스트용 인프라 — 테스트는 localhost:3306/6379 기준
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: doctorpet
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 30s
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Build and test backend
+        # application.yaml의 active profile(local) 설정 파일은 gitignore 대상이라 CI에 없다.
+        # 환경변수로 profile을 덮어쓰고 services 컨테이너·테스트용 JWT 값을 주입한다.
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: root
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: "6379"
+          JWT_SECRET: ci-only-test-secret-not-for-production-0123456789abcdefghijklmnop
+          JWT_ACCESS_TOKEN_EXPIRATION: "3600000"
+          JWT_REFRESH_TOKEN_EXPIRATION: "1209600000"
+        run: ./gradlew clean build

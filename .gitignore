@@ -40,4 +40,15 @@ out/
 application-local.yml
 application-prod.yml
 application-dev.yml
+application-secret.yml
+application-secret.properties
 .env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+
+### Python (scripts/harness_check.py 실행 산출물) ###
+__pycache__/
+*.pyc
