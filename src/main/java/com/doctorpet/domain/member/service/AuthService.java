@@ -88,8 +88,14 @@ public class AuthService {
      * 3) Redis에 저장된 "현재 유효한" Refresh Token과 제시된 토큰을 비교(compare)하고 새 토큰으로
      *    교체(swap)하는 것을 하나의 원자 연산(Lua)으로 처리한다 — 조회 후 저장을 분리하면, 같은
      *    Refresh Token으로 동시에 재발급 요청이 오는 경우 둘 다 비교를 통과해 두 응답 모두 200을
-     *    받는 경쟁 상태가 생긴다. 원자 연산이 실패하면(불일치 — 이미 회전된 토큰의 재사용, 즉 탈취
-     *    의심) 세션을 완전히 무효화한다.
+     *    받는 경쟁 상태가 생긴다. 원자 연산이 실패하면(불일치) REFRESH_TOKEN_REUSED로 응답한다.
+     *
+     *    다만 CAS 실패에는 두 가지 서로 다른 상황이 섞여 있다 — (a) 같은 토큰으로 거의 동시에 들어온
+     *    다른 요청이 이미 정상적으로 회전시켜버린 "동시 중복 요청", (b) 이미 여러 세대 전에 폐기된
+     *    토큰이 다시 제시된 "진짜 재사용(탈취 의심)". 리뷰에서 지적된 대로, 이 둘을 구분하지 않고
+     *    매번 세션을 통째로 삭제하면 (a)의 경우 방금 성공한 요청이 받아간 새 Refresh Token까지
+     *    함께 지워버리게 된다. wasRecentlyRotatedFrom으로 "직전에 정상 회전되어 나간 토큰"인지
+     *    확인해 (a)일 때는 세션을 지우지 않고, (b)일 때만 전체 무효화한다.
      */
     @Transactional(readOnly = true)
     public LoginResponse reissue(ReissueRequest request) {
@@ -112,7 +118,9 @@ public class AuthService {
 
         boolean rotated = refreshTokenRepository.rotateIfMatches(memberId, presentedRefreshToken, newRefreshToken, ttl);
         if (!rotated) {
-            refreshTokenRepository.deleteByMemberId(memberId);
+            if (!refreshTokenRepository.wasRecentlyRotatedFrom(memberId, presentedRefreshToken)) {
+                refreshTokenRepository.deleteByMemberId(memberId);
+            }
             throw new ServiceException(MemberErrorCode.REFRESH_TOKEN_REUSED);
         }
 

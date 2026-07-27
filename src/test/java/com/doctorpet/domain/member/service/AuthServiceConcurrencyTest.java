@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.doctorpet.domain.member.dto.request.LoginRequest;
 import com.doctorpet.domain.member.dto.request.ReissueRequest;
+import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
@@ -81,15 +82,17 @@ class AuthServiceConcurrencyTest {
     }
 
     @Test
-    @DisplayName("동일 Refresh Token으로 동시에 재발급을 요청하면 정확히 하나만 성공한다(Redis 원자 교체)")
+    @DisplayName("동일 Refresh Token으로 동시에 재발급을 요청하면 정확히 하나만 성공하고, 그 새 토큰은 삭제되지 않는다(Redis 원자 교체)")
     void concurrentReissue_onlyOneSucceeds() throws InterruptedException {
         String refreshToken = authService.login(new LoginRequest(email, CORRECT_PASSWORD)).refreshToken();
         ReissueRequest reissueRequest = new ReissueRequest(refreshToken);
         List<Boolean> results = new CopyOnWriteArrayList<>();
+        List<LoginResponse> successes = new CopyOnWriteArrayList<>();
 
         runConcurrently(CONCURRENT_REQUESTS, () -> {
             try {
-                authService.reissue(reissueRequest);
+                LoginResponse response = authService.reissue(reissueRequest);
+                successes.add(response);
                 results.add(true);
             } catch (ServiceException e) {
                 results.add(false);
@@ -98,6 +101,11 @@ class AuthServiceConcurrencyTest {
 
         long successCount = results.stream().filter(Boolean::booleanValue).count();
         assertThat(successCount).isEqualTo(1);
+
+        // 회귀 검증: CAS에 실패한 나머지 요청들이 "동시 중복 요청"으로 판별되어 방금 성공한 요청의
+        // 새 Refresh Token까지 지워버리지 않아야 한다(리뷰에서 지적된 deleteByMemberId 오남용 버그).
+        String winningRefreshToken = successes.get(0).refreshToken();
+        assertThat(refreshTokenRepository.findByMemberId(memberId)).contains(winningRefreshToken);
     }
 
     /** N개의 작업을 모두 준비시킨 뒤 동시에 출발시켜, 진짜 경쟁 상태를 재현한다. */

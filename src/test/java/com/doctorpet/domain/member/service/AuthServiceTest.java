@@ -208,6 +208,8 @@ class AuthServiceTest {
     @Test
     @DisplayName("Redis 원자 교체가 실패하면(이미 회전된 토큰 재사용) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
     void reissue_tokenReused() {
+        // wasRecentlyRotatedFrom을 stub하지 않으면 Mockito 기본값(false)이 반환되어
+        // "동시 중복 요청이 아니다(=진짜 재사용)"로 처리되고 deleteByMemberId가 호출된다.
         ReissueRequest request = new ReissueRequest("already-rotated-token");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
@@ -229,6 +231,37 @@ class AuthServiceTest {
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
         verify(refreshTokenRepository).deleteByMemberId(1L);
+    }
+
+    @Test
+    @DisplayName("같은 토큰으로 온 동시 중복 요청이라 직전에 정상 회전된 토큰이면 세션을 삭제하지 않는다")
+    void reissue_concurrentDuplicate_doesNotDeleteSession() {
+        ReissueRequest request = new ReissueRequest("old-refresh-token");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+
+        given(jwtTokenProvider.validateToken("old-refresh-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("old-refresh-token")).willReturn(TokenType.REFRESH);
+        given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
+                .willReturn(new MemberPrincipal(1L, member.getEmail(), "GUARDIAN"));
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token-2");
+        given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token-2");
+        given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+        given(refreshTokenRepository.rotateIfMatches(
+                1L, "old-refresh-token", "new-refresh-token-2", Duration.ofMillis(1_209_600_000L)
+        )).willReturn(false);
+        // 다른 요청이 같은 old-refresh-token을 거의 동시에 정상 회전시킨 상황을 재현한다.
+        given(refreshTokenRepository.wasRecentlyRotatedFrom(1L, "old-refresh-token")).willReturn(true);
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
+
+        // 핵심 회귀 검증: 동시 중복 요청으로 판단되면 먼저 성공한 요청의 새 Refresh Token을
+        // 지우지 않아야 한다.
+        verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
     }
 
     @Test

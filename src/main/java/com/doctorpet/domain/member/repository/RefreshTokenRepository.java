@@ -19,15 +19,27 @@ import org.springframework.stereotype.Repository;
 public class RefreshTokenRepository {
 
     private static final String KEY_PREFIX = "refresh:";
+    private static final String PREVIOUS_KEY_SUFFIX = ":prev";
+
+    /*
+     * 같은 토큰으로 거의 동시에 여러 재발급 요청이 들어오는 경우(중복 클릭, 네트워크 재시도 등)를
+     * "진짜 재사용(탈취 의심)"과 구분하기 위한 유예 구간. rotateIfMatches가 성공할 때마다 "직전 토큰"을
+     * 이 기간만큼 별도 키에 남겨둔다 — 그래야 CAS에 실패한 동시 요청이 "혹시 방금 나와 같은 토큰을
+     * 다른 요청이 정상적으로 회전시킨 것뿐인지"를 판별할 수 있다. 공격 탐지 목적상 짧게 유지한다.
+     */
+    private static final Duration REUSE_GRACE_PERIOD = Duration.ofSeconds(5);
 
     /*
      * 현재 저장된 값이 oldToken과 일치할 때만 newToken으로 교체한다(compare-and-set).
      * "조회 후 저장"을 두 단계로 나누면 같은 Refresh Token으로 동시에 들어온 재발급 요청이
      * 둘 다 비교를 통과해 각자 새 토큰을 저장하는 경쟁 상태가 생긴다 — Redis에게 GET과 SET을
      * 하나의 원자 연산(Lua)으로 실행시켜, 동시 요청 중 정확히 하나만 성공하도록 만든다.
+     * 교체에 성공하면 직전 토큰(oldToken)을 REUSE_GRACE_PERIOD 동안 "prev" 키에 함께 남겨,
+     * 같은 토큰으로 온 다른 동시 요청이 CAS에 실패했을 때 재사용 여부를 구분할 수 있게 한다.
      */
     private static final RedisScript<Long> ROTATE_IF_MATCHES_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "redis.call('set', KEYS[2], ARGV[1], 'PX', ARGV[4]) "
                     + "redis.call('set', KEYS[1], ARGV[2], 'PX', ARGV[3]) "
                     + "return 1 "
                     + "else "
@@ -54,18 +66,33 @@ public class RefreshTokenRepository {
     public boolean rotateIfMatches(Long memberId, String oldToken, String newToken, Duration ttl) {
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
-                List.of(key(memberId)),
-                oldToken, newToken, String.valueOf(ttl.toMillis())
+                List.of(key(memberId), previousKey(memberId)),
+                oldToken, newToken, String.valueOf(ttl.toMillis()), String.valueOf(REUSE_GRACE_PERIOD.toMillis())
         );
         return result != null && result == 1L;
     }
 
+    /**
+     * {@code oldToken}이 아주 최근(REUSE_GRACE_PERIOD 이내)에 이 회원의 토큰에서 "정상적으로" 회전되어
+     * 나간 직전 토큰과 같은지 확인한다. true면 같은 토큰으로 거의 동시에 들어온 다른 요청이 먼저
+     * 성공한 것뿐인 "동시 중복 요청"으로 보고, 세션 전체를 무효화하지 않아야 한다 — 그래야 먼저
+     * 성공한 요청이 이미 받아간 새 Refresh Token까지 함께 삭제되는 사고를 막을 수 있다.
+     */
+    public boolean wasRecentlyRotatedFrom(Long memberId, String oldToken) {
+        String previous = redisTemplate.opsForValue().get(previousKey(memberId));
+        return oldToken.equals(previous);
+    }
+
     /** 재사용 감지 시, 또는 로그아웃 시 세션을 완전히 무효화하기 위해 호출한다. */
     public void deleteByMemberId(Long memberId) {
-        redisTemplate.delete(key(memberId));
+        redisTemplate.delete(List.of(key(memberId), previousKey(memberId)));
     }
 
     private String key(Long memberId) {
         return KEY_PREFIX + memberId;
+    }
+
+    private String previousKey(Long memberId) {
+        return KEY_PREFIX + memberId + PREVIOUS_KEY_SUFFIX;
     }
 }
