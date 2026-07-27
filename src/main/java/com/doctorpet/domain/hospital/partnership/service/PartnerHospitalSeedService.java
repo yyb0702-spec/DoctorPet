@@ -31,10 +31,11 @@ public class PartnerHospitalSeedService {
 
     /**
      * 매칭된 병원을 제휴 상태로 전환하고 처리 건수를 반환합니다.
+     * 제휴 JSON은 하나의 데이터 세트이므로 한 건이라도 매칭에 실패하면 전체 변경을 취소합니다.
      */
     @Transactional
     public int applyPartnerships(List<PartnerHospitalSeedData> seedDataList) {
-        // JSON에서 읽은 제휴 병원을 한 건씩 기존 공공데이터 병원과 매칭합니다.
+        // 일부 병원만 제휴되는 불완전한 상태를 막기 위해 전체 목록을 하나의 트랜잭션으로 처리합니다.
         seedDataList.forEach(this::applyPartnership);
         return seedDataList.size();
     }
