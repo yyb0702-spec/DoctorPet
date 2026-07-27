@@ -19,6 +19,9 @@
 | AI 산출물 품질 기준(슬롭 패턴) | `docs/ai/remove-ai-slop.md` | Review Gate 산출물 품질 항목 |
 | 하네스 무결성 검사(링크·경로·섹션·경량본 정본 버전) | `scripts/harness_check.py` | Harness Check CI, 완료 체크리스트. PRD·SA 헤더는 `N-M. 제목` 마침표 형식을 유지해야 인식된다 |
 | 작업 보드 Status 자동화 | `.github/workflows/project-status.yml` | PR 템플릿의 `Closes #` 안내. 보드 컬럼명 변경 시 이 워크플로도 수정 |
+| PR 템플릿(동기 쌍) | `.github/pull_request_template.md` ↔ `docs/collaboration/github-rules.md` 코드블록 | 두 사본은 항상 같아야 한다. `harness_check.py`가 diff를 검사하므로 한쪽만 고치지 않는다 |
+| 경량 열람본(팀 요약 미러) | 각 정본(PRD·SA·정책·코드컨벤션) | `docs/lightweight/`. 정본 우선 — 정본을 바꾸면 같은 PR에서 경량본도 갱신하고, 내용이 다르면 정본을 따른다 |
+| GitHub Wiki(팀 열람 미러) | 각 정본 | Wiki 저장소는 하네스 CI 밖이다. 정본 우선 — 정본을 바꾸면 Wiki도 갱신하거나 후속 이슈를 남긴다 |
 
 ## 문서 우선순위
 
