@@ -1,6 +1,7 @@
 package com.doctorpet.domain.member.service;
 
 import com.doctorpet.domain.member.dto.request.LoginRequest;
+import com.doctorpet.domain.member.dto.request.ReissueRequest;
 import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
@@ -11,6 +12,7 @@ import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.global.exception.CustomException;
 import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberPrincipal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
@@ -70,6 +72,44 @@ public class AuthService {
 
         member.recordLoginSuccess();
 
+        return issueTokenPair(member);
+    }
+
+    /*
+     * 토큰 재발급. SA §8-1 + A 도메인 결정 #6(Refresh 회전 — 화이트리스트 방식).
+     *
+     * 1) JWT 자체의 서명·만료를 검증한다.
+     * 2) 그 안의 memberId로 Redis에 저장된 "현재 유효한" Refresh Token과 정확히 같은지 비교한다.
+     *    다르면(이미 회전으로 폐기된 토큰이 재사용된 것) 재사용 감지로 보고 세션을 완전히 무효화한다.
+     * 3) 일치하면 새 토큰 쌍을 발급하고 Redis 값을 덮어써 회전시킨다.
+     */
+    @Transactional(readOnly = true)
+    public LoginResponse reissue(ReissueRequest request) {
+        String presentedRefreshToken = request.refreshToken();
+
+        if (!jwtTokenProvider.validateToken(presentedRefreshToken)) {
+            throw new CustomException(MemberErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
+        MemberPrincipal principal = jwtTokenProvider.getMemberPrincipal(presentedRefreshToken);
+        Long memberId = principal.memberId();
+
+        String storedRefreshToken = refreshTokenRepository.findByMemberId(memberId)
+                .orElse(null);
+
+        if (storedRefreshToken == null || !storedRefreshToken.equals(presentedRefreshToken)) {
+            refreshTokenRepository.deleteByMemberId(memberId);
+            throw new CustomException(MemberErrorCode.REFRESH_TOKEN_REUSED);
+        }
+
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new CustomException(MemberErrorCode.INVALID_REFRESH_TOKEN));
+
+        return issueTokenPair(member);
+    }
+
+    /** Access/Refresh Token을 새로 발급하고, Refresh Token은 Redis에 덮어써 회전시킨다. */
+    private LoginResponse issueTokenPair(Member member) {
         String role = member.getRole().name();
         String accessToken = jwtTokenProvider.generateAccessToken(member.getId(), member.getEmail(), role);
         String refreshToken = jwtTokenProvider.generateRefreshToken(member.getId(), member.getEmail(), role);
