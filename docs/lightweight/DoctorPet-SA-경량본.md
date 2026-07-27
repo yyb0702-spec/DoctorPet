@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.5 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.8, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.9, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 시스템 구성
@@ -58,6 +58,7 @@ domain/
 - Refresh Token 수명은 14일이다.
 - Refresh Token은 서버에 저장하고 회전한다.
 - 폐기된 Refresh Token의 재사용이 탐지되면 해당 사용자의 전체 세션을 로그아웃한다.
+- 로그인 5회 연속 실패 시 30분간 계정을 잠그며(`members.failed_login_attempts`, `locked_until`), 시간 경과 또는 비밀번호 재설정 성공 시 즉시 해제된다.
 - 회원 탈퇴 시 이메일을 `withdrawn_{memberId}@deleted.doctorpet` 형식으로 익명화하고 Soft Delete한다.
 ## 5. 병원·검색·공공데이터
 - 병원 기본정보는 공공데이터를 자체 DB에 적재하여 검색에 사용한다.
