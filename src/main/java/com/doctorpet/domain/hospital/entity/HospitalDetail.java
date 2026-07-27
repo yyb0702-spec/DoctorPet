@@ -21,6 +21,7 @@ import org.hibernate.type.SqlTypes;
 import java.time.DayOfWeek;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 공공데이터에 없는 제휴 병원의 운영·시설 정보를 저장합니다.
@@ -105,6 +106,37 @@ public class HospitalDetail {
                 nightCare,
                 emergency
         );
+    }
+
+    /**
+     * JSON 시드와 다른 운영·시설 정보만 현재 값에 반영합니다.
+     */
+    public void update(
+            Map<DayOfWeek, DailyOperatingHours> openHours,
+            boolean surgeryAvailable,
+            boolean hospitalizationAvailable,
+            boolean nightCare,
+            boolean emergency
+    ) {
+        Map<DayOfWeek, DailyOperatingHours> copiedOpenHours =
+                copyOpenHours(openHours);
+
+        // 같은 운영시간이면 기존 JSON 값을 유지해 불필요한 변경을 만들지 않습니다.
+        if (!Objects.equals(this.openHours, copiedOpenHours)) {
+            this.openHours = copiedOpenHours;
+        }
+        if (this.surgeryAvailable != surgeryAvailable) {
+            this.surgeryAvailable = surgeryAvailable;
+        }
+        if (this.hospitalizationAvailable != hospitalizationAvailable) {
+            this.hospitalizationAvailable = hospitalizationAvailable;
+        }
+        if (this.nightCare != nightCare) {
+            this.nightCare = nightCare;
+        }
+        if (this.emergency != emergency) {
+            this.emergency = emergency;
+        }
     }
 
     private Hospital requireHospital(Hospital hospital) {
