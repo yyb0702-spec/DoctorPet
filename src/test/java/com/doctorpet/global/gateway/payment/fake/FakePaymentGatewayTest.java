@@ -71,14 +71,19 @@ class FakePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("승인 후 상태를 주입해 타임아웃 뒤 단건 조회로 재확정하는 시나리오를 만든다")
-    void queryStatus() {
-        gateway.approve(new PaymentApproveCommand("mpid-4", "bk", 5000, "진료비"));
-        gateway.stubQueryStatus(GatewayPaymentStatus.PAID);
+    @DisplayName("승인 응답 유실 후 단건 조회로 PAID·금액을 재확정한다(SA §9-4 타임아웃 분기)")
+    void queryReconfirmsAfterLostApproval() {
+        // 승인 응답 유실(UNKNOWN) — approve는 아무것도 저장하지 못한다
+        gateway.stubApproveFailure(GatewayFailureReason.UNKNOWN, null, "응답 유실");
+        assertThrows(PaymentGatewayException.class,
+                () -> gateway.approve(new PaymentApproveCommand("mpid-4", "bk", 5000, "진료비")));
 
+        // 실제로는 처리된 건을 단건 조회로 재확정 — 상태·금액·식별자가 일관되게 주입된다
+        gateway.stubQueryResult("mpid-4", GatewayPaymentStatus.PAID, 5000);
         PaymentQueryResult result = gateway.query("mpid-4");
 
         assertEquals(GatewayPaymentStatus.PAID, result.status());
+        assertEquals(5000, result.paidAmount(), "상위 서비스가 요청 금액과 대조할 수 있어야 한다");
         assertTrue(result.pgPaymentId().contains("mpid-4"));
     }
 

@@ -41,8 +41,8 @@ public class FakePaymentGateway implements PaymentGateway {
     /** approve 결과를 멱등키별로 보관 — query가 승인 금액·상태를 그대로 재확정한다(단건 조회 금액 검증 시나리오용). */
     private final Map<String, PaymentApproveResult> approvedResults = new ConcurrentHashMap<>();
 
-    /** query 상태 강제 오버라이드(null이면 보관된 approve 결과를 반영, 없으면 PENDING). */
-    private volatile GatewayPaymentStatus queryStatusOverride;
+    /** 명시 주입된 단건 조회 결과 — 승인 응답 유실 후 조회로 재확정하는 시나리오용(approve 결과보다 우선). */
+    private final Map<String, PaymentQueryResult> queryResults = new ConcurrentHashMap<>();
 
     @Override
     public BillingKeyIssueResult verifyBillingKey(String billingKey) {
@@ -68,16 +68,20 @@ public class FakePaymentGateway implements PaymentGateway {
 
     @Override
     public PaymentQueryResult query(String merchantPaymentId) {
+        // 1) 명시 주입된 조회 결과가 있으면 우선한다(승인 응답 유실 후 조회로 재확정하는 시나리오).
+        PaymentQueryResult stubbed = queryResults.get(merchantPaymentId);
+        if (stubbed != null) {
+            return stubbed;
+        }
+        // 2) 없으면 보관된 승인 결과를 그대로 반영한다(상위의 금액 대조 검증용).
         PaymentApproveResult approved = approvedResults.get(merchantPaymentId);
-        GatewayPaymentStatus status = queryStatusOverride != null
-                ? queryStatusOverride
-                : (approved != null ? approved.status() : GatewayPaymentStatus.PENDING);
-        // 조회 금액은 승인된 경우에만 보관된 실제 승인 금액을 돌려준다(상위의 금액 대조 검증용).
-        int paidAmount = (status == GatewayPaymentStatus.PAID && approved != null) ? approved.approvedAmount() : 0;
-        // 승인 이력이 없으면 외부 거래가 없으므로 pgPaymentId도 null이다(PaymentQueryResult 계약).
-        // 존재하지 않는 결제를 승인건처럼 오판하지 않게 한다.
-        String pgPaymentId = approved != null ? approved.pgPaymentId() : null;
-        return new PaymentQueryResult(status, pgPaymentId, paidAmount);
+        if (approved != null) {
+            int paidAmount = approved.status() == GatewayPaymentStatus.PAID ? approved.approvedAmount() : 0;
+            return new PaymentQueryResult(approved.status(), approved.pgPaymentId(), paidAmount);
+        }
+        // 3) 승인 이력도 없으면 외부 거래가 없으므로 PENDING·pgPaymentId null로 미확정을 나타낸다
+        //    (존재하지 않는 결제를 승인건처럼 오판하지 않게 한다).
+        return new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0);
     }
 
     // --- 테스트 시나리오 주입 API ---
@@ -93,9 +97,14 @@ public class FakePaymentGateway implements PaymentGateway {
         this.approveStatus = status;
     }
 
-    /** query가 반환할 상태를 강제한다(보관된 approve 결과보다 우선). */
-    public void stubQueryStatus(GatewayPaymentStatus status) {
-        this.queryStatusOverride = status;
+    /**
+     * 단건 조회 결과를 멱등키별로 직접 주입한다 — 승인 응답이 유실됐지만 실제로는 처리된 건을
+     * 조회로 재확정하는 시나리오(SA §9-4)용. 상태·금액·pgPaymentId가 일관된 결과를 돌려준다.
+     */
+    public void stubQueryResult(String merchantPaymentId, GatewayPaymentStatus status, int paidAmount) {
+        String pgPaymentId = status == GatewayPaymentStatus.PAID ? "FAKE-" + merchantPaymentId : null;
+        int amount = status == GatewayPaymentStatus.PAID ? paidAmount : 0;
+        queryResults.put(merchantPaymentId, new PaymentQueryResult(status, pgPaymentId, amount));
     }
 
     /** 마지막으로 전달받은 멱등키. */
@@ -114,8 +123,8 @@ public class FakePaymentGateway implements PaymentGateway {
     public void reset() {
         receivedMerchantPaymentIds.clear();
         approvedResults.clear();
+        queryResults.clear();
         approveFailure = null;
         approveStatus = GatewayPaymentStatus.PAID;
-        queryStatusOverride = null;
     }
 }
