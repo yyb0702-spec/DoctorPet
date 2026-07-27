@@ -7,18 +7,19 @@ import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.service.AuthService;
 import com.doctorpet.global.response.ApiResponse;
+import com.doctorpet.global.security.MemberPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /*
-  인증 관련 API. SA §8-1 — 이 Issue 범위는 회원가입·로그인·토큰 재발급까지 다룬다.
-  로그아웃은 별도 Issue로 진행한다(implementation-guardrails "범위 제한").
+  인증 관련 API. SA §8-1 — 회원가입·로그인·토큰 재발급·로그아웃.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -44,5 +45,11 @@ public class AuthController {
     public ResponseEntity<ApiResponse<LoginResponse>> reissue(@Valid @RequestBody ReissueRequest request) {
         LoginResponse response = authService.reissue(request);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(@AuthenticationPrincipal MemberPrincipal principal) {
+        authService.logout(principal.memberId());
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 }

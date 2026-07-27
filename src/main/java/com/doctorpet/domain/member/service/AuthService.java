@@ -108,6 +108,16 @@ public class AuthService {
         return issueTokenPair(member);
     }
 
+    /*
+     * 로그아웃. SA §8-1 + A 도메인 결정 #3(단일 세션 유지).
+     * 세션이 회원당 하나뿐이므로, 저장된 Refresh Token(refresh:{memberId})만 삭제하면
+     * 재발급(reissue)이 더 이상 불가능해져 로그아웃이 완성된다. Access Token은 만료까지
+     * 유효하게 남지만(무상태 JWT라 서버 측 즉시 폐기 수단이 없음), 이는 SA에서 이미 감수한 트레이드오프다.
+     */
+    public void logout(Long memberId) {
+        refreshTokenRepository.deleteByMemberId(memberId);
+    }
+
     /** Access/Refresh Token을 새로 발급하고, Refresh Token은 Redis에 덮어써 회전시킨다. */
     private LoginResponse issueTokenPair(Member member) {
         String role = member.getRole().name();
