@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.member.dto.request.LoginRequest;
+import com.doctorpet.domain.member.dto.request.ReissueRequest;
 import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
@@ -145,6 +146,62 @@ class AuthControllerTest {
         LoginRequest request = new LoginRequest("guardian@example.com", "");
 
         mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("재발급 성공 시 200과 새 토큰 쌍을 반환한다")
+    void reissue_success() throws Exception {
+        ReissueRequest request = new ReissueRequest("old-refresh-token");
+        given(authService.reissue(any(ReissueRequest.class)))
+                .willReturn(new LoginResponse("new-access-token", "new-refresh-token"));
+
+        mockMvc.perform(post("/api/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.accessToken").value("new-access-token"))
+                .andExpect(jsonPath("$.data.refreshToken").value("new-refresh-token"));
+    }
+
+    @Test
+    @DisplayName("유효하지 않은 토큰이면 401과 MEMBER_004를 반환한다")
+    void reissue_invalidToken() throws Exception {
+        ReissueRequest request = new ReissueRequest("broken-token");
+        given(authService.reissue(any(ReissueRequest.class)))
+                .willThrow(new CustomException(MemberErrorCode.INVALID_REFRESH_TOKEN));
+
+        mockMvc.perform(post("/api/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("MEMBER_004"));
+    }
+
+    @Test
+    @DisplayName("이미 회전되어 폐기된 토큰이 재사용되면 401과 MEMBER_005를 반환한다")
+    void reissue_tokenReused() throws Exception {
+        ReissueRequest request = new ReissueRequest("already-rotated-token");
+        given(authService.reissue(any(ReissueRequest.class)))
+                .willThrow(new CustomException(MemberErrorCode.REFRESH_TOKEN_REUSED));
+
+        mockMvc.perform(post("/api/auth/reissue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("MEMBER_005"));
+    }
+
+    @Test
+    @DisplayName("재발급 요청에 refreshToken이 비어있으면 400과 COMMON_001을 반환한다")
+    void reissue_blankToken() throws Exception {
+        ReissueRequest request = new ReissueRequest("");
+
+        mockMvc.perform(post("/api/auth/reissue")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())

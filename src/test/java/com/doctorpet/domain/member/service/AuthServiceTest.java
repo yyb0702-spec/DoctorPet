@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.member.dto.request.LoginRequest;
+import com.doctorpet.domain.member.dto.request.ReissueRequest;
 import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
@@ -20,6 +21,7 @@ import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.global.exception.CustomException;
 import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberPrincipal;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -148,6 +150,90 @@ class AuthServiceTest {
                 .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.ACCOUNT_LOCKED));
         verify(passwordEncoder, never()).matches(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Redis에 저장된 값과 일치하는 Refresh Token이면 새 토큰 쌍을 발급하고 Redis 값을 덮어쓴다(회전)")
+    void reissue_success() {
+        ReissueRequest request = new ReissueRequest("old-refresh-token");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+
+        given(jwtTokenProvider.validateToken("old-refresh-token")).willReturn(true);
+        given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
+                .willReturn(new MemberPrincipal(1L, member.getEmail(), "GUARDIAN"));
+        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("old-refresh-token"));
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
+        given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
+        given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+
+        LoginResponse response = authService.reissue(request);
+
+        assertThat(response.accessToken()).isEqualTo("new-access-token");
+        assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+        verify(refreshTokenRepository).save(1L, "new-refresh-token", Duration.ofMillis(1_209_600_000L));
+        verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
+    }
+
+    @Test
+    @DisplayName("서명이 위조됐거나 만료된 토큰이면 INVALID_REFRESH_TOKEN 예외를 던진다")
+    void reissue_invalidToken() {
+        ReissueRequest request = new ReissueRequest("broken-token");
+        given(jwtTokenProvider.validateToken("broken-token")).willReturn(false);
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
+    }
+
+    @Test
+    @DisplayName("Redis에 저장된 값과 다르면(이미 회전된 토큰 재사용) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
+    void reissue_tokenReused() {
+        ReissueRequest request = new ReissueRequest("already-rotated-token");
+        given(jwtTokenProvider.validateToken("already-rotated-token")).willReturn(true);
+        given(jwtTokenProvider.getMemberPrincipal("already-rotated-token"))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("current-valid-token"));
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
+        verify(refreshTokenRepository).deleteByMemberId(1L);
+    }
+
+    @Test
+    @DisplayName("Redis에 저장된 값이 아예 없으면(만료·로그아웃 등) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
+    void reissue_noStoredToken() {
+        ReissueRequest request = new ReissueRequest("some-token");
+        given(jwtTokenProvider.validateToken("some-token")).willReturn(true);
+        given(jwtTokenProvider.getMemberPrincipal("some-token"))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
+        verify(refreshTokenRepository).deleteByMemberId(1L);
+    }
+
+    @Test
+    @DisplayName("토큰은 유효하지만 회원이 탈퇴 등으로 존재하지 않으면 INVALID_REFRESH_TOKEN 예외를 던진다")
+    void reissue_memberNotFound() {
+        ReissueRequest request = new ReissueRequest("valid-token");
+        given(jwtTokenProvider.validateToken("valid-token")).willReturn(true);
+        given(jwtTokenProvider.getMemberPrincipal("valid-token"))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("valid-token"));
+        given(memberRepository.findById(1L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(CustomException.class)
+                .satisfies(e -> assertThat(((CustomException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
     }
 
     private void setId(Member member, Long id) {
