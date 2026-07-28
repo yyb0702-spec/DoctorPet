@@ -192,4 +192,23 @@ class PetControllerSecurityTest {
         mockMvc.perform(delete("/api/pets/{petId}", 10L).header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isNoContent());
     }
+
+    @Test
+    @DisplayName("병원 스태프(HOSPITAL_STAFF) 토큰으로 요청하면 403을 반환한다 — /api/pets는 SA §8-2상 보호자 전용")
+    void register_withHospitalStaffToken_returnsForbidden() throws Exception {
+        String accessToken = "hospital-staff-access-token";
+        given(jwtTokenProvider.validateToken(accessToken)).willReturn(true);
+        given(jwtTokenProvider.getTokenType(accessToken)).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal(accessToken))
+                .willReturn(new MemberPrincipal(2L, "staff@example.com", "HOSPITAL_STAFF"));
+
+        PetCreateRequest request = new PetCreateRequest("초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+
+        mockMvc.perform(post("/api/pets")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
 }
