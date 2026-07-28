@@ -64,8 +64,8 @@ public class PetService {
     /*
       반려동물 상세 조회. SA §8-2 — "보호자(본인)"만 조회 가능하다.
       존재 자체가 없는 petId와 "존재하지만 다른 회원 소유"인 petId를 구분해서 응답한다
-      (전자는 PET_NOT_FOUND 404, 후자는 CommonErrorCode.FORBIDDEN 403 — SA §6-2 "권한
-      없음 403" 정책).
+      (전자는 PET_NOT_FOUND 404, 후자는 CommonErrorCode.FORBIDDEN 403). 이 분리 자체는 SA가
+      명시한 규정이 아니라 팀 논의로 정한 것이다 — 자세한 근거는 PetErrorCode 참고.
      */
     @Transactional(readOnly = true)
     public PetResponse getPet(Long memberId, Long petId) {
