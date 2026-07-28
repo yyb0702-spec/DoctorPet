@@ -47,6 +47,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/ai/consultations").permitAll()
                         // 결제수단 등록·조회·삭제 - 보호자 전용 (이슈 #33)
                         .requestMatchers("/api/payment-methods/**").hasRole("GUARDIAN")
+                        // 진료비 청구 - 병원 스태프 전용 (이슈 #34). 자병원 일치는 서비스에서 재검증한다.
+                        .requestMatchers(HttpMethod.POST, "/api/hospital/reservations/*/payments")
+                        .hasRole("HOSPITAL_STAFF")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handler -> handler

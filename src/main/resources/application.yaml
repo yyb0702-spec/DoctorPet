@@ -16,6 +16,14 @@ logging:
   level:
     org.hibernate.SQL: debug
 
+# 진료비 청구 공통 설정(이슈 #34). 비밀값이 아니므로 모든 실행 환경 공통으로 둔다.
+# 절대 상한은 코드 상수가 아니라 설정값으로 둬 배포 없이 상향 가능하게 한다(SA §9-4).
+payment:
+  charge:
+    max-amount: 3000000        # 진료비 절대 상한(원)
+    max-retry: 3               # 재시도 유효 실패 최대 재시도 횟수(SA §9-4 확정)
+    backoff-initial-ms: 500    # 지수 백오프 초기 대기(500 → 1000 → 2000)
+
 # 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
 public-data:
   animal-hospital:

@@ -1,0 +1,168 @@
+package com.doctorpet.domain.payment.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+
+import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
+import com.doctorpet.domain.payment.entity.Payment;
+import com.doctorpet.domain.payment.entity.PaymentStatus;
+import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
+import com.doctorpet.global.crypto.BillingKeyCryptor;
+import com.doctorpet.global.gateway.payment.GatewayFailureReason;
+import com.doctorpet.global.gateway.payment.GatewayPaymentStatus;
+import com.doctorpet.global.gateway.payment.fake.FakePaymentGateway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+/**
+ * Level 1 — 외부 승인 결과·실패 원인별 분기 단위 검증(SA §9-4). 실제 PortOne 대신 FakePaymentGateway로
+ * 성공/NON_RETRIABLE/RETRIABLE/UNKNOWN 시나리오를 주입해 상태 전이(PAID·OFFLINE_REQUIRED·PENDING)를 확인한다.
+ * 트랜잭션 경계(PaymentChargeService)는 목으로 두고, 후확정에 전달되는 ChargeOutcome을 포획해 판정한다.
+ */
+@ExtendWith(MockitoExtension.class)
+class PaymentApplicationServiceTest {
+
+    private static final Long PAYMENT_ID = 1L;
+    private static final Long RESERVATION_ID = 100L;
+    private static final Long STAFF_MEMBER_ID = 9L;
+    private static final Long GUARDIAN_ID = 5L;
+    private static final String MERCHANT_ID = "pay_x";
+    private static final int AMOUNT = 50_000;
+    private static final int MAX_RETRY = 3;
+
+    @Mock private PaymentChargeService paymentChargeService;
+    @Mock private BillingKeyCryptor billingKeyCryptor;
+    @Mock private PaymentNotificationPublisher notificationPublisher;
+
+    private FakePaymentGateway paymentGateway;
+    private PaymentApplicationService paymentApplicationService;
+
+    @BeforeEach
+    void setUp() {
+        paymentGateway = new FakePaymentGateway();
+        // 백오프는 no-op으로 대체해 실제 대기 없이 재시도 분기를 검증한다.
+        paymentApplicationService = new PaymentApplicationService(
+                paymentChargeService, paymentGateway, billingKeyCryptor,
+                notificationPublisher, attempt -> { }, MAX_RETRY);
+    }
+
+    private void stubPreRecord(boolean methodActive) {
+        given(paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT)).willReturn(
+                new PaymentPreRecord(PAYMENT_ID, MERCHANT_ID, "v1:enc", AMOUNT, methodActive, GUARDIAN_ID, RESERVATION_ID));
+        // 후확정은 전달된 ChargeOutcome을 실제 상태에 반영한 Payment를 돌려줘 응답 status가 결과를 반영하게 한다.
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willAnswer(invocation -> {
+            ChargeOutcome outcome = invocation.getArgument(1);
+            Payment payment = Payment.pending(RESERVATION_ID, MERCHANT_ID, 7L, "VISA", "1234", AMOUNT);
+            switch (outcome.type()) {
+                case PAID -> payment.markPaid(outcome.pgPaymentId(), outcome.paidAt());
+                case OFFLINE_REQUIRED -> payment.markOfflineRequired(outcome.failureReason(), outcome.retryCount());
+                case PENDING -> payment.remainPending(outcome.retryCount(), outcome.failureReason());
+            }
+            return payment;
+        });
+    }
+
+    private ChargeOutcome captureOutcome() {
+        ArgumentCaptor<ChargeOutcome> captor = ArgumentCaptor.forClass(ChargeOutcome.class);
+        verify(paymentChargeService).finalizeOutcome(eq(PAYMENT_ID), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("승인 성공이면 PAID로 확정하고 알림을 발행한다")
+    void approveSuccess_paid() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
+        assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).containsExactly(MERCHANT_ID);
+        verify(notificationPublisher).publishChargeResult(GUARDIAN_ID, RESERVATION_ID, null, PaymentStatus.PAID);
+    }
+
+    @Test
+    @DisplayName("결제수단이 비활성이면 게이트웨이를 호출하지 않고 즉시 OFFLINE_REQUIRED로 확정한다")
+    void inactiveMethod_offlineWithoutGateway() {
+        stubPreRecord(false);
+
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("PAYMENT_METHOD_INACTIVE");
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("재시도 무의미(NON_RETRIABLE) 실패는 재시도 없이 즉시 OFFLINE_REQUIRED로 확정한다")
+    void nonRetriable_offlineImmediately() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        paymentGateway.stubApproveFailure(GatewayFailureReason.NON_RETRIABLE, "CARD_LIMIT", "한도 초과");
+
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("NON_RETRIABLE");
+        // 재시도 없이 승인은 딱 1회만 시도한다.
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("재시도 유효(RETRIABLE) 실패가 지속되면 최대 재시도 후 OFFLINE_REQUIRED로 확정한다")
+    void retriableExhausted_offline() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
+
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("RETRY_EXHAUSTED");
+        assertThat(outcome.retryCount()).isEqualTo(MAX_RETRY);
+        // 최초 1회 + 재시도 maxRetry회.
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).hasSize(1 + MAX_RETRY);
+    }
+
+    @Test
+    @DisplayName("타임아웃(UNKNOWN) 후 단건조회도 미확정이면 PENDING을 유지한다(정산 스케줄러가 확정)")
+    void unknownThenUnconfirmed_pending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        paymentGateway.stubApproveFailure(GatewayFailureReason.UNKNOWN, null, "응답 유실");
+
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PENDING);
+    }
+
+    @Test
+    @DisplayName("타임아웃(UNKNOWN)이지만 단건조회 결과가 PAID면 재시도 없이 PAID로 확정한다(이미 승인됨)")
+    void unknownButQueryPaid_paid() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        paymentGateway.stubApproveFailure(GatewayFailureReason.UNKNOWN, null, "응답 유실");
+        // 승인 응답은 유실됐지만 실제로는 처리된 상황을 조회 결과로 주입.
+        paymentGateway.stubQueryResult(MERCHANT_ID, GatewayPaymentStatus.PAID, AMOUNT);
+
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
+        assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
+    }
+}
