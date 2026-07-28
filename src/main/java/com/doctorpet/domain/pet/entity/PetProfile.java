@@ -104,4 +104,14 @@ public class PetProfile extends BaseEntity {
         this.weight = weight;
         this.neutered = neutered;
     }
+
+    /*
+     * 반려동물 프로필 삭제. SA §8-2 — 물리 삭제하지 않고 deleted_at만 채운다(Soft Delete).
+     * 이후 findById 등 조회는 클래스 레벨 @SQLRestriction("deleted_at is null")에 의해
+     * 이 프로필을 자동으로 제외한다. 과거 예약에는 스냅샷이 별도로 남아 있어(SA §4) 이력에는
+     * 영향이 없다.
+     */
+    public void markDeleted(LocalDateTime now) {
+        this.deletedAt = now;
+    }
 }
