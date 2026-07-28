@@ -3,6 +3,7 @@ package com.doctorpet.domain.pet.dto.request;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
@@ -16,14 +17,15 @@ import java.math.BigDecimal;
  * 값이 존재할 때만 적용되는 표준 제약만 둔다 — Bean Validation 표준 제약은 기본적으로 null을
  * 유효한 값으로 취급하므로 별도 처리 없이도 "생략하면 통과, 값이 있으면 검증" 의미를 만족한다.
  *
- * {@code name}은 {@code @Size(min = 1)}로 빈 문자열("")만 막는다 — trim 후 공백만 있는 값
- * ("   ")까지 정확히 걸러내려면 커스텀 제약이 필요한데, 그 정도 엄격함은 이 필드에 필요하지
- * 않다고 보고 표준 애노테이션만으로 단순화했다.
+ * {@code name}은 {@code @Pattern(".*\S.*")}로 공백 문자만 있는 값(" ")과 빈 문자열("") 모두
+ * 거부한다 — null은 여전히 통과한다(생략 허용). 등록(PetCreateRequest)의 {@code @NotBlank}와
+ * 동일한 "공백만 있는 이름은 안 된다" 불변조건을, null 허용이 필요한 부분 수정에서도 유지한다.
  * memberId(소유자)는 요청 body에 두지 않는다.
  */
 public record PetUpdateRequest(
 
-        @Size(min = 1, max = 255, message = "이름은 1자 이상 255자 이하여야 합니다.")
+        @Pattern(regexp = ".*\\S.*", message = "이름은 공백만으로 이루어지거나 비어 있을 수 없습니다.")
+        @Size(max = 255, message = "이름은 255자를 초과할 수 없습니다.")
         String name,
 
         PetSpecies species,

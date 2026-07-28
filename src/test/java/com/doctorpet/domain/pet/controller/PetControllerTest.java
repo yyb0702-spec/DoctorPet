@@ -312,6 +312,21 @@ class PetControllerTest {
     }
 
     @Test
+    @DisplayName("수정 시 이름이 공백만으로 이루어지면 400과 COMMON_001을 반환한다 — 부분 수정에서도 공백 이름은 허용하지 않는다")
+    void update_whitespaceOnlyName() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        String body = """
+                {"name":"   "}
+                """;
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
     @DisplayName("수정 시 중성화 여부를 생략하면(부분 수정) 400이 아니라 200으로 통과한다")
     void update_missingNeutered_isAcceptedAsPartialUpdate() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
