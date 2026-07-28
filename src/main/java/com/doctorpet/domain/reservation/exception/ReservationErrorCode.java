@@ -1,0 +1,57 @@
+package com.doctorpet.domain.reservation.exception;
+
+import com.doctorpet.global.exception.ErrorCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+@Getter
+@RequiredArgsConstructor
+public enum ReservationErrorCode implements ErrorCode {
+
+    PROFILE_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_001",
+            "예약 전에 반려동물 프로필을 등록해야 합니다."
+    ),
+
+    PAYMENT_METHOD_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_002",
+            "예약 전에 결제수단을 등록해야 합니다."
+    ),
+
+    LEAD_TIME_VIOLATION(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_003",
+            "예약은 예약 시각 4시간 전까지만 요청할 수 있습니다."
+    ),
+
+    CANCEL_DEADLINE_PASSED(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_004",
+            "예약 시각 2시간 전까지만 취소할 수 있습니다."
+    ),
+
+    INVALID_STATUS(
+            HttpStatus.CONFLICT,
+            "RESERVATION_005",
+            "현재 예약 상태에서는 해당 작업을 수행할 수 없습니다."
+    ),
+
+    REJECT_REASON_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_006",
+            "예약 거절 사유는 필수입니다."
+    ),
+
+    RESERVATION_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "RESERVATION_007",
+            "예약 정보를 찾을 수 없습니다."
+    );
+
+    private final HttpStatus httpStatus;
+    private final String code;
+    private final String message;
+}
