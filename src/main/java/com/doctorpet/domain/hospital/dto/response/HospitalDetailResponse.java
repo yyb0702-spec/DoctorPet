@@ -1,0 +1,97 @@
+package com.doctorpet.domain.hospital.dto.response;
+
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.HospitalCapability;
+import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+
+import java.time.DayOfWeek;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+
+public record HospitalDetailResponse(
+        Long hospitalId,
+        String name,
+        String address,
+        String phoneNumber,
+        BusinessStatus businessStatus,
+        PartnershipStatus partnershipStatus,
+        String partnershipNotice,
+        Boolean openNow,
+        Boolean surgeryAvailable,
+        Boolean hospitalizationAvailable,
+        Boolean nightCare,
+        Boolean emergency,
+        List<HospitalBusinessHourResponse> businessHours,
+        List<CapabilityValue> capabilities
+) {
+
+    private static final String NON_PARTNER_NOTICE =
+            "제휴 전 병원입니다. 운영시간과 진료 가능 항목은 병원에 직접 확인해 주세요.";
+
+    public static HospitalDetailResponse from(
+            Hospital hospital,
+            HospitalDetail detail,
+            List<HospitalCapability> hospitalCapabilities,
+            Boolean openNow
+    ) {
+        boolean partner = hospital.getPartnershipStatus()
+                == PartnershipStatus.PARTNER;
+
+        return new HospitalDetailResponse(
+                hospital.getId(),
+                hospital.getName(),
+                resolveAddress(hospital),
+                hospital.getPhone(),
+                hospital.getBusinessStatus(),
+                hospital.getPartnershipStatus(),
+                partner ? null : NON_PARTNER_NOTICE,
+                partner ? openNow : null,
+                partner ? detail.isSurgeryAvailable() : null,
+                partner ? detail.isHospitalizationAvailable() : null,
+                partner ? detail.isNightCare() : null,
+                partner ? detail.isEmergency() : null,
+                partner ? toBusinessHours(detail) : null,
+                partner ? toCapabilities(hospitalCapabilities) : null
+        );
+    }
+
+    private static String resolveAddress(Hospital hospital) {
+        if (hospital.getAddressRoad() != null
+                && !hospital.getAddressRoad().isBlank()) {
+            return hospital.getAddressRoad();
+        }
+        return hospital.getAddressJibun();
+    }
+
+    private static List<HospitalBusinessHourResponse> toBusinessHours(
+            HospitalDetail detail
+    ) {
+        if (detail == null || detail.getOpenHours() == null) {
+            return null;
+        }
+
+        return Arrays.stream(DayOfWeek.values())
+                .map(dayOfWeek -> HospitalBusinessHourResponse.from(
+                        dayOfWeek,
+                        detail.getOpenHours().get(dayOfWeek)
+                ))
+                .toList();
+    }
+
+    private static List<CapabilityValue> toCapabilities(
+            List<HospitalCapability> hospitalCapabilities
+    ) {
+        if (hospitalCapabilities == null) {
+            return null;
+        }
+
+        return hospitalCapabilities.stream()
+                .map(HospitalCapability::getCapabilityValue)
+                .sorted(Comparator.naturalOrder())
+                .toList();
+    }
+}
