@@ -133,15 +133,29 @@ class PaymentMethodControllerTest {
     }
 
     @Test
-    @DisplayName("결제수단 삭제 성공 시 200과 SUCCESS를 반환하고, 인증된 회원 id로 삭제한다")
+    @DisplayName("결제수단 삭제 성공 시 204 No Content를 반환하고, 인증된 회원 id로 삭제한다")
     void delete_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
 
         mockMvc.perform(delete("/api/payment-methods/{id}", 100L))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("SUCCESS"));
+                .andExpect(status().isNoContent());
 
         verify(paymentMethodService).delete(MEMBER_ID, 100L);
+    }
+
+    @Test
+    @DisplayName("빌링키가 허용 길이를 초과하면 400과 COMMON_001을 반환하고 서비스를 호출하지 않는다")
+    void register_billingKeyTooLong() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("a".repeat(256));
+
+        mockMvc.perform(post("/api/payment-methods")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        org.mockito.Mockito.verifyNoInteractions(paymentMethodService);
     }
 
     @Test

@@ -50,11 +50,12 @@ public class PaymentMethodController {
     }
 
     @DeleteMapping("/{paymentMethodId}")
-    public ResponseEntity<ApiResponse<Void>> delete(
+    public ResponseEntity<Void> delete(
             @AuthenticationPrincipal MemberPrincipal principal,
             @PathVariable Long paymentMethodId
     ) {
         paymentMethodService.delete(principal.memberId(), paymentMethodId);
-        return ResponseEntity.ok(ApiResponse.success());
+        // 본문 없는 성공 응답은 204로 반환한다(코드컨벤션 — 생성 201·조회/수정 200·본문 없음 204).
+        return ResponseEntity.noContent().build();
     }
 }
