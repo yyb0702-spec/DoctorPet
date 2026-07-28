@@ -144,10 +144,27 @@ class PaymentMethodControllerTest {
     }
 
     @Test
-    @DisplayName("빌링키가 허용 길이를 초과하면 400과 COMMON_001을 반환하고 서비스를 호출하지 않는다")
+    @DisplayName("빌링키가 허용 바이트를 초과하면(ASCII 513B) 400과 COMMON_001을 반환하고 서비스를 호출하지 않는다")
     void register_billingKeyTooLong() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
-        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("a".repeat(256));
+        // 513바이트 = 512바이트 상한 초과.
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("a".repeat(513));
+
+        mockMvc.perform(post("/api/payment-methods")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        org.mockito.Mockito.verifyNoInteractions(paymentMethodService);
+    }
+
+    @Test
+    @DisplayName("문자 수는 적어도 UTF-8 바이트가 상한을 넘으면(한글 200자=600B) 400을 반환한다")
+    void register_billingKeyMultibyteExceedsByteLimit() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
+        // 한글 1자 = UTF-8 3바이트. 200자 = 600바이트로 512바이트 상한 초과(문자 수(200)만 보면 통과했을 입력).
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("가".repeat(200));
 
         mockMvc.perform(post("/api/payment-methods")
                         .contentType(MediaType.APPLICATION_JSON)
