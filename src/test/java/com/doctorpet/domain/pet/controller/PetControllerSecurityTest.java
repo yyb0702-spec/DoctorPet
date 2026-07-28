@@ -3,6 +3,7 @@ package com.doctorpet.domain.pet.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,6 +19,7 @@ import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
 import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -81,6 +83,54 @@ class PetControllerSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.petId").value(10));
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 목록을 조회하면 401을 반환한다")
+    void getMyPets_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/pets"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
+    }
+
+    @Test
+    @DisplayName("유효한 Access Token으로 목록을 조회하면 200을 반환한다")
+    void getMyPets_withValidToken_returnsOk() throws Exception {
+        String accessToken = "valid-access-token";
+        given(jwtTokenProvider.validateToken(accessToken)).willReturn(true);
+        given(jwtTokenProvider.getTokenType(accessToken)).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal(accessToken))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(petService.getMyPets(1L))
+                .willReturn(List.of(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true)));
+
+        mockMvc.perform(get("/api/pets").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].petId").value(10));
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 상세 조회하면 401을 반환한다 — /api/pets/{petId}가 실수로 permitAll이 되면 이 테스트가 잡는다")
+    void getPet_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/pets/{petId}", 10L))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
+    }
+
+    @Test
+    @DisplayName("유효한 Access Token으로 상세 조회하면 200을 반환한다")
+    void getPet_withValidToken_returnsOk() throws Exception {
+        String accessToken = "valid-access-token";
+        given(jwtTokenProvider.validateToken(accessToken)).willReturn(true);
+        given(jwtTokenProvider.getTokenType(accessToken)).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal(accessToken))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(petService.getPet(1L, 10L))
+                .willReturn(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true));
+
+        mockMvc.perform(get("/api/pets/{petId}", 10L).header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.petId").value(10));
     }
 }

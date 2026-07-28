@@ -3,6 +3,7 @@ package com.doctorpet.domain.pet.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,8 +11,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetSpecies;
+import com.doctorpet.domain.pet.exception.PetErrorCode;
 import com.doctorpet.domain.pet.service.PetService;
 import com.doctorpet.global.config.SecurityConfig;
+import com.doctorpet.global.exception.CommonErrorCode;
+import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -168,6 +172,59 @@ class PetControllerTest {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("목록 조회 성공 시 200과 내 반려동물 목록을 반환한다")
+    void getMyPets_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        List<PetResponse> responses = List.of(
+                new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true),
+                new PetResponse(11L, "나비", PetSpecies.CAT, 2, new BigDecimal("3.2"), false));
+        given(petService.getMyPets(1L)).willReturn(responses);
+
+        mockMvc.perform(get("/api/pets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].petId").value(10))
+                .andExpect(jsonPath("$.data[1].petId").value(11));
+    }
+
+    @Test
+    @DisplayName("상세 조회 성공 시 200과 반려동물 프로필을 반환한다")
+    void getPet_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        given(petService.getPet(1L, 10L)).willReturn(response);
+
+        mockMvc.perform(get("/api/pets/{petId}", 10L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.petId").value(10))
+                .andExpect(jsonPath("$.data.name").value("초코"));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId를 조회하면 404와 PET_001을 반환한다")
+    void getPet_notFound() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        given(petService.getPet(1L, 999L)).willThrow(new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        mockMvc.perform(get("/api/pets/{petId}", 999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PET_001"));
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물을 조회하면 403과 COMMON_003을 반환한다")
+    void getPet_notOwner_returnsForbidden() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        given(petService.getPet(1L, 10L)).willThrow(new ServiceException(CommonErrorCode.FORBIDDEN));
+
+        mockMvc.perform(get("/api/pets/{petId}", 10L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
     }
 
     private Authentication memberAuthentication(Long memberId) {

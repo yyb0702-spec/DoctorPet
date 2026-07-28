@@ -1,6 +1,7 @@
 package com.doctorpet.domain.pet.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -9,8 +10,13 @@ import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetProfile;
 import com.doctorpet.domain.pet.entity.PetSpecies;
+import com.doctorpet.domain.pet.exception.PetErrorCode;
 import com.doctorpet.domain.pet.repository.PetProfileRepository;
+import com.doctorpet.global.exception.CommonErrorCode;
+import com.doctorpet.global.exception.ServiceException;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,6 +57,59 @@ class PetServiceTest {
         verify(petProfileRepository).save(captor.capture());
         // 요청 body가 아니라 인증 주체(memberId)로 소유자를 정한다 — 신뢰 경계 확인.
         assertThat(captor.getValue().getMemberId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("목록 조회는 인증된 회원 소유 프로필만 등록 순서대로 반환한다")
+    void getMyPets_success() {
+        PetProfile first = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(first, 10L);
+        PetProfile second = PetProfile.create(1L, "나비", PetSpecies.CAT, 2, new BigDecimal("3.2"), false);
+        setId(second, 11L);
+        given(petProfileRepository.findAllByMemberIdOrderByIdAsc(1L)).willReturn(List.of(first, second));
+
+        List<PetResponse> responses = petService.getMyPets(1L);
+
+        assertThat(responses).hasSize(2);
+        assertThat(responses.get(0).petId()).isEqualTo(10L);
+        assertThat(responses.get(1).petId()).isEqualTo(11L);
+    }
+
+    @Test
+    @DisplayName("상세 조회 성공 시 프로필을 반환한다")
+    void getPet_success() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+
+        PetResponse response = petService.getPet(1L, 10L);
+
+        assertThat(response.petId()).isEqualTo(10L);
+        assertThat(response.name()).isEqualTo("초코");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId를 조회하면 PET_NOT_FOUND를 던진다")
+    void getPet_notFound() {
+        given(petProfileRepository.findById(999L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> petService.getPet(1L, 999L))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(PetErrorCode.PET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물을 조회하면 FORBIDDEN을 던진다 — 요청 memberId가 아니라 소유자 기준")
+    void getPet_notOwner_returnsForbidden() {
+        PetProfile petProfile = PetProfile.create(2L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+
+        assertThatThrownBy(() -> petService.getPet(1L, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(CommonErrorCode.FORBIDDEN);
     }
 
     private void setId(PetProfile petProfile, Long id) {
