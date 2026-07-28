@@ -78,4 +78,8 @@ jobs:
           JWT_SECRET: ci-only-test-secret-not-for-production-0123456789abcdefghijklmnop
           JWT_ACCESS_TOKEN_EXPIRATION: "3600000"
           JWT_REFRESH_TOKEN_EXPIRATION: "1209600000"
+          # 결제수단(#33) — 전체 컨텍스트 로딩에 게이트웨이 빈과 빌링키 암호화 키가 필요하다.
+          # 테스트는 Fake 게이트웨이를 쓰고, enc-key는 CI 전용 랜덤 키다(운영 금지).
+          PAYMENT_GATEWAY: fake
+          PAYMENT_BILLING_KEY_ENC_KEY: FFDmh/xNGzjn5MhiTKV8pb22xCSKjMvsJ5aXTDFSi5w=
         run: ./gradlew clean build
