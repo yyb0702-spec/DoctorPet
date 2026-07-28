@@ -67,6 +67,21 @@ class ReservationCancellationIntegrationTest {
     }
 
     @Test
+    @DisplayName("CONFIRMED 예약도 취소하면 CANCELED가 되고 슬롯이 열린다")
+    void cancel_confirmedReservation_changesReservationAndSlot() {
+        TestReservation data = saveReservation(
+                LocalDateTime.now().plusDays(2),
+                ReservationStatus.CONFIRMED,
+                true
+        );
+
+        reservationService.cancel(data.memberId(), data.reservationId());
+
+        assertReservationStatus(data.reservationId(), ReservationStatus.CANCELED);
+        assertSlotStatus(data.slotId(), ReservationSlotStatus.OPEN);
+    }
+
+    @Test
     @DisplayName("취소 기한이 지나면 예약과 슬롯 상태가 모두 유지된다")
     void cancel_afterDeadline_keepsBothStates() {
         TestReservation data = saveReservation(

@@ -128,16 +128,6 @@ public class Reservation extends BaseEntity {
         this.rejectReason = reason;
     }
 
-    public void cancel(LocalDateTime now) {
-        if (status != ReservationStatus.REQUESTED
-                && status != ReservationStatus.CONFIRMED) {
-            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
-        }
-
-        this.status = ReservationStatus.CANCELED;
-        this.canceledAt = now;
-    }
-
     public void checkIn() {
         validateStatus(ReservationStatus.CONFIRMED);
         this.status = ReservationStatus.CHECKED_IN;
