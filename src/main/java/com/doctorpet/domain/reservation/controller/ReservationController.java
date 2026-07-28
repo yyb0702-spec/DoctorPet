@@ -5,6 +5,7 @@ import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,7 +28,7 @@ public class ReservationController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ReservationResponse> request(
             @AuthenticationPrincipal MemberPrincipal principal,
-            @RequestBody ReservationRequest request
+            @Valid @RequestBody ReservationRequest request
     ) {
         return ApiResponse.success(
                 reservationService.request(principal.memberId(), request)

@@ -23,8 +23,8 @@ import lombok.NoArgsConstructor;
         name = "reservation_slots",
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_slot_hospital_time",
-                        columnNames = {"hospital_id", "start_at", "end_at"}
+                        name = "uk_slot_hospital_start",
+                        columnNames = {"hospital_id", "start_at"}
                 )
         }
 )

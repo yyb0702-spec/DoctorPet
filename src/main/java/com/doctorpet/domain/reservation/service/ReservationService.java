@@ -4,8 +4,10 @@ import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.lock.ReservationLockStrategy;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
@@ -22,6 +24,7 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
+    private final ReservationLockStrategy reservationLockStrategy;
 
     @Transactional
     public ReservationResponse request(Long memberId, ReservationRequest request) {
@@ -34,7 +37,7 @@ public class ReservationService {
             throw new ServiceException(ReservationErrorCode.LEAD_TIME_VIOLATION);
         }
 
-        slot.reserve();
+        slot = reservationLockStrategy.reserve(request.slotId());
 
         Reservation reservation = Reservation.request(
                 memberId,
@@ -52,6 +55,8 @@ public class ReservationService {
 
     @Transactional
     public void cancel(Long memberId, Long reservationId) {
+        LocalDateTime now = LocalDateTime.now();
+
         Reservation reservation = reservationRepository
                 .findByIdAndMemberId(reservationId, memberId)
                 .orElseThrow(() -> new ServiceException(
@@ -61,11 +66,22 @@ public class ReservationService {
         ReservationSlot slot = reservationSlotRepository.findById(reservation.getSlotId())
                 .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
 
-        if (LocalDateTime.now().isAfter(slot.getStartAt().minusHours(2))) {
+        if (now.isAfter(slot.getStartAt().minusHours(2))) {
             throw new ServiceException(ReservationErrorCode.CANCEL_DEADLINE_PASSED);
         }
 
-        reservation.cancel(LocalDateTime.now());
+        int updated = reservationRepository.cancelIfAllowed(
+                reservationId,
+                memberId,
+                ReservationStatus.REQUESTED,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.CANCELED,
+                now
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+
         slot.open();
     }
 }
