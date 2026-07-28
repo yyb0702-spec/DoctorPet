@@ -35,6 +35,7 @@ repositories {
 ext {
     querydslVersion = '5.1.0'
     jjwtVersion = '0.12.6'
+    proj4jVersion = '1.4.2'
 }
 
 dependencies {
@@ -43,6 +44,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // Hibernate가 LocalTime이 포함된 운영시간을 MySQL JSON으로 변환할 때 사용합니다.
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    // 공공데이터의 투영 좌표를 검색에 사용하는 WGS84 경위도로 변환합니다.
+    implementation "org.locationtech.proj4j:proj4j:${proj4jVersion}"
+    implementation "org.locationtech.proj4j:proj4j-epsg:${proj4jVersion}"
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'com.mysql:mysql-connector-j'
     annotationProcessor 'org.projectlombok:lombok'
