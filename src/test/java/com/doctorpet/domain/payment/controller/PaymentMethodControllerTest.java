@@ -12,7 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.doctorpet.domain.payment.dto.request.PaymentMethodRegisterRequest;
 import com.doctorpet.domain.payment.dto.response.PaymentMethodResponse;
-import com.doctorpet.domain.payment.exception.PaymentErrorCode;
+import com.doctorpet.domain.payment.exception.PaymentMethodErrorCode;
 import com.doctorpet.domain.payment.service.PaymentMethodService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
@@ -103,18 +103,18 @@ class PaymentMethodControllerTest {
     }
 
     @Test
-    @DisplayName("무효한 빌링키면 400과 PAYMENT_001을 반환한다")
+    @DisplayName("무효한 빌링키면 400과 PAYMENT_METHOD_001을 반환한다")
     void register_invalidBillingKey() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
         PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("forged_key");
         given(paymentMethodService.register(eq(MEMBER_ID), any(PaymentMethodRegisterRequest.class)))
-                .willThrow(new ServiceException(PaymentErrorCode.INVALID_BILLING_KEY));
+                .willThrow(new ServiceException(PaymentMethodErrorCode.INVALID_BILLING_KEY));
 
         mockMvc.perform(post("/api/payment-methods")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PAYMENT_001"));
+                .andExpect(jsonPath("$.code").value("PAYMENT_METHOD_001"));
     }
 
     @Test
@@ -159,15 +159,15 @@ class PaymentMethodControllerTest {
     }
 
     @Test
-    @DisplayName("타인 소유·미존재 결제수단 삭제는 404와 PAYMENT_003을 반환한다")
+    @DisplayName("타인 소유·미존재 결제수단 삭제는 404와 PAYMENT_METHOD_003을 반환한다")
     void delete_notFound() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
-        org.mockito.BDDMockito.willThrow(new ServiceException(PaymentErrorCode.PAYMENT_METHOD_NOT_FOUND))
+        org.mockito.BDDMockito.willThrow(new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND))
                 .given(paymentMethodService).delete(MEMBER_ID, 999L);
 
         mockMvc.perform(delete("/api/payment-methods/{id}", 999L))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("PAYMENT_003"));
+                .andExpect(jsonPath("$.code").value("PAYMENT_METHOD_003"));
     }
 
     private Authentication memberAuthentication(Long memberId) {

@@ -4,7 +4,7 @@ import com.doctorpet.domain.payment.dto.request.PaymentMethodRegisterRequest;
 import com.doctorpet.domain.payment.dto.response.PaymentMethodResponse;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentMethodStatus;
-import com.doctorpet.domain.payment.exception.PaymentErrorCode;
+import com.doctorpet.domain.payment.exception.PaymentMethodErrorCode;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.exception.ServiceException;
@@ -36,7 +36,7 @@ public class PaymentMethodService {
     public PaymentMethodResponse register(Long memberId, PaymentMethodRegisterRequest request) {
         BillingKeyIssueResult result = verifyBillingKey(request.billingKey());
         if (!result.valid()) {
-            throw new ServiceException(PaymentErrorCode.INVALID_BILLING_KEY);
+            throw new ServiceException(PaymentMethodErrorCode.INVALID_BILLING_KEY);
         }
 
         String billingKeyEnc = billingKeyCryptor.encrypt(request.billingKey());
@@ -62,7 +62,7 @@ public class PaymentMethodService {
     public void delete(Long memberId, Long paymentMethodId) {
         PaymentMethod paymentMethod = paymentMethodRepository
                 .findByIdAndMemberId(paymentMethodId, memberId)
-                .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_METHOD_NOT_FOUND));
+                .orElseThrow(() -> new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND));
         paymentMethod.markDeleted();
     }
 
@@ -71,7 +71,7 @@ public class PaymentMethodService {
             return paymentGateway.verifyBillingKey(billingKey);
         } catch (PaymentGatewayException e) {
             // 원문 빌링키를 로그·예외 메시지에 남기지 않는다(AGENTS 보안).
-            throw new ServiceException(PaymentErrorCode.BILLING_KEY_VERIFICATION_FAILED);
+            throw new ServiceException(PaymentMethodErrorCode.BILLING_KEY_VERIFICATION_FAILED);
         }
     }
 }

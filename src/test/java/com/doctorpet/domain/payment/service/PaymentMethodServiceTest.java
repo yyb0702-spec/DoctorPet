@@ -13,7 +13,7 @@ import com.doctorpet.domain.payment.dto.request.PaymentMethodRegisterRequest;
 import com.doctorpet.domain.payment.dto.response.PaymentMethodResponse;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentMethodStatus;
-import com.doctorpet.domain.payment.exception.PaymentErrorCode;
+import com.doctorpet.domain.payment.exception.PaymentMethodErrorCode;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.exception.ServiceException;
@@ -101,7 +101,7 @@ class PaymentMethodServiceTest {
         assertThatThrownBy(() -> paymentMethodService.register(MEMBER_ID, request))
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
-                .isEqualTo(PaymentErrorCode.INVALID_BILLING_KEY);
+                .isEqualTo(PaymentMethodErrorCode.INVALID_BILLING_KEY);
 
         verify(billingKeyCryptor, never()).encrypt(anyString());
         verify(paymentMethodRepository, never()).save(any());
@@ -117,7 +117,7 @@ class PaymentMethodServiceTest {
         assertThatThrownBy(() -> paymentMethodService.register(MEMBER_ID, request))
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
-                .isEqualTo(PaymentErrorCode.BILLING_KEY_VERIFICATION_FAILED);
+                .isEqualTo(PaymentMethodErrorCode.BILLING_KEY_VERIFICATION_FAILED);
 
         verify(paymentMethodRepository, never()).save(any());
     }
@@ -174,6 +174,6 @@ class PaymentMethodServiceTest {
         assertThatThrownBy(() -> paymentMethodService.delete(MEMBER_ID, 99L))
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
-                .isEqualTo(PaymentErrorCode.PAYMENT_METHOD_NOT_FOUND);
+                .isEqualTo(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND);
     }
 }
