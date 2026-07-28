@@ -510,13 +510,14 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | --- | --- | --- | --- |
 | 결제수단 등록 | POST | /api/payment-methods | 보호자 |
 | 결제수단 조회 | GET | /api/payment-methods | 보호자 |
+| 결제수단 삭제 | DELETE | /api/payment-methods/{paymentMethodId} | 보호자(본인) |
 | 진료비 청구 | POST | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
 | 결제 내역 조회 | GET | /api/reservations/{reservationId}/payments | 보호자(본인) |
 | 결제 내역 조회(병원) | GET | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
 | 오프라인 정산 | PATCH | /api/hospital/payments/{paymentId}/offline-settle | 병원 스태프(자병원) |
 | 결제 웹훅(확장) | POST | /api/payments/webhook | 서명 검증 |
 
-결제수단 등록은 카드 인증 후 빌링키를 발급·암호화 저장한다(금액 이동 없음). 진료비 청구 `{ amount }`는 0 초과 & 절대 상한 이하만 허용(위반 시 `INVALID_AMOUNT` 400)하고, 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다.
+결제수단 등록은 카드 인증 후 빌링키를 발급·암호화 저장한다(금액 이동 없음). 조회·삭제는 본인 소유만 대상이며, 삭제는 물리 삭제가 아니라 소프트 삭제(`status=DELETED`)로 처리해 청구 이력·FK를 보존한다(§4-2). MVP는 동일 회원의 결제수단 중복 등록을 허용하고(빌링키는 IV가 매번 다른 암호문으로 저장돼 값 비교가 무의미하며, 청구는 예약에 확정된 결제수단으로만 하므로 중복 자체가 청구를 왜곡하지 않는다), 기본 결제수단 개념(`is_default`)은 두지 않는다(청구 시점에 사용할 결제수단을 명시 선택하므로 불필요). 진료비 청구 `{ amount }`는 0 초과 & 절대 상한 이하만 허용(위반 시 `INVALID_AMOUNT` 400)하고, 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다.
 
 ### 8-8. 알림
 
