@@ -17,11 +17,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -31,6 +33,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
@@ -106,6 +109,121 @@ class HospitalServiceTest {
 
         HospitalDetailResponse response =
                 hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.openNow()).isFalse();
+    }
+
+    @Test
+    void 자정_이후에는_전날의_심야영업_시간을_확인한다() {
+        LocalDateTime tuesdayAtOne =
+                LocalDateTime.of(2026, 7, 28, 1, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+
+        HospitalDetailResponse response =
+                getHospitalDetailAt(tuesdayAtOne);
+
+        assertThat(response.openNow()).isTrue();
+    }
+
+    @Test
+    void 자정_이후에는_아직_시작하지_않은_오늘의_심야영업을_적용하지_않는다() {
+        LocalDateTime tuesdayAtOne =
+                LocalDateTime.of(2026, 7, 28, 1, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.TUESDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+
+        HospitalDetailResponse response =
+                getHospitalDetailAt(tuesdayAtOne);
+
+        assertThat(response.openNow()).isFalse();
+    }
+
+    @Test
+    void 심야영업은_시작_시각부터_영업중이다() {
+        LocalDateTime mondayAtTwenty =
+                LocalDateTime.of(2026, 7, 27, 20, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+
+        HospitalDetailResponse response =
+                getHospitalDetailAt(mondayAtTwenty);
+
+        assertThat(response.openNow()).isTrue();
+    }
+
+    @Test
+    void 심야영업은_종료_시각부터_영업종료다() {
+        LocalDateTime tuesdayAtTwo =
+                LocalDateTime.of(2026, 7, 28, 2, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+
+        HospitalDetailResponse response =
+                getHospitalDetailAt(tuesdayAtTwo);
+
+        assertThat(response.openNow()).isFalse();
+    }
+
+    @Test
+    void 시작과_종료_시각이_같으면_영업중이_아니다() {
+        LocalDateTime mondayAtNoon =
+                LocalDateTime.of(2026, 7, 27, 12, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(9, 0),
+                                LocalTime.of(9, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+
+        HospitalDetailResponse response =
+                getHospitalDetailAt(mondayAtNoon);
 
         assertThat(response.openNow()).isFalse();
     }
@@ -192,7 +310,7 @@ class HospitalServiceTest {
     }
 
     private HospitalDetail createDetail(Hospital hospital) {
-        return HospitalDetail.create(
+        return createDetail(
                 hospital,
                 Map.of(
                         LocalDate.now(SEOUL_ZONE_ID).getDayOfWeek(),
@@ -200,11 +318,44 @@ class HospitalServiceTest {
                                 LocalTime.MIN,
                                 LocalTime.MAX
                         )
-                ),
+                )
+        );
+    }
+
+    private HospitalDetail createDetail(
+            Hospital hospital,
+            Map<DayOfWeek, DailyOperatingHours> openHours
+    ) {
+        return HospitalDetail.create(
+                hospital,
+                openHours,
                 true,
                 true,
                 false,
                 false
         );
+    }
+
+    private void givenPartnerHospital(
+            Hospital hospital,
+            HospitalDetail detail
+    ) {
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+        given(hospitalDetailRepository.findByHospital(hospital))
+                .willReturn(Optional.of(detail));
+        given(hospitalCapabilityRepository.findAllByHospital(hospital))
+                .willReturn(List.of());
+    }
+
+    private HospitalDetailResponse getHospitalDetailAt(
+            LocalDateTime dateTime
+    ) {
+        try (MockedStatic<LocalDateTime> mockedDateTime =
+                     mockStatic(LocalDateTime.class)) {
+            mockedDateTime.when(() -> LocalDateTime.now(SEOUL_ZONE_ID))
+                    .thenReturn(dateTime);
+            return hospitalService.getHospitalDetail(HOSPITAL_ID);
+        }
     }
 }
