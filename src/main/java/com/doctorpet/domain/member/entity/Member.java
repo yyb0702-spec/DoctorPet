@@ -9,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -22,7 +23,13 @@ import org.hibernate.annotations.SQLRestriction;
  */
 @Getter
 @Entity
-@Table(name = "members")
+@Table(
+        name = "members",
+        // 이름을 명시하지 않으면 Hibernate가 버전에 따라 다른 이름을 생성해 DB 오류 메시지에서
+        // 제약을 식별하기 어렵다. GlobalExceptionHandler가 이 이름 대신 벤더 오류 코드(MySQL 1062)로
+        // 중복 여부를 판별하긴 하지만, 제약 자체는 이름을 고정해두는 편이 디버깅에 유리하다.
+        uniqueConstraints = @UniqueConstraint(name = "uk_members_email", columnNames = "email")
+)
 @SQLRestriction("deleted_at is null")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Member extends BaseEntity {
@@ -31,7 +38,7 @@ public class Member extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String email;
 
     @Column(nullable = false)

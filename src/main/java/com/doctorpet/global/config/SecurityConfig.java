@@ -45,6 +45,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/hospitals/**").permitAll()
                         // AI 상담 - 공개, 비로그인 임시 상담 허용 (API 명세서 §4)
                         .requestMatchers(HttpMethod.POST, "/api/ai/consultations").permitAll()
+                        // 결제수단 등록·조회·삭제 - 보호자 전용 (이슈 #33)
+                        .requestMatchers("/api/payment-methods/**").hasRole("GUARDIAN")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handler -> handler

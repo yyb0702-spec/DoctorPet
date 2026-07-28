@@ -33,7 +33,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
 
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+        // Access Token만 인증에 사용한다. Refresh Token은 만료 시간 외 클레임 구조가 같아
+        // tokenType을 확인하지 않으면 보호 API의 인증 토큰으로도 통과할 수 있다.
+        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)
+                && jwtTokenProvider.getTokenType(token) == TokenType.ACCESS) {
             MemberPrincipal principal = jwtTokenProvider.getMemberPrincipal(token);
 
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

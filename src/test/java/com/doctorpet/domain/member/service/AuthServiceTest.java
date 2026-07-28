@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -22,6 +23,8 @@ import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberPrincipal;
+import com.doctorpet.global.security.TokenType;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -30,6 +33,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -83,13 +87,51 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("existsByEmail 사전 체크 이후 경쟁 상태로 이메일 UNIQUE 제약에 걸려도, 사전 체크와 같은 DUPLICATE_EMAIL로 응답한다")
+    void signup_duplicateEmailRaceCondition_mapsToSameErrorAsPrecheck() {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        given(memberRepository.existsByEmail(request.email())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(memberRepository.save(any(Member.class)))
+                .willThrow(new DataIntegrityViolationException(
+                        "could not execute statement",
+                        new SQLIntegrityConstraintViolationException(
+                                "Duplicate entry 'guardian@example.com' for key 'members.uk_members_email'",
+                                "23000",
+                                1062)
+                ));
+
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.DUPLICATE_EMAIL));
+    }
+
+    @Test
+    @DisplayName("이메일 제약이 아닌 다른 무결성 위반이면 도메인 에러로 바꾸지 않고 그대로 전파한다")
+    void signup_otherIntegrityViolation_propagatesAsIs() {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        DataIntegrityViolationException otherViolation = new DataIntegrityViolationException(
+                "could not execute statement",
+                new SQLIntegrityConstraintViolationException(
+                        "Column 'nickname' cannot be null", "23000", 1048)
+        );
+        given(memberRepository.existsByEmail(request.email())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(memberRepository.save(any(Member.class))).willThrow(otherViolation);
+
+        assertThatThrownBy(() -> authService.signup(request))
+                .isSameAs(otherViolation);
+    }
+
+    @Test
     @DisplayName("이메일·비밀번호가 맞으면 토큰을 발급하고 Redis에 Refresh Token을 저장한다")
     void login_success() {
         LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
 
-        given(memberRepository.findByEmail(request.email())).willReturn(Optional.of(member));
+        given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
         given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(true);
         given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("access-token");
         given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("refresh-token");
@@ -107,7 +149,7 @@ class AuthServiceTest {
     @DisplayName("가입되지 않은 이메일이면 INVALID_CREDENTIALS 예외를 던진다(계정 존재 여부 노출 방지)")
     void login_emailNotFound() {
         LoginRequest request = new LoginRequest("unknown@example.com", "password1234");
-        given(memberRepository.findByEmail(request.email())).willReturn(Optional.empty());
+        given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(ServiceException.class)
@@ -122,7 +164,7 @@ class AuthServiceTest {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
 
-        given(memberRepository.findByEmail(request.email())).willReturn(Optional.of(member));
+        given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
         given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(false);
 
         assertThatThrownBy(() -> authService.login(request))
@@ -143,7 +185,7 @@ class AuthServiceTest {
             member.recordLoginFailure(java.time.LocalDateTime.now());
         }
 
-        given(memberRepository.findByEmail(request.email())).willReturn(Optional.of(member));
+        given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
 
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(ServiceException.class)
@@ -153,27 +195,32 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Redis에 저장된 값과 일치하는 Refresh Token이면 새 토큰 쌍을 발급하고 Redis 값을 덮어쓴다(회전)")
+    @DisplayName("Redis에 저장된 값과 일치하는 Refresh Token이면 새 토큰 쌍을 발급하고 Redis 값을 원자적으로 교체한다(회전)")
     void reissue_success() {
         ReissueRequest request = new ReissueRequest("old-refresh-token");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
 
         given(jwtTokenProvider.validateToken("old-refresh-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("old-refresh-token")).willReturn(TokenType.REFRESH);
         given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
                 .willReturn(new MemberPrincipal(1L, member.getEmail(), "GUARDIAN"));
-        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("old-refresh-token"));
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
         given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
         given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
         given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
+        given(refreshTokenRepository.rotateIfMatches(
+                1L, "old-refresh-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
+        )).willReturn(true);
 
         LoginResponse response = authService.reissue(request);
 
         assertThat(response.accessToken()).isEqualTo("new-access-token");
         assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
-        verify(refreshTokenRepository).save(1L, "new-refresh-token", Duration.ofMillis(1_209_600_000L));
         verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
+        // 성공하든 실패하든 락은 항상(finally) 해제돼야 한다.
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
     }
 
     @Test
@@ -189,35 +236,73 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Redis에 저장된 값과 다르면(이미 회전된 토큰 재사용) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
-    void reissue_tokenReused() {
-        ReissueRequest request = new ReissueRequest("already-rotated-token");
-        given(jwtTokenProvider.validateToken("already-rotated-token")).willReturn(true);
-        given(jwtTokenProvider.getMemberPrincipal("already-rotated-token"))
-                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
-        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("current-valid-token"));
+    @DisplayName("Access Token으로 재발급을 시도하면 INVALID_REFRESH_TOKEN 예외를 던진다(용도 구분)")
+    void reissue_accessTokenRejected() {
+        ReissueRequest request = new ReissueRequest("some-access-token");
+        given(jwtTokenProvider.validateToken("some-access-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("some-access-token")).willReturn(TokenType.ACCESS);
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
-                        .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
-        verify(refreshTokenRepository).deleteByMemberId(1L);
+                        .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
+        verify(memberRepository, never()).findById(anyLong());
     }
 
     @Test
-    @DisplayName("Redis에 저장된 값이 아예 없으면(만료·로그아웃 등) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
-    void reissue_noStoredToken() {
-        ReissueRequest request = new ReissueRequest("some-token");
-        given(jwtTokenProvider.validateToken("some-token")).willReturn(true);
-        given(jwtTokenProvider.getMemberPrincipal("some-token"))
-                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
-        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.empty());
+    @DisplayName("Redis 원자 교체가 실패하면(이미 회전된 토큰 재사용) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
+    void reissue_tokenReused() {
+        ReissueRequest request = new ReissueRequest("already-rotated-token");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+
+        given(jwtTokenProvider.validateToken("already-rotated-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("already-rotated-token")).willReturn(TokenType.REFRESH);
+        given(jwtTokenProvider.getMemberPrincipal("already-rotated-token"))
+                .willReturn(new MemberPrincipal(1L, member.getEmail(), "GUARDIAN"));
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
+        given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
+        given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
+        given(refreshTokenRepository.rotateIfMatches(
+                1L, "already-rotated-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
+        )).willReturn(false);
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
         verify(refreshTokenRepository).deleteByMemberId(1L);
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
+    }
+
+    @Test
+    @DisplayName("같은 회원에 대한 다른 재발급 요청이 이미 처리 중(락 선점)이면, CAS를 시도하지도 않고 REISSUE_IN_PROGRESS 예외를 던진다")
+    void reissue_lockNotAcquired_throwsReissueInProgress() {
+        // 리뷰 대응: 이전에는 CAS 실패를 5초 유예 창으로 "동시 중복 요청"과 "진짜 재사용"을
+        // 구분했는데, 그 창 안에서는 진짜 탈취 토큰 재사용도 놓칠 수 있어 보안 약화로 지적됐다.
+        // 지금은 같은 회원의 재발급을 락으로 아예 직렬화해서, 동시 요청 중 락을 못 얻은 쪽은
+        // CAS 단계까지 가지도 않고 즉시 실패한다 — 세션 상태를 전혀 건드리지 않는다.
+        ReissueRequest request = new ReissueRequest("old-refresh-token");
+
+        given(jwtTokenProvider.validateToken("old-refresh-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("old-refresh-token")).willReturn(TokenType.REFRESH);
+        given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(false);
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.REISSUE_IN_PROGRESS));
+
+        // 핵심 회귀 검증: 락을 못 얻었으면 회원 조회·토큰 발급·CAS·세션 삭제 중 아무것도 하지 않는다.
+        verify(memberRepository, never()).findById(anyLong());
+        verify(refreshTokenRepository, never()).rotateIfMatches(anyLong(), anyString(), anyString(), any(Duration.class));
+        verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
+        // 락을 애초에 얻지 못했으므로 해제할 필요도, 호출도 없다.
+        verify(refreshTokenRepository, never()).unlock(anyLong(), anyString());
     }
 
     @Test
@@ -225,15 +310,18 @@ class AuthServiceTest {
     void reissue_memberNotFound() {
         ReissueRequest request = new ReissueRequest("valid-token");
         given(jwtTokenProvider.validateToken("valid-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("valid-token")).willReturn(TokenType.REFRESH);
         given(jwtTokenProvider.getMemberPrincipal("valid-token"))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
-        given(refreshTokenRepository.findByMemberId(1L)).willReturn(Optional.of("valid-token"));
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_REFRESH_TOKEN));
+        // 회원 조회 단계에서 실패해도 락은 finally에서 반드시 해제돼야 한다.
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
     }
 
     @Test

@@ -18,8 +18,10 @@ public enum MemberErrorCode implements ErrorCode {
     // 토큰 서명은 유효하지만 Redis 화이트리스트와 일치하지 않는 경우 — 이미 회전(rotate)되어 폐기된 토큰의
     // 재사용으로 간주하고 세션 전체를 무효화한다(SA §6-1 재사용 감지, A 도메인 결정 #6).
     REFRESH_TOKEN_REUSED(HttpStatus.UNAUTHORIZED, "MEMBER_005", "이미 사용된 토큰입니다. 다시 로그인해주세요."),
-    // Access Token은 유효하지만(만료 전) 그 사이 탈퇴 등으로 회원이 존재하지 않는 좁은 race condition 대비.
-    MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "MEMBER_006", "존재하지 않는 회원입니다.");
+    // 주의: MEMBER_006은 feature/member 브랜치에서 MEMBER_NOT_FOUND로 이미 쓰고 있어 여기서는 007부터 잇는다.
+    // 같은 회원의 재발급 요청이 이미 처리 중일 때(회원당 재발급 직렬화 락, 리뷰 지적 대응) — 클라이언트가
+    // 잠시 후 다시 시도하면 되는 일시적 상태라 재로그인이 필요한 401 계열과 구분해 409로 응답한다.
+    REISSUE_IN_PROGRESS(HttpStatus.CONFLICT, "MEMBER_007", "다른 재발급 요청이 처리 중입니다. 잠시 후 다시 시도해주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

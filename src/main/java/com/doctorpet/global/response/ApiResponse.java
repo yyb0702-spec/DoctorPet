@@ -14,8 +14,8 @@ public record ApiResponse<T>(
         return new ApiResponse<>("SUCCESS", DEFAULT_SUCCESS_MESSAGE, data);
     }
 
-    public static <T> ApiResponse<T> success(String message, T data) {
-        return new ApiResponse<>("SUCCESS", message, data);
+    public static ApiResponse<Void> success() {
+        return new ApiResponse<>("SUCCESS", DEFAULT_SUCCESS_MESSAGE, null);
     }
 
     public static ApiResponse<Void> error(ErrorCode errorCode) {
