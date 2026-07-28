@@ -1,7 +1,10 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
@@ -11,17 +14,24 @@ import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
+import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 @Slf4j
 @Service
@@ -67,6 +77,295 @@ public class HospitalService {
                 capabilities,
                 calculateOpenNow(hospital, detail)
         );
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalSearchPageResponse hospitalSearch(
+            String keyword,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            List<String> capabilities,
+            boolean partnerOnly,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
+    ) {
+        // 위치 조건은 위도·경도가 함께 있어야 하며, 반경은 좌표가 있을 때만 사용할 수 있습니다.
+        validateLocationCondition(latitude, longitude, radiusKm);
+
+        // 정렬값을 소문자로 통일하고 name·distance 이외의 값은 거부합니다.
+        String normalizedSort = normalizeSort(sort, latitude, longitude);
+
+        // Service에서 검증·변환한 검색 조건만 Repository에 전달합니다.
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                keyword,
+                latitude,
+                longitude,
+                radiusKm,
+                parseCapabilities(capabilities),
+                partnerOnly
+        );
+
+        /*
+         * Repository는 폐업·키워드·제휴·역량·좌표 사각형 조건으로 후보 병원을 조회합니다.
+         * Service는 후보마다 정확한 거리와 현재 영업 여부를 계산한 뒤,
+         * 원형 반경·영업 중 조건을 다시 적용하고 요청 기준으로 정렬합니다.
+         */
+        List<HospitalSearchResponse> searchedHospitals =
+                hospitalRepository.search(condition).stream()
+                        .map(candidate -> toSearchResponse(
+                                candidate,
+                                latitude,
+                                longitude
+                        ))
+                        .filter(response ->
+                                isWithinRadius(response, radiusKm))
+                        .filter(response ->
+                                !openNowOnly || Boolean.TRUE.equals(
+                                        response.openNow()
+                                ))
+                        .sorted(resolveSearchComparator(normalizedSort))
+                        .toList();
+
+        long totalElements = searchedHospitals.size();
+        int totalPages = calculateTotalPages(totalElements, size);
+
+        // 검색 결과가 없을 때는 1페이지만 허용하고, 그 외에는 마지막 페이지 초과 요청을 거부합니다.
+        validatePageRange(page, totalPages);
+
+        // 외부 페이지는 1부터 시작하지만 List 인덱스는 0부터 시작하므로 시작 위치를 변환합니다.
+        int fromIndex = (page - 1) * size;
+
+        // 마지막 페이지는 size보다 데이터가 적을 수 있으므로 목록 크기를 넘지 않게 제한합니다.
+        int toIndex = Math.min(
+                fromIndex + size,
+                searchedHospitals.size()
+        );
+
+        return HospitalSearchPageResponse.of(
+                searchedHospitals.subList(fromIndex, toIndex),
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private int calculateTotalPages(
+            long totalElements,
+            int size
+    ) {
+        // 데이터가 한 건이라도 남으면 별도 페이지가 필요하므로 나눗셈 결과를 올림합니다.
+        return totalElements == 0
+                ? 0
+                : (int) Math.ceil((double) totalElements / size);
+    }
+
+    private void validatePageRange(
+            int page,
+            int totalPages
+    ) {
+        // 결과가 없는 1페이지는 정상 빈 응답이고, 2페이지부터는 범위를 벗어난 요청입니다.
+        boolean pageOutOfRange = page > 1
+                && (totalPages == 0 || page > totalPages);
+
+        if (pageOutOfRange) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private List<CapabilityValue> parseCapabilities(
+            List<String> capabilities
+    ) {
+        if (capabilities == null || capabilities.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            // 대소문자와 앞뒤 공백을 정리한 뒤 문자열을 CapabilityValue enum으로 변환합니다.
+            return capabilities.stream()
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .map(value -> CapabilityValue.valueOf(
+                            value.toUpperCase(Locale.ROOT)
+                    ))
+                    .distinct()
+                    .toList();
+        } catch (IllegalArgumentException exception) {
+            // enum에 존재하지 않는 역량 문자열은 잘못된 검색 조건으로 처리합니다.
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private HospitalSearchResponse toSearchResponse(
+            HospitalSearchCandidate candidate,
+            BigDecimal latitude,
+            BigDecimal longitude
+    ) {
+        Hospital hospital = candidate.hospital();
+        HospitalDetail detail = candidate.detail();
+
+        // 비제휴 병원은 운영시간 데이터가 없으므로 현재 영업 여부를 null로 반환합니다.
+        Boolean openNow = null;
+        if (hospital.getPartnershipStatus() == PartnershipStatus.PARTNER) {
+            openNow = detail != null
+                    && calculateOpenNow(hospital, detail);
+        }
+
+        return HospitalSearchResponse.from(
+                hospital,
+                calculateDistanceKm(
+                        latitude,
+                        longitude,
+                        hospital.getCoordY(),
+                        hospital.getCoordX()
+                ),
+                openNow
+        );
+    }
+
+    private void validateLocationCondition(
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm
+    ) {
+        boolean hasLatitude = latitude != null;
+        boolean hasLongitude = longitude != null;
+
+        // 위도·경도 중 하나만 있거나, 기준 좌표 없이 반경만 있으면 거리를 계산할 수 없습니다.
+        if (hasLatitude != hasLongitude
+                || (radiusKm != null && !hasLatitude)) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private String normalizeSort(
+            String sort,
+            BigDecimal latitude,
+            BigDecimal longitude
+    ) {
+        String normalizedSort = sort == null
+                ? "name"
+                : sort.trim().toLowerCase(Locale.ROOT);
+
+        // 검색 API가 지원하는 정렬 기준만 허용합니다.
+        if (!normalizedSort.equals("name")
+                && !normalizedSort.equals("distance")) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+
+        // 거리순 정렬은 사용자 위치가 있어야 병원별 거리를 계산할 수 있습니다.
+        if (normalizedSort.equals("distance")
+                && (latitude == null || longitude == null)) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+
+        return normalizedSort;
+    }
+
+    private boolean isWithinRadius(
+            HospitalSearchResponse response,
+            BigDecimal radiusKm
+    ) {
+        // 반경 조건이 없으면 거리와 관계없이 모든 병원을 통과시킵니다.
+        if (radiusKm == null) {
+            return true;
+        }
+
+        // 반경 조건이 있으면 거리를 계산할 수 있고, 병원 거리가 반경 이하인 경우만 포함합니다.
+        return response.distanceKm() != null
+                && response.distanceKm().compareTo(radiusKm) <= 0;
+    }
+
+    private Comparator<HospitalSearchResponse> resolveSearchComparator(
+            String sort
+    ) {
+        // 같은 이름의 병원도 항상 일정한 순서로 나오도록 hospitalId를 보조 정렬 기준으로 사용합니다.
+        Comparator<HospitalSearchResponse> nameComparator =
+                Comparator.comparing(
+                                HospitalSearchResponse::name,
+                                Comparator.nullsLast(
+                                        String.CASE_INSENSITIVE_ORDER
+                                )
+                        )
+                        .thenComparing(
+                                HospitalSearchResponse::hospitalId
+                        );
+
+        if (sort.equals("distance")) {
+            // 거리가 같으면 이름과 ID 순서로 정렬해 결과 순서를 고정합니다.
+            return Comparator.comparing(
+                            HospitalSearchResponse::distanceKm,
+                            Comparator.nullsLast(
+                                    Comparator.naturalOrder()
+                            )
+                    )
+                    .thenComparing(nameComparator);
+        }
+
+        return nameComparator;
+    }
+
+    private BigDecimal calculateDistanceKm(
+            BigDecimal userLatitude,
+            BigDecimal userLongitude,
+            BigDecimal hospitalLatitude,
+            BigDecimal hospitalLongitude
+    ) {
+        if (userLatitude == null
+                || userLongitude == null
+                || hospitalLatitude == null
+                || hospitalLongitude == null) {
+            return null;
+        }
+
+        // 하버사인 공식으로 지구 표면을 따른 두 좌표 사이의 직선거리를 계산합니다.
+        final double earthRadiusKm = 6371.0088;
+        double latitudeDistance = Math.toRadians(
+                hospitalLatitude.doubleValue()
+                        - userLatitude.doubleValue()
+        );
+        double longitudeDistance = Math.toRadians(
+                hospitalLongitude.doubleValue()
+                        - userLongitude.doubleValue()
+        );
+        double userLatitudeRadians = Math.toRadians(
+                userLatitude.doubleValue()
+        );
+        double hospitalLatitudeRadians = Math.toRadians(
+                hospitalLatitude.doubleValue()
+        );
+
+        double haversine =
+                Math.sin(latitudeDistance / 2)
+                        * Math.sin(latitudeDistance / 2)
+                        + Math.cos(userLatitudeRadians)
+                        * Math.cos(hospitalLatitudeRadians)
+                        * Math.sin(longitudeDistance / 2)
+                        * Math.sin(longitudeDistance / 2);
+
+        double distance = earthRadiusKm
+                * 2
+                * Math.atan2(
+                        Math.sqrt(haversine),
+                        Math.sqrt(1 - haversine)
+                );
+
+        // 검색 목록에서는 읽기 쉽도록 km 단위 소수점 첫째 자리까지 반올림합니다.
+        return BigDecimal.valueOf(distance)
+                .setScale(1, RoundingMode.HALF_UP);
     }
 
     private boolean calculateOpenNow(
