@@ -8,6 +8,7 @@ import com.doctorpet.domain.pet.exception.PetErrorCode;
 import com.doctorpet.domain.pet.repository.PetProfileRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -92,5 +93,23 @@ public class PetService {
         );
 
         return PetResponse.from(petProfile);
+    }
+
+    /*
+      반려동물 프로필 삭제. SA §8-2 — "보호자(본인)"만 삭제 가능하다. 존재 여부·소유권
+      판단은 getPet()·update()와 동일한 원칙을 따른다(PET_NOT_FOUND 404 / FORBIDDEN 403 구분).
+      물리 삭제가 아닌 Soft Delete이며, 진행 중 예약이 참조하더라도 삭제를 허용한다
+      (PaymentMethod 삭제 정책 SA §4-2와 동일한 원칙 — 과거 이력은 스냅샷으로 보존).
+     */
+    @Transactional
+    public void delete(Long memberId, Long petId) {
+        PetProfile petProfile = petProfileRepository.findById(petId)
+                .orElseThrow(() -> new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        if (!petProfile.getMemberId().equals(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+
+        petProfile.markDeleted(LocalDateTime.now());
     }
 }
