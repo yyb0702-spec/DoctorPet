@@ -15,3 +15,16 @@ spring:
 logging:
   level:
     org.hibernate.SQL: debug
+
+# 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
+public-data:
+  animal-hospital:
+    base-url: https://apis.data.go.kr/1741000/animal_hospitals
+    service-key: ${PUBLIC_DATA_SERVICE_KEY:}
+    seed-enabled: ${PUBLIC_DATA_SEED_ENABLED:false}
+    page-size: 100
+    connect-timeout: 3s
+    read-timeout: 10s
+    source-crs: EPSG:5174
+    local-government-codes:
+      - "3130000"
