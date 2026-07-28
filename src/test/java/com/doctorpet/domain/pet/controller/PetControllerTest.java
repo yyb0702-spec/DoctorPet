@@ -4,6 +4,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -346,6 +349,38 @@ class PetControllerTest {
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
+    @DisplayName("삭제 성공 시 204를 반환한다")
+    void deletePet_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        doNothing().when(petService).delete(1L, 10L);
+
+        mockMvc.perform(delete("/api/pets/{petId}", 10L))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId를 삭제하면 404와 PET_001을 반환한다")
+    void deletePet_notFound() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        doThrow(new ServiceException(PetErrorCode.PET_NOT_FOUND)).when(petService).delete(1L, 999L);
+
+        mockMvc.perform(delete("/api/pets/{petId}", 999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PET_001"));
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물을 삭제하면 403과 COMMON_003을 반환한다")
+    void deletePet_notOwner_returnsForbidden() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        doThrow(new ServiceException(CommonErrorCode.FORBIDDEN)).when(petService).delete(1L, 10L);
+
+        mockMvc.perform(delete("/api/pets/{petId}", 10L))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_003"));
     }

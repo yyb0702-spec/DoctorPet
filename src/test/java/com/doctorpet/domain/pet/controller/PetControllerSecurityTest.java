@@ -3,6 +3,8 @@ package com.doctorpet.domain.pet.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doNothing;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -167,5 +169,27 @@ class PetControllerSecurityTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.petId").value(10));
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 삭제하면 401을 반환한다 — /api/pets/{petId} DELETE가 실수로 permitAll이 되면 이 테스트가 잡는다")
+    void deletePet_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
+        mockMvc.perform(delete("/api/pets/{petId}", 10L))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
+    }
+
+    @Test
+    @DisplayName("유효한 Access Token으로 삭제하면 204를 반환한다")
+    void deletePet_withValidToken_returnsNoContent() throws Exception {
+        String accessToken = "valid-access-token";
+        given(jwtTokenProvider.validateToken(accessToken)).willReturn(true);
+        given(jwtTokenProvider.getTokenType(accessToken)).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal(accessToken))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        doNothing().when(petService).delete(1L, 10L);
+
+        mockMvc.perform(delete("/api/pets/{petId}", 10L).header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
     }
 }

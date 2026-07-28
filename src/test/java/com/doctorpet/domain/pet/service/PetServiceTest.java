@@ -156,6 +156,43 @@ class PetServiceTest {
                 .isEqualTo(CommonErrorCode.FORBIDDEN);
     }
 
+    @Test
+    @DisplayName("삭제 성공 시 프로필의 deletedAt이 채워진다(Soft Delete)")
+    void delete_success() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+
+        petService.delete(1L, 10L);
+
+        assertThat(petProfile.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId를 삭제하면 PET_NOT_FOUND를 던진다")
+    void delete_notFound() {
+        given(petProfileRepository.findById(999L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> petService.delete(1L, 999L))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(PetErrorCode.PET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물을 삭제하면 FORBIDDEN을 던지고 삭제되지 않는다")
+    void delete_notOwner_returnsForbidden() {
+        PetProfile petProfile = PetProfile.create(2L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+
+        assertThatThrownBy(() -> petService.delete(1L, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(CommonErrorCode.FORBIDDEN);
+        assertThat(petProfile.getDeletedAt()).isNull();
+    }
+
     private void setId(PetProfile petProfile, Long id) {
         try {
             var field = PetProfile.class.getDeclaredField("id");
