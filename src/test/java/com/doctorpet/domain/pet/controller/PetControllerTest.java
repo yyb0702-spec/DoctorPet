@@ -1,11 +1,13 @@
 package com.doctorpet.domain.pet.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -31,6 +33,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -309,16 +312,68 @@ class PetControllerTest {
     }
 
     @Test
-    @DisplayName("수정 시 중성화 여부가 없으면 400과 COMMON_001을 반환한다")
-    void update_missingNeutered() throws Exception {
+    @DisplayName("수정 시 중성화 여부를 생략하면(부분 수정) 400이 아니라 200으로 통과한다")
+    void update_missingNeutered_isAcceptedAsPartialUpdate() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
         String body = """
                 {"name":"초코","species":"DOG","age":4,"weight":6.0}
                 """;
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), true);
+        given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class))).willReturn(response);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("수정 시 weight만 보낸 부분 수정 요청도 200으로 통과하고, 생략한 필드는 null로 전달된다")
+    void update_partialBody_onlyWeight_isAccepted() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        String body = """
+                {"weight":6.0}
+                """;
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("6.0"), true);
+        given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class))).willReturn(response);
+        ArgumentCaptor<PetUpdateRequest> captor = ArgumentCaptor.forClass(PetUpdateRequest.class);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
+
+        verify(petService).update(eq(1L), eq(10L), captor.capture());
+        assertThat(captor.getValue().name()).isNull();
+        assertThat(captor.getValue().species()).isNull();
+        assertThat(captor.getValue().age()).isNull();
+        assertThat(captor.getValue().weight()).isEqualByComparingTo("6.0");
+        assertThat(captor.getValue().neutered()).isNull();
+    }
+
+    @Test
+    @DisplayName("등록 시 weight의 정수 자리가 3자리를 초과하면 400과 COMMON_001을 반환한다")
+    void register_weightTooManyIntegerDigits() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetCreateRequest request = new PetCreateRequest(
+                "초코", PetSpecies.DOG, 3, new BigDecimal("1234.5"), true);
+
+        mockMvc.perform(post("/api/pets")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("수정 시 weight의 소수 자리가 2자리를 초과하면 400과 COMMON_001을 반환한다")
+    void update_weightTooManyFractionDigits() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetUpdateRequest request = new PetUpdateRequest(null, null, null, new BigDecimal("6.123"), null);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
     }

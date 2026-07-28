@@ -87,4 +87,18 @@ class PetProfileDdlIntegrationTest {
         assertThat(petProfileRepository.findById(petId)).isEmpty();
         assertThat(petProfileRepository.findAllByMemberIdOrderByIdAsc(MEMBER_ID)).isEmpty();
     }
+
+    @Test
+    @DisplayName("weight 컬럼은 DECIMAL(5,2) 정밀도 그대로 저장·조회된다(정수 3자리·소수 2자리 경계값)")
+    void weightColumn_persistsAtDeclaredPrecisionAndScale() {
+        PetProfile saved = petProfileRepository.saveAndFlush(
+                PetProfile.create(MEMBER_ID, "초코", PetSpecies.DOG, 3, new BigDecimal("999.99"), true));
+        entityManager.clear();
+
+        PetProfile reloaded = petProfileRepository.findById(saved.getId()).orElseThrow();
+
+        // API 레벨 @Digits(integer=3, fraction=2)와 정확히 같은 범위라 반올림 없이 그대로 남아야
+        // POST 응답과 이후 GET 응답의 weight 값이 어긋나지 않는다.
+        assertThat(reloaded.getWeight()).isEqualByComparingTo("999.99");
+    }
 }

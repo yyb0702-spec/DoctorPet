@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.doctorpet.domain.member.exception.MemberErrorCode;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
@@ -31,6 +35,9 @@ class PetServiceTest {
 
     @Mock
     private PetProfileRepository petProfileRepository;
+
+    @Mock
+    private MemberService memberService;
 
     @InjectMocks
     private PetService petService;
@@ -58,6 +65,21 @@ class PetServiceTest {
         verify(petProfileRepository).save(captor.capture());
         // 요청 body가 아니라 인증 주체(memberId)로 소유자를 정한다 — 신뢰 경계 확인.
         assertThat(captor.getValue().getMemberId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("탈퇴 등으로 이미 존재하지 않는 회원이면 MEMBER_NOT_FOUND를 던지고 저장하지 않는다")
+    void register_memberNotFound() {
+        PetCreateRequest request = new PetCreateRequest(
+                "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        willThrow(new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND))
+                .given(memberService).assertActiveMember(1L);
+
+        assertThatThrownBy(() -> petService.register(1L, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND);
+        verify(petProfileRepository, never()).save(any(PetProfile.class));
     }
 
     @Test
@@ -128,6 +150,24 @@ class PetServiceTest {
         assertThat(response.age()).isEqualTo(4);
         assertThat(response.weight()).isEqualByComparingTo("6.0");
         assertThat(response.neutered()).isFalse();
+    }
+
+    @Test
+    @DisplayName("부분 수정 — 생략한(null) 필드는 기존 값을 유지하고 지정한 필드만 바뀐다")
+    void update_partialUpdate_onlyProvidedFieldsChange() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        // weight만 보내고 나머지는 생략(null) — PATCH의 일반적인 부분 수정 형태.
+        PetUpdateRequest request = new PetUpdateRequest(null, null, null, new BigDecimal("6.0"), null);
+
+        PetResponse response = petService.update(1L, 10L, request);
+
+        assertThat(response.name()).isEqualTo("초코");
+        assertThat(response.species()).isEqualTo(PetSpecies.DOG);
+        assertThat(response.age()).isEqualTo(3);
+        assertThat(response.weight()).isEqualByComparingTo("6.0");
+        assertThat(response.neutered()).isTrue();
     }
 
     @Test
