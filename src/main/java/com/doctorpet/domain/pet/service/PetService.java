@@ -3,7 +3,11 @@ package com.doctorpet.domain.pet.service;
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetProfile;
+import com.doctorpet.domain.pet.exception.PetErrorCode;
 import com.doctorpet.domain.pet.repository.PetProfileRepository;
+import com.doctorpet.global.exception.CommonErrorCode;
+import com.doctorpet.global.exception.ServiceException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,5 +36,35 @@ public class PetService {
         PetProfile saved = petProfileRepository.save(petProfile);
 
         return PetResponse.from(saved);
+    }
+
+    /*
+      내 반려동물 목록 조회. SA §8-2 — 인증된 회원 소유 프로필만 대상이며(Soft Delete된
+      건은 PetProfile의 @SQLRestriction으로 이미 제외된다), 요청 파라미터가 아니라 인증
+      주체(memberId) 기준으로 조회 범위를 정한다.
+     */
+    @Transactional(readOnly = true)
+    public List<PetResponse> getMyPets(Long memberId) {
+        return petProfileRepository.findAllByMemberIdOrderByIdAsc(memberId).stream()
+                .map(PetResponse::from)
+                .toList();
+    }
+
+    /*
+      반려동물 상세 조회. SA §8-2 — "보호자(본인)"만 조회 가능하다.
+      존재 자체가 없는 petId와 "존재하지만 다른 회원 소유"인 petId를 구분해서 응답한다
+      (전자는 PET_NOT_FOUND 404, 후자는 CommonErrorCode.FORBIDDEN 403 — SA §6-2 "권한
+      없음 403" 정책).
+     */
+    @Transactional(readOnly = true)
+    public PetResponse getPet(Long memberId, Long petId) {
+        PetProfile petProfile = petProfileRepository.findById(petId)
+                .orElseThrow(() -> new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        if (!petProfile.getMemberId().equals(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+
+        return PetResponse.from(petProfile);
     }
 }
