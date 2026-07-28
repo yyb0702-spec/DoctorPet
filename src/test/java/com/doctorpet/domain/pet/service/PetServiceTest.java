@@ -1,0 +1,65 @@
+package com.doctorpet.domain.pet.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+
+import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
+import com.doctorpet.domain.pet.dto.response.PetResponse;
+import com.doctorpet.domain.pet.entity.PetProfile;
+import com.doctorpet.domain.pet.entity.PetSpecies;
+import com.doctorpet.domain.pet.repository.PetProfileRepository;
+import java.math.BigDecimal;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class PetServiceTest {
+
+    @Mock
+    private PetProfileRepository petProfileRepository;
+
+    @InjectMocks
+    private PetService petService;
+
+    @Test
+    @DisplayName("등록 요청을 받으면 인증된 회원 소유로 프로필을 저장하고 응답을 반환한다")
+    void register_success() {
+        PetCreateRequest request = new PetCreateRequest(
+                "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        PetProfile saved = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(saved, 10L);
+
+        given(petProfileRepository.save(any(PetProfile.class))).willReturn(saved);
+
+        PetResponse response = petService.register(1L, request);
+
+        assertThat(response.petId()).isEqualTo(10L);
+        assertThat(response.name()).isEqualTo("초코");
+        assertThat(response.species()).isEqualTo(PetSpecies.DOG);
+        assertThat(response.age()).isEqualTo(3);
+        assertThat(response.weight()).isEqualByComparingTo("5.4");
+        assertThat(response.neutered()).isTrue();
+
+        ArgumentCaptor<PetProfile> captor = ArgumentCaptor.forClass(PetProfile.class);
+        verify(petProfileRepository).save(captor.capture());
+        // 요청 body가 아니라 인증 주체(memberId)로 소유자를 정한다 — 신뢰 경계 확인.
+        assertThat(captor.getValue().getMemberId()).isEqualTo(1L);
+    }
+
+    private void setId(PetProfile petProfile, Long id) {
+        try {
+            var field = PetProfile.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(petProfile, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+}
