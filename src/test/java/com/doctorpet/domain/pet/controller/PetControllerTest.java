@@ -2,13 +2,16 @@ package com.doctorpet.domain.pet.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
+import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.domain.pet.exception.PetErrorCode;
@@ -223,6 +226,126 @@ class PetControllerTest {
         given(petService.getPet(1L, 10L)).willThrow(new ServiceException(CommonErrorCode.FORBIDDEN));
 
         mockMvc.perform(get("/api/pets/{petId}", 10L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
+    @DisplayName("수정 성공 시 200과 수정된 프로필을 반환한다")
+    void update_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetResponse response = new PetResponse(10L, "초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class))).willReturn(response);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.petId").value(10))
+                .andExpect(jsonPath("$.data.name").value("초코2"))
+                .andExpect(jsonPath("$.data.age").value(4))
+                .andExpect(jsonPath("$.data.neutered").value(false));
+    }
+
+    @Test
+    @DisplayName("수정 시 이름이 비어있으면 400과 COMMON_001을 반환한다")
+    void update_blankName() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        String body = """
+                {"name":"","species":"DOG","age":4,"weight":6.0,"neutered":false}
+                """;
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("수정 시 species가 화이트리스트 밖의 값이면 400과 COMMON_001을 반환한다")
+    void update_invalidSpecies() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        String body = """
+                {"name":"초코","species":"BIRD","age":4,"weight":6.0,"neutered":false}
+                """;
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("수정 시 나이가 음수면 400과 COMMON_001을 반환한다")
+    void update_negativeAge() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, -1, new BigDecimal("6.0"), false);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("수정 시 체중이 0 이하면 400과 COMMON_001을 반환한다")
+    void update_nonPositiveWeight() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("0"), false);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("수정 시 중성화 여부가 없으면 400과 COMMON_001을 반환한다")
+    void update_missingNeutered() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        String body = """
+                {"name":"초코","species":"DOG","age":4,"weight":6.0}
+                """;
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId를 수정하면 404와 PET_001을 반환한다")
+    void update_notFound() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        given(petService.update(eq(1L), eq(999L), any(PetUpdateRequest.class)))
+                .willThrow(new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        mockMvc.perform(patch("/api/pets/{petId}", 999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PET_001"));
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물을 수정하면 403과 COMMON_003을 반환한다")
+    void update_notOwner_returnsForbidden() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class)))
+                .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN));
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_003"));
     }

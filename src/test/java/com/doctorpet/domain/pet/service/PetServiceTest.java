@@ -7,6 +7,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
+import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetProfile;
 import com.doctorpet.domain.pet.entity.PetSpecies;
@@ -107,6 +108,49 @@ class PetServiceTest {
         given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
 
         assertThatThrownBy(() -> petService.getPet(1L, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(CommonErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("수정 성공 시 전체 필드가 교체된 프로필을 반환한다")
+    void update_success() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+
+        PetResponse response = petService.update(1L, 10L, request);
+
+        assertThat(response.petId()).isEqualTo(10L);
+        assertThat(response.name()).isEqualTo("초코2");
+        assertThat(response.age()).isEqualTo(4);
+        assertThat(response.weight()).isEqualByComparingTo("6.0");
+        assertThat(response.neutered()).isFalse();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId를 수정하면 PET_NOT_FOUND를 던진다")
+    void update_notFound() {
+        given(petProfileRepository.findById(999L)).willReturn(Optional.empty());
+        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+
+        assertThatThrownBy(() -> petService.update(1L, 999L, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(PetErrorCode.PET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물을 수정하면 FORBIDDEN을 던진다")
+    void update_notOwner_returnsForbidden() {
+        PetProfile petProfile = PetProfile.create(2L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+
+        assertThatThrownBy(() -> petService.update(1L, 10L, request))
                 .isInstanceOf(ServiceException.class)
                 .extracting(exception -> ((ServiceException) exception).getErrorCode())
                 .isEqualTo(CommonErrorCode.FORBIDDEN);

@@ -4,11 +4,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
+import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.domain.pet.service.PetService;
@@ -130,6 +132,39 @@ class PetControllerSecurityTest {
                 .willReturn(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true));
 
         mockMvc.perform(get("/api/pets/{petId}", 10L).header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.petId").value(10));
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 수정하면 401을 반환한다 — /api/pets/{petId} PATCH가 실수로 permitAll이 되면 이 테스트가 잡는다")
+    void updatePet_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
+        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
+    }
+
+    @Test
+    @DisplayName("유효한 Access Token으로 수정하면 200을 반환한다")
+    void updatePet_withValidToken_returnsOk() throws Exception {
+        String accessToken = "valid-access-token";
+        given(jwtTokenProvider.validateToken(accessToken)).willReturn(true);
+        given(jwtTokenProvider.getTokenType(accessToken)).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal(accessToken))
+                .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
+        given(petService.update(anyLong(), anyLong(), any(PetUpdateRequest.class)))
+                .willReturn(new PetResponse(10L, "초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false));
+
+        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+
+        mockMvc.perform(patch("/api/pets/{petId}", 10L)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.petId").value(10));
     }
