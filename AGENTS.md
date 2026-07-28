@@ -47,7 +47,7 @@ Java 17, Spring Boot, Spring Data JPA, Spring Security, QueryDSL, MySQL 8.x, Red
 
 ## 미확정 — 구현하지 말고 질문 (SA 부록 A)
 
-LLM 모델/제공자·프롬프트 외부화 방식, 진료역량 화이트리스트 구체 값, AI 입력 길이·Rate Limit 수치, 실시간 push 방식(SSE/WebSocket).
+LLM 모델/제공자·프롬프트 외부화 방식, AI 입력 길이·Rate Limit 수치, 실시간 push 방식(SSE/WebSocket).
 
 ## 검증
 

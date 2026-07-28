@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.5 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.8, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.10, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 시스템 구성
@@ -58,12 +58,14 @@ domain/
 - Refresh Token 수명은 14일이다.
 - Refresh Token은 서버에 저장하고 회전한다.
 - 폐기된 Refresh Token의 재사용이 탐지되면 해당 사용자의 전체 세션을 로그아웃한다.
+- 로그인 5회 연속 실패 시 30분간 계정을 잠그며(`members.failed_login_attempts`, `locked_until`), 시간 경과 또는 비밀번호 재설정 성공 시 즉시 해제된다.
 - 회원 탈퇴 시 이메일을 `withdrawn_{memberId}@deleted.doctorpet` 형식으로 익명화하고 Soft Delete한다.
 ## 5. 병원·검색·공공데이터
 - 병원 기본정보는 공공데이터를 자체 DB에 적재하여 검색에 사용한다.
 - 제휴 여부는 `hospitals.partnership_status`로 판별한다.
 - 공공데이터와 제휴 데이터는 `local_gov_code + mgmt_no` 복합 키로 매핑하며 두 컬럼에 복합 UNIQUE를 적용한다.
 - 검색은 QueryDSL 동적 `where`로 전달된 조건만 조합하며, 진료역량은 요청값을 모두 가진 병원만 남기는 AND 매칭을 사용한다.
+- 진료역량 화이트리스트는 `DOG`, `CAT`, `BLOOD_TEST`, `XRAY`, `ULTRASOUND`, `ORTHOPEDIC_CARE`, `DENTAL_CARE`, `OPHTHALMIC_CARE`, `REHABILITATION`, `ONCOLOGY_CARE`, `CT`, `MRI`, `ENDOSCOPE` 13개로 확정하며 병원 시드·검색·AI가 공유한다.
 - 거리는 좌표 반경 사각박스로 후보를 줄인 뒤 애플리케이션에서 정밀 계산·정렬한다. 페이징 count 쿼리를 분리하고 결과 DTO를 직접 조회한다.
 - 조회 빈도가 높은 검색 결과는 Redis 원격 캐시에 저장하며 Caffeine은 사용하지 않는다.
 - MVP에서는 특정 지자체 데이터를 한 번 시드 적재한다.
@@ -140,7 +142,6 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
 - LLM 모델·제공자와 프롬프트 외부화 저장 방식
-- 진료역량 화이트리스트의 구체 값 목록
 - AI 입력 길이 제한과 Rate Limit 구체 수치
 - 실시간 push 방식(SSE 또는 WebSocket+STOMP)
 - 활성 예약·미수금을 보유한 회원의 탈퇴 처리
