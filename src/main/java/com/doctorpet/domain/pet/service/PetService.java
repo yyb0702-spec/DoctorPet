@@ -1,6 +1,7 @@
 package com.doctorpet.domain.pet.service;
 
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
+import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetProfile;
 import com.doctorpet.domain.pet.exception.PetErrorCode;
@@ -64,6 +65,31 @@ public class PetService {
         if (!petProfile.getMemberId().equals(memberId)) {
             throw new ServiceException(CommonErrorCode.FORBIDDEN);
         }
+
+        return PetResponse.from(petProfile);
+    }
+
+    /*
+      반려동물 프로필 수정. SA §8-2 — "보호자(본인)"만 수정 가능하다. 존재 여부·소유권
+      판단은 getPet()과 동일한 원칙을 따른다(PET_NOT_FOUND 404 / FORBIDDEN 403 구분).
+      영속 상태(managed) 엔티티를 그대로 수정해 트랜잭션 커밋 시 더티 체킹으로 반영한다.
+     */
+    @Transactional
+    public PetResponse update(Long memberId, Long petId, PetUpdateRequest request) {
+        PetProfile petProfile = petProfileRepository.findById(petId)
+                .orElseThrow(() -> new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        if (!petProfile.getMemberId().equals(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+
+        petProfile.update(
+                request.name(),
+                request.species(),
+                request.age(),
+                request.weight(),
+                request.neutered()
+        );
 
         return PetResponse.from(petProfile);
     }
