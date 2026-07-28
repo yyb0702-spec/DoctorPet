@@ -85,4 +85,23 @@ public class PetProfile extends BaseEntity {
     ) {
         return new PetProfile(memberId, name, species, age, weight, neutered);
     }
+
+    /*
+     * 반려동물 프로필 수정. SA §8-2 — 등록과 동일한 5개 필드를 전체 교체한다(부분 수정 아님).
+     * memberId(소유자)는 수정 대상이 아니다 — 소유권 이전은 지원하지 않는다.
+     * 과거 예약에는 스냅샷이 별도로 남아 있어(SA §4) 이 수정이 과거 이력에 영향을 주지 않는다.
+     */
+    public void update(
+            String name,
+            PetSpecies species,
+            Integer age,
+            BigDecimal weight,
+            Boolean neutered
+    ) {
+        this.name = name;
+        this.species = species;
+        this.age = age;
+        this.weight = weight;
+        this.neutered = neutered;
+    }
 }
