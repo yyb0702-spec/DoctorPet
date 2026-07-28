@@ -2,6 +2,7 @@ package com.doctorpet.domain.pet.dto.request;
 
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -32,6 +33,9 @@ public record PetCreateRequest(
 
         @NotNull(message = "체중은 필수입니다.")
         @DecimalMin(value = "0.0", inclusive = false, message = "체중은 0보다 커야 합니다.")
+        // DB 컬럼(DECIMAL(5,2))과 정확히 맞춘 정밀도. 넘는 값은 DB에서 조용히 반올림되거나
+        // 저장 시점에 예상치 못한 500으로 이어질 수 있어 API 레벨에서 먼저 거부한다.
+        @Digits(integer = 3, fraction = 2, message = "체중은 정수 3자리, 소수 2자리 이내여야 합니다.")
         BigDecimal weight,
 
         @NotNull(message = "중성화 여부는 필수입니다.")
