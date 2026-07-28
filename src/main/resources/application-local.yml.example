@@ -24,6 +24,11 @@ jwt:
 #   portone : PortOne V2 실연동 (base-url·api-secret·store-id 필수, 커밋 금지)
 payment:
   gateway: fake
+  # 빌링키 암호화 키(AES-256-GCM). Base64로 인코딩된 256-bit(32-byte) 랜덤 키.
+  # 실제 키는 env/시크릿으로 주입하고 커밋하지 않는다(이슈 #33, AGENTS 보안).
+  # 예: openssl rand -base64 32
+  billing-key:
+    enc-key: change-this-to-a-base64-encoded-256-bit-key
   portone:
     base-url: https://api.portone.io      # 실연동 시 확정
     api-secret: change-this-portone-api-secret

@@ -7,6 +7,8 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.StandardEnvironment;
 
 import java.util.Map;
 
@@ -27,6 +29,10 @@ class FakePaymentGatewayWiringTest {
 
     private AnnotationConfigApplicationContext contextWithGateway(String gatewayValue) {
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
+        // 시스템 환경변수·시스템 프로퍼티를 상속하지 않는 격리 Environment를 쓴다.
+        // 그렇지 않으면 CI/셸에 설정된 PAYMENT_GATEWAY(예: ci.yml의 fake)가 "설정 없음" 시나리오로
+        // 새어 들어와 fail-safe 검증이 깨진다 — payment.gateway는 오직 이 테스트가 주입한 값만 본다.
+        ctx.setEnvironment(new IsolatedEnvironment());
         if (gatewayValue != null) {
             ctx.getEnvironment().getPropertySources().addFirst(
                     new MapPropertySource("test", Map.of("payment.gateway", gatewayValue)));
@@ -34,6 +40,14 @@ class FakePaymentGatewayWiringTest {
         ctx.register(FakeOnlyConfig.class);
         ctx.refresh();
         return ctx;
+    }
+
+    /** OS 환경변수·시스템 프로퍼티 소스를 배제한 Environment — 조건부 배선을 주입값만으로 검증한다. */
+    private static class IsolatedEnvironment extends StandardEnvironment {
+        @Override
+        protected void customizePropertySources(MutablePropertySources propertySources) {
+            // 기본 소스(systemProperties·systemEnvironment)를 추가하지 않는다.
+        }
     }
 
     @Test
