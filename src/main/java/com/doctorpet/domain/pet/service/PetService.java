@@ -1,5 +1,6 @@
 package com.doctorpet.domain.pet.service;
 
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
@@ -19,13 +20,21 @@ import org.springframework.transaction.annotation.Transactional;
 public class PetService {
 
     private final PetProfileRepository petProfileRepository;
+    // 다른 도메인의 Repository를 직접 참조하지 않는다(구현 가드레일) — Service를 경유한다.
+    private final MemberService memberService;
 
     /*
       반려동물 프로필 등록. SA §8-2, A 도메인 결정 #4.
       보호자 1인당 등록 개수 제한은 없다 — 다반려동물 가구를 고려한 결정.
+      Access Token은 유효해도(만료 전) 그 사이 탈퇴 등으로 회원이 존재하지 않을 수 있는 좁은
+      race condition을 방어하기 위해, 새 행을 쓰기 전에 활성 회원인지 먼저 확인한다 — 이 확인이
+      없으면 이미 탈퇴한 memberId로 고아 프로필이 생성될 수 있다(member_id는 FK 제약이 없는
+      순수 Long 값이라 DB가 대신 막아주지 않는다).
      */
     @Transactional
     public PetResponse register(Long memberId, PetCreateRequest request) {
+        memberService.assertActiveMember(memberId);
+
         PetProfile petProfile = PetProfile.create(
                 memberId,
                 request.name(),
@@ -73,7 +82,9 @@ public class PetService {
     /*
       반려동물 프로필 수정. SA §8-2 — "보호자(본인)"만 수정 가능하다. 존재 여부·소유권
       판단은 getPet()과 동일한 원칙을 따른다(PET_NOT_FOUND 404 / FORBIDDEN 403 구분).
-      영속 상태(managed) 엔티티를 그대로 수정해 트랜잭션 커밋 시 더티 체킹으로 반영한다.
+      부분 수정(Merge Patch)이다 — PetUpdateRequest에서 생략된(= null) 필드는 PetProfile.update()가
+      기존 값을 유지한다. 영속 상태(managed) 엔티티를 그대로 수정해 트랜잭션 커밋 시 더티 체킹으로
+      반영한다.
      */
     @Transactional
     public PetResponse update(Long memberId, Long petId, PetUpdateRequest request) {

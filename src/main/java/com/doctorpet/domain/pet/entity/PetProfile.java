@@ -49,7 +49,11 @@ public class PetProfile extends BaseEntity {
     @Column(nullable = false)
     private Integer age;
 
-    @Column(nullable = false)
+    // 정수 3자리·소수 2자리(최대 999.99kg)로 명시한다. 명시하지 않으면 Hibernate 기본 정밀도로
+    // DDL이 생성되어, 요청 DTO의 @Digits(integer=3, fraction=2)와 DB 컬럼 범위가 어긋날 수
+    // 있다 — 어긋나면 소수 자릿수 초과 값이 저장 시 조용히 반올림되어 POST 응답과 이후 GET
+    // 응답이 달라지거나, 정수 자릿수 초과 값이 저장 시 예상치 못한 500으로 이어진다.
+    @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal weight;
 
     @Column(nullable = false)
@@ -87,7 +91,8 @@ public class PetProfile extends BaseEntity {
     }
 
     /*
-     * 반려동물 프로필 수정. SA §8-2 — 등록과 동일한 5개 필드를 전체 교체한다(부분 수정 아님).
+     * 반려동물 프로필 수정. SA §8-2 — 부분 수정(Merge Patch)이다. 인자가 null이면 "생략됨"으로
+     * 보고 기존 값을 그대로 유지하고, null이 아닌 필드만 교체한다(PetUpdateRequest 참고).
      * memberId(소유자)는 수정 대상이 아니다 — 소유권 이전은 지원하지 않는다.
      * 과거 예약에는 스냅샷이 별도로 남아 있어(SA §4) 이 수정이 과거 이력에 영향을 주지 않는다.
      */
@@ -98,11 +103,21 @@ public class PetProfile extends BaseEntity {
             BigDecimal weight,
             Boolean neutered
     ) {
-        this.name = name;
-        this.species = species;
-        this.age = age;
-        this.weight = weight;
-        this.neutered = neutered;
+        if (name != null) {
+            this.name = name;
+        }
+        if (species != null) {
+            this.species = species;
+        }
+        if (age != null) {
+            this.age = age;
+        }
+        if (weight != null) {
+            this.weight = weight;
+        }
+        if (neutered != null) {
+            this.neutered = neutered;
+        }
     }
 
     /*
