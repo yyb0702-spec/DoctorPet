@@ -51,6 +51,8 @@ public class SecurityConfig {
                                 HttpMethod.PATCH,
                                 "/api/reservations/*/cancel"
                         ).hasRole("GUARDIAN")
+                        // 결제수단 등록·조회·삭제 - 보호자 전용 (이슈 #33)
+                        .requestMatchers("/api/payment-methods/**").hasRole("GUARDIAN")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handler -> handler

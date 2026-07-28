@@ -17,3 +17,23 @@ jwt:
   secret: change-this-to-a-long-random-base64-secret-at-least-256-bits
   access-token-expiration: 3600000       # 1시간 (ms)
   refresh-token-expiration: 1209600000   # 14일 (ms)
+
+# 결제 게이트웨이 선택
+# payment.gateway를 명시해야 게이트웨이 빈이 등록됩니다(미설정 시 어떤 게이트웨이도 안 뜸 = fail-safe).
+#   fake    : 외부 연동 없이 로컬/테스트 (approve가 PAID 반환 — 운영 금지)
+#   portone : PortOne V2 실연동 (base-url·api-secret·store-id 필수, 커밋 금지)
+payment:
+  gateway: fake
+  # 빌링키 암호화 키(AES-256-GCM). Base64로 인코딩된 256-bit(32-byte) 랜덤 키.
+  # 실제 키는 env/시크릿으로 주입하고 커밋하지 않는다(이슈 #33, AGENTS 보안).
+  # 예: openssl rand -base64 32
+  billing-key:
+    enc-key: change-this-to-a-base64-encoded-256-bit-key
+  portone:
+    base-url: https://api.portone.io      # 실연동 시 확정
+    api-secret: change-this-portone-api-secret
+    store-id: change-this-store-id
+    connect-timeout-ms: 2000               # 연결 타임아웃
+    read-timeout-ms: 5000                  # 읽기 타임아웃
+    max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
+    backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)

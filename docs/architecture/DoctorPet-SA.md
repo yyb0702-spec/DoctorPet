@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.8 |
-| 작성 기준일 | 2026-07-24 |
+| 문서 버전 | v1.12 |
+| 작성 기준일 | 2026-07-27 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재.
+> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영).
 
 ---
 
@@ -100,7 +100,7 @@ erDiagram
     MEMBER ||--o{ AI_CONSULTATION : asks
 ```
 
-모듈 경계를 넘는 `@ManyToOne`은 두지 않고 FK 값(Long)으로 참조한다. `deleted_at`을 가진 테이블(`members`, `pet_profiles`)은 조회 시 기본적으로 `deleted_at IS NULL` 행만 노출한다(`@SQLRestriction` 등). 삭제된 행은 이력 참조용으로만 남긴다.
+모듈 경계를 넘는 `@ManyToOne`은 두지 않고 FK 값(Long)으로 참조한다. 따라서 아래 표의 `FK` 표기는 논리적 참조 관계를 뜻한다 — **같은 도메인 내부** 참조(예: `hospital_details.hospital_id`)는 JPA 연관관계로 매핑해 DB 외래 키 제약을 두지만, **도메인 경계를 넘는 참조**(예: `payment_methods.member_id`, `reservations`의 `member_id`·`hospital_id`)는 DB 외래 키 제약 없이 `Long` 값으로 두고 무결성은 애플리케이션 계층(인증 주체 기반 식별·소유권 검증)에서 보장한다. 이는 구현 가드레일의 모듈 경계 원칙에 따른 것이며, `ddl-auto=update`를 마이그레이션 도구로 전환하는 시점에 크로스도메인 FK 제약 추가 여부를 재검토한다. `deleted_at`을 가진 테이블(`members`, `pet_profiles`)은 조회 시 기본적으로 `deleted_at IS NULL` 행만 노출한다(`@SQLRestriction` 등). 삭제된 행은 이력 참조용으로만 남긴다.
 
 ### members
 
@@ -112,10 +112,14 @@ erDiagram
 | nickname | VARCHAR | |
 | role | VARCHAR | GUARDIAN / HOSPITAL_STAFF |
 | hospital_id | BIGINT NULL | 스태프 소속 병원(보호자는 NULL) |
+| failed_login_attempts | INT NOT NULL DEFAULT 0 | 로그인 연속 실패 횟수(A 도메인 결정 #1) |
+| locked_until | DATETIME NULL | 잠금 해제 시각. NULL이면 잠금 상태 아님 |
 | created_at | DATETIME | |
 | deleted_at | DATETIME NULL | Soft Delete |
 
 탈퇴 시 이메일을 익명화한다(예: `withdrawn_{memberId}@deleted.doctorpet`). `email UNIQUE`를 그대로 유지하면서 원 이메일의 재가입을 허용하기 위함이다. 로그인·중복검사는 `deleted_at IS NULL`만 대상으로 한다.
+
+로그인 실패 5회 누적 시 30분간 계정을 잠근다(`locked_until`을 현재 시각+30분으로 설정). 잠금 시간이 지나면 다음 로그인 시도에서 자동 해제되며 `failed_login_attempts`도 0으로 초기화된다. 비밀번호 재설정에 성공해도 즉시 잠금이 해제된다(A 도메인 결정 #1, GitHub Wiki [[A 도메인 - 인증·회원·프로필·공통설정]] 참고).
 
 ### pet_profiles
 
@@ -176,9 +180,20 @@ erDiagram
 | id | BIGINT PK | |
 | hospital_id | BIGINT FK | |
 | capability_type | VARCHAR | SPECIES / EXAM / TREATMENT / EQUIPMENT |
-| capability_value | VARCHAR | 예: 엑스레이, 정형외과 진료, 초음파 |
+| capability_value | VARCHAR | 아래 확정 화이트리스트 값 |
 
-인덱스: `(capability_type, capability_value, hospital_id)` — 역량 AND 매칭 조인용. `requiredCapabilities`·`species` 검색이 이 테이블을 대상으로 매칭한다. 화이트리스트는 소수 고정 카테고리로 확정(엑스레이·초음파·정형외과·내과·외과·피부과·치과·안과·야간응급 등 10~15개)하되, 구체 목록은 병원 시드 데이터 작성 시 함께 정한다. AI 프롬프트와 검색 조건이 같은 목록을 공유한다.
+인덱스: `(capability_type, capability_value, hospital_id)` — 역량 AND 매칭 조인용. `requiredCapabilities`·`species` 검색이 이 테이블을 대상으로 매칭한다.
+
+진료역량 화이트리스트는 병원 시드 작성 시 아래 13개 값으로 확정했다.
+
+| 분류 | 허용 값 |
+| --- | --- |
+| SPECIES | `DOG`, `CAT` |
+| EXAM | `BLOOD_TEST`, `XRAY`, `ULTRASOUND` |
+| TREATMENT | `ORTHOPEDIC_CARE`, `DENTAL_CARE`, `OPHTHALMIC_CARE`, `REHABILITATION`, `ONCOLOGY_CARE` |
+| EQUIPMENT | `CT`, `MRI`, `ENDOSCOPE` |
+
+병원 시드, QueryDSL 검색 조건, AI의 `requiredCapabilities` 구조화 출력은 모두 이 목록을 단일 계약으로 공유한다. 새로운 값을 추가하거나 이름을 바꾸려면 병원 데이터·검색 조건·AI 프롬프트를 함께 변경한다.
 
 ### reservation_slots (제휴 병원, 사전 생성)
 
@@ -506,13 +521,14 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | --- | --- | --- | --- |
 | 결제수단 등록 | POST | /api/payment-methods | 보호자 |
 | 결제수단 조회 | GET | /api/payment-methods | 보호자 |
+| 결제수단 삭제 | DELETE | /api/payment-methods/{paymentMethodId} | 보호자(본인) |
 | 진료비 청구 | POST | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
 | 결제 내역 조회 | GET | /api/reservations/{reservationId}/payments | 보호자(본인) |
 | 결제 내역 조회(병원) | GET | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
 | 오프라인 정산 | PATCH | /api/hospital/payments/{paymentId}/offline-settle | 병원 스태프(자병원) |
 | 결제 웹훅(확장) | POST | /api/payments/webhook | 서명 검증 |
 
-결제수단 등록은 카드 인증 후 빌링키를 발급·암호화 저장한다(금액 이동 없음). 진료비 청구 `{ amount }`는 0 초과 & 절대 상한 이하만 허용(위반 시 `INVALID_AMOUNT` 400)하고, 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다.
+결제수단 등록은 카드 인증 후 빌링키를 발급·암호화 저장한다(금액 이동 없음). 조회·삭제는 본인 소유만 대상이며, 삭제는 물리 삭제가 아니라 소프트 삭제(`status=DELETED`)로 처리해 청구 이력·FK를 보존한다(§4-2). MVP는 동일 회원의 결제수단 중복 등록을 허용하고(빌링키는 IV가 매번 다른 암호문으로 저장돼 값 비교가 무의미하며, 청구는 예약에 확정된 결제수단으로만 하므로 중복 자체가 청구를 왜곡하지 않는다), 기본 결제수단 개념(`is_default`)은 두지 않는다(청구 시점에 사용할 결제수단을 명시 선택하므로 불필요). 진료비 청구 `{ amount }`는 0 초과 & 절대 상한 이하만 허용(위반 시 `INVALID_AMOUNT` 400)하고, 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다.
 
 ### 8-8. 알림
 
@@ -707,18 +723,17 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=Redis, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=소수 고정 카테고리, 거리 계산=반경 박스+인덱스, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인.
+확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=Redis, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=반경 박스+인덱스, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인.
 
 남은 것:
 
 | # | 항목 | 위치 |
 | --- | --- | --- |
 | 1 | LLM 모델/제공자, 프롬프트 외부화 저장 방식 (AI 착수 시 결정, 인터페이스는 먼저 확정) | §2, §9-5 |
-| 2 | 진료역량 화이트리스트 구체 값 목록 (카테고리 방식은 확정, 항목은 시드 작성 시) | §4, §9-1 |
-| 3 | AI 입력 길이 제한·Rate Limit 구체 수치 | §9-5, §11 |
-| 4 | 실시간 push 방식(SSE / WebSocket+STOMP) — 채팅 도입 여부에 따라 재논의 | §2, §9-8 |
-| 5 | 탈퇴 시 활성 예약(CONFIRMED·CHECKED_IN)·미수금(OFFLINE_REQUIRED) 보유 회원 처리 — 탈퇴 보류 vs 종결 후 익명화 | §6-3, §9-4 |
-| 6 | 검색 Tool 호출 실패 응답 주체 — 실패 컨텍스트를 LLM에 전달해 안내 생성 vs 서버가 `fallback=true`와 고정 문구로 직접 검색 유도 | PRD §5-4, 정책 §3.9, §8-4, §9-5 |
+| 2 | AI 입력 길이 제한·Rate Limit 구체 수치 | §9-5, §11 |
+| 3 | 실시간 push 방식(SSE / WebSocket+STOMP) — 채팅 도입 여부에 따라 재논의 | §2, §9-8 |
+| 4 | 탈퇴 시 활성 예약(CONFIRMED·CHECKED_IN)·미수금(OFFLINE_REQUIRED) 보유 회원 처리 — 탈퇴 보류 vs 종결 후 익명화 | §6-3, §9-4 |
+| 5 | 검색 Tool 호출 실패 응답 주체 — 실패 컨텍스트를 LLM에 전달해 안내 생성 vs 서버가 `fallback=true`와 고정 문구로 직접 검색 유도 | PRD §5-4, 정책 §3.9, §8-4, §9-5 |
 
 ---
 
