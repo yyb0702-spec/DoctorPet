@@ -73,6 +73,24 @@ class HospitalSearchCacheRepositoryTest {
     }
 
     @Test
+    void 캐시_데이터_변환에_실패하면_갱신_가능한_MISS를_반환한다()
+            throws Exception {
+        given(valueOperations.get(CACHE_KEY))
+                .willReturn("invalid json");
+        given(objectMapper.readValue(
+                "invalid json",
+                HospitalSearchCachedPage.class
+        )).willThrow(new RuntimeException("Deserialization failed"));
+
+        HospitalSearchCacheLookupResult result =
+                cacheRepository.findInitialPage();
+
+        assertThat(result.status())
+                .isEqualTo(HospitalSearchCacheLookupResult.Status.MISS);
+        assertThat(result.canWrite()).isTrue();
+    }
+
+    @Test
     void 캐시_저장에_실패해도_예외를_전파하지_않는다()
             throws Exception {
         HospitalSearchCachedPage page =

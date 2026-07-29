@@ -26,14 +26,25 @@ public class HospitalSearchCacheRepository {
     private Duration cacheTtl;
 
     public HospitalSearchCacheLookupResult findInitialPage() {
+        String cachedValue;
+
         try {
-            String cachedValue = redisTemplate.opsForValue()
+            cachedValue = redisTemplate.opsForValue()
                     .get(INITIAL_PAGE_KEY);
+        } catch (Exception exception) {
+            log.warn(
+                    "병원 검색 첫 페이지 캐시 조회에 실패하여 DB 조회로 대체합니다. key={}",
+                    INITIAL_PAGE_KEY,
+                    exception
+            );
+            return HospitalSearchCacheLookupResult.unavailable();
+        }
 
-            if (cachedValue == null) {
-                return HospitalSearchCacheLookupResult.miss();
-            }
+        if (cachedValue == null) {
+            return HospitalSearchCacheLookupResult.miss();
+        }
 
+        try {
             return HospitalSearchCacheLookupResult.hit(
                     objectMapper.readValue(
                             cachedValue,
@@ -42,11 +53,11 @@ public class HospitalSearchCacheRepository {
             );
         } catch (Exception exception) {
             log.warn(
-                    "병원 검색 첫 페이지 캐시 조회에 실패하여 DB 조회로 대체합니다. key={}",
+                    "병원 검색 첫 페이지 캐시 데이터 변환에 실패하여 DB 조회 후 갱신합니다. key={}",
                     INITIAL_PAGE_KEY,
                     exception
             );
-            return HospitalSearchCacheLookupResult.unavailable();
+            return HospitalSearchCacheLookupResult.miss();
         }
     }
 
