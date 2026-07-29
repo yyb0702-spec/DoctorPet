@@ -4,6 +4,11 @@ spring:
   profiles:
     active: local
 
+  data:
+    redis:
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+      timeout: ${REDIS_COMMAND_TIMEOUT:500ms}
+
   jpa:
     hibernate:
       ddl-auto: update

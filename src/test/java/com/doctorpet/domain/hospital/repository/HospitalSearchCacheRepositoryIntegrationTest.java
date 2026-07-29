@@ -68,7 +68,7 @@ class HospitalSearchCacheRepositoryIntegrationTest {
 
         cacheRepository.saveInitialPage(expected);
 
-        assertThat(cacheRepository.findInitialPage())
+        assertThat(cacheRepository.findInitialPage().cachedPageOptional())
                 .contains(expected);
         assertThat(redisTemplate.getExpire(CACHE_KEY))
                 .isPositive();

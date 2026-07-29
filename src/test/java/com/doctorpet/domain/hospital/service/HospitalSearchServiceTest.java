@@ -10,6 +10,7 @@ import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
@@ -23,7 +24,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -252,10 +252,12 @@ class HospitalSearchServiceTest {
                 null
         );
         given(hospitalSearchCacheRepository.findInitialPage())
-                .willReturn(Optional.of(new HospitalSearchCachedPage(
-                        List.of(candidate(hospital)),
-                        1L
-                )));
+                .willReturn(HospitalSearchCacheLookupResult.hit(
+                        new HospitalSearchCachedPage(
+                                List.of(candidate(hospital)),
+                                1L
+                        )
+                ));
 
         HospitalSearchPageResponse response =
                 searchInitialPage();
@@ -283,7 +285,7 @@ class HospitalSearchServiceTest {
                 null
         );
         given(hospitalSearchCacheRepository.findInitialPage())
-                .willReturn(Optional.empty());
+                .willReturn(HospitalSearchCacheLookupResult.miss());
         given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
@@ -311,6 +313,44 @@ class HospitalSearchServiceTest {
                 .isEqualTo(1L);
         assertThat(cachedPageCaptor.getValue().totalElements())
                 .isEqualTo(1L);
+    }
+
+    @Test
+    void Redis_조회가_실패하면_DB_결과를_반환하고_캐시_저장을_생략한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.unavailable());
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(1L);
+        given(hospitalRepository.search(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(20)
+        )).willReturn(List.of(candidate(hospital)));
+
+        HospitalSearchPageResponse response =
+                searchInitialPage();
+
+        assertThat(response.content())
+                .singleElement()
+                .extracting("hospitalId")
+                .isEqualTo(1L);
+        verify(hospitalSearchCacheRepository, never())
+                .saveInitialPage(
+                        org.mockito.ArgumentMatchers.any()
+                );
     }
 
     @Test

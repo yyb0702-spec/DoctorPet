@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
@@ -31,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 @DataJpaTest(properties = {
@@ -71,6 +73,8 @@ class HospitalSearchCacheBaselineIntegrationTest {
         savePartnerHospitals();
         HospitalSearchCacheRepository cacheRepository =
                 mock(HospitalSearchCacheRepository.class);
+        given(cacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.miss());
         HospitalService hospitalService = new HospitalService(
                 hospitalRepository,
                 null,

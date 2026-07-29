@@ -4,6 +4,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
@@ -170,7 +171,10 @@ public class HospitalService {
             boolean cacheTarget
     ) {
         if (cacheTarget) {
-            return hospitalSearchCacheRepository.findInitialPage()
+            HospitalSearchCacheLookupResult cacheLookup =
+                    hospitalSearchCacheRepository.findInitialPage();
+
+            return cacheLookup.cachedPageOptional()
                     .map(cachedPage -> toPageResponse(
                             cachedPage,
                             latitude,
@@ -183,7 +187,8 @@ public class HospitalService {
                             latitude,
                             longitude,
                             page,
-                            size
+                            size,
+                            cacheLookup.canWrite()
                     ));
         }
 
@@ -216,7 +221,8 @@ public class HospitalService {
             BigDecimal latitude,
             BigDecimal longitude,
             int page,
-            int size
+            int size,
+            boolean cacheWritable
     ) {
         long totalElements = hospitalRepository.count(condition);
         List<HospitalSearchCandidate> candidates = totalElements == 0
@@ -227,7 +233,9 @@ public class HospitalService {
                 totalElements
         );
 
-        hospitalSearchCacheRepository.saveInitialPage(cachedPage);
+        if (cacheWritable) {
+            hospitalSearchCacheRepository.saveInitialPage(cachedPage);
+        }
 
         return toPageResponse(
                 cachedPage,

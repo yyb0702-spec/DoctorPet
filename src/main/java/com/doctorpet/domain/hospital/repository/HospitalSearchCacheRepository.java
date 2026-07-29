@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,7 +10,6 @@ import org.springframework.stereotype.Repository;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
-import java.util.Optional;
 
 @Slf4j
 @Repository
@@ -25,26 +25,28 @@ public class HospitalSearchCacheRepository {
     @Value("${hospital.search.cache-ttl:10m}")
     private Duration cacheTtl;
 
-    public Optional<HospitalSearchCachedPage> findInitialPage() {
+    public HospitalSearchCacheLookupResult findInitialPage() {
         try {
             String cachedValue = redisTemplate.opsForValue()
                     .get(INITIAL_PAGE_KEY);
 
             if (cachedValue == null) {
-                return Optional.empty();
+                return HospitalSearchCacheLookupResult.miss();
             }
 
-            return Optional.of(objectMapper.readValue(
-                    cachedValue,
-                    HospitalSearchCachedPage.class
-            ));
+            return HospitalSearchCacheLookupResult.hit(
+                    objectMapper.readValue(
+                            cachedValue,
+                            HospitalSearchCachedPage.class
+                    )
+            );
         } catch (Exception exception) {
             log.warn(
                     "병원 검색 첫 페이지 캐시 조회에 실패하여 DB 조회로 대체합니다. key={}",
                     INITIAL_PAGE_KEY,
                     exception
             );
-            return Optional.empty();
+            return HospitalSearchCacheLookupResult.unavailable();
         }
     }
 

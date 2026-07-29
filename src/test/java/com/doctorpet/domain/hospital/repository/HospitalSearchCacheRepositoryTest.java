@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,8 +57,8 @@ class HospitalSearchCacheRepositoryTest {
         given(valueOperations.get(CACHE_KEY))
                 .willReturn(null);
 
-        assertThat(cacheRepository.findInitialPage())
-                .isEmpty();
+        assertThat(cacheRepository.findInitialPage().status())
+                .isEqualTo(HospitalSearchCacheLookupResult.Status.MISS);
     }
 
     @Test
@@ -65,8 +66,10 @@ class HospitalSearchCacheRepositoryTest {
         given(valueOperations.get(CACHE_KEY))
                 .willThrow(new RuntimeException("Redis unavailable"));
 
-        assertThat(cacheRepository.findInitialPage())
-                .isEmpty();
+        assertThat(cacheRepository.findInitialPage().status())
+                .isEqualTo(
+                        HospitalSearchCacheLookupResult.Status.UNAVAILABLE
+                );
     }
 
     @Test
