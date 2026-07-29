@@ -9,6 +9,7 @@ import com.doctorpet.domain.hospital.entity.QHospitalCapability;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.JPAExpressions;
+import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -38,6 +39,42 @@ public class HospitalRepositoryCustomImpl
     public List<HospitalSearchCandidate> search(
             HospitalSearchCondition condition
     ) {
+        return searchQuery(condition)
+                .fetch();
+    }
+
+    @Override
+    public List<HospitalSearchCandidate> search(
+            HospitalSearchCondition condition,
+            long offset,
+            int limit
+    ) {
+        return searchQuery(condition)
+                .orderBy(
+                        hospital.name.asc(),
+                        hospital.id.asc()
+                )
+                .offset(offset)
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
+    public long count(HospitalSearchCondition condition) {
+        Long result = queryFactory
+                .select(hospital.id.count())
+                .from(hospital)
+                .leftJoin(hospitalDetail)
+                .on(hospitalDetail.hospital.eq(hospital))
+                .where(searchPredicates(condition))
+                .fetchOne();
+
+        return result == null ? 0L : result;
+    }
+
+    private JPAQuery<HospitalSearchCandidate> searchQuery(
+            HospitalSearchCondition condition
+    ) {
         return queryFactory
                 // Hospital과 HospitalDetail을 HospitalSearchCandidate 생성자에 바로 넣습니다.
                 .select(Projections.constructor(
@@ -49,17 +86,22 @@ public class HospitalRepositoryCustomImpl
                 // 상세정보가 없는 비제휴 병원도 조회하기 위해 LEFT JOIN을 사용합니다.
                 .leftJoin(hospitalDetail)
                 .on(hospitalDetail.hospital.eq(hospital))
-                .where(
-                        // 폐업 병원은 제외하고 휴업 병원은 검색 결과에 포함합니다.
-                        hospital.businessStatus.ne(BusinessStatus.CLOSED),
-                        keywordContains(condition.keyword()),
-                        regionContains(condition.region()),
-                        partnerOnly(condition.partnerOnly()),
-                        capabilityMatches(condition),
-                        facilityMatches(condition),
-                        withinBoundingBox(condition)
-                )
-                .fetch();
+                .where(searchPredicates(condition));
+    }
+
+    private BooleanExpression[] searchPredicates(
+            HospitalSearchCondition condition
+    ) {
+        return new BooleanExpression[]{
+                // 폐업 병원은 제외하고 휴업 병원은 검색 결과에 포함합니다.
+                hospital.businessStatus.ne(BusinessStatus.CLOSED),
+                keywordContains(condition.keyword()),
+                regionContains(condition.region()),
+                partnerOnly(condition.partnerOnly()),
+                capabilityMatches(condition),
+                facilityMatches(condition),
+                withinBoundingBox(condition)
+        };
     }
 
     private BooleanExpression regionContains(String region) {

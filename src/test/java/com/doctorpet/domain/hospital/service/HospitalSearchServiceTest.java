@@ -68,12 +68,18 @@ class HospitalSearchServiceTest {
                 "126.9700",
                 "37.5600"
         );
-        given(hospitalRepository.search(
+        given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
+        )).willReturn(2L);
+        given(hospitalRepository.search(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(1)
         )).willReturn(List.of(
-                new HospitalSearchCandidate(second, null),
                 new HospitalSearchCandidate(first, null)
         ));
 
@@ -107,7 +113,7 @@ class HospitalSearchServiceTest {
 
         ArgumentCaptor<HospitalSearchCondition> conditionCaptor =
                 ArgumentCaptor.forClass(HospitalSearchCondition.class);
-        verify(hospitalRepository).search(conditionCaptor.capture());
+        verify(hospitalRepository).count(conditionCaptor.capture());
         assertThat(conditionCaptor.getValue().keyword())
                 .isEqualTo("병원");
     }
@@ -179,10 +185,17 @@ class HospitalSearchServiceTest {
                 null,
                 null
         );
-        given(hospitalRepository.search(
+        given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
+        )).willReturn(1L);
+        given(hospitalRepository.search(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(20)
         )).willReturn(List.of(
                 new HospitalSearchCandidate(hospital, null)
         ));
@@ -304,13 +317,11 @@ class HospitalSearchServiceTest {
                 null,
                 null
         );
-        given(hospitalRepository.search(
+        given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
-        )).willReturn(List.of(
-                new HospitalSearchCandidate(hospital, null)
-        ));
+        )).willReturn(1L);
 
         assertThatThrownBy(() -> hospitalService.hospitalSearch(
                 null,
@@ -337,11 +348,11 @@ class HospitalSearchServiceTest {
 
     @Test
     void 검색_결과가_없어도_첫_페이지는_정상_빈_응답을_반환한다() {
-        given(hospitalRepository.search(
+        given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
-        )).willReturn(List.of());
+        )).willReturn(0L);
 
         HospitalSearchPageResponse response =
                 hospitalService.hospitalSearch(

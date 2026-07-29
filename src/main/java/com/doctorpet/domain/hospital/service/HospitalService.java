@@ -121,11 +121,73 @@ public class HospitalService {
                 partnerOnly
         );
 
-        /*
-         * Repository는 폐업·키워드·제휴·역량·좌표 사각형 조건으로 후보 병원을 조회합니다.
-         * Service는 후보마다 정확한 거리와 현재 영업 여부를 계산한 뒤,
-         * 원형 반경·영업 중 조건을 다시 적용하고 요청 기준으로 정렬합니다.
-         */
+        boolean requiresPostProcessing = radiusKm != null
+                || openNowOnly
+                || normalizedSort.equals("distance");
+
+        if (requiresPostProcessing) {
+            return searchWithPostProcessing(
+                    condition,
+                    latitude,
+                    longitude,
+                    radiusKm,
+                    openNowOnly,
+                    page,
+                    size,
+                    normalizedSort
+            );
+        }
+
+        return searchWithDatabasePaging(
+                condition,
+                latitude,
+                longitude,
+                page,
+                size
+        );
+    }
+
+    private HospitalSearchPageResponse searchWithDatabasePaging(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size
+    ) {
+        long totalElements = hospitalRepository.count(condition);
+        int totalPages = calculateTotalPages(totalElements, size);
+        validatePageRange(page, totalPages);
+
+        long offset = (long) (page - 1) * size;
+        List<HospitalSearchResponse> content = totalElements == 0
+                ? List.of()
+                : hospitalRepository.search(condition, offset, size).stream()
+                        .map(candidate -> toSearchResponse(
+                                candidate,
+                                latitude,
+                                longitude
+                        ))
+                        .toList();
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private HospitalSearchPageResponse searchWithPostProcessing(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
+    ) {
         List<HospitalSearchResponse> searchedHospitals =
                 hospitalRepository.search(condition).stream()
                         .map(candidate -> toSearchResponse(
@@ -139,23 +201,15 @@ public class HospitalService {
                                 !openNowOnly || Boolean.TRUE.equals(
                                         response.openNow()
                                 ))
-                        .sorted(resolveSearchComparator(normalizedSort))
+                        .sorted(resolveSearchComparator(sort))
                         .toList();
 
         long totalElements = searchedHospitals.size();
         int totalPages = calculateTotalPages(totalElements, size);
-
-        // 검색 결과가 없을 때는 1페이지만 허용하고, 그 외에는 마지막 페이지 초과 요청을 거부합니다.
         validatePageRange(page, totalPages);
 
-        // 외부 페이지는 1부터 시작하지만 List 인덱스는 0부터 시작하므로 시작 위치를 변환합니다.
         int fromIndex = (page - 1) * size;
-
-        // 마지막 페이지는 size보다 데이터가 적을 수 있으므로 목록 크기를 넘지 않게 제한합니다.
-        int toIndex = Math.min(
-                fromIndex + size,
-                searchedHospitals.size()
-        );
+        int toIndex = Math.min(fromIndex + size, searchedHospitals.size());
 
         return HospitalSearchPageResponse.of(
                 searchedHospitals.subList(fromIndex, toIndex),

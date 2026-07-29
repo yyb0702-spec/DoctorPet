@@ -8,4 +8,12 @@ import java.util.List;
 public interface HospitalRepositoryCustom {
 
     List<HospitalSearchCandidate> search(HospitalSearchCondition condition);
+
+    List<HospitalSearchCandidate> search(
+            HospitalSearchCondition condition,
+            long offset,
+            int limit
+    );
+
+    long count(HospitalSearchCondition condition);
 }

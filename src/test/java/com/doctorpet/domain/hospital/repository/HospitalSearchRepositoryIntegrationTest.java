@@ -49,6 +49,42 @@ class HospitalSearchRepositoryIntegrationTest {
     private HospitalDetailRepository hospitalDetailRepository;
 
     @Test
+    void 전체_개수와_현재_페이지를_분리해_조회한다() {
+        saveHospital(
+                "PAGE-C",
+                "페이지테스트 다병원",
+                BusinessStatus.OPEN,
+                false
+        );
+        Hospital second =
+                saveHospital(
+                        "PAGE-B",
+                        "페이지테스트 나병원",
+                        BusinessStatus.OPEN,
+                        false
+                );
+        saveHospital(
+                "PAGE-A",
+                "페이지테스트 가병원",
+                BusinessStatus.OPEN,
+                false
+        );
+        hospitalRepository.flush();
+
+        HospitalSearchCondition condition =
+                conditionWithKeyword("페이지테스트");
+
+        long totalElements = hospitalRepository.count(condition);
+        List<HospitalSearchCandidate> content =
+                hospitalRepository.search(condition, 1L, 1);
+
+        assertThat(totalElements).isEqualTo(3);
+        assertThat(content)
+                .extracting(candidate -> candidate.hospital().getId())
+                .containsExactly(second.getId());
+    }
+
+    @Test
     void 지역_축종_필수역량_시설조건을_모두_만족하는_병원만_조회한다() {
         Hospital matched = saveHospital(
                 "FILTER-MATCHED",
@@ -265,5 +301,22 @@ class HospitalSearchRepositoryIntegrationTest {
             hospital.markAsPartner();
         }
         return hospitalRepository.save(hospital);
+    }
+
+    private HospitalSearchCondition conditionWithKeyword(String keyword) {
+        return new HospitalSearchCondition(
+                keyword,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false
+        );
     }
 }
