@@ -80,7 +80,7 @@ class HospitalSearchRepositoryIntegrationTest {
 
         assertThat(totalElements).isEqualTo(3);
         assertThat(content)
-                .extracting(candidate -> candidate.hospital().getId())
+                .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(second.getId());
     }
 
@@ -145,7 +145,7 @@ class HospitalSearchRepositoryIntegrationTest {
                 hospitalRepository.search(condition);
 
         assertThat(result)
-                .extracting(candidate -> candidate.hospital().getId())
+                .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(matched.getId());
     }
 
@@ -217,8 +217,7 @@ class HospitalSearchRepositoryIntegrationTest {
                 hospitalRepository.search(condition);
 
         assertThat(result)
-                .extracting(candidate ->
-                        candidate.hospital().getId())
+                .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(matched.getId());
     }
 
@@ -269,8 +268,7 @@ class HospitalSearchRepositoryIntegrationTest {
                 hospitalRepository.search(condition);
 
         assertThat(result)
-                .extracting(candidate ->
-                        candidate.hospital().getId())
+                .extracting(HospitalSearchCandidate::hospitalId)
                 .contains(nearby.getId())
                 .doesNotContain(farAway.getId());
     }

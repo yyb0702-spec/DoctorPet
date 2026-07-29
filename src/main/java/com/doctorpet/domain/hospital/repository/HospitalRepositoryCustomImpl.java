@@ -76,11 +76,18 @@ public class HospitalRepositoryCustomImpl
             HospitalSearchCondition condition
     ) {
         return queryFactory
-                // Hospital과 HospitalDetail을 HospitalSearchCandidate 생성자에 바로 넣습니다.
+                // 검색 응답 계산에 필요한 필드만 후보 DTO 생성자에 바로 넣습니다.
                 .select(Projections.constructor(
                         HospitalSearchCandidate.class,
-                        hospital,
-                        hospitalDetail
+                        hospital.id,
+                        hospital.name,
+                        hospital.addressRoad,
+                        hospital.addressJibun,
+                        hospital.coordX,
+                        hospital.coordY,
+                        hospital.businessStatus,
+                        hospital.partnershipStatus,
+                        hospitalDetail.openHours
                 ))
                 .from(hospital)
                 // 상세정보가 없는 비제휴 병원도 조회하기 위해 LEFT JOIN을 사용합니다.

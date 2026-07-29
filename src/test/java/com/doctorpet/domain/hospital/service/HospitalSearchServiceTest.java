@@ -80,7 +80,7 @@ class HospitalSearchServiceTest {
                 org.mockito.ArgumentMatchers.eq(0L),
                 org.mockito.ArgumentMatchers.eq(1)
         )).willReturn(List.of(
-                new HospitalSearchCandidate(first, null)
+                candidate(first)
         ));
 
         HospitalSearchPageResponse response =
@@ -141,8 +141,8 @@ class HospitalSearchServiceTest {
                         HospitalSearchCondition.class
                 )
         )).willReturn(List.of(
-                new HospitalSearchCandidate(farAway, null),
-                new HospitalSearchCandidate(nearby, null)
+                candidate(farAway),
+                candidate(nearby)
         ));
 
         HospitalSearchPageResponse response =
@@ -197,7 +197,7 @@ class HospitalSearchServiceTest {
                 org.mockito.ArgumentMatchers.eq(0L),
                 org.mockito.ArgumentMatchers.eq(20)
         )).willReturn(List.of(
-                new HospitalSearchCandidate(hospital, null)
+                candidate(hospital)
         ));
 
         HospitalSearchPageResponse response =
@@ -410,5 +410,19 @@ class HospitalSearchServiceTest {
             hospital.markAsPartner();
         }
         return hospital;
+    }
+
+    private HospitalSearchCandidate candidate(Hospital hospital) {
+        return new HospitalSearchCandidate(
+                hospital.getId(),
+                hospital.getName(),
+                hospital.getAddressRoad(),
+                hospital.getAddressJibun(),
+                hospital.getCoordX(),
+                hospital.getCoordY(),
+                hospital.getBusinessStatus(),
+                hospital.getPartnershipStatus(),
+                null
+        );
     }
 }

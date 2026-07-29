@@ -1,7 +1,7 @@
 package com.doctorpet.domain.hospital.dto.response;
 
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
-import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 
 import java.math.BigDecimal;
@@ -19,37 +19,37 @@ public record HospitalSearchResponse(
 ) {
 
     public static HospitalSearchResponse from(
-            Hospital hospital,
+            HospitalSearchCandidate candidate,
             BigDecimal distanceKm,
             Boolean openNow
     ) {
         boolean reservationAvailable =
-                hospital.getPartnershipStatus() == PartnershipStatus.PARTNER
-                        && hospital.getBusinessStatus() == BusinessStatus.OPEN;
+                candidate.partnershipStatus() == PartnershipStatus.PARTNER
+                        && candidate.businessStatus() == BusinessStatus.OPEN;
 
         return new HospitalSearchResponse(
-                hospital.getId(),
-                hospital.getName(),
-                resolveAddress(hospital),
+                candidate.hospitalId(),
+                candidate.name(),
+                resolveAddress(candidate),
                 distanceKm,
-                hospital.getBusinessStatus(),
-                hospital.getPartnershipStatus(),
+                candidate.businessStatus(),
+                candidate.partnershipStatus(),
                 reservationAvailable,
-                hospital.getPartnershipStatus() == PartnershipStatus.NON_PARTNER
+                candidate.partnershipStatus() == PartnershipStatus.NON_PARTNER
                         ? "제휴 전 병원"
                         : null,
-                hospital.getPartnershipStatus() == PartnershipStatus.PARTNER
+                candidate.partnershipStatus() == PartnershipStatus.PARTNER
                         ? openNow
                         : null
         );
     }
 
-    private static String resolveAddress(Hospital hospital) {
-        if (hospital.getAddressRoad() != null
-                && !hospital.getAddressRoad().isBlank()) {
-            return hospital.getAddressRoad();
+    private static String resolveAddress(HospitalSearchCandidate candidate) {
+        if (candidate.addressRoad() != null
+                && !candidate.addressRoad().isBlank()) {
+            return candidate.addressRoad();
         }
 
-        return hospital.getAddressJibun();
+        return candidate.addressJibun();
     }
 }

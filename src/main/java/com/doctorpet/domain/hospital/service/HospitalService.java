@@ -33,6 +33,7 @@ import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -76,7 +77,10 @@ public class HospitalService {
                 hospital,
                 detail,
                 capabilities,
-                calculateOpenNow(hospital, detail)
+                calculateOpenNow(
+                        hospital.getBusinessStatus(),
+                        detail.getOpenHours()
+                )
         );
     }
 
@@ -303,23 +307,23 @@ public class HospitalService {
             BigDecimal latitude,
             BigDecimal longitude
     ) {
-        Hospital hospital = candidate.hospital();
-        HospitalDetail detail = candidate.detail();
-
         // 비제휴 병원은 운영시간 데이터가 없으므로 현재 영업 여부를 null로 반환합니다.
         Boolean openNow = null;
-        if (hospital.getPartnershipStatus() == PartnershipStatus.PARTNER) {
-            openNow = detail != null
-                    && calculateOpenNow(hospital, detail);
+        if (candidate.partnershipStatus() == PartnershipStatus.PARTNER) {
+            openNow = candidate.openHours() != null
+                    && calculateOpenNow(
+                            candidate.businessStatus(),
+                            candidate.openHours()
+                    );
         }
 
         return HospitalSearchResponse.from(
-                hospital,
+                candidate,
                 calculateDistanceKm(
                         latitude,
                         longitude,
-                        hospital.getCoordY(),
-                        hospital.getCoordX()
+                        candidate.latitude(),
+                        candidate.longitude()
                 ),
                 openNow
         );
@@ -464,18 +468,17 @@ public class HospitalService {
     }
 
     private boolean calculateOpenNow(
-            Hospital hospital,
-            HospitalDetail detail
+            BusinessStatus businessStatus,
+            Map<DayOfWeek, DailyOperatingHours> openHours
     ) {
-        if (hospital.getBusinessStatus()
-                != BusinessStatus.OPEN) {
+        if (businessStatus != BusinessStatus.OPEN) {
             return false;
         }
 
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         DayOfWeek today = now.getDayOfWeek();
         LocalTime currentTime = now.toLocalTime();
-        var todayHours = detail.getOpenHours().get(today);
+        var todayHours = openHours.get(today);
 
         // 오늘 일정은 당일 시작 시각 이후 구간만 판단합니다.
         // 예: 화요일 20:00~02:00은 화요일 01:00이 아니라 20:00부터 적용됩니다.
@@ -486,7 +489,7 @@ public class HospitalService {
         // 자정 이후에는 전날 시작한 심야영업이 이어질 수 있으므로 전날 일정도 확인합니다.
         // 예: 월요일 20:00~02:00이면 화요일 01:00에도 영업 중입니다.
         DayOfWeek yesterday = today.minus(1);
-        var yesterdayHours = detail.getOpenHours().get(yesterday);
+        var yesterdayHours = openHours.get(yesterday);
 
         return isOpenAfterMidnight(yesterdayHours, currentTime);
     }
