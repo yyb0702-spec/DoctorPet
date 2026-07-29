@@ -7,7 +7,9 @@ import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
@@ -21,11 +23,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class HospitalSearchServiceTest {
@@ -39,6 +44,9 @@ class HospitalSearchServiceTest {
     @Mock
     private HospitalCapabilityRepository hospitalCapabilityRepository;
 
+    @Mock
+    private HospitalSearchCacheRepository hospitalSearchCacheRepository;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -46,7 +54,8 @@ class HospitalSearchServiceTest {
         hospitalService = new HospitalService(
                 hospitalRepository,
                 hospitalDetailRepository,
-                hospitalCapabilityRepository
+                hospitalCapabilityRepository,
+                hospitalSearchCacheRepository
         );
     }
 
@@ -233,6 +242,78 @@ class HospitalSearchServiceTest {
     }
 
     @Test
+    void 최초_진입_페이지가_캐시에_있으면_DB를_조회하지_않는다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(Optional.of(new HospitalSearchCachedPage(
+                        List.of(candidate(hospital)),
+                        1L
+                )));
+
+        HospitalSearchPageResponse response =
+                searchInitialPage();
+
+        assertThat(response.content())
+                .singleElement()
+                .extracting("name")
+                .isEqualTo("제휴 병원");
+        assertThat(response.totalElements()).isEqualTo(1L);
+        verifyNoInteractions(hospitalRepository);
+        verify(hospitalSearchCacheRepository, never())
+                .saveInitialPage(
+                        org.mockito.ArgumentMatchers.any()
+                );
+    }
+
+    @Test
+    void 최초_진입_페이지가_캐시에_없으면_DB_결과를_캐시에_저장한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(Optional.empty());
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(1L);
+        given(hospitalRepository.search(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(20)
+        )).willReturn(List.of(candidate(hospital)));
+
+        HospitalSearchPageResponse response =
+                searchInitialPage();
+
+        assertThat(response.totalElements()).isEqualTo(1L);
+        ArgumentCaptor<HospitalSearchCachedPage> cachedPageCaptor =
+                ArgumentCaptor.forClass(HospitalSearchCachedPage.class);
+        verify(hospitalSearchCacheRepository)
+                .saveInitialPage(cachedPageCaptor.capture());
+        assertThat(cachedPageCaptor.getValue().content())
+                .singleElement()
+                .extracting("hospitalId")
+                .isEqualTo(1L);
+        assertThat(cachedPageCaptor.getValue().totalElements())
+                .isEqualTo(1L);
+    }
+
+    @Test
     void 지원축종이_DOG나_CAT이_아니면_검증_예외를_던진다() {
         assertThatThrownBy(() -> hospitalService.hospitalSearch(
                 null,
@@ -410,6 +491,27 @@ class HospitalSearchServiceTest {
             hospital.markAsPartner();
         }
         return hospital;
+    }
+
+    private HospitalSearchPageResponse searchInitialPage() {
+        return hospitalService.hospitalSearch(
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                true,
+                false,
+                1,
+                20,
+                "name"
+        );
     }
 
     private HospitalSearchCandidate candidate(Hospital hospital) {

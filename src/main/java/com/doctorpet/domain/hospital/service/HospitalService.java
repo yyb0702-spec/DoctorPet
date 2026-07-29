@@ -3,6 +3,7 @@ package com.doctorpet.domain.hospital.service;
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
@@ -15,6 +16,7 @@ import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.global.exception.CommonErrorCode;
@@ -45,6 +47,7 @@ public class HospitalService {
     private final HospitalRepository hospitalRepository;
     private final HospitalDetailRepository hospitalDetailRepository;
     private final HospitalCapabilityRepository hospitalCapabilityRepository;
+    private final HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
     @Transactional(readOnly = true)
     public HospitalDetailResponse getHospitalDetail(Long hospitalId) {
@@ -147,7 +150,14 @@ public class HospitalService {
                 latitude,
                 longitude,
                 page,
-                size
+                size,
+                isInitialPageCacheTarget(
+                        condition,
+                        openNowOnly,
+                        page,
+                        size,
+                        normalizedSort
+                )
         );
     }
 
@@ -156,8 +166,27 @@ public class HospitalService {
             BigDecimal latitude,
             BigDecimal longitude,
             int page,
-            int size
+            int size,
+            boolean cacheTarget
     ) {
+        if (cacheTarget) {
+            return hospitalSearchCacheRepository.findInitialPage()
+                    .map(cachedPage -> toPageResponse(
+                            cachedPage,
+                            latitude,
+                            longitude,
+                            page,
+                            size
+                    ))
+                    .orElseGet(() -> searchAndCacheInitialPage(
+                            condition,
+                            latitude,
+                            longitude,
+                            page,
+                            size
+                    ));
+        }
+
         long totalElements = hospitalRepository.count(condition);
         int totalPages = calculateTotalPages(totalElements, size);
         validatePageRange(page, totalPages);
@@ -180,6 +209,85 @@ public class HospitalService {
                 totalElements,
                 totalPages
         );
+    }
+
+    private HospitalSearchPageResponse searchAndCacheInitialPage(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size
+    ) {
+        long totalElements = hospitalRepository.count(condition);
+        List<HospitalSearchCandidate> candidates = totalElements == 0
+                ? List.of()
+                : hospitalRepository.search(condition, 0, size);
+        HospitalSearchCachedPage cachedPage = new HospitalSearchCachedPage(
+                candidates,
+                totalElements
+        );
+
+        hospitalSearchCacheRepository.saveInitialPage(cachedPage);
+
+        return toPageResponse(
+                cachedPage,
+                latitude,
+                longitude,
+                page,
+                size
+        );
+    }
+
+    private HospitalSearchPageResponse toPageResponse(
+            HospitalSearchCachedPage cachedPage,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size
+    ) {
+        long totalElements = cachedPage.totalElements();
+        int totalPages = calculateTotalPages(totalElements, size);
+        validatePageRange(page, totalPages);
+        List<HospitalSearchResponse> content = cachedPage.content().stream()
+                .map(candidate -> toSearchResponse(
+                        candidate,
+                        latitude,
+                        longitude
+                ))
+                .toList();
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private boolean isInitialPageCacheTarget(
+            HospitalSearchCondition condition,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
+    ) {
+        return condition.keyword() == null
+                && condition.region() == null
+                && condition.latitude() == null
+                && condition.longitude() == null
+                && condition.radiusKm() == null
+                && condition.requiredCapabilities().isEmpty()
+                && condition.supportedSpecies().isEmpty()
+                && condition.surgery() == null
+                && condition.hospitalization() == null
+                && condition.nightCare() == null
+                && condition.emergency() == null
+                && condition.partnerOnly()
+                && !openNowOnly
+                && page == 1
+                && size == 20
+                && sort.equals("name");
     }
 
     private HospitalSearchPageResponse searchWithPostProcessing(
