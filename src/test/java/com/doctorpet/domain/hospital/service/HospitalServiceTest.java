@@ -282,6 +282,22 @@ class HospitalServiceTest {
                 .isEqualTo(HospitalErrorCode.HOSPITAL_DETAIL_NOT_FOUND);
     }
 
+    @Test
+    void 예약_목록용_병원_요약은_여러_병원을_한번에_조회한다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        given(hospitalRepository.findAllById(List.of(HOSPITAL_ID)))
+                .willReturn(List.of(hospital));
+
+        var responses = hospitalService.getHospitalSummaries(
+                List.of(HOSPITAL_ID)
+        );
+
+        assertThat(responses).singleElement().satisfies(response -> {
+            assertThat(response.hospitalId()).isEqualTo(HOSPITAL_ID);
+            assertThat(response.name()).isEqualTo("테스트 동물병원");
+        });
+    }
+
     private Hospital createHospital(
             BusinessStatus businessStatus,
             boolean partner

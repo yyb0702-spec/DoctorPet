@@ -23,14 +23,9 @@ import org.springframework.context.annotation.Import;
  * 보존" 체크리스트 대응).
  *
  * 이 테스트가 증명하는 범위 — Reservation.petNameSnapshot/petSpeciesSnapshot은 PetProfile과
- * JPA 연관관계(@ManyToOne 등)가 전혀 없는 순수 String 컬럼이고(ReservationService.request()도
- * PetProfileRepository를 조회하지 않고 클라이언트가 보낸 ReservationRequest 값을 그대로
- * 옮겨 담는다), pet_profiles.deleted_at을 세팅하는 것은 UPDATE 한 줄일 뿐 reservations
- * 테이블에는 어떤 FK/cascade도 없다. 따라서 이 테스트는 "Pet 도메인의 Soft Delete 구현이
- * 실수로 물리 삭제·cascade를 일으켜 다른 도메인 데이터를 훼손하지 않는지"를 검증하는 것이지,
- * "예약 상세 조회 API가 스냅샷을 반환하는지"는 검증하지 않는다 — 그건 ReservationResponse가
- * 오늘 그 두 필드를 아예 응답에 노출하지 않아 Reservation 도메인 쪽 변경 없이는 API 레벨로
- * 증명할 수 없다(PR 리뷰 대응 코멘트 참고).
+ * JPA 연관관계(@ManyToOne 등)가 없는 순수 스냅샷 컬럼이다. 예약 생성 시에는
+ * ReservationService가 소유한 활성 PetProfile을 조회해 서버 값으로 스냅샷을 만들고, 생성
+ * 이후 pet_profiles.deleted_at을 변경해도 reservations에는 FK/cascade가 없어 값이 보존된다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -83,5 +78,42 @@ class PetProfileReservationSnapshotIntegrationTest {
         Reservation reloaded = reservationRepository.findById(reservationId).orElseThrow();
         assertThat(reloaded.getPetNameSnapshot()).isEqualTo("초코");
         assertThat(reloaded.getPetSpeciesSnapshot()).isEqualTo("DOG");
+    }
+
+    @Test
+    @DisplayName("PetProfile 최대 길이 이름 255자는 Reservation 스냅샷에도 손실 없이 저장된다")
+    void reservationSnapshot_supportsPetNameMaxLength() {
+        String maxLengthName = "가".repeat(255);
+        PetProfile pet = petProfileRepository.saveAndFlush(
+                PetProfile.create(
+                        MEMBER_ID,
+                        maxLengthName,
+                        PetSpecies.CAT,
+                        4,
+                        new BigDecimal("4.2"),
+                        false
+                )
+        );
+
+        Reservation reservation = reservationRepository.saveAndFlush(
+                Reservation.request(
+                        MEMBER_ID,
+                        pet.getId(),
+                        HOSPITAL_ID,
+                        SLOT_ID + 1,
+                        PAYMENT_METHOD_ID,
+                        pet.getName(),
+                        pet.getSpecies().name(),
+                        LocalDateTime.now()
+                )
+        );
+        Long reservationId = reservation.getId();
+        entityManager.clear();
+
+        Reservation reloaded = reservationRepository.findById(reservationId)
+                .orElseThrow();
+        assertThat(reloaded.getPetNameSnapshot())
+                .hasSize(255)
+                .isEqualTo(maxLengthName);
     }
 }
