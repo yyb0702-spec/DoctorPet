@@ -2,6 +2,10 @@ package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupStatus;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +17,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,7 +63,7 @@ class HospitalSearchCacheRepositoryTest {
                 .willReturn(null);
 
         assertThat(cacheRepository.findInitialPage().status())
-                .isEqualTo(HospitalSearchCacheLookupResult.Status.MISS);
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
     }
 
     @Test
@@ -68,7 +73,7 @@ class HospitalSearchCacheRepositoryTest {
 
         assertThat(cacheRepository.findInitialPage().status())
                 .isEqualTo(
-                        HospitalSearchCacheLookupResult.Status.UNAVAILABLE
+                        HospitalSearchCacheLookupStatus.UNAVAILABLE
                 );
     }
 
@@ -86,8 +91,60 @@ class HospitalSearchCacheRepositoryTest {
                 cacheRepository.findInitialPage();
 
         assertThat(result.status())
-                .isEqualTo(HospitalSearchCacheLookupResult.Status.MISS);
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
         assertThat(result.canWrite()).isTrue();
+    }
+
+    @Test
+    void 캐시_content가_누락되면_갱신_가능한_MISS를_반환한다()
+            throws Exception {
+        given(valueOperations.get(CACHE_KEY))
+                .willReturn("{\"totalElements\":1}");
+        given(objectMapper.readValue(
+                "{\"totalElements\":1}",
+                HospitalSearchCachedPage.class
+        )).willReturn(new HospitalSearchCachedPage(null, 1L));
+
+        HospitalSearchCacheLookupResult result =
+                cacheRepository.findInitialPage();
+
+        assertThat(result.status())
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
+        assertThat(result.canWrite()).isTrue();
+    }
+
+    @Test
+    void 캐시_후보에_null이_포함되면_MISS를_반환한다()
+            throws Exception {
+        given(valueOperations.get(CACHE_KEY))
+                .willReturn("cached json");
+        given(objectMapper.readValue(
+                "cached json",
+                HospitalSearchCachedPage.class
+        )).willReturn(new HospitalSearchCachedPage(
+                Arrays.asList((HospitalSearchCandidate) null),
+                1L
+        ));
+
+        assertThat(cacheRepository.findInitialPage().status())
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
+    }
+
+    @Test
+    void 캐시_후보_수와_전체_건수가_일치하지_않으면_MISS를_반환한다()
+            throws Exception {
+        given(valueOperations.get(CACHE_KEY))
+                .willReturn("cached json");
+        given(objectMapper.readValue(
+                "cached json",
+                HospitalSearchCachedPage.class
+        )).willReturn(new HospitalSearchCachedPage(
+                List.of(validCandidate()),
+                0L
+        ));
+
+        assertThat(cacheRepository.findInitialPage().status())
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
     }
 
     @Test
@@ -116,6 +173,20 @@ class HospitalSearchCacheRepositoryTest {
                 CACHE_KEY,
                 "{\"content\":[],\"totalElements\":0}",
                 Duration.ofMinutes(10)
+        );
+    }
+
+    private HospitalSearchCandidate validCandidate() {
+        return new HospitalSearchCandidate(
+                1L,
+                "제휴 병원",
+                "서울특별시 중구 도로명주소",
+                "서울특별시 중구 지번주소",
+                null,
+                null,
+                BusinessStatus.OPEN,
+                PartnershipStatus.PARTNER,
+                null
         );
     }
 }

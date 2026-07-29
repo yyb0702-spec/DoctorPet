@@ -3,35 +3,29 @@ package com.doctorpet.domain.hospital.dto.query;
 import java.util.Optional;
 
 public record HospitalSearchCacheLookupResult(
-        Status status,
+        HospitalSearchCacheLookupStatus status,
         HospitalSearchCachedPage cachedPage
 ) {
-
-    public enum Status {
-        HIT,
-        MISS,
-        UNAVAILABLE
-    }
 
     public static HospitalSearchCacheLookupResult hit(
             HospitalSearchCachedPage cachedPage
     ) {
         return new HospitalSearchCacheLookupResult(
-                Status.HIT,
+                HospitalSearchCacheLookupStatus.HIT,
                 cachedPage
         );
     }
 
     public static HospitalSearchCacheLookupResult miss() {
         return new HospitalSearchCacheLookupResult(
-                Status.MISS,
+                HospitalSearchCacheLookupStatus.MISS,
                 null
         );
     }
 
     public static HospitalSearchCacheLookupResult unavailable() {
         return new HospitalSearchCacheLookupResult(
-                Status.UNAVAILABLE,
+                HospitalSearchCacheLookupStatus.UNAVAILABLE,
                 null
         );
     }
@@ -41,6 +35,6 @@ public record HospitalSearchCacheLookupResult(
     }
 
     public boolean canWrite() {
-        return status != Status.UNAVAILABLE;
+        return status != HospitalSearchCacheLookupStatus.UNAVAILABLE;
     }
 }

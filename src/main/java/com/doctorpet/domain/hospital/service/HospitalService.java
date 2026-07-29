@@ -5,6 +5,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchResult;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
@@ -200,11 +201,12 @@ public class HospitalService {
         List<HospitalSearchResponse> content = totalElements == 0
                 ? List.of()
                 : hospitalRepository.search(condition, offset, size).stream()
-                        .map(candidate -> toSearchResponse(
+                        .map(candidate -> toSearchResult(
                                 candidate,
                                 latitude,
                                 longitude
                         ))
+                        .map(this::toSearchResponse)
                         .toList();
 
         return HospitalSearchPageResponse.of(
@@ -257,11 +259,12 @@ public class HospitalService {
         int totalPages = calculateTotalPages(totalElements, size);
         validatePageRange(page, totalPages);
         List<HospitalSearchResponse> content = cachedPage.content().stream()
-                .map(candidate -> toSearchResponse(
+                .map(candidate -> toSearchResult(
                         candidate,
                         latitude,
                         longitude
                 ))
+                .map(this::toSearchResponse)
                 .toList();
 
         return HospitalSearchPageResponse.of(
@@ -310,18 +313,22 @@ public class HospitalService {
     ) {
         List<HospitalSearchResponse> searchedHospitals =
                 hospitalRepository.search(condition).stream()
-                        .map(candidate -> toSearchResponse(
+                        .map(candidate -> toSearchResult(
                                 candidate,
                                 latitude,
                                 longitude
                         ))
-                        .filter(response ->
-                                isWithinRadius(response, radiusKm))
-                        .filter(response ->
-                                !openNowOnly || Boolean.TRUE.equals(
-                                        response.openNow()
+                        .filter(result ->
+                                isWithinRadius(
+                                        result.preciseDistanceKm(),
+                                        radiusKm
                                 ))
-                        .sorted(resolveSearchComparator(sort))
+                        .filter(result ->
+                                !openNowOnly || Boolean.TRUE.equals(
+                                        result.openNow()
+                                ))
+                        .sorted(resolveSearchResultComparator(sort))
+                        .map(this::toSearchResponse)
                         .toList();
 
         long totalElements = searchedHospitals.size();
@@ -418,31 +425,48 @@ public class HospitalService {
         }
     }
 
-    private HospitalSearchResponse toSearchResponse(
+    private HospitalSearchResult toSearchResult(
             HospitalSearchCandidate candidate,
             BigDecimal latitude,
             BigDecimal longitude
     ) {
+        BigDecimal preciseDistanceKm = calculatePreciseDistanceKm(
+                latitude,
+                longitude,
+                candidate.latitude(),
+                candidate.longitude()
+        );
+
+        return new HospitalSearchResult(
+                candidate,
+                preciseDistanceKm,
+                resolveOpenNow(candidate)
+        );
+    }
+
+    private HospitalSearchResponse toSearchResponse(
+            HospitalSearchResult result
+    ) {
+        return HospitalSearchResponse.from(
+                result.candidate(),
+                roundDistanceKm(result.preciseDistanceKm()),
+                result.openNow()
+        );
+    }
+
+    private Boolean resolveOpenNow(
+            HospitalSearchCandidate candidate
+    ) {
         // 비제휴 병원은 운영시간 데이터가 없으므로 현재 영업 여부를 null로 반환합니다.
-        Boolean openNow = null;
-        if (candidate.partnershipStatus() == PartnershipStatus.PARTNER) {
-            openNow = candidate.openHours() != null
-                    && calculateOpenNow(
-                            candidate.businessStatus(),
-                            candidate.openHours()
-                    );
+        if (candidate.partnershipStatus() != PartnershipStatus.PARTNER) {
+            return null;
         }
 
-        return HospitalSearchResponse.from(
-                candidate,
-                calculateDistanceKm(
-                        latitude,
-                        longitude,
-                        candidate.latitude(),
-                        candidate.longitude()
-                ),
-                openNow
-        );
+        return candidate.openHours() != null
+                && calculateOpenNow(
+                        candidate.businessStatus(),
+                        candidate.openHours()
+                );
     }
 
     private void validateLocationCondition(
@@ -491,7 +515,7 @@ public class HospitalService {
     }
 
     private boolean isWithinRadius(
-            HospitalSearchResponse response,
+            BigDecimal preciseDistanceKm,
             BigDecimal radiusKm
     ) {
         // 반경 조건이 없으면 거리와 관계없이 모든 병원을 통과시킵니다.
@@ -499,30 +523,31 @@ public class HospitalService {
             return true;
         }
 
-        // 반경 조건이 있으면 거리를 계산할 수 있고, 병원 거리가 반경 이하인 경우만 포함합니다.
-        return response.distanceKm() != null
-                && response.distanceKm().compareTo(radiusKm) <= 0;
+        // 응답용 반올림 전 정밀 거리를 비교해 반경 밖 후보가 포함되지 않게 합니다.
+        return preciseDistanceKm != null
+                && preciseDistanceKm.compareTo(radiusKm) <= 0;
     }
 
-    private Comparator<HospitalSearchResponse> resolveSearchComparator(
+    private Comparator<HospitalSearchResult> resolveSearchResultComparator(
             String sort
     ) {
         // 같은 이름의 병원도 항상 일정한 순서로 나오도록 hospitalId를 보조 정렬 기준으로 사용합니다.
-        Comparator<HospitalSearchResponse> nameComparator =
+        Comparator<HospitalSearchResult> nameComparator =
                 Comparator.comparing(
-                                HospitalSearchResponse::name,
+                                (HospitalSearchResult result) ->
+                                        result.candidate().name(),
                                 Comparator.nullsLast(
                                         String.CASE_INSENSITIVE_ORDER
                                 )
                         )
                         .thenComparing(
-                                HospitalSearchResponse::hospitalId
+                                result -> result.candidate().hospitalId()
                         );
 
         if (sort.equals("distance")) {
-            // 거리가 같으면 이름과 ID 순서로 정렬해 결과 순서를 고정합니다.
+            // 반올림 전 거리가 같으면 이름과 ID 순서로 결과를 고정합니다.
             return Comparator.comparing(
-                            HospitalSearchResponse::distanceKm,
+                            HospitalSearchResult::preciseDistanceKm,
                             Comparator.nullsLast(
                                     Comparator.naturalOrder()
                             )
@@ -533,7 +558,7 @@ public class HospitalService {
         return nameComparator;
     }
 
-    private BigDecimal calculateDistanceKm(
+    private BigDecimal calculatePreciseDistanceKm(
             BigDecimal userLatitude,
             BigDecimal userLongitude,
             BigDecimal hospitalLatitude,
@@ -578,9 +603,13 @@ public class HospitalService {
                         Math.sqrt(1 - haversine)
                 );
 
-        // 검색 목록에서는 읽기 쉽도록 km 단위 소수점 첫째 자리까지 반올림합니다.
-        return BigDecimal.valueOf(distance)
-                .setScale(1, RoundingMode.HALF_UP);
+        return BigDecimal.valueOf(distance);
+    }
+
+    private BigDecimal roundDistanceKm(BigDecimal preciseDistanceKm) {
+        return preciseDistanceKm == null
+                ? null
+                : preciseDistanceKm.setScale(1, RoundingMode.HALF_UP);
     }
 
     private boolean calculateOpenNow(

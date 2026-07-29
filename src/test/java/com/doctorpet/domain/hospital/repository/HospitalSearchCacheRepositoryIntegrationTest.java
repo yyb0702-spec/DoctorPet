@@ -2,6 +2,8 @@ package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupStatus;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
@@ -72,5 +74,16 @@ class HospitalSearchCacheRepositoryIntegrationTest {
                 .contains(expected);
         assertThat(redisTemplate.getExpire(CACHE_KEY))
                 .isPositive();
+    }
+
+    @Test
+    void content가_누락된_유효한_JSON은_캐시_MISS로_처리한다() {
+        redisTemplate.opsForValue().set(
+                CACHE_KEY,
+                "{\"totalElements\":1}"
+        );
+
+        assertThat(cacheRepository.findInitialPage().status())
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
     }
 }

@@ -2,6 +2,7 @@ package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,7 @@ public class HospitalSearchCacheRepository {
 
     private static final String INITIAL_PAGE_KEY =
             "hospital-search:initial-page:v1";
+    private static final int INITIAL_PAGE_SIZE = 20;
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -45,12 +47,20 @@ public class HospitalSearchCacheRepository {
         }
 
         try {
-            return HospitalSearchCacheLookupResult.hit(
-                    objectMapper.readValue(
-                            cachedValue,
-                            HospitalSearchCachedPage.class
-                    )
+            HospitalSearchCachedPage cachedPage = objectMapper.readValue(
+                    cachedValue,
+                    HospitalSearchCachedPage.class
             );
+
+            if (!isValidCachedPage(cachedPage)) {
+                log.warn(
+                        "병원 검색 첫 페이지 캐시 데이터가 유효하지 않아 DB 조회 후 갱신합니다. key={}",
+                        INITIAL_PAGE_KEY
+                );
+                return HospitalSearchCacheLookupResult.miss();
+            }
+
+            return HospitalSearchCacheLookupResult.hit(cachedPage);
         } catch (Exception exception) {
             log.warn(
                     "병원 검색 첫 페이지 캐시 데이터 변환에 실패하여 DB 조회 후 갱신합니다. key={}",
@@ -59,6 +69,36 @@ public class HospitalSearchCacheRepository {
             );
             return HospitalSearchCacheLookupResult.miss();
         }
+    }
+
+    private boolean isValidCachedPage(
+            HospitalSearchCachedPage cachedPage
+    ) {
+        if (cachedPage == null
+                || cachedPage.content() == null
+                || cachedPage.totalElements() < 0) {
+            return false;
+        }
+
+        long expectedContentSize = Math.min(
+                cachedPage.totalElements(),
+                INITIAL_PAGE_SIZE
+        );
+
+        return cachedPage.content().size() == expectedContentSize
+                && cachedPage.content().stream()
+                        .allMatch(this::isValidCandidate);
+    }
+
+    private boolean isValidCandidate(
+            HospitalSearchCandidate candidate
+    ) {
+        return candidate != null
+                && candidate.hospitalId() != null
+                && candidate.name() != null
+                && !candidate.name().isBlank()
+                && candidate.businessStatus() != null
+                && candidate.partnershipStatus() != null;
     }
 
     public void saveInitialPage(HospitalSearchCachedPage page) {

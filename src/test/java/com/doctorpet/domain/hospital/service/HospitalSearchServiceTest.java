@@ -185,6 +185,46 @@ class HospitalSearchServiceTest {
     }
 
     @Test
+    void 반올림하면_반경과_같아지는_반경_밖_병원도_제외한다() {
+        Hospital outsideRadius = createHospital(
+                1L,
+                "반경 밖 병원",
+                BusinessStatus.OPEN,
+                false,
+                "126.9780",
+                "37.57585"
+        );
+        given(hospitalRepository.search(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(List.of(candidate(outsideRadius)));
+
+        HospitalSearchPageResponse response =
+                hospitalService.hospitalSearch(
+                        null,
+                        null,
+                        new BigDecimal("37.5665"),
+                        new BigDecimal("126.9780"),
+                        new BigDecimal("1.0"),
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        1,
+                        20,
+                        "distance"
+                );
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isZero();
+    }
+
+    @Test
     void 비제휴_병원은_예약할_수_없고_openNow를_null로_반환한다() {
         Hospital hospital = createHospital(
                 1L,
