@@ -14,6 +14,7 @@ public record HospitalSearchResponse(
         BusinessStatus businessStatus,
         PartnershipStatus partnershipStatus,
         boolean reservationAvailable,
+        String partnershipBadge,
         Boolean openNow
 ) {
 
@@ -34,6 +35,9 @@ public record HospitalSearchResponse(
                 hospital.getBusinessStatus(),
                 hospital.getPartnershipStatus(),
                 reservationAvailable,
+                hospital.getPartnershipStatus() == PartnershipStatus.NON_PARTNER
+                        ? "제휴 전 병원"
+                        : null,
                 hospital.getPartnershipStatus() == PartnershipStatus.PARTNER
                         ? openNow
                         : null

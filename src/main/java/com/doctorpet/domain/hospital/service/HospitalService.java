@@ -4,6 +4,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
@@ -82,10 +83,16 @@ public class HospitalService {
     @Transactional(readOnly = true)
     public HospitalSearchPageResponse hospitalSearch(
             String keyword,
+            String region,
             BigDecimal latitude,
             BigDecimal longitude,
             BigDecimal radiusKm,
-            List<String> capabilities,
+            List<String> requiredCapabilities,
+            List<String> supportedSpecies,
+            Boolean surgery,
+            Boolean hospitalization,
+            Boolean nightCare,
+            Boolean emergency,
             boolean partnerOnly,
             boolean openNowOnly,
             int page,
@@ -101,10 +108,16 @@ public class HospitalService {
         // Service에서 검증·변환한 검색 조건만 Repository에 전달합니다.
         HospitalSearchCondition condition = new HospitalSearchCondition(
                 keyword,
+                region,
                 latitude,
                 longitude,
                 radiusKm,
-                parseCapabilities(capabilities),
+                parseCapabilities(requiredCapabilities),
+                parseSupportedSpecies(supportedSpecies),
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
                 partnerOnly
         );
 
@@ -197,6 +210,34 @@ public class HospitalService {
                     .toList();
         } catch (IllegalArgumentException exception) {
             // enum에 존재하지 않는 역량 문자열은 잘못된 검색 조건으로 처리합니다.
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private List<CapabilityValue> parseSupportedSpecies(
+            List<String> supportedSpecies
+    ) {
+        if (supportedSpecies == null || supportedSpecies.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            return supportedSpecies.stream()
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .map(value -> CapabilityValue.valueOf(
+                            value.toUpperCase(Locale.ROOT)
+                    ))
+                    .peek(value -> {
+                        if (value.getType() != CapabilityType.SPECIES) {
+                            throw new IllegalArgumentException();
+                        }
+                    })
+                    .distinct()
+                    .toList();
+        } catch (IllegalArgumentException exception) {
             throw new ServiceException(
                     CommonErrorCode.VALIDATION_FAILED
             );

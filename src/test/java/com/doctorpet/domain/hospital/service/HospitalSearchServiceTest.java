@@ -83,7 +83,13 @@ class HospitalSearchServiceTest {
                         null,
                         null,
                         null,
+                        null,
                         List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
                         false,
                         false,
                         1,
@@ -136,10 +142,16 @@ class HospitalSearchServiceTest {
         HospitalSearchPageResponse response =
                 hospitalService.hospitalSearch(
                         null,
+                        null,
                         new BigDecimal("37.5665"),
                         new BigDecimal("126.9780"),
                         new BigDecimal("5"),
                         List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
                         false,
                         false,
                         1,
@@ -181,7 +193,13 @@ class HospitalSearchServiceTest {
                         null,
                         null,
                         null,
+                        null,
                         List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
                         false,
                         false,
                         1,
@@ -195,18 +213,51 @@ class HospitalSearchServiceTest {
                     assertThat(result.partnershipStatus())
                             .isEqualTo(PartnershipStatus.NON_PARTNER);
                     assertThat(result.reservationAvailable()).isFalse();
+                    assertThat(result.partnershipBadge())
+                            .isEqualTo("제휴 전 병원");
                     assertThat(result.openNow()).isNull();
                 });
+    }
+
+    @Test
+    void 지원축종이_DOG나_CAT이_아니면_검증_예외를_던진다() {
+        assertThatThrownBy(() -> hospitalService.hospitalSearch(
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of("XRAY"),
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                20,
+                "name"
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.VALIDATION_FAILED);
     }
 
     @Test
     void 위도와_경도_중_하나만_전달하면_검증_예외를_던진다() {
         assertThatThrownBy(() -> hospitalService.hospitalSearch(
                 null,
+                null,
                 new BigDecimal("37.5665"),
                 null,
                 null,
                 List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
                 false,
                 false,
                 1,
@@ -225,7 +276,13 @@ class HospitalSearchServiceTest {
                 null,
                 null,
                 null,
+                null,
                 List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
                 false,
                 false,
                 1,
@@ -260,7 +317,13 @@ class HospitalSearchServiceTest {
                 null,
                 null,
                 null,
+                null,
                 List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
                 false,
                 false,
                 2,
@@ -286,7 +349,13 @@ class HospitalSearchServiceTest {
                         null,
                         null,
                         null,
+                        null,
                         List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
                         false,
                         false,
                         1,

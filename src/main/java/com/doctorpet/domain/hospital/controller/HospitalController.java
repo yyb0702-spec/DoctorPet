@@ -41,6 +41,7 @@ public class HospitalController {
     @GetMapping
     public ResponseEntity<ApiResponse<HospitalSearchPageResponse>> searchHospitals(
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String region,
             @RequestParam(required = false)
             @DecimalMin(value = "-90.0")
             @DecimalMax(value = "90.0")
@@ -52,8 +53,12 @@ public class HospitalController {
             @RequestParam(required = false)
             @Positive
             BigDecimal radiusKm,
-            @RequestParam(required = false)
-            List<String> capabilities,
+            @RequestParam(required = false) List<String> requiredCapabilities,
+            @RequestParam(required = false) List<String> supportedSpecies,
+            @RequestParam(required = false) Boolean surgery,
+            @RequestParam(required = false) Boolean hospitalization,
+            @RequestParam(required = false) Boolean nightCare,
+            @RequestParam(required = false) Boolean emergency,
             @RequestParam(defaultValue = "false") boolean partnerOnly,
             @RequestParam(name = "openNow", defaultValue = "false")
             boolean openNowOnly,
@@ -63,10 +68,16 @@ public class HospitalController {
     ) {
         HospitalSearchPageResponse response = hospitalService.hospitalSearch(
                 keyword,
+                region,
                 latitude,
                 longitude,
                 radiusKm,
-                capabilities,
+                requiredCapabilities,
+                supportedSpecies,
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
                 partnerOnly,
                 openNowOnly,
                 page,

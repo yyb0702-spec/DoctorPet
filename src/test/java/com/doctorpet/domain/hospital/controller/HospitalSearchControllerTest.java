@@ -51,6 +51,7 @@ class HospitalSearchControllerTest {
                         BusinessStatus.OPEN,
                         PartnershipStatus.PARTNER,
                         true,
+                        null,
                         true
                 );
         HospitalSearchPageResponse page =
@@ -62,6 +63,12 @@ class HospitalSearchControllerTest {
                         1
                 );
         given(hospitalService.hospitalSearch(
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
                 isNull(),
                 isNull(),
                 isNull(),
@@ -86,6 +93,12 @@ class HospitalSearchControllerTest {
                 .andExpect(jsonPath("$.data.totalElements").value(1));
 
         verify(hospitalService).hospitalSearch(
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
                 isNull(),
                 isNull(),
                 isNull(),

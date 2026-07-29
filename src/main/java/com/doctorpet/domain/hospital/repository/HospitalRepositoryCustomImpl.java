@@ -3,6 +3,7 @@ package com.doctorpet.domain.hospital.repository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.entity.QHospitalCapability;
 import com.querydsl.core.types.dsl.BooleanExpression;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.doctorpet.domain.hospital.entity.QHospital.hospital;
@@ -51,11 +53,25 @@ public class HospitalRepositoryCustomImpl
                         // 폐업 병원은 제외하고 휴업 병원은 검색 결과에 포함합니다.
                         hospital.businessStatus.ne(BusinessStatus.CLOSED),
                         keywordContains(condition.keyword()),
+                        regionContains(condition.region()),
                         partnerOnly(condition.partnerOnly()),
                         capabilityMatches(condition),
+                        facilityMatches(condition),
                         withinBoundingBox(condition)
                 )
                 .fetch();
+    }
+
+    private BooleanExpression regionContains(String region) {
+        if (region == null || region.isBlank()) {
+            return null;
+        }
+
+        String normalizedRegion = region.trim();
+        return hospital.addressRoad.containsIgnoreCase(normalizedRegion)
+                .or(hospital.addressJibun.containsIgnoreCase(
+                        normalizedRegion
+                ));
     }
 
     /**
@@ -101,8 +117,12 @@ public class HospitalRepositoryCustomImpl
     private BooleanExpression capabilityMatches(
             HospitalSearchCondition condition
     ) {
-        if (condition.capabilities() == null
-                || condition.capabilities().isEmpty()) {
+        List<CapabilityValue> requiredCapabilities = new ArrayList<>(
+                        condition.requiredCapabilities()
+                );
+        requiredCapabilities.addAll(condition.supportedSpecies());
+
+        if (requiredCapabilities.isEmpty()) {
             return null;
         }
 
@@ -111,7 +131,7 @@ public class HospitalRepositoryCustomImpl
                 new QHospitalCapability("searchCapability");
 
         // 같은 역량이 중복 요청되어도 한 종류로 계산합니다.
-        long requiredCount = condition.capabilities().stream()
+        long requiredCount = requiredCapabilities.stream()
                 .distinct()
                 .count();
 
@@ -122,7 +142,7 @@ public class HospitalRepositoryCustomImpl
                         .select(capability.hospital.id)
                         .from(capability)
                         .where(capability.capabilityValue.in(
-                                condition.capabilities()
+                                requiredCapabilities
                         ))
                         // 병원마다 요청 역량과 일치한 개수를 계산하기 위해 병원 ID로 묶습니다.
                         .groupBy(capability.hospital.id)
@@ -132,6 +152,37 @@ public class HospitalRepositoryCustomImpl
                                         .eq(requiredCount)
                         )
         );
+    }
+
+    private BooleanExpression facilityMatches(
+            HospitalSearchCondition condition
+    ) {
+        BooleanExpression expression = null;
+
+        if (Boolean.TRUE.equals(condition.surgery())) {
+            expression = hospitalDetail.surgeryAvailable.isTrue();
+        }
+        if (Boolean.TRUE.equals(condition.hospitalization())) {
+            expression = and(
+                    expression,
+                    hospitalDetail.hospitalizationAvailable.isTrue()
+            );
+        }
+        if (Boolean.TRUE.equals(condition.nightCare())) {
+            expression = and(expression, hospitalDetail.nightCare.isTrue());
+        }
+        if (Boolean.TRUE.equals(condition.emergency())) {
+            expression = and(expression, hospitalDetail.emergency.isTrue());
+        }
+
+        return expression;
+    }
+
+    private BooleanExpression and(
+            BooleanExpression left,
+            BooleanExpression right
+    ) {
+        return left == null ? right : left.and(right);
     }
 
     /**

@@ -6,6 +6,8 @@ import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
+import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.global.config.QuerydslConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +16,10 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.context.annotation.Import;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,11 +30,88 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(QuerydslConfig.class)
 class HospitalSearchRepositoryIntegrationTest {
 
+    private static final Map<DayOfWeek, DailyOperatingHours> OPEN_HOURS =
+            Map.of(
+                    DayOfWeek.MONDAY,
+                    new DailyOperatingHours(
+                            LocalTime.of(9, 0),
+                            LocalTime.of(18, 0)
+                    )
+            );
+
     @Autowired
     private HospitalRepository hospitalRepository;
 
     @Autowired
     private HospitalCapabilityRepository hospitalCapabilityRepository;
+
+    @Autowired
+    private HospitalDetailRepository hospitalDetailRepository;
+
+    @Test
+    void 지역_축종_필수역량_시설조건을_모두_만족하는_병원만_조회한다() {
+        Hospital matched = saveHospital(
+                "FILTER-MATCHED",
+                "조건 일치 병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital noSurgery = saveHospital(
+                "FILTER-NO-SURGERY",
+                "수술 불가 병원",
+                BusinessStatus.OPEN,
+                true
+        );
+
+        hospitalCapabilityRepository.saveAll(List.of(
+                HospitalCapability.create(matched, CapabilityValue.CAT),
+                HospitalCapability.create(matched, CapabilityValue.XRAY),
+                HospitalCapability.create(noSurgery, CapabilityValue.CAT),
+                HospitalCapability.create(noSurgery, CapabilityValue.XRAY)
+        ));
+        hospitalDetailRepository.saveAll(List.of(
+                HospitalDetail.create(
+                        matched,
+                        OPEN_HOURS,
+                        true,
+                        false,
+                        false,
+                        false
+                ),
+                HospitalDetail.create(
+                        noSurgery,
+                        OPEN_HOURS,
+                        false,
+                        false,
+                        false,
+                        false
+                )
+        ));
+        hospitalCapabilityRepository.flush();
+        hospitalDetailRepository.flush();
+
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                null,
+                "중구",
+                null,
+                null,
+                null,
+                List.of(CapabilityValue.XRAY),
+                List.of(CapabilityValue.CAT),
+                true,
+                null,
+                null,
+                null,
+                false
+        );
+
+        List<HospitalSearchCandidate> result =
+                hospitalRepository.search(condition);
+
+        assertThat(result)
+                .extracting(candidate -> candidate.hospital().getId())
+                .containsExactly(matched.getId());
+    }
 
     @Test
     void 폐업을_제외하고_요청한_역량을_모두_가진_병원만_조회한다() {
@@ -82,10 +164,16 @@ class HospitalSearchRepositoryIntegrationTest {
                         null,
                         null,
                         null,
+                        null,
                         List.of(
                                 CapabilityValue.DOG,
                                 CapabilityValue.XRAY
                         ),
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
                         true
                 );
 
@@ -128,10 +216,16 @@ class HospitalSearchRepositoryIntegrationTest {
         HospitalSearchCondition condition =
                 new HospitalSearchCondition(
                         null,
+                        null,
                         new BigDecimal("37.5665"),
                         new BigDecimal("126.9780"),
                         new BigDecimal("5"),
                         List.of(),
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
                         false
                 );
 
