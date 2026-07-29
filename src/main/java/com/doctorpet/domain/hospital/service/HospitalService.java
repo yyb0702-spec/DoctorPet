@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSummaryResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
@@ -21,6 +22,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
 
 @Slf4j
@@ -67,6 +69,18 @@ public class HospitalService {
                 capabilities,
                 calculateOpenNow(hospital, detail)
         );
+    }
+
+    /**
+     * 예약 목록처럼 여러 병원의 표시용 이름이 필요한 도메인을 위한 배치 조회 계약.
+     */
+    @Transactional(readOnly = true)
+    public List<HospitalSummaryResponse> getHospitalSummaries(
+            Collection<Long> hospitalIds
+    ) {
+        return hospitalRepository.findAllById(hospitalIds).stream()
+                .map(HospitalSummaryResponse::from)
+                .toList();
     }
 
     private boolean calculateOpenNow(

@@ -16,4 +16,10 @@ public interface PaymentMethodRepository extends JpaRepository<PaymentMethod, Lo
 
     // 소유권 검증 겸 단건 로드. 상태와 무관하게 로드해 #34가 status==ACTIVE 여부를 직접 판단하게 한다.
     Optional<PaymentMethod> findByIdAndMemberId(Long id, Long memberId);
+
+    boolean existsByIdAndMemberIdAndStatus(
+            Long id,
+            Long memberId,
+            PaymentMethodStatus status
+    );
 }
