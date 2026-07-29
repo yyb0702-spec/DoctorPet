@@ -1,0 +1,39 @@
+package com.doctorpet.domain.member.entity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.LocalDateTime;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Member 엔티티 단위 테스트. withdraw()는 Service/Repository 없이도 검증 가능한 순수 도메인
+ * 로직이라 다른 도메인(Reservation/Payment)의 조회 기능 완성을 기다리지 않고 먼저 작성한다
+ * (부록A #4 정책은 이미 확정, 크로스도메인 사전 검증은 상위 레이어의 책임 — Member.withdraw()
+ * 자체의 계약이 아니다).
+ */
+class MemberTest {
+
+    @Test
+    @DisplayName("withdraw()는 email을 withdrawn_{id}@deleted.doctorpet로 치환하고 deletedAt을 설정한다(SA §6-3)")
+    void withdraw_anonymizesEmailAndSetsDeletedAt() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 42L);
+        LocalDateTime now = LocalDateTime.now();
+
+        member.withdraw(now);
+
+        assertThat(member.getEmail()).isEqualTo("withdrawn_42@deleted.doctorpet");
+        assertThat(member.getDeletedAt()).isEqualTo(now);
+    }
+
+    private void setId(Member member, Long id) {
+        try {
+            var field = Member.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(member, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+}

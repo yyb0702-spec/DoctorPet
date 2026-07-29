@@ -112,4 +112,17 @@ public class Member extends BaseEntity {
         this.failedLoginAttempts = 0;
         this.lockedUntil = null;
     }
+
+    /*
+      탈퇴(Soft Delete) + 이메일 익명화(SA §6-3, 부록A 확정). email을 `withdrawn_{id}@deleted.doctorpet`로
+      치환해 `email UNIQUE` 제약을 유지한 채 탈퇴 후 동일 이메일 재가입을 허용한다.
+      활성 예약(CONFIRMED·CHECKED_IN)·미수금(OFFLINE_REQUIRED) 보유 여부 확인은 이 메서드의 책임이
+      아니다 — Reservation/Payment 도메인 Repository를 여기서 직접 참조할 수 없으므로(구현
+      가드레일), 상위 레이어(예: MemberWithdrawalApplicationService)가 각 도메인 Service를 통해
+      먼저 확인하고 통과한 경우에만 이 메서드를 호출해야 한다.
+     */
+    public void withdraw(LocalDateTime now) {
+        this.email = "withdrawn_" + this.id + "@deleted.doctorpet";
+        this.deletedAt = now;
+    }
 }
