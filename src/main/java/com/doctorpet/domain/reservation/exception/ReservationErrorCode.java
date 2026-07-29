@@ -49,6 +49,24 @@ public enum ReservationErrorCode implements ErrorCode {
             HttpStatus.NOT_FOUND,
             "RESERVATION_007",
             "예약 정보를 찾을 수 없습니다."
+    ),
+
+    INVALID_FILTER_STATUS(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_008",
+            "지원하지 않는 예약 상태입니다."
+    ),
+
+    INVALID_DATE_RANGE(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_009",
+            "조회 시작일은 종료일보다 늦을 수 없습니다."
+    ),
+
+    INVALID_SORT(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_010",
+            "지원하지 않는 예약 정렬 조건입니다."
     );
 
     private final HttpStatus httpStatus;
