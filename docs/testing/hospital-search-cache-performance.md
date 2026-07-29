@@ -104,17 +104,9 @@ UNAVAILABLE
 → DB 결과 반환
 ```
 
-Redis 연결·명령 타임아웃은 환경변수로 조정할 수 있게 하고 기본값을 각각 500ms로 설정했다.
+초기에는 Redis 연결·명령 타임아웃의 기본값을 각각 500ms로 설정했다. 그러나 이 설정은 병원 검색 캐시뿐 아니라 같은 Redis 연결을 사용하는 Refresh Token 저장소에도 적용되어, 병원 검색 장애 대응을 위한 설정이 인증 처리까지 변경하는 문제가 있었다.
 
-```yaml
-spring:
-  data:
-    redis:
-      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
-      timeout: ${REDIS_COMMAND_TIMEOUT:500ms}
-```
-
-이 설정은 병원 검색 캐시뿐 아니라 같은 Redis 연결을 사용하는 Refresh Token 저장소에도 적용된다. 병원 검색은 Redis 장애 시 DB로 대체하지만, Refresh Token은 Redis가 유효 세션의 기준이므로 장애 시 인증 처리가 실패한다.
+전역 타임아웃 설정을 제거한 뒤 Redis 프로세스를 중단하고 애플리케이션을 재시작한 상태에서도 병원 검색이 지연 없이 DB 조회로 전환되는 것을 확인했다. 따라서 병원 검색에 필요하지 않은 전역 설정은 적용하지 않았다.
 
 애플리케이션을 재시작하고 Redis 프로세스를 중단한 상태에서 최초 진입 API를 직접 호출해 다음 결과를 확인했다.
 
