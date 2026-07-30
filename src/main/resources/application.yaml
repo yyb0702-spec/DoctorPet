@@ -36,3 +36,7 @@ public-data:
     source-crs: EPSG:5174
     local-government-codes:
       - "3130000"
+
+hospital:
+  search:
+    cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}

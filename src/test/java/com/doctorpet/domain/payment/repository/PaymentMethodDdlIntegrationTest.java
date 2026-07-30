@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentMethodStatus;
 import com.doctorpet.global.config.JpaAuditingConfig;
+import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
@@ -24,7 +25,10 @@ import org.springframework.context.annotation.Import;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(JpaAuditingConfig.class)
+@Import({
+        JpaAuditingConfig.class,
+        QuerydslConfig.class
+})
 class PaymentMethodDdlIntegrationTest {
 
     private static final Long MEMBER_ID = 1L;
