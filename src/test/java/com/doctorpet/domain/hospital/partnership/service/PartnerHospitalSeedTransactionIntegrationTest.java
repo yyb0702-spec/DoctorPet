@@ -11,6 +11,7 @@ import com.doctorpet.domain.hospital.partnership.mapper.PartnerHospitalSeedMappe
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.global.config.QuerydslConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -35,7 +36,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 )
 @Import({
         PartnerHospitalSeedService.class,
-        PartnerHospitalSeedMapper.class
+        PartnerHospitalSeedMapper.class,
+        QuerydslConfig.class
 })
 class PartnerHospitalSeedTransactionIntegrationTest {
 

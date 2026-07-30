@@ -7,6 +7,7 @@ import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.global.config.JpaAuditingConfig;
+import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -34,7 +35,10 @@ import org.springframework.context.annotation.Import;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(JpaAuditingConfig.class)
+@Import({
+        JpaAuditingConfig.class,
+        QuerydslConfig.class
+})
 class PetProfileReservationSnapshotIntegrationTest {
 
     private static final Long MEMBER_ID = 1L;
