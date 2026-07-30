@@ -19,7 +19,7 @@ import com.doctorpet.domain.reservation.dto.response.ReservationPageResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationProgressStatus;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
-import com.doctorpet.domain.reservation.service.ReservationService;
+import com.doctorpet.domain.reservation.service.ReservationApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
@@ -55,7 +55,7 @@ class ReservationControllerTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private ReservationService reservationService;
+    private ReservationApplicationService reservationApplicationService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -64,7 +64,10 @@ class ReservationControllerTest {
     @DisplayName("보호자는 예약을 요청할 수 있다")
     void request_guardian_returnsCreated() throws Exception {
         ReservationRequest request = validRequest();
-        given(reservationService.request(eq(1L), any(ReservationRequest.class)))
+        given(reservationApplicationService.request(
+                eq(1L),
+                any(ReservationRequest.class)
+        ))
                 .willReturn(new ReservationResponse(
                         10L,
                         2L,
@@ -146,7 +149,7 @@ class ReservationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
-        verify(reservationService).cancel(1L, 10L);
+        verify(reservationApplicationService).cancel(1L, 10L);
     }
 
     @Test
@@ -172,7 +175,7 @@ class ReservationControllerTest {
                 null,
                 ReservationProgressStatus.RESERVATION_CONFIRMED
         );
-        given(reservationService.getMyReservations(
+        given(reservationApplicationService.getMyReservations(
                 eq(1L),
                 any(ReservationListCondition.class)
         )).willReturn(new ReservationPageResponse(
@@ -203,7 +206,7 @@ class ReservationControllerTest {
     @Test
     @DisplayName("보호자는 본인 예약 상세를 조회할 수 있다")
     void getMyReservation_guardian_returnsDetail() throws Exception {
-        given(reservationService.getMyReservation(1L, 10L))
+        given(reservationApplicationService.getMyReservation(1L, 10L))
                 .willReturn(new ReservationDetailResponse(
                         10L,
                         ReservationStatus.CONFIRMED,
@@ -274,6 +277,20 @@ class ReservationControllerTest {
     void getMyReservation_nonPositiveId_returnsBadRequest() throws Exception {
         mockMvc.perform(get("/api/reservations/{reservationId}", 0L)
                         .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("페이지 크기가 100을 초과하면 400을 반환한다")
+    void getMyReservations_sizeOverMax_returnBadRequest()
+        throws Exception{
+
+        mockMvc.perform(get("/api/reservations")
+                        .with(authentication(
+                                memberAuthentication(1L, "GUARDIAN")
+                        ))
+                        .param("size", "101"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
     }

@@ -18,7 +18,8 @@ public enum ReservationProgressStatus {
             String paymentStatus
     ) {
         if (reservationStatus == ReservationStatus.TREATMENT_COMPLETED
-                && "PAID".equals(paymentStatus)) {
+                && ("PAID".equals(paymentStatus)
+                || "OFFLINE_PAID".equals(paymentStatus))) {
             return PAYMENT_COMPLETED;
         }
 

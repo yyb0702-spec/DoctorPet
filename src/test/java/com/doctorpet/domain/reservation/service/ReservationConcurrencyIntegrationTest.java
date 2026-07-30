@@ -36,7 +36,7 @@ class ReservationConcurrencyIntegrationTest {
     private static final int REQUEST_COUNT = 10;
 
     @Autowired
-    private ReservationService reservationService;
+    private ReservationApplicationService reservationApplicationService;
 
     @Autowired
     private ReservationRepository reservationRepository;
@@ -156,7 +156,7 @@ class ReservationConcurrencyIntegrationTest {
                 ready.countDown();
                 try {
                     start.await();
-                    reservationService.request(member.getId(), request);
+                    reservationApplicationService.request(member.getId(), request);
                     successCount.incrementAndGet();
                 } catch (ServiceException exception) {
                     if (exception.getErrorCode() == SlotErrorCode.ALREADY_RESERVED) {
