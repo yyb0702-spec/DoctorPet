@@ -74,6 +74,31 @@ class MemberServiceTest {
     }
 
     @Test
+    @DisplayName("존재하는 회원이면 닉네임을 변경하고 변경된 정보를 반환한다")
+    void updateNickname_success() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "옛닉네임");
+        setId(member, 1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+
+        MemberResponse response = memberService.updateNickname(1L, "새닉네임");
+
+        assertThat(member.getNickname()).isEqualTo("새닉네임");
+        assertThat(response.nickname()).isEqualTo("새닉네임");
+        assertThat(response.memberId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 회원의 닉네임을 변경하려 하면 MEMBER_NOT_FOUND를 던진다")
+    void updateNickname_memberNotFound() {
+        given(memberRepository.findById(1L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> memberService.updateNickname(1L, "새닉네임"))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
+    @Test
     @DisplayName("존재하는 회원이면 withdraw()를 호출해 탈퇴 처리한다")
     void withdraw_success() {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");

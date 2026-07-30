@@ -3,9 +3,11 @@ package com.doctorpet.domain.member.controller;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.doctorpet.domain.member.dto.request.NicknameUpdateRequest;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
@@ -21,8 +23,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Level 2 — 이슈 #44 테스트 체크리스트의 "비인증 요청 거부"·"민감 정보 미노출 검증" 완료 조건을
@@ -42,6 +46,9 @@ class MemberControllerSecurityTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private MemberService memberService;
@@ -92,6 +99,18 @@ class MemberControllerSecurityTest {
                 // 회귀 가드 역할을 한다.
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.encodedPassword").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 닉네임 수정 요청하면 401을 반환한다 — /api/members/me PATCH가 실수로 permitAll이 되면 이 테스트가 잡는다")
+    void updateNickname_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
+        NicknameUpdateRequest request = new NicknameUpdateRequest("새닉네임");
+
+        mockMvc.perform(patch("/api/members/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
     }
 
     @Test

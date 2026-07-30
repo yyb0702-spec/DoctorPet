@@ -1,15 +1,19 @@
 package com.doctorpet.domain.member.controller;
 
+import com.doctorpet.domain.member.dto.request.NicknameUpdateRequest;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.member.service.MemberWithdrawalApplicationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -30,6 +34,15 @@ public class MemberController {
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<MemberResponse>> getMyInfo(@AuthenticationPrincipal MemberPrincipal principal) {
         MemberResponse response = memberService.getMyInfo(principal.memberId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PatchMapping("/me")
+    public ResponseEntity<ApiResponse<MemberResponse>> updateNickname(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @Valid @RequestBody NicknameUpdateRequest request
+    ) {
+        MemberResponse response = memberService.updateNickname(principal.memberId(), request.nickname());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

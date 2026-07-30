@@ -473,6 +473,7 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | 토큰 재발급 | POST | /api/auth/reissue | 비인증(Refresh) |
 | 로그아웃 | POST | /api/auth/logout | 인증 |
 | 내 정보 조회 | GET | /api/members/me | 인증 |
+| 프로필 수정(닉네임) | PATCH | /api/members/me | 인증 |
 | 회원 탈퇴 | DELETE | /api/members/me | 인증 |
 | 이메일 인증 확인 | GET | /api/auth/verify-email | 비인증 |
 | 인증 메일 재발송 | POST | /api/auth/verify-email/resend | 비인증 |
@@ -485,6 +486,7 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 - 이메일 인증 확인 `?token=` → 200. 토큰이 없거나 만료·이미 사용됐으면 400(§6-4).
 - 인증 메일 재발송·비밀번호 재설정 요청 `{ email }` → 항상 200(계정 존재 여부 비노출, §6-4).
 - 비밀번호 재설정 확인 `{ token, newPassword }` → 200. 토큰이 없거나 만료·이미 사용됐으면 400.
+- 프로필 수정 `{ nickname }` → 200 변경된 회원 정보. 수정 범위는 닉네임으로 한정한다 — email·password는 각각 재가입 정책(§6-3)·인증/재설정 흐름(§6-4)이 따로 있어 이 API의 대상이 아니다(A 도메인 결정).
 
 ### 8-2. 반려동물 프로필
 

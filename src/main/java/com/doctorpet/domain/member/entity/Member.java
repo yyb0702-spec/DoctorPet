@@ -131,6 +131,15 @@ public class Member extends BaseEntity {
     }
 
     /**
+     * 닉네임 변경(프로필 수정). email·password는 각각 별도 흐름(이메일은 재가입 정책과
+     * 얽혀 있고, password는 인증·재설정 흐름이 따로 있다)으로 다루므로 여기서는 취급하지 않는다 —
+     * 프로필 수정 범위는 닉네임으로 한정한다(A 도메인 결정).
+     */
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    /**
      * 비밀번호 재설정(백로그 P2). SA엔 "재설정 성공 시 잠금 해제"라는 효과만 정의돼 있었는데,
      * 실제 재설정 메커니즘(이메일 링크형 토큰)을 이번에 구현하며 그 효과를 여기서 반영한다 — 새
      * 비밀번호로 교체함과 동시에 로그인 실패 기록·잠금도 초기화한다. 잠긴 계정이라면 재설정 자체가

@@ -45,6 +45,20 @@ public class MemberService {
     }
 
     /*
+     * 프로필 수정(닉네임만). SA엔 아직 없는 API였으나 A 도메인 MVP 고도화 항목으로 추가한다.
+     * email·password는 대상이 아니다 — Member.updateNickname() 참고.
+     */
+    @Transactional
+    public MemberResponse updateNickname(Long memberId, String nickname) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND));
+
+        member.updateNickname(nickname);
+
+        return MemberResponse.from(member);
+    }
+
+    /*
      * 실제 탈퇴 처리(Soft Delete + 이메일 익명화). 활성 예약·미수금 보유 여부 확인은 이
      * 메서드의 책임이 아니다 — MemberWithdrawalApplicationService가 다른 도메인 Service를
      * 통해 먼저 확인하고 통과한 경우에만 이 메서드를 호출해야 한다(구현 가드레일).

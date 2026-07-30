@@ -46,6 +46,18 @@ class MemberTest {
     }
 
     @Test
+    @DisplayName("updateNickname()은 닉네임만 교체한다(프로필 수정 범위 — 이메일/비밀번호는 대상 아님)")
+    void updateNickname_replacesNicknameOnly() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "옛닉네임");
+
+        member.updateNickname("새닉네임");
+
+        assertThat(member.getNickname()).isEqualTo("새닉네임");
+        assertThat(member.getEmail()).isEqualTo("guardian@example.com");
+        assertThat(member.getPassword()).isEqualTo("encoded-password");
+    }
+
+    @Test
     @DisplayName("resetPassword()는 비밀번호를 교체하고 로그인 실패 기록·잠금을 초기화한다(SA \"재설정 성공 시 잠금 해제\")")
     void resetPassword_replacesPasswordAndClearsLockout() {
         Member member = Member.createGuardian("guardian@example.com", "old-encoded-password", "보호자닉네임");
