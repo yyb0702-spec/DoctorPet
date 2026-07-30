@@ -54,6 +54,7 @@ class AuthServiceConcurrencyTest {
     void setUp() {
         email = "concurrency-" + System.nanoTime() + "@example.com";
         Member member = Member.createGuardian(email, passwordEncoder.encode(CORRECT_PASSWORD), "동시성테스트");
+        member.verifyEmail(); // 로그인 테스트 대상 — 이메일 인증 필수 정책(§6-4)으로 인증 상태로 준비한다.
         memberId = memberRepository.saveAndFlush(member).getId();
     }
 
