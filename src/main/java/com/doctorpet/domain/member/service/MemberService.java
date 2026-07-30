@@ -5,6 +5,7 @@ import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,5 +42,18 @@ public class MemberService {
         if (!memberRepository.existsById(memberId)) {
             throw new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND);
         }
+    }
+
+    /*
+     * 실제 탈퇴 처리(Soft Delete + 이메일 익명화). 활성 예약·미수금 보유 여부 확인은 이
+     * 메서드의 책임이 아니다 — MemberWithdrawalApplicationService가 다른 도메인 Service를
+     * 통해 먼저 확인하고 통과한 경우에만 이 메서드를 호출해야 한다(구현 가드레일).
+     */
+    @Transactional
+    public void withdraw(Long memberId) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND));
+
+        member.withdraw(LocalDateTime.now());
     }
 }

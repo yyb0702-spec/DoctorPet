@@ -73,6 +73,30 @@ class MemberServiceTest {
                         .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
     }
 
+    @Test
+    @DisplayName("존재하는 회원이면 withdraw()를 호출해 탈퇴 처리한다")
+    void withdraw_success() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+
+        memberService.withdraw(1L);
+
+        assertThat(member.getEmail()).isEqualTo("withdrawn_1@deleted.doctorpet");
+        assertThat(member.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 회원을 탈퇴시키려 하면 MEMBER_NOT_FOUND를 던진다")
+    void withdraw_memberNotFound() {
+        given(memberRepository.findById(1L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> memberService.withdraw(1L))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
     private void setId(Member member, Long id) {
         try {
             var field = Member.class.getDeclaredField("id");

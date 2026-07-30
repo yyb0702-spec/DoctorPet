@@ -1,6 +1,7 @@
 package com.doctorpet.domain.member.controller;
 
 import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.domain.member.service.MemberWithdrawalApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
@@ -43,6 +45,9 @@ class MemberControllerSecurityTest {
 
     @MockitoBean
     private MemberService memberService;
+
+    @MockitoBean
+    private MemberWithdrawalApplicationService memberWithdrawalApplicationService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -87,5 +92,13 @@ class MemberControllerSecurityTest {
                 // 회귀 가드 역할을 한다.
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.encodedPassword").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 탈퇴 요청하면 401을 반환한다 — /api/members/me DELETE가 실수로 permitAll이 되면 이 테스트가 잡는다")
+    void withdraw_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
+        mockMvc.perform(delete("/api/members/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
     }
 }

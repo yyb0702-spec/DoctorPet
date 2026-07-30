@@ -22,7 +22,11 @@ public enum MemberErrorCode implements ErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "MEMBER_006", "존재하지 않는 회원입니다."),
     // 같은 회원의 재발급 요청이 이미 처리 중일 때(회원당 재발급 직렬화 락) — 클라이언트가 잠시 후
     // 다시 시도하면 되는 일시적 상태라 재로그인이 필요한 401 계열과 구분해 409로 응답한다.
-    REISSUE_IN_PROGRESS(HttpStatus.CONFLICT, "MEMBER_007", "다른 재발급 요청이 처리 중입니다. 잠시 후 다시 시도해주세요.");
+    REISSUE_IN_PROGRESS(HttpStatus.CONFLICT, "MEMBER_007", "다른 재발급 요청이 처리 중입니다. 잠시 후 다시 시도해주세요."),
+    // 활성 예약(CONFIRMED·CHECKED_IN) 또는 미수금(OFFLINE_REQUIRED) 보유 회원의 탈퇴 시도(SA §6-3,
+    // 부록A 확정 — 탈퇴 보류 정책). 클라이언트가 예약을 취소·완료하거나 미수금을 정산한 뒤 다시
+    // 탈퇴를 시도하면 되는 상태라 409로 응답한다.
+    WITHDRAWAL_BLOCKED(HttpStatus.CONFLICT, "MEMBER_008", "활성 예약 또는 미수금이 있어 탈퇴할 수 없습니다. 예약을 취소·완료하거나 정산 후 다시 시도해주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;
