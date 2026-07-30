@@ -17,15 +17,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
+
+import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ReservationService {
-
-    private static final ZoneId SEOUL_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
@@ -54,7 +54,7 @@ public class ReservationService {
         ReservationSlot slot = reservationSlotRepository.findById(request.slotId())
                 .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
 
-        if (slot.getStartAt().isBefore(now.plusHours(4))) {
+        if (slot.getStartAt().isBefore(now.plus(LEAD_TIME))) {
             throw new ServiceException(ReservationErrorCode.LEAD_TIME_VIOLATION);
         }
 

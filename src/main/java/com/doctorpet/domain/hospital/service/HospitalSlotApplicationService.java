@@ -8,18 +8,18 @@ import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
 @Service
 @RequiredArgsConstructor
 public class HospitalSlotApplicationService {
 
-    private static final ZoneId SEOUL_ZONE_ID = ZoneId.of("Asia/Seoul");
     private static final int LOOKUP_DATE_RANGE_DAYS = 14;
-    private static final int RESERVATION_LEAD_TIME_HOURS = 4;
 
     private final HospitalService hospitalService;
     private final ReservationService reservationService;
@@ -37,9 +37,7 @@ public class HospitalSlotApplicationService {
         LocalDate lastLookupDate = today.plusDays(
                 LOOKUP_DATE_RANGE_DAYS - 1L
         );
-        LocalDateTime reservationDeadline = now.plusHours(
-                RESERVATION_LEAD_TIME_HOURS
-        );
+        LocalDateTime reservationDeadline = now.plus(LEAD_TIME);
         List<ReservationSlotQueryResult> queriedSlots =
                 reservationService.findSlots(
                         hospitalId,

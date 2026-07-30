@@ -33,18 +33,17 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class HospitalService {
-
-    private static final ZoneId SEOUL_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     private final HospitalRepository hospitalRepository;
     private final HospitalDetailRepository hospitalDetailRepository;
