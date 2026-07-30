@@ -233,6 +233,28 @@ class PetServiceTest {
         assertThat(petProfile.getDeletedAt()).isNull();
     }
 
+    @Test
+    @DisplayName("예약 연동 조회는 인증 회원 소유의 활성 프로필을 응답한다")
+    void findOwnedActivePet_returnsOwnedPet() {
+        PetProfile petProfile = PetProfile.create(
+                1L,
+                "초코",
+                PetSpecies.DOG,
+                3,
+                new BigDecimal("5.4"),
+                true
+        );
+        setId(petProfile, 10L);
+        given(petProfileRepository.findByIdAndMemberId(10L, 1L))
+                .willReturn(Optional.of(petProfile));
+
+        Optional<PetResponse> response =
+                petService.findOwnedActivePet(1L, 10L);
+
+        assertThat(response).isPresent();
+        assertThat(response.orElseThrow().name()).isEqualTo("초코");
+    }
+
     private void setId(PetProfile petProfile, Long id) {
         try {
             var field = PetProfile.class.getDeclaredField("id");

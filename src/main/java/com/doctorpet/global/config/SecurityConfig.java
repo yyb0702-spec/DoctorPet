@@ -56,6 +56,11 @@ public class SecurityConfig {
                         // 보호자 예약 요청·취소 (SA §8-5)
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasRole("GUARDIAN")
                         .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/reservations",
+                                "/api/reservations/*"
+                        ).hasRole("GUARDIAN")
+                        .requestMatchers(
                                 HttpMethod.PATCH,
                                 "/api/reservations/*/cancel"
                         ).hasRole("GUARDIAN")
