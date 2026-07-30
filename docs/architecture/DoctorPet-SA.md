@@ -777,6 +777,7 @@ sequenceDiagram
 | 4 | 검색 Tool 호출 실패 응답 주체 — 실패 컨텍스트를 LLM에 전달해 안내 생성 vs 서버가 `fallback=true`와 고정 문구로 직접 검색 유도 | PRD §5-4, 정책 §3.9, §8-4, §9-5 |
 | 5 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
 | 6 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
+| 7 | 탈퇴 회원의 남은 Access Token으로 다른 도메인 쓰기 API(예약 생성, 결제수단 등록 등) 호출 가능 — 무상태 JWT라 탈퇴 시점에 서버 측 즉시 폐기 불가(수용된 트레이드오프), Refresh Token은 삭제해 재발급으로 세션이 연장되는 것은 막았으나(A 도메인 조치 완료) 남은 만료 전 Access Token으로 예약(`ReservationService.request()`)·결제수단 등록(`PaymentMethodService.register()`)이 여전히 가능함 — 리뷰 지적. 해당 도메인(C/D 담당)이 `MemberService.assertActiveMember()`를 쓰기 경로에서 호출하도록 연동 필요 | §6-3, §8-1 |
 
 ---
 
