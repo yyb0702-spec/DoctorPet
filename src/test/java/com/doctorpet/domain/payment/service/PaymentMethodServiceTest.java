@@ -154,6 +154,21 @@ class PaymentMethodServiceTest {
     }
 
     @Test
+    @DisplayName("예약에 사용할 결제수단은 본인 소유의 ACTIVE 상태인지 확인한다")
+    void isActiveAndOwnedBy_checksOwnerAndStatus() {
+        given(paymentMethodRepository.existsByIdAndMemberIdAndStatus(
+                10L,
+                MEMBER_ID,
+                PaymentMethodStatus.ACTIVE
+        )).willReturn(true);
+
+        assertThat(paymentMethodService.isActiveAndOwnedBy(
+                MEMBER_ID,
+                10L
+        )).isTrue();
+    }
+
+    @Test
     @DisplayName("본인 소유 결제수단 삭제는 소프트 삭제(status=DELETED)로 처리한다")
     void delete_ownedIsSoftDeleted() {
         PaymentMethod paymentMethod = PaymentMethod.issue(MEMBER_ID, "v1:enc", "SHINHAN", "1234");

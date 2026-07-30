@@ -11,6 +11,7 @@ import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +60,16 @@ public class PetService {
         return petProfileRepository.findAllByMemberIdOrderByIdAsc(memberId).stream()
                 .map(PetResponse::from)
                 .toList();
+    }
+
+    /**
+     * 다른 도메인이 활성 반려동물의 소유권과 스냅샷 원본을 함께 확인할 때 사용하는 조회 계약.
+     * Soft Delete된 프로필은 엔티티의 SQLRestriction에 의해 조회되지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<PetResponse> findOwnedActivePet(Long memberId, Long petId) {
+        return petProfileRepository.findByIdAndMemberId(petId, memberId)
+                .map(PetResponse::from);
     }
 
     /*
