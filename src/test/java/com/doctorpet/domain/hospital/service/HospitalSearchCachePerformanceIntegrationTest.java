@@ -187,7 +187,7 @@ class HospitalSearchCachePerformanceIntegrationTest {
                 null,
                 null,
                 null,
-                true,
+                false,
                 false,
                 1,
                 20,

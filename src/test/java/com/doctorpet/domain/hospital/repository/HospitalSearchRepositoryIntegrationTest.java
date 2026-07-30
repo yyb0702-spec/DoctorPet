@@ -76,12 +76,53 @@ class HospitalSearchRepositoryIntegrationTest {
 
         long totalElements = hospitalRepository.count(condition);
         List<HospitalSearchCandidate> content =
-                hospitalRepository.search(condition, 1L, 1);
+                hospitalRepository.searchPage(condition, 1L, 1);
 
         assertThat(totalElements).isEqualTo(3);
         assertThat(content)
                 .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(second.getId());
+    }
+
+    @Test
+    void 최초_진입_목록은_제휴_병원을_먼저_채우고_비제휴_병원으로_보충한다() {
+        Hospital partnerB = saveHospital(
+                "INITIAL-PARTNER-B",
+                "최초진입 나제휴병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital nonPartnerA = saveHospital(
+                "INITIAL-NON-PARTNER-A",
+                "최초진입 가비제휴병원",
+                BusinessStatus.OPEN,
+                false
+        );
+        Hospital partnerC = saveHospital(
+                "INITIAL-PARTNER-C",
+                "최초진입 다제휴병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        hospitalRepository.flush();
+
+        HospitalSearchCondition condition =
+                conditionWithKeyword("최초진입");
+
+        List<HospitalSearchCandidate> content =
+                hospitalRepository.searchPartnerFirstPage(
+                        condition,
+                        0L,
+                        3
+                );
+
+        assertThat(content)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactly(
+                        partnerB.getId(),
+                        partnerC.getId(),
+                        nonPartnerA.getId()
+                );
     }
 
     @Test
@@ -142,7 +183,7 @@ class HospitalSearchRepositoryIntegrationTest {
         );
 
         List<HospitalSearchCandidate> result =
-                hospitalRepository.search(condition);
+                hospitalRepository.searchAll(condition);
 
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)
@@ -214,7 +255,7 @@ class HospitalSearchRepositoryIntegrationTest {
                 );
 
         List<HospitalSearchCandidate> result =
-                hospitalRepository.search(condition);
+                hospitalRepository.searchAll(condition);
 
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)
@@ -265,7 +306,7 @@ class HospitalSearchRepositoryIntegrationTest {
                 );
 
         List<HospitalSearchCandidate> result =
-                hospitalRepository.search(condition);
+                hospitalRepository.searchAll(condition);
 
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)

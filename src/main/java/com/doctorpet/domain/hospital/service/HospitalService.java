@@ -133,6 +133,12 @@ public class HospitalService {
         boolean requiresPostProcessing = radiusKm != null
                 || openNowOnly
                 || normalizedSort.equals("distance");
+        boolean initialListing = isInitialListing(
+                condition,
+                openNowOnly,
+                size,
+                normalizedSort
+        );
 
         if (requiresPostProcessing) {
             return searchWithPostProcessing(
@@ -153,13 +159,8 @@ public class HospitalService {
                 longitude,
                 page,
                 size,
-                isInitialPageCacheTarget(
-                        condition,
-                        openNowOnly,
-                        page,
-                        size,
-                        normalizedSort
-                )
+                initialListing,
+                initialListing && page == 1 && size == 20
         );
     }
 
@@ -169,6 +170,7 @@ public class HospitalService {
             BigDecimal longitude,
             int page,
             int size,
+            boolean partnerFirst,
             boolean cacheTarget
     ) {
         if (cacheTarget) {
@@ -189,6 +191,7 @@ public class HospitalService {
                             longitude,
                             page,
                             size,
+                            partnerFirst,
                             cacheLookup.canWrite()
                     ));
         }
@@ -200,7 +203,12 @@ public class HospitalService {
         long offset = (long) (page - 1) * size;
         List<HospitalSearchResponse> content = totalElements == 0
                 ? List.of()
-                : hospitalRepository.search(condition, offset, size).stream()
+                : searchPageCandidates(
+                                condition,
+                                offset,
+                                size,
+                                partnerFirst
+                        ).stream()
                         .map(candidate -> toSearchResult(
                                 candidate,
                                 latitude,
@@ -218,18 +226,41 @@ public class HospitalService {
         );
     }
 
+    private List<HospitalSearchCandidate> searchPageCandidates(
+            HospitalSearchCondition condition,
+            long offset,
+            int size,
+            boolean partnerFirst
+    ) {
+        if (partnerFirst) {
+            return hospitalRepository.searchPartnerFirstPage(
+                    condition,
+                    offset,
+                    size
+            );
+        }
+
+        return hospitalRepository.searchPage(condition, offset, size);
+    }
+
     private HospitalSearchPageResponse searchAndCacheInitialPage(
             HospitalSearchCondition condition,
             BigDecimal latitude,
             BigDecimal longitude,
             int page,
             int size,
+            boolean partnerFirst,
             boolean cacheWritable
     ) {
         long totalElements = hospitalRepository.count(condition);
         List<HospitalSearchCandidate> candidates = totalElements == 0
                 ? List.of()
-                : hospitalRepository.search(condition, 0, size);
+                : searchPageCandidates(
+                        condition,
+                        0,
+                        size,
+                        partnerFirst
+                );
         HospitalSearchCachedPage cachedPage = new HospitalSearchCachedPage(
                 candidates,
                 totalElements
@@ -276,10 +307,9 @@ public class HospitalService {
         );
     }
 
-    private boolean isInitialPageCacheTarget(
+    private boolean isInitialListing(
             HospitalSearchCondition condition,
             boolean openNowOnly,
-            int page,
             int size,
             String sort
     ) {
@@ -294,9 +324,8 @@ public class HospitalService {
                 && condition.hospitalization() == null
                 && condition.nightCare() == null
                 && condition.emergency() == null
-                && condition.partnerOnly()
+                && !condition.partnerOnly()
                 && !openNowOnly
-                && page == 1
                 && size == 20
                 && sort.equals("name");
     }
@@ -312,7 +341,7 @@ public class HospitalService {
             String sort
     ) {
         List<HospitalSearchResponse> searchedHospitals =
-                hospitalRepository.search(condition).stream()
+                hospitalRepository.searchAll(condition).stream()
                         .map(candidate -> toSearchResult(
                                 candidate,
                                 latitude,

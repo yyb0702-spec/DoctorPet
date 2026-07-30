@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.entity.QHospitalCapability;
 import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQuery;
@@ -36,7 +37,7 @@ public class HospitalRepositoryCustomImpl
     private final JPAQueryFactory queryFactory;
 
     @Override
-    public List<HospitalSearchCandidate> search(
+    public List<HospitalSearchCandidate> searchAll(
             HospitalSearchCondition condition
     ) {
         return searchQuery(condition)
@@ -44,13 +45,36 @@ public class HospitalRepositoryCustomImpl
     }
 
     @Override
-    public List<HospitalSearchCandidate> search(
+    public List<HospitalSearchCandidate> searchPage(
             HospitalSearchCondition condition,
             long offset,
             int limit
     ) {
         return searchQuery(condition)
                 .orderBy(
+                        hospital.name.asc(),
+                        hospital.id.asc()
+                )
+                .offset(offset)
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
+    public List<HospitalSearchCandidate> searchPartnerFirstPage(
+            HospitalSearchCondition condition,
+            long offset,
+            int limit
+    ) {
+        return searchQuery(condition)
+                .orderBy(
+                        new CaseBuilder()
+                            .when(hospital.partnershipStatus.eq(
+                                    PartnershipStatus.PARTNER
+                            ))
+                            .then(0)
+                            .otherwise(1)
+                            .asc(),
                         hospital.name.asc(),
                         hospital.id.asc()
                 )

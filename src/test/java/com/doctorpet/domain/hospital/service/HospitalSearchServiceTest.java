@@ -82,7 +82,7 @@ class HospitalSearchServiceTest {
                         HospitalSearchCondition.class
                 )
         )).willReturn(2L);
-        given(hospitalRepository.search(
+        given(hospitalRepository.searchPage(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 ),
@@ -145,7 +145,7 @@ class HospitalSearchServiceTest {
                 "127.2000",
                 "37.7000"
         );
-        given(hospitalRepository.search(
+        given(hospitalRepository.searchAll(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
@@ -194,7 +194,7 @@ class HospitalSearchServiceTest {
                 "126.9780",
                 "37.57585"
         );
-        given(hospitalRepository.search(
+        given(hospitalRepository.searchAll(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
@@ -234,12 +234,14 @@ class HospitalSearchServiceTest {
                 null,
                 null
         );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.miss());
         given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
         )).willReturn(1L);
-        given(hospitalRepository.search(
+        given(hospitalRepository.searchPartnerFirstPage(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 ),
@@ -331,7 +333,7 @@ class HospitalSearchServiceTest {
                         HospitalSearchCondition.class
                 )
         )).willReturn(1L);
-        given(hospitalRepository.search(
+        given(hospitalRepository.searchPartnerFirstPage(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 ),
@@ -372,7 +374,7 @@ class HospitalSearchServiceTest {
                         HospitalSearchCondition.class
                 )
         )).willReturn(1L);
-        given(hospitalRepository.search(
+        given(hospitalRepository.searchPartnerFirstPage(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 ),
@@ -391,6 +393,106 @@ class HospitalSearchServiceTest {
                 .saveInitialPage(
                         org.mockito.ArgumentMatchers.any()
                 );
+    }
+
+    @Test
+    void 기본_페이지_크기가_아니면_일반_이름순으로_조회한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "일반 검색 병원",
+                BusinessStatus.OPEN,
+                false,
+                null,
+                null
+        );
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(1L);
+        given(hospitalRepository.searchPage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(10)
+        )).willReturn(List.of(candidate(hospital)));
+
+        HospitalSearchPageResponse response =
+                hospitalService.hospitalSearch(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        1,
+                        10,
+                        "name"
+                );
+
+        assertThat(response.content())
+                .singleElement()
+                .extracting("hospitalId")
+                .isEqualTo(1L);
+        verifyNoInteractions(hospitalSearchCacheRepository);
+    }
+
+    @Test
+    void 기본_페이지_크기의_뒤쪽_페이지도_제휴_우선으로_조회한다() {
+        Hospital hospital = createHospital(
+                21L,
+                "두 번째 페이지 병원",
+                BusinessStatus.OPEN,
+                false,
+                null,
+                null
+        );
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(21L);
+        given(hospitalRepository.searchPartnerFirstPage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(20L),
+                org.mockito.ArgumentMatchers.eq(20)
+        )).willReturn(List.of(candidate(hospital)));
+
+        HospitalSearchPageResponse response =
+                hospitalService.hospitalSearch(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        2,
+                        20,
+                        "name"
+                );
+
+        assertThat(response.content())
+                .singleElement()
+                .extracting("hospitalId")
+                .isEqualTo(21L);
+        verifyNoInteractions(hospitalSearchCacheRepository);
     }
 
     @Test
@@ -509,6 +611,8 @@ class HospitalSearchServiceTest {
 
     @Test
     void 검색_결과가_없어도_첫_페이지는_정상_빈_응답을_반환한다() {
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.miss());
         given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
@@ -586,7 +690,7 @@ class HospitalSearchServiceTest {
                 null,
                 null,
                 null,
-                true,
+                false,
                 false,
                 1,
                 20,
