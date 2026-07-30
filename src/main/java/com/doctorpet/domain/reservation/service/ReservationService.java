@@ -17,12 +17,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ReservationService {
+
+    private static final ZoneId SEOUL_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
@@ -46,7 +49,7 @@ public class ReservationService {
 
     @Transactional
     public ReservationResponse request(Long memberId, ReservationRequest request) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
 
         ReservationSlot slot = reservationSlotRepository.findById(request.slotId())
                 .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
@@ -73,7 +76,7 @@ public class ReservationService {
 
     @Transactional
     public void cancel(Long memberId, Long reservationId) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
 
         Reservation reservation = reservationRepository
                 .findByIdAndMemberId(reservationId, memberId)
