@@ -40,7 +40,7 @@ class ReservationServiceTest {
     @DisplayName("CONFIRMED 또는 CHECKED_IN 예약이 있으면 true를 반환한다")
     void hasActiveReservation_true() {
         given(reservationRepository.existsByMemberIdAndStatusIn(
-                eq(1L), activeStatuses())).willReturn(true);
+                eq(1L), eq(activeStatuses()))).willReturn(true);
 
         boolean result = reservationService.hasActiveReservation(1L);
 
@@ -51,7 +51,7 @@ class ReservationServiceTest {
     @DisplayName("CONFIRMED·CHECKED_IN 예약이 없으면 false를 반환한다(REQUESTED·CANCELED 등은 활성으로 안 본다)")
     void hasActiveReservation_false() {
         given(reservationRepository.existsByMemberIdAndStatusIn(
-                eq(1L), activeStatuses())).willReturn(false);
+                eq(1L), eq(activeStatuses()))).willReturn(false);
 
         boolean result = reservationService.hasActiveReservation(1L);
 
