@@ -26,6 +26,7 @@ import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -77,9 +78,14 @@ class AuthControllerTest {
 
     // addFilters=false는 MockMvc가 필터를 "실행"하지 않게 할 뿐, @WebMvcTest는 Filter 타입 빈을
     // 기본 포함 대상으로 슬라이스 컨텍스트에 여전히 생성한다. JwtAuthenticationFilter가 생성자에서
-    // JwtTokenProvider를 요구하므로, 이 빈이 없으면 컨텍스트 로딩 자체가 실패한다(실제 호출은 없다).
+    // JwtTokenProvider·MemberBlacklistPort를 요구하므로, 이 빈들이 없으면 컨텍스트 로딩 자체가
+    // 실패한다(실제 호출은 없다). MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용
+    // (리뷰 지적 P1 대응).
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @AfterEach
     void clearSecurityContext() {

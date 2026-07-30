@@ -16,6 +16,7 @@ import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
 import org.junit.jupiter.api.DisplayName;
@@ -58,6 +59,12 @@ class MemberControllerSecurityTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    // JwtAuthenticationFilter가 탈퇴 회원 Access Token 블랙리스트를 확인하므로(리뷰 지적 P1 대응),
+    // 이 빈이 없으면 SecurityConfig의 filterChain() 빈 생성 자체가 실패한다. 스텁하지 않으면
+    // Mockito 기본값(false)이 반환돼 기존 테스트들의 동작에는 영향이 없다.
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @Test
     @DisplayName("Authorization 헤더 없이 요청하면 401을 반환한다 — /api/members/me가 실수로 permitAll이 되면 이 테스트가 잡는다")

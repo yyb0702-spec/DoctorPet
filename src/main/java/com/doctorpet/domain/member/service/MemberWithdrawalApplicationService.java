@@ -4,6 +4,8 @@ import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.security.JwtProperties;
+import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,13 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
   메서드를 여기에 같은 방식으로 추가해야 한다 — 그 전까지는 활성 예약 체크만으로 정책의
   절반을 이미 강제한다(둘 다 없어야 탈퇴 가능하다는 정책 중, 예약 쪽은 지금도 완전하다).
 
-  또 다른 주의 — 탈퇴 직후에도 이미 발급된 Access Token은 만료 전까지 유효하다(무상태 JWT라
-  서버 측 즉시 폐기 수단이 없음, logout()과 같은 트레이드오프). 여기서 Refresh Token을 지우는
-  것은 그 유효기간이 "재발급으로 연장되는 것"만 막을 뿐이다. 탈퇴한 memberId로 남은 Access
-  Token을 들고 다른 도메인의 쓰기 API(예: 예약 생성, 결제수단 등록)를 호출하는 경로까지 막으려면
-  그 도메인들이 MemberService.assertActiveMember()를 쓰기 경로에서 호출해야 한다 — 리뷰에서
-  지적된 항목이며 Reservation/Payment 도메인 담당자와 조율이 필요해 이 PR 범위에서는 백로그로만
-  남긴다(SA 부록A).
+  또 다른 주의 — 탈퇴 직후에도 이미 발급된 Access Token은 만료 전까지 서명·만료 자체는 유효하다
+  (무상태 JWT라 즉시 강제 폐기가 원천적으로 불가능한 건 여전하다). Refresh Token 삭제는 그
+  유효기간이 "재발급으로 연장되는 것"만 막을 뿐이라, 남은 Access Token으로 다른 도메인의 쓰기
+  API(예: 예약 생성, 결제수단 등록)를 호출하는 경로까지는 막지 못한다는 리뷰 지적(P1)이 있었다.
+  이를 막기 위해 RefreshTokenRepository.blacklistMember()로 탈퇴 사실을 Redis에 기록하고,
+  JwtAuthenticationFilter가 Access Token 인증 직전에 이 블랙리스트를 확인한다 — 특정 도메인의
+  쓰기 경로 하나하나에 개별 방어(assertActiveMember() 등)를 추가하는 대신, 인증 계층(A 도메인
+  소유) 한 곳에서 막아 놓치는 경로가 생길 위험을 없앤다. 블랙리스트 TTL은 Access Token 만료
+  시간과 정확히 맞춰, 그 이후엔 어차피 자연 만료라 별도 정리 없이 항목이 자동으로 사라진다.
  */
 @Service
 @RequiredArgsConstructor
@@ -35,6 +39,7 @@ public class MemberWithdrawalApplicationService {
     private final MemberService memberService;
     private final ReservationService reservationService;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final JwtProperties jwtProperties;
 
     @Transactional
     public void withdraw(Long memberId) {
@@ -44,5 +49,9 @@ public class MemberWithdrawalApplicationService {
 
         memberService.withdraw(memberId);
         refreshTokenRepository.deleteByMemberId(memberId);
+        refreshTokenRepository.blacklistMember(
+                memberId,
+                Duration.ofMillis(jwtProperties.getAccessTokenExpiration())
+        );
     }
 }
