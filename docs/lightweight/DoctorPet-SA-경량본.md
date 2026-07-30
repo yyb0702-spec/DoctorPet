@@ -153,6 +153,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 
 - 엔드포인트: `GET /api/hospitals/{hospitalId}/slots?date=YYYY-MM-DD`
 - `date`는 필수이며, 기준 시간대는 `Asia/Seoul`이다.
+- 응답의 `selectedDate`, `dateAvailabilities[].date`, `slots[].startAt`, `slots[].endAt`에는 UTC 오프셋이 없으며, 프론트는 이를 기기 로컬 시간이 아닌 `Asia/Seoul` 기준으로 해석하고 표시한다.
 - `dateAvailabilities`는 오늘부터 오늘+13일까지 14개 날짜를 오름차순으로 반환한다.
 - DB 상태가 `OPEN`이고 `startAt >= 현재 시각+4시간`인 슬롯이 하나라도 있으면 해당 날짜의 `reservationAvailable=true`다.
 - `slots`는 선택 날짜에 시작하는 `OPEN`, `RESERVED` 슬롯을 `startAt ASC`, `id ASC`로 반환한다.
