@@ -160,7 +160,7 @@ public class HospitalService {
                 page,
                 size,
                 initialListing,
-                initialListing && page == 1 && size == 20
+                initialListing && page == 1
         );
     }
 
