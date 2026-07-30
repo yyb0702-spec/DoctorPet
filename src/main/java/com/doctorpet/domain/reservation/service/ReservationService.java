@@ -74,11 +74,8 @@ public class ReservationService {
     public void cancel(Long memberId, Long reservationId) {
         LocalDateTime now = LocalDateTime.now();
 
-        Reservation reservation = reservationRepository
-                .findByIdAndMemberId(reservationId, memberId)
-                .orElseThrow(() -> new ServiceException(
-                        ReservationErrorCode.RESERVATION_NOT_FOUND
-                ));
+        // 상세 조회와 동일하게, 존재하는 타인 예약은 FORBIDDEN으로 구분한다.
+        Reservation reservation = findMyReservation(memberId, reservationId);
 
         ReservationSlot slot = findSlot(reservation.getSlotId());
         if (now.isAfter(slot.getStartAt().minusHours(2))) {
@@ -173,6 +170,7 @@ public class ReservationService {
     }
 
     private Sort.Direction parseSort(String sort) {
+        // reservedAt은 예약 요청 시각(requestedAt)이 아니라 진료 예약 슬롯의 startAt을 의미한다.
         String resolvedSort = sort == null ? "reservedAt,desc" : sort.trim();
         String[] parts = resolvedSort.split(",", -1);
 

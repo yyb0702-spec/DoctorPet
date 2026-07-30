@@ -87,6 +87,7 @@ public class ReservationQueryRepositoryImpl
     }
 
     private OrderSpecifier<?> reservedAtOrder(Sort.Direction direction) {
+        // API의 reservedAt은 예약 요청 시각이 아니라 진료 예약 슬롯의 시작 시각이다.
         return direction.isAscending()
                 ? reservationSlot.startAt.asc()
                 : reservationSlot.startAt.desc();

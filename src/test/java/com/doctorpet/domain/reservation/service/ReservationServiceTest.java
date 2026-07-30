@@ -183,6 +183,23 @@ class ReservationServiceTest {
         assertThat(result.getTotalPages()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("취소는 상세 조회와 동일하게 타인 예약에 FORBIDDEN을 반환한다")
+    void cancel_notOwner_returnsForbidden() {
+        Reservation reservation = reservation(LocalDateTime.now().plusDays(1));
+        given(reservationRepository.findById(10L))
+                .willReturn(Optional.of(reservation));
+
+        assertThatThrownBy(() -> reservationService.cancel(99L, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.FORBIDDEN);
+
+        verify(reservationRepository, never()).cancelIfAllowed(
+                any(), any(), any(), any(), any(), any()
+        );
+    }
+
     private ReservationSlot slot(LocalDateTime startAt) {
         ReservationSlot slot = ReservationSlot.create(
                 HOSPITAL_ID,

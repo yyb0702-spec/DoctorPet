@@ -11,6 +11,7 @@ public record ReservationListItemResponse(
         String hospitalName,
         Long petId,
         String petName,
+        /** 진료 예약 슬롯의 시작 일시(`ReservationSlot.startAt`). */
         LocalDateTime reservedAt,
         ReservationStatus reservationStatus,
         String paymentStatus,
