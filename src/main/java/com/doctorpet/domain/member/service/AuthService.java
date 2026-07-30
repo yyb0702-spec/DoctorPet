@@ -41,6 +41,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
+    private final EmailVerificationService emailVerificationService;
 
     /*
       회원가입. SA §8-1: 활성 회원 기준 이메일 중복 시 409({@link MemberErrorCode#DUPLICATE_EMAIL}).
@@ -71,6 +72,8 @@ public class AuthService {
             }
             throw exception;
         }
+
+        emailVerificationService.sendVerificationEmail(savedMember);
 
         return SignupResponse.from(savedMember);
     }
@@ -112,6 +115,15 @@ public class AuthService {
         }
 
         member.recordLoginSuccess();
+
+        // 이메일 인증 전이면 로그인을 차단한다(백로그 P2, 가입 시 이메일 인증 필수 — A 도메인 결정).
+        // 비밀번호 확인 이후에 체크하는 이유: 잠금 판정과 마찬가지로 이 코드는 "계정이 존재하고
+        // 비밀번호가 맞다"는 사실 자체는 이미 확정된 뒤이므로 계정 존재 여부를 추가로 노출하지
+        // 않는다. recordLoginSuccess()를 먼저 호출해 정상적인 비밀번호 입력을 실패 횟수에 반영하지
+        // 않는다 — 미인증 상태는 "틀린 로그인 시도"가 아니다.
+        if (!member.isEmailVerified()) {
+            throw new ServiceException(MemberErrorCode.EMAIL_NOT_VERIFIED);
+        }
 
         return issueTokenPair(member);
     }
