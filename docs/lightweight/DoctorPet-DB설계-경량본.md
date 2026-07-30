@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.5 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.10, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.6 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.13, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 관계 요약
@@ -67,7 +67,7 @@ members 1 ── 0..N notifications
 | `source_modified_at` | DATETIME | 공공데이터 최종 수정일 |
 | `partnership_status` | VARCHAR | `PARTNER`, `NON_PARTNER` |
 제약: `UNIQUE(local_gov_code, mgmt_no)` — 지자체 범위 관리번호를 복합 매핑 키로 사용한다.
-인덱스: `(business_status)`, `(coord_x, coord_y)` — 영업상태 필터와 거리 후보 검색에 사용한다.
+검색 성능용 `(business_status)`, `(coord_x, coord_y)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획과 응답시간을 측정한 뒤 적용한다.
 ### `hospital_details`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ members 1 ── 0..N notifications
 | `hospital_id` | BIGINT | 병원 FK |
 | `capability_type` | VARCHAR | `SPECIES`, `EXAM`, `TREATMENT`, `EQUIPMENT` |
 | `capability_value` | VARCHAR | 역량 값 |
-인덱스: `(capability_type, capability_value, hospital_id)` — 요청 진료역량의 AND 매칭에 사용한다.
+역량 검색용 `(capability_type, capability_value, hospital_id)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획을 확인한 뒤 적용한다.
 ## 4. 예약
 ### `reservation_slots`
 | 필드 | 타입 | 제약·설명 |

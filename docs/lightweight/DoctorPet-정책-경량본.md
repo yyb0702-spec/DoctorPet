@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.5 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.10, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.6 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.13, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 회원·인증
@@ -45,6 +45,8 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - 노쇼 수수료와 누적 노쇼에 따른 서비스 전체 자동 예약 제한은 적용하지 않는다.
 ## 5. 결제
 - 보호자는 예약 요청 전에 빌링키를 등록한다. 등록 시 금액 승인은 발생하지 않는다.
+- 결제수단 조회·삭제는 본인 소유만 대상이다. 삭제는 소프트 삭제(`status=DELETED`)로 처리해 청구 이력·FK를 보존한다.
+- MVP는 결제수단 중복 등록을 허용하고 기본 결제수단(`is_default`) 개념은 두지 않는다.
 - 진료 완료 후 병원이 최종 진료비를 입력하면 등록된 빌링키로 결제한다.
 - 진료비는 0원 초과, 300만원 이하만 허용한다. 상한은 코드 상수가 아닌 설정값으로 관리한다.
 - 결제 전 서버가 `PENDING` 기록과 고유한 `merchant_payment_id`를 먼저 생성한다.

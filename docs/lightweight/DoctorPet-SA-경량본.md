@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.5 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.10, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.6 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.13, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 시스템 구성
@@ -67,7 +67,8 @@ domain/
 - 검색은 QueryDSL 동적 `where`로 전달된 조건만 조합하며, 진료역량은 요청값을 모두 가진 병원만 남기는 AND 매칭을 사용한다.
 - 진료역량 화이트리스트는 `DOG`, `CAT`, `BLOOD_TEST`, `XRAY`, `ULTRASOUND`, `ORTHOPEDIC_CARE`, `DENTAL_CARE`, `OPHTHALMIC_CARE`, `REHABILITATION`, `ONCOLOGY_CARE`, `CT`, `MRI`, `ENDOSCOPE` 13개로 확정하며 병원 시드·검색·AI가 공유한다.
 - 거리는 좌표 반경 사각박스로 후보를 줄인 뒤 애플리케이션에서 정밀 계산·정렬한다. 페이징 count 쿼리를 분리하고 결과 DTO를 직접 조회한다.
-- 조회 빈도가 높은 검색 결과는 Redis 원격 캐시에 저장하며 Caffeine은 사용하지 않는다.
+- 병원 검색 최초 진입 시 제휴 병원을 우선 노출하고, 모든 사용자가 공통 조회하는 기본 첫 페이지의 정적 조회 결과만 Redis에 저장한다. 조건 검색·거리·현재 영업·뒤쪽 페이지는 캐시하지 않으며 Caffeine은 사용하지 않는다.
+- 검색 성능용 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획과 응답시간을 측정한 뒤 적용한다.
 - MVP에서는 특정 지자체 데이터를 한 번 시드 적재한다.
 - 공공데이터 주기 갱신 배치는 확장 범위이며 MVP 스케줄러에 포함하지 않는다.
 - 검색 성과 목표는 P95 300ms 이하, 100 RPS, 오류율 1% 이하이다.

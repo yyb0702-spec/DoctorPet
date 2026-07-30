@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.5 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.10, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.6 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.13, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 제품 개요
@@ -62,12 +62,14 @@ AI 상담은 비로그인 사용자도 임시 정보로 이용할 수 있다. MV
 - 회원·반려동물 관리
 - 특정 지자체 공공데이터 1회 시드 적재
 - 제휴·비제휴 2계층 병원 검색
+- 병원 검색 최초 진입 시 제휴 병원 우선 기본 목록과 첫 페이지 한정 Redis 캐시
 - AI 진료역량 추천과 병원 검색 Tool Calling
 - 병원 승인형 예약과 진료 상태 관리
 - 노쇼 판정·정정과 전 병원 통합 이력
 - 빌링키 후불 결제와 오프라인 정산
 - 알림 폴링
 ### 확장
+- 전국 단위 병원 데이터 확대와 성능 분석 기반 검색 인덱스 고도화
 - 공공데이터 주기 갱신 배치
 - 병원 전용 프론트 화면
 - 실시간 알림 push

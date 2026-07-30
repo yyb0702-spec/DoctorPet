@@ -54,6 +54,25 @@ class MemberServiceTest {
                         .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
     }
 
+    @Test
+    @DisplayName("존재하는(활성) 회원이면 예외 없이 통과한다")
+    void assertActiveMember_success() {
+        given(memberRepository.existsById(1L)).willReturn(true);
+
+        memberService.assertActiveMember(1L);
+    }
+
+    @Test
+    @DisplayName("존재하지 않거나 탈퇴한 회원이면 MEMBER_NOT_FOUND를 던진다")
+    void assertActiveMember_memberNotFound() {
+        given(memberRepository.existsById(1L)).willReturn(false);
+
+        assertThatThrownBy(() -> memberService.assertActiveMember(1L))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
     private void setId(Member member, Long id) {
         try {
             var field = Member.class.getDeclaredField("id");
