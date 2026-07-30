@@ -82,8 +82,9 @@ class MemberDdlIntegrationTest {
         Member member = Member.createGuardian("softdelete@example.com", "encoded", "닉네임");
         Member saved = memberRepository.saveAndFlush(member);
 
-        // Member에는 아직 탈퇴(soft delete) 도메인 메서드가 없어(별도 정책 결정 필요, SA 부록A #5),
-        // DB 레벨 필터링 자체만 검증하기 위해 네이티브 쿼리로 직접 deleted_at을 채운다.
+        // 이 테스트는 Member.withdraw()의 부수효과(익명화 등)가 아니라 @SQLRestriction 기반
+        // DB 레벨 필터링 자체만 검증하기 위해, 도메인 메서드를 거치지 않고 네이티브 쿼리로 직접
+        // deleted_at만 채운다.
         entityManager.createNativeQuery("update members set deleted_at = now() where id = :id")
                 .setParameter("id", saved.getId())
                 .executeUpdate();

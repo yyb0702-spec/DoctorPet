@@ -16,6 +16,7 @@ import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.domain.member.event.MemberSignedUpEvent;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -55,7 +57,7 @@ class AuthServiceTest {
     private JwtProperties jwtProperties;
 
     @Mock
-    private EmailVerificationService emailVerificationService;
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private AuthService authService;
@@ -75,8 +77,10 @@ class AuthServiceTest {
 
         assertThat(response.memberId()).isEqualTo(1L);
         verify(passwordEncoder).encode("password1234");
-        // 백로그 P2 — 가입 직후 이메일 인증 메일 발송 훅.
-        verify(emailVerificationService).sendVerificationEmail(savedMember);
+        // 백로그 P2 — 가입 직후 이메일 인증 메일 발송 훅. 트랜잭션 커밋 이후에만 발송되도록
+        // 이벤트를 발행하는 것까지만 여기서 검증한다(실제 발송은 MemberSignupEventListener,
+        // AFTER_COMMIT 시점 처리는 리뷰 대응 — 리뷰 대응 이력 참고).
+        verify(eventPublisher).publishEvent(new MemberSignedUpEvent(savedMember));
     }
 
     @Test
