@@ -1,6 +1,7 @@
 package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +27,22 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationLockStrategy reservationLockStrategy;
+
+    public List<ReservationSlotQueryResult> findSlots(
+            Long hospitalId,
+            LocalDateTime rangeStart,
+            LocalDateTime rangeEnd
+    ) {
+        return reservationSlotRepository
+                .findSlotsInRange(
+                        hospitalId,
+                        rangeStart,
+                        rangeEnd
+                )
+                .stream()
+                .map(ReservationSlotQueryResult::from)
+                .toList();
+    }
 
     @Transactional
     public ReservationResponse request(Long memberId, ReservationRequest request) {
