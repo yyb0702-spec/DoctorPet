@@ -655,6 +655,49 @@ class HospitalSearchServiceTest {
     }
 
     @Test
+    void 후처리_검색의_페이지_오프셋이_int_범위를_넘어도_빈_목록을_반환한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "가까운 병원",
+                BusinessStatus.OPEN,
+                false,
+                "126.9780",
+                "37.5665"
+        );
+        given(hospitalRepository.searchAll(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(List.of(candidate(hospital)));
+
+        HospitalSearchPageResponse response =
+                hospitalService.hospitalSearch(
+                        null,
+                        null,
+                        new BigDecimal("37.5665"),
+                        new BigDecimal("126.9780"),
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        Integer.MAX_VALUE,
+                        100,
+                        "distance"
+                );
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.page()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(response.totalElements()).isEqualTo(1L);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.last()).isTrue();
+    }
+
+    @Test
     void 검색_결과가_없어도_첫_페이지는_정상_빈_응답을_반환한다() {
         given(hospitalSearchCacheRepository.findInitialPage())
                 .willReturn(HospitalSearchCacheLookupResult.miss());

@@ -362,7 +362,7 @@ public class HospitalService {
         long totalElements = searchedHospitals.size();
         int totalPages = calculateTotalPages(totalElements, size);
 
-        int fromIndex = (page - 1) * size;
+        long fromIndex = (long) (page - 1) * size;
         if (fromIndex >= searchedHospitals.size()) {
             return HospitalSearchPageResponse.of(
                     List.of(),
@@ -373,10 +373,16 @@ public class HospitalService {
             );
         }
 
-        int toIndex = Math.min(fromIndex + size, searchedHospitals.size());
+        long toIndex = Math.min(
+                fromIndex + size,
+                (long) searchedHospitals.size()
+        );
 
         return HospitalSearchPageResponse.of(
-                searchedHospitals.subList(fromIndex, toIndex),
+                searchedHospitals.subList(
+                        (int) fromIndex,
+                        (int) toIndex
+                ),
                 page,
                 size,
                 totalElements,
