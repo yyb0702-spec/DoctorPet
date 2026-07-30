@@ -10,7 +10,8 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
-public interface ReservationRepository extends JpaRepository<Reservation, Long> {
+public interface ReservationRepository
+        extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
 
     Optional <Reservation> findByIdAndMemberId(
             Long reservationId,

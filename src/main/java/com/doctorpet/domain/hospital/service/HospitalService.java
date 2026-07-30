@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSummaryResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
@@ -34,6 +35,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -89,6 +91,18 @@ public class HospitalService {
         );
     }
 
+    /**
+     * 예약 목록처럼 여러 병원의 표시용 이름이 필요한 도메인을 위한 배치 조회 계약.
+     */
+    @Transactional(readOnly = true)
+    public List<HospitalSummaryResponse> getHospitalSummaries(
+            Collection<Long> hospitalIds
+    ) {
+        return hospitalRepository.findAllById(hospitalIds).stream()
+                .map(HospitalSummaryResponse::from)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public HospitalSearchPageResponse hospitalSearch(
             String keyword,
@@ -103,10 +117,10 @@ public class HospitalService {
             Boolean nightCare,
             Boolean emergency,
             boolean partnerOnly,
-            boolean openNowOnly,
-            int page,
-            int size,
-            String sort
+                 boolean openNowOnly,
+                 int page,
+                 int size,
+                 String sort
     ) {
         // 위치 조건은 위도·경도가 함께 있어야 하며, 반경은 좌표가 있을 때만 사용할 수 있습니다.
         validateLocationCondition(latitude, longitude, radiusKm);
