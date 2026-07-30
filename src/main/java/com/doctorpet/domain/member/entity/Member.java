@@ -58,6 +58,14 @@ public class Member extends BaseEntity {
     private LocalDateTime deletedAt;
 
     /**
+     * 이메일 인증 여부(백로그 P2, 회원가입 시 이메일 소유 확인 — 이메일 인증 인프라 구축 시 추가).
+     * 가입 직후에는 false이며, 이 값이 true가 될 때까지 로그인이 차단된다(AuthService.login()).
+     * ddl-auto=update로 기존 행에도 안전하게 컬럼이 추가되도록 columnDefinition에 DEFAULT 0을 둔다.
+     */
+    @Column(name = "email_verified", nullable = false, columnDefinition = "tinyint(1) not null default 0")
+    private boolean emailVerified;
+
+    /**
      * 로그인 실패 잠금 정책(A 도메인 결정 #1). SA §4엔 없는 컬럼으로, 로그인 기능 구현 시 새로 추가했다.
      * 5회 연속 실패 시 30분 잠금, 30분 경과 시 자동 해제(실패 횟수도 함께 초기화).
      */
@@ -76,6 +84,7 @@ public class Member extends BaseEntity {
         this.nickname = nickname;
         this.role = role;
         this.hospitalId = hospitalId;
+        this.emailVerified = false;
         this.failedLoginAttempts = 0;
     }
 
@@ -109,6 +118,26 @@ public class Member extends BaseEntity {
 
     /** 로그인 성공. 실패 기록·잠금을 모두 초기화한다. */
     public void recordLoginSuccess() {
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
+    }
+
+    /**
+     * 이메일 인증 완료 처리(백로그 P2). 이미 인증된 회원에게 다시 호출해도 안전하도록(멱등)
+     * 단순 대입만 한다 — 호출 전 토큰 유효성 검증은 EmailVerificationService의 책임이다.
+     */
+    public void verifyEmail() {
+        this.emailVerified = true;
+    }
+
+    /**
+     * 비밀번호 재설정(백로그 P2). SA엔 "재설정 성공 시 잠금 해제"라는 효과만 정의돼 있었는데,
+     * 실제 재설정 메커니즘(이메일 링크형 토큰)을 이번에 구현하며 그 효과를 여기서 반영한다 — 새
+     * 비밀번호로 교체함과 동시에 로그인 실패 기록·잠금도 초기화한다. 잠긴 계정이라면 재설정 자체가
+     * 곧 잠금 해제 수단이 된다.
+     */
+    public void resetPassword(String encodedPassword) {
+        this.password = encodedPassword;
         this.failedLoginAttempts = 0;
         this.lockedUntil = null;
     }

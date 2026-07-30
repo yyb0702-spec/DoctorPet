@@ -59,6 +59,24 @@ class MemberDdlIntegrationTest {
     }
 
     @Test
+    @DisplayName("신규 컬럼(email_verified)이 기존 행에도 DEFAULT 0으로 안전하게 추가되고, verifyEmail() 이후 true로 저장·조회된다(백로그 P2)")
+    void emailVerifiedColumn_defaultsFalseAndPersistsAfterVerification() {
+        Member member = Member.createGuardian("emailverify@example.com", "encoded", "닉네임");
+        Member saved = memberRepository.saveAndFlush(member);
+        entityManager.clear();
+
+        Member reloaded = memberRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.isEmailVerified()).isFalse();
+
+        reloaded.verifyEmail();
+        memberRepository.saveAndFlush(reloaded);
+        entityManager.clear();
+
+        Member reloadedAfterVerify = memberRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloadedAfterVerify.isEmailVerified()).isTrue();
+    }
+
+    @Test
     @DisplayName("Soft Delete(deleted_at) 후에는 findByEmail·existsByEmail 모두 조회되지 않는다")
     void softDeletedMember_isExcludedFromActiveQueries() {
         Member member = Member.createGuardian("softdelete@example.com", "encoded", "닉네임");

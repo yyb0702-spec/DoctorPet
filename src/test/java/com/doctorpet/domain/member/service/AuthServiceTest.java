@@ -54,6 +54,9 @@ class AuthServiceTest {
     @Mock
     private JwtProperties jwtProperties;
 
+    @Mock
+    private EmailVerificationService emailVerificationService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -72,6 +75,8 @@ class AuthServiceTest {
 
         assertThat(response.memberId()).isEqualTo(1L);
         verify(passwordEncoder).encode("password1234");
+        // 백로그 P2 — 가입 직후 이메일 인증 메일 발송 훅.
+        verify(emailVerificationService).sendVerificationEmail(savedMember);
     }
 
     @Test
@@ -130,6 +135,7 @@ class AuthServiceTest {
         LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
+        member.verifyEmail(); // 이메일 인증 필수(백로그 P2) — 미인증이면 이 성공 시나리오 자체가 불가능하다.
 
         given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
         given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(true);
@@ -172,6 +178,27 @@ class AuthServiceTest {
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_CREDENTIALS));
         assertThat(member.getFailedLoginAttempts()).isEqualTo(1);
+        verify(jwtTokenProvider, never()).generateAccessToken(anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("이메일·비밀번호는 맞지만 이메일 인증 전이면 EMAIL_NOT_VERIFIED 예외를 던지고, 토큰은 발급하지 않는다(백로그 P2)")
+    void login_emailNotVerified() {
+        LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        // emailVerified 기본값은 false — 인증 안 함.
+
+        given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
+        given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(true);
+
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.EMAIL_NOT_VERIFIED));
+        // 비밀번호 자체는 맞았으므로 실패 횟수는 그대로 초기화된다(recordLoginSuccess가 먼저 실행됨) —
+        // 미인증 상태는 "틀린 로그인 시도"로 카운트하지 않는다.
+        assertThat(member.getFailedLoginAttempts()).isZero();
         verify(jwtTokenProvider, never()).generateAccessToken(anyLong(), anyString(), anyString());
     }
 

@@ -27,6 +27,41 @@ class MemberTest {
         assertThat(member.getDeletedAt()).isEqualTo(now);
     }
 
+    @Test
+    @DisplayName("생성 직후에는 이메일 인증이 안 된 상태다(백로그 P2 — 가입 시 이메일 인증 필수)")
+    void createGuardian_startsUnverified() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+
+        assertThat(member.isEmailVerified()).isFalse();
+    }
+
+    @Test
+    @DisplayName("verifyEmail()을 호출하면 인증 완료 상태가 된다")
+    void verifyEmail_marksVerified() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+
+        member.verifyEmail();
+
+        assertThat(member.isEmailVerified()).isTrue();
+    }
+
+    @Test
+    @DisplayName("resetPassword()는 비밀번호를 교체하고 로그인 실패 기록·잠금을 초기화한다(SA \"재설정 성공 시 잠금 해제\")")
+    void resetPassword_replacesPasswordAndClearsLockout() {
+        Member member = Member.createGuardian("guardian@example.com", "old-encoded-password", "보호자닉네임");
+        LocalDateTime now = LocalDateTime.now();
+        for (int i = 0; i < 5; i++) {
+            member.recordLoginFailure(now);
+        }
+        assertThat(member.isLocked()).isTrue();
+
+        member.resetPassword("new-encoded-password");
+
+        assertThat(member.getPassword()).isEqualTo("new-encoded-password");
+        assertThat(member.isLocked()).isFalse();
+        assertThat(member.getFailedLoginAttempts()).isZero();
+    }
+
     private void setId(Member member, Long id) {
         try {
             var field = Member.class.getDeclaredField("id");

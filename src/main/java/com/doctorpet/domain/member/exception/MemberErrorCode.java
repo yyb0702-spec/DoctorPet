@@ -26,7 +26,14 @@ public enum MemberErrorCode implements ErrorCode {
     // 활성 예약(CONFIRMED·CHECKED_IN) 또는 미수금(OFFLINE_REQUIRED) 보유 회원의 탈퇴 시도(SA §6-3,
     // 부록A 확정 — 탈퇴 보류 정책). 클라이언트가 예약을 취소·완료하거나 미수금을 정산한 뒤 다시
     // 탈퇴를 시도하면 되는 상태라 409로 응답한다.
-    WITHDRAWAL_BLOCKED(HttpStatus.CONFLICT, "MEMBER_008", "활성 예약 또는 미수금이 있어 탈퇴할 수 없습니다. 예약을 취소·완료하거나 정산 후 다시 시도해주세요.");
+    WITHDRAWAL_BLOCKED(HttpStatus.CONFLICT, "MEMBER_008", "활성 예약 또는 미수금이 있어 탈퇴할 수 없습니다. 예약을 취소·완료하거나 정산 후 다시 시도해주세요."),
+    // 이메일 인증 전 로그인 시도(백로그 P2 — 가입 시 이메일 인증 필수). 계정 자체는 존재하고
+    // 비밀번호도 맞지만, 인증 메일의 링크를 아직 클릭하지 않은 상태.
+    EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "MEMBER_009", "이메일 인증이 필요합니다. 가입 시 발송된 메일의 링크를 확인해주세요."),
+    // 이메일 인증·비밀번호 재설정 토큰이 없거나(오타·변조), 이미 사용됐거나, 만료된 경우를 모두
+    // 포괄한다 — Redis에 저장된 토큰은 만료되면 키 자체가 사라져 "없음"과 "만료됨"을 구분할 수
+    // 없으므로(MemberTokenRepository), 두 상황을 하나의 코드로 통일해 응답한다.
+    INVALID_OR_EXPIRED_TOKEN(HttpStatus.BAD_REQUEST, "MEMBER_010", "유효하지 않거나 만료된 링크입니다. 다시 요청해주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

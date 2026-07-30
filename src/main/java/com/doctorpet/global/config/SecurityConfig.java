@@ -41,6 +41,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/signup", "/api/auth/login", "/api/auth/reissue"
                         ).permitAll()
+                        // 이메일 인증·비밀번호 재설정(백로그 P2) - 로그인 전(또는 로그인 자체가
+                        // 불가능한 상태의) 사용자가 호출해야 하므로 비인증 API다.
+                        .requestMatchers(HttpMethod.GET, "/api/auth/verify-email").permitAll()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/auth/verify-email/resend",
+                                "/api/auth/password-reset/request",
+                                "/api/auth/password-reset/confirm"
+                        ).permitAll()
                         // 병원 검색 - 공개 (API 명세서 §3)
                         .requestMatchers(HttpMethod.GET, "/api/hospitals/**").permitAll()
                         // AI 상담 - 공개, 비로그인 임시 상담 허용 (API 명세서 §4)
