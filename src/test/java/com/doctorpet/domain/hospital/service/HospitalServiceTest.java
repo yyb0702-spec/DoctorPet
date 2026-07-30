@@ -12,6 +12,7 @@ import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.global.exception.ServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,9 @@ class HospitalServiceTest {
     @Mock
     private HospitalCapabilityRepository hospitalCapabilityRepository;
 
+    @Mock
+    private HospitalSearchCacheRepository hospitalSearchCacheRepository;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -58,7 +62,8 @@ class HospitalServiceTest {
         hospitalService = new HospitalService(
                 hospitalRepository,
                 hospitalDetailRepository,
-                hospitalCapabilityRepository
+                hospitalCapabilityRepository,
+                hospitalSearchCacheRepository
         );
     }
 
