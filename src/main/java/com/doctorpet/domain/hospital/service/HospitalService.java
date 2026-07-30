@@ -198,10 +198,10 @@ public class HospitalService {
 
         long totalElements = hospitalRepository.count(condition);
         int totalPages = calculateTotalPages(totalElements, size);
-        validatePageRange(page, totalPages);
 
         long offset = (long) (page - 1) * size;
-        List<HospitalSearchResponse> content = totalElements == 0
+        List<HospitalSearchResponse> content =
+                totalElements == 0 || page > totalPages
                 ? List.of()
                 : searchPageCandidates(
                                 condition,
@@ -288,7 +288,6 @@ public class HospitalService {
     ) {
         long totalElements = cachedPage.totalElements();
         int totalPages = calculateTotalPages(totalElements, size);
-        validatePageRange(page, totalPages);
         List<HospitalSearchResponse> content = cachedPage.content().stream()
                 .map(candidate -> toSearchResult(
                         candidate,
@@ -362,9 +361,18 @@ public class HospitalService {
 
         long totalElements = searchedHospitals.size();
         int totalPages = calculateTotalPages(totalElements, size);
-        validatePageRange(page, totalPages);
 
         int fromIndex = (page - 1) * size;
+        if (fromIndex >= searchedHospitals.size()) {
+            return HospitalSearchPageResponse.of(
+                    List.of(),
+                    page,
+                    size,
+                    totalElements,
+                    totalPages
+            );
+        }
+
         int toIndex = Math.min(fromIndex + size, searchedHospitals.size());
 
         return HospitalSearchPageResponse.of(
@@ -384,21 +392,6 @@ public class HospitalService {
         return totalElements == 0
                 ? 0
                 : (int) Math.ceil((double) totalElements / size);
-    }
-
-    private void validatePageRange(
-            int page,
-            int totalPages
-    ) {
-        // 결과가 없는 1페이지는 정상 빈 응답이고, 2페이지부터는 범위를 벗어난 요청입니다.
-        boolean pageOutOfRange = page > 1
-                && (totalPages == 0 || page > totalPages);
-
-        if (pageOutOfRange) {
-            throw new ServiceException(
-                    CommonErrorCode.VALIDATION_FAILED
-            );
-        }
     }
 
     private List<CapabilityValue> parseCapabilities(

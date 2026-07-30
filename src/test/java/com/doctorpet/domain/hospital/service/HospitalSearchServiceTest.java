@@ -571,42 +571,87 @@ class HospitalSearchServiceTest {
     }
 
     @Test
-    void 마지막_페이지보다_큰_페이지를_요청하면_검증_예외를_던진다() {
-        Hospital hospital = createHospital(
-                1L,
-                "가병원",
-                BusinessStatus.OPEN,
-                false,
-                null,
-                null
-        );
+    void 마지막_페이지보다_큰_페이지를_요청하면_빈_목록을_반환한다() {
         given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
         )).willReturn(1L);
 
-        assertThatThrownBy(() -> hospitalService.hospitalSearch(
-                null,
-                null,
-                null,
-                null,
-                null,
-                List.of(),
-                null,
-                null,
-                null,
-                null,
-                null,
+        HospitalSearchPageResponse response =
+                hospitalService.hospitalSearch(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        2,
+                        20,
+                        "name"
+                );
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.page()).isEqualTo(2);
+        assertThat(response.totalElements()).isEqualTo(1L);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.first()).isFalse();
+        assertThat(response.last()).isTrue();
+        verify(hospitalRepository, never()).searchPartnerFirstPage(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt()
+        );
+    }
+
+    @Test
+    void 후처리_검색의_마지막_페이지보다_큰_페이지도_빈_목록을_반환한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "가까운 병원",
+                BusinessStatus.OPEN,
                 false,
-                false,
-                2,
-                20,
-                "name"
-        ))
-                .isInstanceOf(ServiceException.class)
-                .extracting("errorCode")
-                .isEqualTo(CommonErrorCode.VALIDATION_FAILED);
+                "126.9780",
+                "37.5665"
+        );
+        given(hospitalRepository.searchAll(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(List.of(candidate(hospital)));
+
+        HospitalSearchPageResponse response =
+                hospitalService.hospitalSearch(
+                        null,
+                        null,
+                        new BigDecimal("37.5665"),
+                        new BigDecimal("126.9780"),
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        false,
+                        2,
+                        20,
+                        "distance"
+                );
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.page()).isEqualTo(2);
+        assertThat(response.totalElements()).isEqualTo(1L);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.last()).isTrue();
     }
 
     @Test

@@ -26,7 +26,7 @@ public record HospitalSearchPageResponse(
                 totalElements,
                 totalPages,
                 page == 1,
-                totalPages == 0 || page == totalPages
+                totalPages == 0 || page >= totalPages
         );
     }
 }
