@@ -71,6 +71,19 @@ class EmailVerificationServiceTest {
     }
 
     @Test
+    @DisplayName("토큰 발급(Redis) 자체가 실패해도 흡수하고 전파하지 않는다(AFTER_COMMIT 이후라 여기서 예외가 새면 회원가입 자체가 실패한 것처럼 보인다)")
+    void sendVerificationEmail_swallowsTokenIssuanceException() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        willThrow(new RuntimeException("Redis down"))
+                .given(memberTokenRepository).issueEmailVerificationToken(eq(1L), any(Duration.class));
+
+        assertThatCode(() -> emailVerificationService.sendVerificationEmail(member))
+                .doesNotThrowAnyException();
+        verify(emailGateway, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
     @DisplayName("유효한 토큰이면 해당 회원의 이메일 인증을 완료 처리한다")
     void verifyEmail_success() {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");

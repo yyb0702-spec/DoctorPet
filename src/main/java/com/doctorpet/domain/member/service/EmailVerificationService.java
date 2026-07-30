@@ -32,14 +32,20 @@ public class EmailVerificationService {
     private String verificationBaseUrl;
 
     /*
-      회원가입 직후 AuthService.signup()에서 호출된다. 메일 발송 실패(SMTP 장애 등)가 회원가입
-      자체를 롤백시키지 않도록 여기서 예외를 흡수한다 — 사용자는 재발송(resendVerificationEmail)
-      으로 복구할 수 있다.
+      회원가입 직후 MemberSignupEventListener(AFTER_COMMIT)에서 호출된다. 메일 발송 실패(SMTP
+      장애 등)가 회원가입 자체를 롤백시키지 않도록 여기서 예외를 흡수한다 — 사용자는 재발송
+      (resendVerificationEmail)으로 복구할 수 있다.
+
+      토큰 발급(Redis) 자체도 이 try 안에 포함한다 — 회원가입 트랜잭션은 이미 커밋된 뒤(AFTER_
+      COMMIT)라 여기서 예외가 새어나가면 회원은 실제로 정상 생성됐는데도 signup() 호출자에게는
+      요청이 실패한 것처럼 보인다(Spring이 AFTER_COMMIT 리스너의 예외를 원래 호출자에게 다시
+      던지기 때문). Redis 장애로 토큰 발급 자체가 안 되는 경우도 "메일 발송 실패"와 같은 방식으로
+      흡수하고 로그만 남긴다.
      */
     public void sendVerificationEmail(Member member) {
-        String token = memberTokenRepository.issueEmailVerificationToken(member.getId(), TOKEN_TTL);
-        String link = verificationBaseUrl + "?token=" + token;
         try {
+            String token = memberTokenRepository.issueEmailVerificationToken(member.getId(), TOKEN_TTL);
+            String link = verificationBaseUrl + "?token=" + token;
             emailGateway.send(
                     member.getEmail(),
                     "[DoctorPet] 이메일 인증을 완료해주세요",

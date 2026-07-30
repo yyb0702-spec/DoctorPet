@@ -88,6 +88,20 @@ class PasswordResetServiceTest {
     }
 
     @Test
+    @DisplayName("토큰 발급(Redis) 자체가 실패해도 흡수하고 전파하지 않는다(계정 존재 여부 비노출 계약 유지)")
+    void requestPasswordReset_swallowsTokenIssuanceException() {
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        given(memberRepository.findByEmail("guardian@example.com")).willReturn(Optional.of(member));
+        willThrow(new RuntimeException("Redis down"))
+                .given(memberTokenRepository).issuePasswordResetToken(eq(1L), any(Duration.class));
+
+        assertThatCode(() -> passwordResetService.requestPasswordReset("guardian@example.com"))
+                .doesNotThrowAnyException();
+        verify(emailGateway, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
     @DisplayName("유효한 토큰과 새 비밀번호로 확인하면 비밀번호를 교체하고 잠금을 해제한다(SA \"재설정 성공 시 잠금 해제\")")
     void confirmPasswordReset_success() {
         Member member = Member.createGuardian("guardian@example.com", "old-encoded-password", "보호자닉네임");

@@ -40,9 +40,11 @@ public class PasswordResetService {
      */
     public void requestPasswordReset(String email) {
         memberRepository.findByEmail(email).ifPresent(member -> {
-            String token = memberTokenRepository.issuePasswordResetToken(member.getId(), TOKEN_TTL);
-            String link = passwordResetBaseUrl + "?token=" + token;
+            // 토큰 발급(Redis)까지 try 안에 포함한다 — Redis 장애로 토큰 발급 자체가 실패해도
+            // 이 메서드는 항상 조용히 반환해야 하는 계약(계정 존재 여부 비노출)을 지켜야 한다.
             try {
+                String token = memberTokenRepository.issuePasswordResetToken(member.getId(), TOKEN_TTL);
+                String link = passwordResetBaseUrl + "?token=" + token;
                 emailGateway.send(
                         member.getEmail(),
                         "[DoctorPet] 비밀번호 재설정",
