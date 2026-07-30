@@ -90,6 +90,17 @@ public class HospitalService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isReservationSlotLookupAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findById(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        return hospital.getPartnershipStatus() == PartnershipStatus.PARTNER
+                && hospital.getBusinessStatus() == BusinessStatus.OPEN;
+    }
+
+    @Transactional(readOnly = true)
     public HospitalSearchPageResponse hospitalSearch(
             String keyword,
             String region,
