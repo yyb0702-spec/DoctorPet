@@ -2,10 +2,10 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.17, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
 DoctorPet은 보호자용 API, 병원 직원용 API, 외부 연동 및 배치 작업으로 구성한다.
 - 보호자: 회원·반려동물 관리, AI 증상 상담, 병원 검색, 예약, 결제, 알림
@@ -83,11 +83,15 @@ domain/
 | `urgencyLevel` | 긴급도 |
 | `preVisitCheckpoints` | 내원 전 확인 사항 |
 | `recommendVetVisit` | 병원 방문 권고 여부 |
-- 응급 키워드가 감지되면 LLM 판단을 우회하고 고정 응답을 반환한다.
+- 응급 키워드가 감지되면 LLM 호출을 생략하고 고정 응답을 반환하며, LLM 결과가 `urgencyLevel=HIGH`인 경우에도 즉시 병원 안내로 강제 분기한다.
 - 화이트리스트 밖의 카테고리에는 `정확한 답변이 어렵습니다`를 반환한다.
-- **\[결정 필요 — 정본 충돌\]** 병원 검색 Tool 실패 시 PRD·정책은 실패 컨텍스트를 LLM에 전달해 안내 문구를 생성하고, SA 장애 격리는 `fallback=true`로 직접 검색을 유도한다. LLM 재호출 여부와 서버 고정 문구 사용 여부는 추후 팀 합의 후 정본을 함께 수정하며, 결정 전에는 구현하지 않는다.
-- 증상 원문은 전화번호·이메일·주민번호 등 패턴을 마스킹해 30일간 보존하고, 30일이 지난 원문은 배치로 삭제한다. 배치 주기와 구현 방식은 정본에 확정되어 있지 않다.
-- 구조화 출력 5필드 전체를 `structured_result` JSON으로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계를 위해 별도 컬럼에 중복 저장하고 같은 트랜잭션에서 일관되게 기록한다. `error_type`, `tool_call_status`, `schema_parse_success` 등도 저장해 품질 지표를 측정한다.
+- 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
+- 입력은 공백이 아닌 `symptomText` 1~1,000자와 `DOG`·`CAT` 중 하나인 `species`가 필수다.
+- Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회이며 설정값으로 관리한다.
+- 증상 원본은 저장하지 않고 전화번호·이메일·주민번호 등 패턴을 마스킹한 텍스트만 30일간 보존한 뒤 삭제한다.
+- 구조화 출력 5필드 전체를 `structured_result` JSON으로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계를 위해 별도 컬럼에 중복 저장하고 같은 트랜잭션에서 일관되게 기록한다. `tool_call_status`, `schema_parse_success` 등도 저장해 품질 지표를 측정한다.
+- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 제공자·모델은 평가 후 선택한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
+- timeout·fallback·기본 Circuit Breaker는 MVP에 포함하고 세밀한 튜닝·대시보드는 확장으로 둔다.
 ## 7. 예약과 상태 전이
 ### 예약 흐름
 ```plain text
@@ -142,11 +146,9 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 외부 시스템 요청·응답에는 민감정보를 그대로 기록하지 않는다.
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
-- LLM 모델·제공자와 프롬프트 외부화 저장 방식
-- AI 입력 길이 제한과 Rate Limit 구체 수치
+- 실제 LLM 제공자·모델
 - 실시간 push 방식(SSE 또는 WebSocket+STOMP)
 - 활성 예약·미수금을 보유한 회원의 탈퇴 처리
-- 검색 Tool 실패 응답 주체: LLM 안내 생성 또는 서버 `fallback=true`·고정 문구
 위 항목은 저장소 SA 부록 A에서 결정되기 전까지 임의로 구현하지 않는다.
 
 ## 12. 병원 슬롯 조회 계약

@@ -2,10 +2,10 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.17, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 제품 개요
 DoctorPet은 반려동물 증상을 입력받아 AI가 방문 필요성과 필요 진료역량을 안내하고, 근처 동물병원 검색부터 예약·진료·후불 결제까지 연결하는 서비스다.
 ```plain text
@@ -55,7 +55,12 @@ AI 상담은 비로그인 사용자도 임시 정보로 이용할 수 있다. MV
 - AI는 진단·처방·조회되지 않은 병원을 생성하지 않는다.
 - AI 장애가 검색·예약·결제에 영향을 주지 않아야 한다.
 - AI 구조화 출력 5필드는 모두 저장하고, 검색·집계용 2필드는 별도 컬럼에 중복 저장한다.
-- **\[결정 필요 — 정본 충돌\]** 검색 Tool 실패 응답을 LLM이 생성할지, 서버가 `fallback=true`와 고정 문구로 직접 검색을 유도할지는 추후 결정하며 결정 전에는 구현하지 않는다.
+- AI 공통 기능은 제공자 비종속 `AiGateway`와 `FakeAiGateway`로 먼저 구현하고, 실제 제공자·모델은 동일 평가 데이터 비교 후 선택한다.
+- `symptomText`는 공백 불가 1~1,000자, `species`는 `DOG`·`CAT`만 허용한다.
+- Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회다.
+- 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
+- 응급 키워드는 LLM 호출 전, `urgencyLevel=HIGH`는 호출 후 안전 분기로 처리한다.
+- 마스킹된 증상 텍스트만 30일 보존하며 timeout·fallback·기본 Circuit Breaker를 MVP에 포함한다.
 상세 조건과 상태 전이는 프로젝트 정책 및 저장소 SA 정본을 따른다.
 ## 6. MVP 범위
 ### 포함

@@ -1,11 +1,11 @@
-# DoctorPet 프로젝트 정책(v8 경량화)
+# DoctorPet 프로젝트 정책(v9 경량화)
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.17, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 회원·인증
 - 회원 유형은 보호자(`GUARDIAN`)와 병원 스태프(`HOSPITAL_STAFF`)로 구분한다.
 - 반려동물은 회원가입 정보에서 제외하고 가입 후 선택 등록한다. 단, 예약 요청 전에는 프로필 등록이 필수다.
@@ -69,12 +69,16 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
   "recommendVetVisit": true
 }
 ```
-- 응급 키워드는 LLM 판단을 우회하고 고정 응답으로 즉시 병원 방문을 안내한다.
+- 응급 키워드는 LLM 호출 전에 검사해 고정 응답으로 즉시 병원 방문을 안내하고, LLM 결과가 `urgencyLevel=HIGH`여도 같은 안전 분기로 강제한다.
 - AI가 허용된 화이트리스트 밖의 카테고리를 생성하면 `"정확한 답변이 어렵습니다"`로 응답한다.
-- **\[결정 필요 — 정본 충돌\]** 검색 Tool 실패 시 PRD·정책은 실패 컨텍스트를 LLM에 전달해 안내 문구를 생성하도록 하고, SA는 `fallback=true`로 직접 검색을 유도한다. LLM 재호출 여부와 서버 고정 문구 사용 여부는 추후 팀 합의 후 정본을 함께 수정하며, 결정 전에는 구현하지 않는다.
+- 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
 - 검색 결과에 없는 병원·질환명·처치 지시를 생성하지 않는다.
 - 면책 문구는 LLM 출력이 아니라 서버가 항상 주입한다.
-- 증상 원문은 전화번호·이메일·주민번호 등 패턴을 마스킹해 30일간 보존하고, 30일이 지난 원문은 배치로 삭제한다. 배치 주기와 구현 방식은 정본에 확정되어 있지 않다.
+- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 제공자·모델은 평가 후 선택한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
+- `symptomText`는 공백 불가 1~1,000자, `species`는 `DOG`·`CAT`만 허용한다.
+- Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회다.
+- 증상 원본은 저장하지 않고 개인정보 패턴을 마스킹한 텍스트만 30일 보존한 뒤 삭제한다.
+- timeout·fallback·기본 Circuit Breaker는 MVP에 포함한다.
 ## 7. 알림
 - 예약 승인·거절, 결제 결과, 노쇼 등 주요 상태 변경을 알림으로 저장한다.
 - MVP는 폴링 방식이며 실시간 push는 확장 범위다.
