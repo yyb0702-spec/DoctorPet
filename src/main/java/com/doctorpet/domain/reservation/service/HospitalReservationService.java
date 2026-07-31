@@ -86,6 +86,27 @@ public class HospitalReservationService {
         slot.open();
     }
 
+    /**
+     * 병원 스태프가 자기 병원의 CONFIRMED 예약을 체크인 처리한다(SA §5-1·§8-6).
+     */
+    @Transactional
+    public void checkIn(Long staffMemberId, Long reservationId) {
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+
+        int updated = reservationRepository.checkInIfConfirmed(
+                reservationId,
+                hospitalId,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.CHECKED_IN,
+                LocalDateTime.now()
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+    }
+
     private Long requireHospitalId(Long staffMemberId) {
         MemberResponse member = memberService.getMyInfo(staffMemberId);
         if (member.role() != MemberRole.HOSPITAL_STAFF

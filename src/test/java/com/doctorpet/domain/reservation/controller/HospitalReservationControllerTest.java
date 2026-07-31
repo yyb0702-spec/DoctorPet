@@ -41,4 +41,12 @@ class HospitalReservationControllerTest {
         verify(hospitalReservationService).reject(50L, 10L, "진료 슬롯 부족");
         assertThat(response.code()).isEqualTo("SUCCESS");
     }
+
+    @Test
+    void checkIn_delegatesAuthenticatedStaffAndReservationId() {
+        ApiResponse<Void> response = hospitalReservationController.checkIn(principal, 10L);
+
+        verify(hospitalReservationService).checkIn(50L, 10L);
+        assertThat(response.code()).isEqualTo("SUCCESS");
+    }
 }
