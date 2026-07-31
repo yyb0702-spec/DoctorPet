@@ -811,7 +811,7 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인, 탈퇴 시 활성 예약·미수금 보유 회원 처리=탈퇴 보류(§6-3), 이메일 인증·비밀번호 재설정 방식=링크형 토큰(Redis TTL, 1회용)·가입 시 이메일 인증 필수(A 도메인 결정, §6-4), 탈퇴 회원 Access Token 무효화=Redis 블랙리스트(`withdrawn:{memberId}`, TTL=Access Token 만료 시간)를 `JwtAuthenticationFilter`가 인증 직전 확인·`MemberBlacklistPort` 인터페이스로 global↔domain 계층 분리(리뷰 지적 P1 대응, A 도메인 조치 완료).
+확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인, 탈퇴 시 활성 예약·미수금 보유 회원 처리=탈퇴 보류(§6-3), 이메일 인증·비밀번호 재설정 방식=링크형 토큰(Redis TTL, 1회용)·가입 시 이메일 인증 필수(A 도메인 결정, §6-4), 탈퇴 회원 Access Token 무효화=Redis 블랙리스트(`withdrawn:{memberId}`, TTL=Access Token 만료 시간)를 `JwtAuthenticationFilter`가 인증 직전 확인·`MemberBlacklistPort` 인터페이스로 global↔domain 계층 분리(리뷰 지적 P1 대응, A 도메인 조치 완료), 기존 회원 email_verified 백필=신규 컬럼 추가로 ddl-auto=update가 기존 행에 채우는 기본값(false)을 그대로 두지 않고 앱 최초 부팅 시 1회 true로 백필(grandfather)·`schema_migrations` 마커로 재실행 방지(리뷰 지적 P1 대응, A 도메인 조치 완료).
 
 남은 것:
 
@@ -824,6 +824,7 @@ sequenceDiagram
 | 5 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
 | 6 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
 | 7 | 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선(리뷰 지적 P2, non-blocking) — 상세 설계는 아래 참고 | §6-4 |
+| 8 | 탈퇴 시 Redis 부수효과(Refresh Token 삭제·Access Token 블랙리스트 등록)가 DB 커밋 전에 실행됨(리뷰 지적 P2, non-blocking) — `MemberWithdrawalApplicationService.withdraw()`가 `memberService.withdraw()`(DB, 커밋은 트랜잭션 종료 시점) 직후 Redis 호출 2건을 동기 실행한다. DB 커밋이 그 뒤 실패하면 회원은 실제로 탈퇴되지 않았는데 Access Token 만료 시간만큼 블랙리스트에 남아 재로그인해도 접근이 막힌다. fail-closed 방향이라 보안상 더 안전한 쪽으로 판단해 non-blocking으로 남기지만, 같은 PR의 회원가입 이벤트(`MemberSignedUpEvent` + `AFTER_COMMIT`)와 패턴이 다르다 — 통일하려면 Redis 호출을 `AFTER_COMMIT` 이벤트로 옮기면 되나, 그러면 "커밋됐지만 아직 블랙리스트 전"인 짧은 창이 새로 생긴다(가용성 vs 창 최소화 트레이드오프). | §6-3 |
 
 ---
 
