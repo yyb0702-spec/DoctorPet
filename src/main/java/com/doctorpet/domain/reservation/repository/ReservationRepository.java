@@ -18,6 +18,11 @@ public interface ReservationRepository
             Long memberId
     );
 
+    Optional<Reservation> findByIdAndHospitalId(
+            Long reservationId,
+            Long hospitalId
+    );
+
     long countBySlotId(Long slotId);
 
     @Modifying(flushAutomatically = true)
@@ -36,5 +41,94 @@ public interface ReservationRepository
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
             @Param("canceledStatus") ReservationStatus canceledStatus,
             @Param("canceledAt") LocalDateTime canceledAt
+    );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :confirmedStatus,
+                   r.confirmedAt = :confirmedAt,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :requestedStatus
+            """)
+    int approveIfRequested(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("confirmedAt") LocalDateTime confirmedAt,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :rejectedStatus,
+                   r.rejectReason = :rejectReason,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :requestedStatus
+            """)
+    int rejectIfRequested(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("rejectedStatus") ReservationStatus rejectedStatus,
+            @Param("rejectReason") String rejectReason,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :checkedInStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :confirmedStatus
+            """)
+    int checkInIfConfirmed(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :inTreatmentStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :checkedInStatus
+            """)
+    int startTreatmentIfCheckedIn(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus,
+            @Param("inTreatmentStatus") ReservationStatus inTreatmentStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :completedStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :inTreatmentStatus
+            """)
+    int completeTreatmentIfInTreatment(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("inTreatmentStatus") ReservationStatus inTreatmentStatus,
+            @Param("completedStatus") ReservationStatus completedStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
     );
 }

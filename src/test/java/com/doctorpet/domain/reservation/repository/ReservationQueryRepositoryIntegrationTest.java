@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import jakarta.persistence.EntityManager;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -28,6 +29,9 @@ class ReservationQueryRepositoryIntegrationTest {
 
     @Autowired
     private ReservationSlotRepository reservationSlotRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     @DisplayName("회원·상태·예약일 범위를 적용하고 슬롯 시작일 내림차순으로 조회한다")
@@ -87,6 +91,98 @@ class ReservationQueryRepositoryIntegrationTest {
                 .extracting(Reservation::getId)
                 .containsExactly(first.getId(), second.getId());
         assertThat(result.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("병원 운영 상태 전이는 소속 병원과 기대 상태를 조건으로 원자적으로 변경한다")
+    void hospitalTransitions_requireHospitalAndExpectedStatus() {
+        Reservation reservation = saveReservation(
+                1L,
+                LocalDateTime.of(2026, 7, 25, 14, 0),
+                false
+        );
+        LocalDateTime now = LocalDateTime.now();
+
+        assertThat(reservationRepository.approveIfRequested(
+                reservation.getId(),
+                999L,
+                ReservationStatus.REQUESTED,
+                ReservationStatus.CONFIRMED,
+                now,
+                now
+        )).isZero();
+
+        assertThat(reservationRepository.approveIfRequested(
+                reservation.getId(),
+                100L,
+                ReservationStatus.REQUESTED,
+                ReservationStatus.CONFIRMED,
+                now,
+                now
+        )).isEqualTo(1);
+        assertThat(reservationRepository.checkInIfConfirmed(
+                reservation.getId(),
+                100L,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.CHECKED_IN,
+                now
+        )).isEqualTo(1);
+        assertThat(reservationRepository.startTreatmentIfCheckedIn(
+                reservation.getId(),
+                100L,
+                ReservationStatus.CHECKED_IN,
+                ReservationStatus.IN_TREATMENT,
+                now
+        )).isEqualTo(1);
+        assertThat(reservationRepository.completeTreatmentIfInTreatment(
+                reservation.getId(),
+                100L,
+                ReservationStatus.IN_TREATMENT,
+                ReservationStatus.TREATMENT_COMPLETED,
+                now
+        )).isEqualTo(1);
+
+        entityManager.clear();
+        assertThat(reservationRepository.findById(reservation.getId()))
+                .get()
+                .extracting(Reservation::getStatus)
+                .isEqualTo(ReservationStatus.TREATMENT_COMPLETED);
+    }
+
+    @Test
+    @DisplayName("병원 거절은 REQUESTED 상태에서만 사유와 함께 수행된다")
+    void rejectIfRequested_updatesReasonAndRejectsOnlyRequested() {
+        Reservation reservation = saveReservation(
+                1L,
+                LocalDateTime.of(2026, 7, 26, 14, 0),
+                false
+        );
+        LocalDateTime now = LocalDateTime.now();
+
+        assertThat(reservationRepository.rejectIfRequested(
+                reservation.getId(),
+                100L,
+                ReservationStatus.REQUESTED,
+                ReservationStatus.REJECTED,
+                "직원 부족",
+                now
+        )).isEqualTo(1);
+
+        entityManager.clear();
+        Reservation rejected = reservationRepository
+                .findById(reservation.getId())
+                .orElseThrow();
+        assertThat(rejected.getStatus()).isEqualTo(ReservationStatus.REJECTED);
+        assertThat(rejected.getRejectReason()).isEqualTo("직원 부족");
+
+        assertThat(reservationRepository.rejectIfRequested(
+                reservation.getId(),
+                100L,
+                ReservationStatus.REQUESTED,
+                ReservationStatus.REJECTED,
+                "다시 거절",
+                now
+        )).isZero();
     }
 
     private Reservation saveReservation(
