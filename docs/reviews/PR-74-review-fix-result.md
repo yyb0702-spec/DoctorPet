@@ -141,6 +141,10 @@ develop의 회원 탈퇴 활성 예약 확인 메서드를 모두 보존하는 �
 `ReservationErrorCode.INVALID_STATUS`뿐 아니라 `SlotErrorCode.INVALID_STATUS`로도 정상 탈락할 수 있다.
 동시성 테스트가 두 정상 패자 결과를 모두 허용하도록 수정했다.
 
+또한 CI의 JVM 기본 시간대는 UTC인데 테스트 픽스처의 요청 시각이 `LocalDateTime.now()`로 생성되어,
+서울 기준으로 판정하는 승인 서비스에서는 이미 마감된 요청으로 인식됐다.
+테스트 픽스처의 슬롯·요청 시각도 `TimePolicy.SEOUL_ZONE_ID`로 통일했다.
+
 - 동시성 통합 테스트 반복 실행: PASS
 - 예약 도메인 전체 86건 재실행: PASS
 

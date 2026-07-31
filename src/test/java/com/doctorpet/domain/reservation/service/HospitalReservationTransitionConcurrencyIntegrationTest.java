@@ -1,5 +1,6 @@
 package com.doctorpet.domain.reservation.service;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.doctorpet.domain.member.entity.Member;
@@ -148,7 +149,8 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
     private TestReservation saveRequestedReservation() {
         long hospitalId = System.nanoTime();
         long guardianMemberId = hospitalId + 1;
-        LocalDateTime startAt = LocalDateTime.now().plusDays(2).withNano(0);
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        LocalDateTime startAt = now.plusDays(2).withNano(0);
 
         ReservationSlot slot = ReservationSlot.create(
                 hospitalId,
@@ -167,7 +169,7 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
                 1L,
                 "초코",
                 "DOG",
-                LocalDateTime.now()
+                now
         );
         reservation = reservationRepository.saveAndFlush(reservation);
         reservationId = reservation.getId();
