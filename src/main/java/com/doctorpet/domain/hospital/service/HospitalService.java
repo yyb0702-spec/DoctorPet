@@ -34,19 +34,18 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class HospitalService {
-
-    private static final ZoneId SEOUL_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     private final HospitalRepository hospitalRepository;
     private final HospitalDetailRepository hospitalDetailRepository;
@@ -104,6 +103,17 @@ public class HospitalService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isReservationSlotLookupAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findById(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        return hospital.getPartnershipStatus() == PartnershipStatus.PARTNER
+                && hospital.getBusinessStatus() == BusinessStatus.OPEN;
+    }
+
+    @Transactional(readOnly = true)
     public HospitalSearchPageResponse hospitalSearch(
             String keyword,
             String region,
@@ -117,10 +127,10 @@ public class HospitalService {
             Boolean nightCare,
             Boolean emergency,
             boolean partnerOnly,
-                 boolean openNowOnly,
-                 int page,
-                 int size,
-                 String sort
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
     ) {
         // 위치 조건은 위도·경도가 함께 있어야 하며, 반경은 좌표가 있을 때만 사용할 수 있습니다.
         validateLocationCondition(latitude, longitude, radiusKm);

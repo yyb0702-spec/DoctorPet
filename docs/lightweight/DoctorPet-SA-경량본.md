@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.6 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.13, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 시스템 구성
@@ -148,3 +148,21 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 활성 예약·미수금을 보유한 회원의 탈퇴 처리
 - 검색 Tool 실패 응답 주체: LLM 안내 생성 또는 서버 `fallback=true`·고정 문구
 위 항목은 저장소 SA 부록 A에서 결정되기 전까지 임의로 구현하지 않는다.
+
+## 12. 병원 슬롯 조회 계약
+
+- 엔드포인트: `GET /api/hospitals/{hospitalId}/slots?date=YYYY-MM-DD`
+- `date`는 필수이며, 기준 시간대는 `Asia/Seoul`이다.
+- 응답의 `selectedDate`, `dateAvailabilities[].date`, `slots[].startAt`, `slots[].endAt`에는 UTC 오프셋이 없으며, 프론트는 이를 기기 로컬 시간이 아닌 `Asia/Seoul` 기준으로 해석하고 표시한다.
+- `dateAvailabilities`는 오늘부터 오늘+13일까지 14개 날짜를 오름차순으로 반환한다.
+- DB 상태가 `OPEN`이고 `startAt >= 현재 시각+4시간`인 슬롯이 하나라도 있으면 해당 날짜의 `reservationAvailable=true`다.
+- `slots`는 선택 날짜에 시작하는 `OPEN`, `RESERVED` 슬롯을 `startAt ASC`, `id ASC`로 반환한다.
+- 자정 이후 슬롯은 `startAt`의 달력 날짜에 포함한다.
+- DB 상태는 변경하지 않고 응답 상태만 다음처럼 계산한다.
+  - `AVAILABLE`: `OPEN`이고 `startAt >= 현재 시각+4시간`
+  - `RESERVED`: `RESERVED`
+  - `LEAD_TIME_CLOSED`: `OPEN`이고 `startAt < 현재 시각+4시간`
+- 정확히 `현재 시각+4시간`인 슬롯은 `AVAILABLE`이다.
+- 과거 또는 오늘+14일 이후 날짜는 `200 OK`와 빈 `slots`를 반환한다.
+- 비제휴 또는 영업상태가 `OPEN`이 아닌 병원은 빈 `dateAvailabilities`와 `slots`를 반환한다.
+- 존재하지 않는 병원은 `HOSPITAL_NOT_FOUND`, 날짜 형식 오류는 `400 VALIDATION_FAILED`로 처리한다.

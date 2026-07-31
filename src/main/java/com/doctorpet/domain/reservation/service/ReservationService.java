@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
@@ -25,6 +26,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+
+import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
 @Service
 @RequiredArgsConstructor
@@ -53,6 +57,22 @@ public class ReservationService {
      * 예약 생성에 필요한 슬롯 점유·리드타임·예약 저장만 담당한다.
      * 회원·반려동물·결제수단 검증과 스냅샷 생성은 ReservationApplicationService가 수행한다.
      */
+    public List<ReservationSlotQueryResult> findSlots(
+            Long hospitalId,
+            LocalDateTime rangeStart,
+            LocalDateTime rangeEnd
+    ) {
+        return reservationSlotRepository
+                .findSlotsInRange(
+                        hospitalId,
+                        rangeStart,
+                        rangeEnd
+                )
+                .stream()
+                .map(ReservationSlotQueryResult::from)
+                .toList();
+    }
+
     @Transactional
     public ReservationResponse request(
             Long memberId,
@@ -60,10 +80,10 @@ public class ReservationService {
             String petNameSnapshot,
             String petSpeciesSnapshot
     ) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
 
         ReservationSlot slot = findSlot(request.slotId());
-        if (slot.getStartAt().isBefore(now.plusHours(4))) {
+        if (slot.getStartAt().isBefore(now.plus(LEAD_TIME))) {
             throw new ServiceException(ReservationErrorCode.LEAD_TIME_VIOLATION);
         }
 
@@ -85,7 +105,7 @@ public class ReservationService {
 
     @Transactional
     public void cancel(Long memberId, Long reservationId) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
 
         // 상세 조회와 동일하게, 존재하는 타인 예약은 FORBIDDEN으로 구분한다.
         Reservation reservation = findMyReservation(memberId, reservationId);
