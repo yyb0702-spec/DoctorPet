@@ -14,6 +14,7 @@ import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.exception.ServiceException;
@@ -115,12 +116,13 @@ class PaymentChargeE2EIntegrationTest {
         LocalDateTime now = LocalDateTime.now();
         Reservation reservation = Reservation.request(
                 guardianMemberId, 1L, HOSPITAL_ID, System.nanoTime(), paymentMethodId, "나비", "CAT", now);
-        reservation.confirm(now);
-        if (treatmentCompleted) {
-            reservation.checkIn();
-            reservation.startTreatment();
-            reservation.completeTreatment();
-        }
+        // #74가 예약 상태 전이 엔티티 메서드를 제거하고 조건부 UPDATE로 단일화했으므로,
+        // 테스트 픽스처는 상태 필드를 직접 세팅해 원하는 시작 상태를 만든다.
+        ReflectionTestUtils.setField(reservation, "status",
+                treatmentCompleted
+                        ? ReservationStatus.TREATMENT_COMPLETED
+                        : ReservationStatus.CONFIRMED);
+        ReflectionTestUtils.setField(reservation, "confirmedAt", now);
         Long reservationId = reservationRepository.saveAndFlush(reservation).getId();
         reservationIds.add(reservationId);
         return reservationId;
