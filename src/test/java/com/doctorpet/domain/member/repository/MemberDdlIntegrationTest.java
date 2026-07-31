@@ -59,13 +59,32 @@ class MemberDdlIntegrationTest {
     }
 
     @Test
+    @DisplayName("신규 컬럼(email_verified)이 기존 행에도 DEFAULT 0으로 안전하게 추가되고, verifyEmail() 이후 true로 저장·조회된다(백로그 P2)")
+    void emailVerifiedColumn_defaultsFalseAndPersistsAfterVerification() {
+        Member member = Member.createGuardian("emailverify@example.com", "encoded", "닉네임");
+        Member saved = memberRepository.saveAndFlush(member);
+        entityManager.clear();
+
+        Member reloaded = memberRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.isEmailVerified()).isFalse();
+
+        reloaded.verifyEmail();
+        memberRepository.saveAndFlush(reloaded);
+        entityManager.clear();
+
+        Member reloadedAfterVerify = memberRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloadedAfterVerify.isEmailVerified()).isTrue();
+    }
+
+    @Test
     @DisplayName("Soft Delete(deleted_at) 후에는 findByEmail·existsByEmail 모두 조회되지 않는다")
     void softDeletedMember_isExcludedFromActiveQueries() {
         Member member = Member.createGuardian("softdelete@example.com", "encoded", "닉네임");
         Member saved = memberRepository.saveAndFlush(member);
 
-        // Member에는 아직 탈퇴(soft delete) 도메인 메서드가 없어(별도 정책 결정 필요, SA 부록A #5),
-        // DB 레벨 필터링 자체만 검증하기 위해 네이티브 쿼리로 직접 deleted_at을 채운다.
+        // 이 테스트는 Member.withdraw()의 부수효과(익명화 등)가 아니라 @SQLRestriction 기반
+        // DB 레벨 필터링 자체만 검증하기 위해, 도메인 메서드를 거치지 않고 네이티브 쿼리로 직접
+        // deleted_at만 채운다.
         entityManager.createNativeQuery("update members set deleted_at = now() where id = :id")
                 .setParameter("id", saved.getId())
                 .executeUpdate();

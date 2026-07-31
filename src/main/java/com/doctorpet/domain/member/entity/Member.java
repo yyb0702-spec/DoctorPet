@@ -58,6 +58,14 @@ public class Member extends BaseEntity {
     private LocalDateTime deletedAt;
 
     /**
+     * 이메일 인증 여부(백로그 P2, 회원가입 시 이메일 소유 확인 — 이메일 인증 인프라 구축 시 추가).
+     * 가입 직후에는 false이며, 이 값이 true가 될 때까지 로그인이 차단된다(AuthService.login()).
+     * ddl-auto=update로 기존 행에도 안전하게 컬럼이 추가되도록 columnDefinition에 DEFAULT 0을 둔다.
+     */
+    @Column(name = "email_verified", nullable = false, columnDefinition = "tinyint(1) not null default 0")
+    private boolean emailVerified;
+
+    /**
      * 로그인 실패 잠금 정책(A 도메인 결정 #1). SA §4엔 없는 컬럼으로, 로그인 기능 구현 시 새로 추가했다.
      * 5회 연속 실패 시 30분 잠금, 30분 경과 시 자동 해제(실패 횟수도 함께 초기화).
      */
@@ -76,6 +84,7 @@ public class Member extends BaseEntity {
         this.nickname = nickname;
         this.role = role;
         this.hospitalId = hospitalId;
+        this.emailVerified = false;
         this.failedLoginAttempts = 0;
     }
 
@@ -111,5 +120,47 @@ public class Member extends BaseEntity {
     public void recordLoginSuccess() {
         this.failedLoginAttempts = 0;
         this.lockedUntil = null;
+    }
+
+    /**
+     * 이메일 인증 완료 처리(백로그 P2). 이미 인증된 회원에게 다시 호출해도 안전하도록(멱등)
+     * 단순 대입만 한다 — 호출 전 토큰 유효성 검증은 EmailVerificationService의 책임이다.
+     */
+    public void verifyEmail() {
+        this.emailVerified = true;
+    }
+
+    /**
+     * 닉네임 변경(프로필 수정). email·password는 각각 별도 흐름(이메일은 재가입 정책과
+     * 얽혀 있고, password는 인증·재설정 흐름이 따로 있다)으로 다루므로 여기서는 취급하지 않는다 —
+     * 프로필 수정 범위는 닉네임으로 한정한다(A 도메인 결정).
+     */
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    /**
+     * 비밀번호 재설정(백로그 P2). SA엔 "재설정 성공 시 잠금 해제"라는 효과만 정의돼 있었는데,
+     * 실제 재설정 메커니즘(이메일 링크형 토큰)을 이번에 구현하며 그 효과를 여기서 반영한다 — 새
+     * 비밀번호로 교체함과 동시에 로그인 실패 기록·잠금도 초기화한다. 잠긴 계정이라면 재설정 자체가
+     * 곧 잠금 해제 수단이 된다.
+     */
+    public void resetPassword(String encodedPassword) {
+        this.password = encodedPassword;
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
+    }
+
+    /*
+      탈퇴(Soft Delete) + 이메일 익명화(SA §6-3, 부록A 확정). email을 `withdrawn_{id}@deleted.doctorpet`로
+      치환해 `email UNIQUE` 제약을 유지한 채 탈퇴 후 동일 이메일 재가입을 허용한다.
+      활성 예약(CONFIRMED·CHECKED_IN)·미수금(OFFLINE_REQUIRED) 보유 여부 확인은 이 메서드의 책임이
+      아니다 — Reservation/Payment 도메인 Repository를 여기서 직접 참조할 수 없으므로(구현
+      가드레일), 상위 레이어(MemberWithdrawalApplicationService)가 각 도메인 Service를 통해
+      먼저 확인하고 통과한 경우에만 이 메서드를 호출해야 한다.
+     */
+    public void withdraw(LocalDateTime now) {
+        this.email = "withdrawn_" + this.id + "@deleted.doctorpet";
+        this.deletedAt = now;
     }
 }
