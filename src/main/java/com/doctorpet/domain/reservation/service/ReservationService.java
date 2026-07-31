@@ -14,6 +14,7 @@ import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -39,6 +40,18 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationLockStrategy reservationLockStrategy;
+
+    /*
+      회원 탈퇴 전 활성 예약(CONFIRMED·CHECKED_IN) 보유 여부 확인용(SA §6-3, 부록A 확정).
+      다른 도메인(Member)은 이 Service를 경유해서만 호출한다 — ReservationRepository를
+      직접 참조하지 않는다(구현 가드레일).
+     */
+    public boolean hasActiveReservation(Long memberId) {
+        return reservationRepository.existsByMemberIdAndStatusIn(
+                memberId,
+                List.of(ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN)
+        );
+    }
 
     /**
      * 예약 생성에 필요한 슬롯 점유·리드타임·예약 저장만 담당한다.

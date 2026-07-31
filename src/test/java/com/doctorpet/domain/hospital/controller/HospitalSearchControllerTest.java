@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -42,6 +43,12 @@ class HospitalSearchControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    // @WebMvcTest는 Filter 타입 빈(JwtAuthenticationFilter)을 addFilters=false여도 컨텍스트에
+    // 생성하므로, 그 생성자 의존성인 JwtTokenProvider·MemberBlacklistPort가 없으면 컨텍스트 로딩
+    // 자체가 실패한다(MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용 — 리뷰 지적 P1 대응).
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @Test
     void 검색_조건이_없으면_기본_페이지_조건으로_조회한다()

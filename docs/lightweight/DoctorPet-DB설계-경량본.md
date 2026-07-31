@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.17, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.18, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
@@ -30,6 +30,7 @@ members 1 ── 0..N notifications
 | `nickname` | VARCHAR | 닉네임 |
 | `role` | VARCHAR | `GUARDIAN`, `HOSPITAL_STAFF` |
 | `hospital_id` | BIGINT | 병원 직원 소속, `NULL` 가능 |
+| `email_verified` | BOOLEAN | 이메일 인증 여부, 기본값 `FALSE`. `FALSE`인 동안 로그인 차단 |
 | `failed_login_attempts` | INT | 로그인 연속 실패 횟수, 기본값 0 |
 | `locked_until` | DATETIME | 잠금 해제 시각, `NULL`이면 잠금 아님 |
 | `created_at` | DATETIME | 생성 시각 |
@@ -193,7 +194,14 @@ members 1 ── 0..N notifications
 | `event_type` | VARCHAR | 이벤트 유형 |
 | `received_at` | DATETIME | 수신 시각 |
 제약: `UNIQUE(payment_id, event_type)` — 동일 결제 이벤트의 중복 수신을 한 번만 반영한다.
-## 8. 설계상 필수 규칙
+## 8. 마이그레이션 관리
+### `schema_migrations`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `migration_key` | VARCHAR | PK, 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| `applied_at` | DATETIME | 실행 시각 |
+Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
+## 9. 설계상 필수 규칙
 - 제휴 병원은 `hospitals.partnership_status`로 판별한다.
 - 공공데이터와 제휴 데이터는 `local_gov_code + mgmt_no` 복합 키로 매핑하고 복합 UNIQUE로 보장한다.
 - `pet_profiles`의 확정 필드는 `name`, `species`, `age`, `weight`, `neutered`이다.

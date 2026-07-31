@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.17, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.18, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -148,7 +148,10 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 ## 11. 미확정 사항 — 구현 금지
 - 실제 LLM 제공자·모델
 - 실시간 push 방식(SSE 또는 WebSocket+STOMP)
-- 활성 예약·미수금을 보유한 회원의 탈퇴 처리
+- 미인증 계정의 장기 미완료 처리
+- SNS 로그인 도입 범위와 기존 계정 연동 정책
+- 이메일 인증·비밀번호 재설정 토큰 소비 순서
+- 탈퇴 트랜잭션과 Redis 부수효과 순서
 위 항목은 저장소 SA 부록 A에서 결정되기 전까지 임의로 구현하지 않는다.
 
 ## 12. 병원 슬롯 조회 계약

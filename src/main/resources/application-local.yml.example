@@ -37,3 +37,24 @@ payment:
     read-timeout-ms: 5000                  # 읽기 타임아웃
     max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
     backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
+
+# 이메일 발송 - 이메일 인증(회원가입)·비밀번호 재설정(백로그 P2)
+# payment.gateway와 동일한 fail-safe 패턴: mail.provider를 명시해야 발송기 빈이 등록됩니다
+# (미설정 시 어떤 발송기도 안 뜸 = fail-safe).
+#   fake : 실제 발송 없이 로그로만 남김(로컬/테스트 — 콘솔에서 인증·재설정 링크 확인 가능)
+#   smtp : 실제 SMTP 연동(운영용, host/username/password 필수, 커밋 금지)
+mail:
+  provider: fake
+  from: noreply@doctorpet.example
+  # 이메일 인증 링크. 프론트엔드가 아직 없어 백엔드 엔드포인트를 직접 가리킨다(임시) —
+  # 프론트가 확정되면 프론트의 인증 완료 페이지 URL로 바꾸고, 그 페이지가 이 API를 호출해야 한다.
+  verification:
+    base-url: http://localhost:8080/api/auth/verify-email
+  # 비밀번호 재설정 링크. 새 비밀번호 입력이 필요해 처음부터 프론트 페이지를 가정한다(URL 미정 — 임시값).
+  password-reset:
+    base-url: http://localhost:3000/reset-password
+  smtp:
+    host: smtp.gmail.com
+    port: 587
+    username: change-this-to-your-smtp-username
+    password: change-this-to-your-smtp-app-password

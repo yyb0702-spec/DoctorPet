@@ -3,6 +3,7 @@ package com.doctorpet.domain.reservation.repository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -19,6 +20,10 @@ public interface ReservationRepository
     );
 
     long countBySlotId(Long slotId);
+
+    // 회원 탈퇴 전 활성 예약 보유 여부 확인용(SA §6-3, 부록A 확정 — 탈퇴 보류 정책).
+    // MemberWithdrawalApplicationService가 ReservationService를 경유해 호출한다.
+    boolean existsByMemberIdAndStatusIn(Long memberId, Collection<ReservationStatus> statuses);
 
     @Modifying(flushAutomatically = true)
     @Query("""
