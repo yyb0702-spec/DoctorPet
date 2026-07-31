@@ -14,6 +14,7 @@ import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -45,9 +46,12 @@ class HospitalPaymentAuthorizationTest {
     @MockitoBean
     private PaymentApplicationService paymentApplicationService;
 
-    // JwtAuthenticationFilter 빈이 JwtTokenProvider를 요구하므로 컨텍스트 로딩용으로 목을 채운다.
+    // JwtAuthenticationFilter 빈이 JwtTokenProvider·MemberBlacklistPort를 요구하므로 컨텍스트 로딩용으로 목을 채운다.
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @Test
     @DisplayName("병원 스태프(ROLE_HOSPITAL_STAFF)는 진료비 청구에 접근할 수 있다(201)")

@@ -24,9 +24,7 @@ public enum PaymentErrorCode implements ErrorCode {
     // 예약당 이미 결제 레코드가 존재(이중 청구). reservation_id UNIQUE의 사전 체크·경쟁 상태 방어.
     DUPLICATE_CHARGE(HttpStatus.CONFLICT, "PAYMENT_004", "이미 청구된 예약입니다."),
     // 결제 레코드를 찾을 수 없음(후확정 단계 방어선).
-    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_005", "결제 정보를 찾을 수 없습니다."),
-    // 예약 도메인(#27) 미배선 상태에서 청구를 시도한 경우. #27의 ReservationLookupPort 어댑터가 배선되면 발생하지 않는다.
-    RESERVATION_LOOKUP_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "PAYMENT_006", "예약 연동이 아직 준비되지 않았습니다.");
+    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_005", "결제 정보를 찾을 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
