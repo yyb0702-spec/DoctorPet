@@ -12,6 +12,7 @@ import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import java.time.LocalDateTime;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Service;
     - RETRIABLE(네트워크·일시장애) → 조회 우선 후 최대 maxRetry회 재시도 → 소진 시 OFFLINE_REQUIRED
   게이트웨이 예외는 모두 여기서 상태(OFFLINE_REQUIRED/PENDING)로 흡수돼 500으로 새지 않는다(#38 리뷰 반영).
  */
+@Slf4j
 @Service
 public class PaymentApplicationService {
 
@@ -69,9 +71,14 @@ public class PaymentApplicationService {
         Payment payment = paymentChargeService.finalizeOutcome(pre.paymentId(), outcome);
         PaymentChargeResponse response = PaymentChargeResponse.from(payment);
 
-        // 커밋 이후 알림. 발행 실패가 결제 확정을 되돌리지 않도록 트랜잭션 밖에서 호출한다(SA §9-8).
-        notificationPublisher.publishChargeResult(
-                pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus());
+        // 커밋 이후 알림. 발행 실패가 결제 확정을 되돌리지 않도록 트랜잭션 밖에서 호출하고, 예외도 삼킨다(SA §9-8).
+        // 결제는 이미 커밋됐으므로 알림 발행이 실패해도 청구 응답까지 500으로 만들지 않는다.
+        try {
+            notificationPublisher.publishChargeResult(
+                    pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus());
+        } catch (RuntimeException e) {
+            log.warn("결제 알림 발행 실패(결제는 확정됨): paymentId={}, status={}", payment.getId(), payment.getStatus(), e);
+        }
         return response;
     }
 

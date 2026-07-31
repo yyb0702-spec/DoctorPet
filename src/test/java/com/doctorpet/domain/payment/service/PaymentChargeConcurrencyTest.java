@@ -53,26 +53,25 @@ class PaymentChargeConcurrencyTest {
     @MockitoBean private StaffHospitalPort staffHospitalPort;
 
     private Long reservationId;
-    private Long paymentId;
+    private Long paymentMethodId;
 
     @BeforeEach
     void setUp() {
         // 예약마다 유일한 id로 다른 테스트 실행과 충돌을 피한다.
         reservationId = System.nanoTime();
-        PaymentMethod method = paymentMethodRepository.saveAndFlush(
-                PaymentMethod.issue(GUARDIAN_ID, billingKeyCryptor.encrypt("test-billing-key"), "VISA", "1234"));
+        paymentMethodId = paymentMethodRepository.saveAndFlush(
+                PaymentMethod.issue(GUARDIAN_ID, billingKeyCryptor.encrypt("test-billing-key"), "VISA", "1234")).getId();
 
         given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
         given(reservationLookupPort.findForCharge(reservationId)).willReturn(Optional.of(
-                new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, method.getId(), true)));
+                new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, paymentMethodId, true)));
     }
 
     @AfterEach
     void tearDown() {
-        paymentRepository.findByReservationId(reservationId).ifPresent(p -> paymentId = p.getId());
-        if (paymentId != null) {
-            paymentRepository.deleteById(paymentId);
-        }
+        // 커밋된 테스트 데이터를 정리해 영속 볼륨에 잔여가 쌓이지 않게 한다.
+        paymentRepository.findByReservationId(reservationId).ifPresent(paymentRepository::delete);
+        paymentMethodRepository.deleteById(paymentMethodId);
     }
 
     @Test
