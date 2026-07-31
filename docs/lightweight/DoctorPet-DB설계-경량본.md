@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.18, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.19, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
@@ -172,6 +172,7 @@ members 1 ── 0..N notifications
 | `completion_tokens` | INT | 출력 토큰 수, LLM 미호출은 `NULL` |
 | `latency_ms` | INT | 응답 지연시간 |
 | `status` | VARCHAR | `SUCCESS`, `FAILED` |
+| `error_type` | VARCHAR | AI Gateway 실패 원인(`TIMEOUT`, `TEMPORARY_UNAVAILABLE`, `INVALID_RESPONSE`), 성공·LLM 미호출은 `NULL` |
 | `fallback_used` | BOOLEAN | 대체 처리 여부 |
 | `tool_call_status` | VARCHAR | Tool 호출 상태 |
 | `schema_parse_success` | BOOLEAN | 구조화 출력 파싱 성공 여부 |
