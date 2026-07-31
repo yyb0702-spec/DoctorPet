@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface ReservationRepository
         extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
@@ -22,6 +24,12 @@ public interface ReservationRepository
             Long reservationId,
             Long hospitalId
     );
+
+    Page<Reservation> findByHospitalId(Long hospitalId, Pageable pageable);
+
+    long countByMemberId(Long memberId);
+
+    long countByMemberIdAndStatus(Long memberId, ReservationStatus status);
 
     long countBySlotId(Long slotId);
 

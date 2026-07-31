@@ -7,12 +7,17 @@ import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
+import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,7 +26,7 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class HospitalReservationService {
+public class HospitalReservationApplicationService {
 
     private final MemberService memberService;
     private final ReservationRepository reservationRepository;
@@ -147,6 +152,38 @@ public class HospitalReservationService {
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
+    }
+
+    public Page<HospitalReservationListItemResponse> findHospitalReservations(
+            Long staffMemberId,
+            int page,
+            int size
+    ) {
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Page<Reservation> reservations = reservationRepository.findByHospitalId(
+                hospitalId,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "requestedAt"))
+        );
+
+        return reservations.map(reservation -> {
+            ReservationSlot slot = reservationSlotRepository.findById(reservation.getSlotId())
+                    .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
+            Long memberId = reservation.getMemberId();
+            ReservationHistoryResponse history = new ReservationHistoryResponse(
+                    reservationRepository.countByMemberId(memberId),
+                    reservationRepository.countByMemberIdAndStatus(
+                            memberId, ReservationStatus.TREATMENT_COMPLETED),
+                    reservationRepository.countByMemberIdAndStatus(
+                            memberId, ReservationStatus.CANCELED),
+                    reservationRepository.countByMemberIdAndStatus(
+                            memberId, ReservationStatus.NO_SHOW)
+            );
+            return HospitalReservationListItemResponse.from(
+                    reservation,
+                    slot.getStartAt(),
+                    history
+            );
+        });
     }
 
     private Long requireHospitalId(Long staffMemberId) {

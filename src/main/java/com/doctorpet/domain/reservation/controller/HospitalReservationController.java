@@ -1,19 +1,27 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
-import com.doctorpet.domain.reservation.service.HospitalReservationService;
+import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
+import com.doctorpet.domain.reservation.dto.response.HospitalReservationPageResponse;
+import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.data.domain.Page;
 
 @RestController
 @RequiredArgsConstructor
@@ -21,7 +29,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/hospital/reservations")
 public class HospitalReservationController {
 
-    private final HospitalReservationService hospitalReservationService;
+    private final HospitalReservationApplicationService hospitalReservationService;
+
+    @GetMapping
+    public ApiResponse<HospitalReservationPageResponse> getReservations(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @RequestParam(defaultValue = "0") @PositiveOrZero int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+    ) {
+        Page<HospitalReservationListItemResponse> result =
+                hospitalReservationService.findHospitalReservations(
+                        principal.memberId(), page, size
+                );
+        return ApiResponse.success(HospitalReservationPageResponse.from(result));
+    }
 
     @PatchMapping("/{reservationId}/approve")
     public ApiResponse<Void> approve(

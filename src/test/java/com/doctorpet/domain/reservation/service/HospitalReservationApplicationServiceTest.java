@@ -22,6 +22,10 @@ import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +35,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
-class HospitalReservationServiceTest {
+class HospitalReservationApplicationServiceTest {
 
     private static final Long STAFF_ID = 50L;
     private static final Long HOSPITAL_ID = 100L;
@@ -48,11 +52,11 @@ class HospitalReservationServiceTest {
     @Mock
     private ReservationSlotRepository reservationSlotRepository;
 
-    private HospitalReservationService hospitalReservationService;
+    private HospitalReservationApplicationService hospitalReservationService;
 
     @BeforeEach
     void setUp() {
-        hospitalReservationService = new HospitalReservationService(
+        hospitalReservationService = new HospitalReservationApplicationService(
                 memberService,
                 reservationRepository,
                 reservationSlotRepository
@@ -290,6 +294,27 @@ class HospitalReservationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(ReservationErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("자기 병원의 예약 요청 목록과 예약자 이력을 조회한다")
+    void findHospitalReservations_success() {
+        Reservation reservation = reservation(HOSPITAL_ID);
+        ReservationSlot slot = slot();
+        given(reservationRepository.findByHospitalId(any(), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(reservation)));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot));
+
+        Page<?> result = hospitalReservationService.findHospitalReservations(
+                STAFF_ID, 0, 20
+        );
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(reservationRepository).findByHospitalId(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
     }
 
     private Reservation reservation(Long hospitalId) {

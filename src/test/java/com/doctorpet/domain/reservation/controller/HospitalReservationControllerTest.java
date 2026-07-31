@@ -1,7 +1,7 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
-import com.doctorpet.domain.reservation.service.HospitalReservationService;
+import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
 import org.junit.jupiter.api.Test;
@@ -9,15 +9,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class HospitalReservationControllerTest {
 
     @Mock
-    private HospitalReservationService hospitalReservationService;
+    private HospitalReservationApplicationService hospitalReservationService;
 
     @InjectMocks
     private HospitalReservationController hospitalReservationController;
@@ -63,6 +65,16 @@ class HospitalReservationControllerTest {
         ApiResponse<Void> response = hospitalReservationController.completeTreatment(principal, 10L);
 
         verify(hospitalReservationService).completeTreatment(50L, 10L);
+        assertThat(response.code()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void getReservations_delegatesAuthenticatedStaffAndPaging() {
+        when(hospitalReservationService.findHospitalReservations(50L, 0, 20))
+                .thenReturn(Page.empty());
+        ApiResponse<?> response = hospitalReservationController.getReservations(principal, 0, 20);
+
+        verify(hospitalReservationService).findHospitalReservations(50L, 0, 20);
         assertThat(response.code()).isEqualTo("SUCCESS");
     }
 }
