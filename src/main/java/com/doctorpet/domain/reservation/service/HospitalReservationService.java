@@ -107,6 +107,27 @@ public class HospitalReservationService {
         }
     }
 
+    /**
+     * 병원 스태프가 체크인된 예약의 진료를 시작한다(SA §5-1·§8-6).
+     */
+    @Transactional
+    public void startTreatment(Long staffMemberId, Long reservationId) {
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+
+        int updated = reservationRepository.startTreatmentIfCheckedIn(
+                reservationId,
+                hospitalId,
+                ReservationStatus.CHECKED_IN,
+                ReservationStatus.IN_TREATMENT,
+                LocalDateTime.now()
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+    }
+
     private Long requireHospitalId(Long staffMemberId) {
         MemberResponse member = memberService.getMyInfo(staffMemberId);
         if (member.role() != MemberRole.HOSPITAL_STAFF

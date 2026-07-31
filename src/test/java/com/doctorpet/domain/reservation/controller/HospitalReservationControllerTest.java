@@ -49,4 +49,12 @@ class HospitalReservationControllerTest {
         verify(hospitalReservationService).checkIn(50L, 10L);
         assertThat(response.code()).isEqualTo("SUCCESS");
     }
+
+    @Test
+    void startTreatment_delegatesAuthenticatedStaffAndReservationId() {
+        ApiResponse<Void> response = hospitalReservationController.startTreatment(principal, 10L);
+
+        verify(hospitalReservationService).startTreatment(50L, 10L);
+        assertThat(response.code()).isEqualTo("SUCCESS");
+    }
 }

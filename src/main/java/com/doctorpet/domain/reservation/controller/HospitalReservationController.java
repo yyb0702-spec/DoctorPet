@@ -50,4 +50,13 @@ public class HospitalReservationController {
         hospitalReservationService.checkIn(principal.memberId(), reservationId);
         return ApiResponse.success();
     }
+
+    @PatchMapping("/{reservationId}/start")
+    public ApiResponse<Void> startTreatment(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable @Positive Long reservationId
+    ) {
+        hospitalReservationService.startTreatment(principal.memberId(), reservationId);
+        return ApiResponse.success();
+    }
 }
