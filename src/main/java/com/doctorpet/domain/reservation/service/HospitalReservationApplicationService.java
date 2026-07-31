@@ -9,6 +9,7 @@ import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
@@ -16,6 +17,8 @@ import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItem
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.event.ReservationStatusChangedEvent;
+import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
@@ -25,6 +28,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -41,6 +45,8 @@ public class HospitalReservationApplicationService {
     private final MemberService memberService;
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
+    private final ReservationEventRepository reservationEventRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 병원 스태프가 자기 병원의 REQUESTED 예약을 승인한다(SA §5-1, §6-2).
@@ -166,6 +172,111 @@ public class HospitalReservationApplicationService {
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
+    }
+
+    /**
+     * 병원 스태프가 예약 시작 시각 이후 CONFIRMED 예약을 노쇼로 확정한다.
+     * 자동 처리가 먼저 완료된 경우에도 수동 처리 이력을 남겨 수동 판단을 우선한다.
+     */
+    @Transactional
+    public void confirmNoShow(
+            Long staffMemberId,
+            Long reservationId,
+            String reason
+    ) {
+        validateReason(reason, ReservationErrorCode.INVALID_NO_SHOW_REASON);
+
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+
+        ReservationSlot slot = findSlot(reservation.getSlotId());
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        if (now.isBefore(slot.getStartAt())) {
+            throw new ServiceException(ReservationErrorCode.NO_SHOW_TOO_EARLY);
+        }
+
+        int updated = reservationRepository.markNoShowIfConfirmed(
+                reservationId,
+                hospitalId,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.NO_SHOW,
+                now,
+                now
+        );
+
+        if (updated == 0) {
+            Reservation current = reservationRepository
+                    .findByIdAndHospitalIdForUpdate(reservationId, hospitalId)
+                    .orElseThrow(() -> new ServiceException(
+                            ReservationErrorCode.RESERVATION_NOT_FOUND
+                    ));
+            if (current.getStatus() != ReservationStatus.NO_SHOW) {
+                throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+            }
+        }
+
+        reservationEventRepository.appendIfAbsent(
+                reservationId,
+                ReservationEventType.MANUAL_NO_SHOW.name(),
+                reason,
+                staffMemberId,
+                now
+        );
+
+        if (updated == 1) {
+            eventPublisher.publishEvent(new ReservationStatusChangedEvent(
+                    reservationId,
+                    reservation.getMemberId(),
+                    ReservationStatus.NO_SHOW,
+                    now
+            ));
+        }
+    }
+
+    /**
+     * 병원 스태프가 NO_SHOW 예약을 CHECKED_IN으로 정정하고 새 이력을 추가한다.
+     */
+    @Transactional
+    public void restoreNoShow(
+            Long staffMemberId,
+            Long reservationId,
+            String reason
+    ) {
+        validateReason(
+                reason,
+                ReservationErrorCode.INVALID_NO_SHOW_RESTORE_REASON
+        );
+
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        int updated = reservationRepository.restoreNoShowIfNoShow(
+                reservationId,
+                hospitalId,
+                ReservationStatus.NO_SHOW,
+                ReservationStatus.CHECKED_IN,
+                now
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+
+        reservationEventRepository.appendIfAbsent(
+                reservationId,
+                ReservationEventType.NO_SHOW_CORRECTED.name(),
+                reason,
+                staffMemberId,
+                now
+        );
+        eventPublisher.publishEvent(new ReservationStatusChangedEvent(
+                reservationId,
+                reservation.getMemberId(),
+                ReservationStatus.CHECKED_IN,
+                now
+        ));
     }
 
     public Page<HospitalReservationListItemResponse> findHospitalReservations(
@@ -328,6 +439,15 @@ public class HospitalReservationApplicationService {
     ) {
         if (!hospitalId.equals(reservation.getHospitalId())) {
             throw new ServiceException(HospitalErrorCode.NOT_OWN_HOSPITAL);
+        }
+    }
+
+    private void validateReason(
+            String reason,
+            ReservationErrorCode errorCode
+    ) {
+        if (reason == null || reason.isBlank() || reason.length() > 255) {
+            throw new ServiceException(errorCode);
         }
     }
 }

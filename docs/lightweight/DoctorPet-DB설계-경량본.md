@@ -124,8 +124,11 @@ members 1 ── 0..N notifications
 | `reservation_id` | BIGINT | 예약 FK |
 | `event_type` | VARCHAR | `AUTO_NO_SHOW`, `MANUAL_NO_SHOW`, `NO_SHOW_CORRECTED`, `TIMEOUT_REJECTED` |
 | `memo` | VARCHAR | 메모, `NULL` 가능 |
+| `processed_by` | BIGINT | 수동 처리자 회원 ID, 자동 처리면 `NULL` |
 | `occurred_at` | DATETIME | 발생 시각 |
-`reservation_events`는 append-only 방식 B를 사용한다. 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하고, 노쇼 자동·수동 판정, 노쇼 정정, 승인 타임아웃처럼 상태만으로 흔적이 사라지는 예외·비가역 사건만 기록한다.
+UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 한 번만 기록한다.
+
+`reservation_events`는 append-only 방식 B를 사용한다. 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하고, 노쇼 자동·수동 판정, 노쇼 정정, 승인 타임아웃처럼 상태만으로 흔적이 사라지는 예외·비가역 사건만 기록한다. 수동 사건은 사유와 인증된 처리자 ID를 함께 남긴다.
 ## 5. 결제
 ### `payment_methods`
 | 필드 | 타입 | 제약·설명 |

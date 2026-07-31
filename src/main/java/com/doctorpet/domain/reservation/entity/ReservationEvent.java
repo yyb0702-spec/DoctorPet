@@ -12,13 +12,20 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "reservation_events")
+@Table(
+        name = "reservation_events",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_reservation_event_type",
+                columnNames = {"reservation_id", "event_type"}
+        )
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ReservationEvent {
@@ -38,6 +45,9 @@ public class ReservationEvent {
     @Column(length = 255)
     private String memo;
 
+    @Column(name = "processed_by")
+    private Long processedBy;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime occurredAt;
 
@@ -45,11 +55,13 @@ public class ReservationEvent {
             Reservation reservation,
             ReservationEventType eventType,
             String memo,
+            Long processedBy,
             LocalDateTime occurredAt
     ) {
         this.reservation = reservation;
         this.eventType = eventType;
         this.memo = memo;
+        this.processedBy = processedBy;
         this.occurredAt = occurredAt;
     }
 
@@ -57,12 +69,14 @@ public class ReservationEvent {
             Reservation reservation,
             ReservationEventType eventType,
             String memo,
+            Long processedBy,
             LocalDateTime occurredAt
     ) {
         return new ReservationEvent(
                 reservation,
                 eventType,
                 memo,
+                processedBy,
                 occurredAt
         );
     }

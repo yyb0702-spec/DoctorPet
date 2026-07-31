@@ -240,9 +240,12 @@ erDiagram
 | reservation_id | BIGINT FK | |
 | event_type | VARCHAR | AUTO_NO_SHOW / MANUAL_NO_SHOW / NO_SHOW_CORRECTED / TIMEOUT_REJECTED |
 | memo | VARCHAR NULL | |
+| processed_by | BIGINT NULL | 수동 처리자 회원 ID. 자동 처리면 NULL |
 | occurred_at | DATETIME | |
 
-예약 도메인의 예외·비가역 사건만 기록한다(방식 B). 정상 전이(요청·승인·체크인·진료·완료·취소)는 `reservations`의 상태·시각 컬럼으로 표현하고 이 테이블에 남기지 않는다. 노쇼 자동/수동 판정, 노쇼 정정, 승인 타임아웃 자동거절처럼 상태만으로는 흔적이 사라지는 사건만 추가한다. 결제 사건(오프라인 정산 등)은 여기가 아니라 `payments` 쪽에 기록한다. 추가만 하고 수정·삭제하지 않는다.
+UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실행에도 이력은 한 번만 추가한다. 자동 판정 뒤 수동 확인은 event type이 달라 두 이력을 모두 보존한다.
+
+예약 도메인의 예외·비가역 사건만 기록한다(방식 B). 정상 전이(요청·승인·체크인·진료·완료·취소)는 `reservations`의 상태·시각 컬럼으로 표현하고 이 테이블에 남기지 않는다. 노쇼 자동/수동 판정, 노쇼 정정, 승인 타임아웃 자동거절처럼 상태만으로는 흔적이 사라지는 사건만 추가한다. 수동 사건은 `memo`에 필수 사유, `processed_by`에 인증된 병원 직원 ID를 기록한다. 결제 사건(오프라인 정산 등)은 여기가 아니라 `payments` 쪽에 기록한다. 추가만 하고 수정·삭제하지 않는다.
 
 ### payment_methods (빌링키)
 
@@ -603,10 +606,10 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 체크인 | PATCH | /api/hospital/reservations/{reservationId}/check-in | CONFIRMED → CHECKED_IN |
 | 진료 시작 | PATCH | /api/hospital/reservations/{reservationId}/start | CHECKED_IN → IN_TREATMENT |
 | 진료 완료 | PATCH | /api/hospital/reservations/{reservationId}/complete | IN_TREATMENT → TREATMENT_COMPLETED |
-| 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | → NO_SHOW (자동보다 우선) |
+| 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | CONFIRMED → NO_SHOW (자동보다 우선) |
 | 노쇼 정정 | PATCH | /api/hospital/reservations/{reservationId}/restore | NO_SHOW → CHECKED_IN, 이력 append |
 
-권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`을 포함한다. `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
+권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`을 포함한다. `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 +10분 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
 
 ### 8-7. 결제
 

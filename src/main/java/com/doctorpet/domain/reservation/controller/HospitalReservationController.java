@@ -1,6 +1,8 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRestoreRequest;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationPageResponse;
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
@@ -92,6 +94,34 @@ public class HospitalReservationController {
             @PathVariable @Positive Long reservationId
     ) {
         hospitalReservationService.completeTreatment(principal.memberId(), reservationId);
+        return ApiResponse.success();
+    }
+
+    @PatchMapping("/{reservationId}/no-show")
+    public ApiResponse<Void> confirmNoShow(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable @Positive Long reservationId,
+            @Valid @RequestBody ReservationNoShowRequest request
+    ) {
+        hospitalReservationService.confirmNoShow(
+                principal.memberId(),
+                reservationId,
+                request.reason()
+        );
+        return ApiResponse.success();
+    }
+
+    @PatchMapping("/{reservationId}/restore")
+    public ApiResponse<Void> restoreNoShow(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable @Positive Long reservationId,
+            @Valid @RequestBody ReservationNoShowRestoreRequest request
+    ) {
+        hospitalReservationService.restoreNoShow(
+                principal.memberId(),
+                reservationId,
+                request.reason()
+        );
         return ApiResponse.success();
     }
 }

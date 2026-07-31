@@ -16,11 +16,13 @@ import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
+import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
+import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class HospitalReservationApplicationServiceTest {
@@ -57,6 +60,12 @@ class HospitalReservationApplicationServiceTest {
     @Mock
     private ReservationSlotRepository reservationSlotRepository;
 
+    @Mock
+    private ReservationEventRepository reservationEventRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private HospitalReservationApplicationService hospitalReservationService;
 
     @BeforeEach
@@ -64,7 +73,9 @@ class HospitalReservationApplicationServiceTest {
         hospitalReservationService = new HospitalReservationApplicationService(
                 memberService,
                 reservationRepository,
-                reservationSlotRepository
+                reservationSlotRepository,
+                reservationEventRepository,
+                eventPublisher
         );
         lenient().when(memberService.getMyInfo(STAFF_ID)).thenReturn(
                 new MemberResponse(
@@ -466,6 +477,235 @@ class HospitalReservationApplicationServiceTest {
     }
 
     @Test
+    @DisplayName("예약 시작 후 자기 병원의 CONFIRMED 예약을 수동 노쇼 확정한다")
+    void confirmNoShow_success() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot(
+                        LocalDateTime.now(SEOUL_ZONE_ID).minusMinutes(1)
+                )));
+        given(reservationRepository.markNoShowIfConfirmed(
+                any(), any(), any(), any(), any(), any()
+        )).willReturn(1);
+
+        hospitalReservationService.confirmNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "예약 시간 미방문"
+        );
+
+        verify(reservationEventRepository).appendIfAbsent(
+                org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
+                org.mockito.ArgumentMatchers.eq(ReservationEventType.MANUAL_NO_SHOW.name()),
+                org.mockito.ArgumentMatchers.eq("예약 시간 미방문"),
+                org.mockito.ArgumentMatchers.eq(STAFF_ID),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class)
+        );
+        verify(eventPublisher).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("예약 시작 전에는 수동 노쇼를 확정할 수 없다")
+    void confirmNoShow_beforeStart_throwsTooEarly() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservationWithStatus(
+                        HOSPITAL_ID,
+                        ReservationStatus.CONFIRMED
+                )));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot(
+                        LocalDateTime.now(SEOUL_ZONE_ID).plusMinutes(1)
+                )));
+
+        assertThatThrownBy(() -> hospitalReservationService.confirmNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "미방문"
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.NO_SHOW_TOO_EARLY);
+
+        verify(reservationRepository, never()).markNoShowIfConfirmed(
+                any(), any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("노쇼 확정 사유가 없으면 요청을 거부한다")
+    void confirmNoShow_withoutReason_throwsInvalidReason() {
+        assertThatThrownBy(() -> hospitalReservationService.confirmNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                " "
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.INVALID_NO_SHOW_REASON);
+
+        verify(memberService, never()).getMyInfo(any());
+    }
+
+    @Test
+    @DisplayName("자동 노쇼가 먼저 처리되어도 수동 확정 이력을 남긴다")
+    void confirmNoShow_afterAutomaticNoShow_appendsManualHistory() {
+        Reservation confirmed = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        Reservation noShow = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.NO_SHOW
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(confirmed));
+        given(reservationRepository.findByIdAndHospitalIdForUpdate(
+                RESERVATION_ID,
+                HOSPITAL_ID
+        )).willReturn(Optional.of(noShow));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot(
+                        LocalDateTime.now(SEOUL_ZONE_ID).minusMinutes(11)
+                )));
+        given(reservationRepository.markNoShowIfConfirmed(
+                any(), any(), any(), any(), any(), any()
+        )).willReturn(0);
+
+        hospitalReservationService.confirmNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "직원이 현장 확인"
+        );
+
+        verify(reservationEventRepository).appendIfAbsent(
+                org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
+                org.mockito.ArgumentMatchers.eq(ReservationEventType.MANUAL_NO_SHOW.name()),
+                org.mockito.ArgumentMatchers.eq("직원이 현장 확인"),
+                org.mockito.ArgumentMatchers.eq(STAFF_ID),
+                any(LocalDateTime.class)
+        );
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("CONFIRMED나 NO_SHOW가 아닌 예약은 수동 노쇼 확정할 수 없다")
+    void confirmNoShow_invalidStatus_throwsInvalidStatus() {
+        Reservation checkedIn = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CHECKED_IN
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(checkedIn));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot(
+                        LocalDateTime.now(SEOUL_ZONE_ID).minusMinutes(11)
+                )));
+        given(reservationRepository.markNoShowIfConfirmed(
+                any(), any(), any(), any(), any(), any()
+        )).willReturn(0);
+        given(reservationRepository.findByIdAndHospitalIdForUpdate(
+                RESERVATION_ID,
+                HOSPITAL_ID
+        )).willReturn(Optional.of(checkedIn));
+
+        assertThatThrownBy(() -> hospitalReservationService.confirmNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "미방문"
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("다른 병원의 예약은 수동 노쇼 확정할 수 없다")
+    void confirmNoShow_otherHospital_throwsNotOwnHospital() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservationWithStatus(
+                        OTHER_HOSPITAL_ID,
+                        ReservationStatus.CONFIRMED
+                )));
+
+        assertThatThrownBy(() -> hospitalReservationService.confirmNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "미방문"
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.NOT_OWN_HOSPITAL);
+    }
+
+    @Test
+    @DisplayName("NO_SHOW 예약을 CHECKED_IN으로 정정하고 이력을 추가한다")
+    void restoreNoShow_success() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservationWithStatus(
+                        HOSPITAL_ID,
+                        ReservationStatus.NO_SHOW
+                )));
+        given(reservationRepository.restoreNoShowIfNoShow(
+                any(), any(), any(), any(), any()
+        )).willReturn(1);
+
+        hospitalReservationService.restoreNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "늦게 도착해 접수 완료"
+        );
+
+        verify(reservationEventRepository).appendIfAbsent(
+                org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
+                org.mockito.ArgumentMatchers.eq(ReservationEventType.NO_SHOW_CORRECTED.name()),
+                org.mockito.ArgumentMatchers.eq("늦게 도착해 접수 완료"),
+                org.mockito.ArgumentMatchers.eq(STAFF_ID),
+                any(LocalDateTime.class)
+        );
+        verify(eventPublisher).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("이미 정정된 예약은 다시 정정할 수 없다")
+    void restoreNoShow_repeated_throwsInvalidStatus() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservationWithStatus(
+                        HOSPITAL_ID,
+                        ReservationStatus.CHECKED_IN
+                )));
+        given(reservationRepository.restoreNoShowIfNoShow(
+                any(), any(), any(), any(), any()
+        )).willReturn(0);
+
+        assertThatThrownBy(() -> hospitalReservationService.restoreNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                "중복 정정"
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("노쇼 정정 사유가 없으면 요청을 거부한다")
+    void restoreNoShow_withoutReason_throwsInvalidReason() {
+        assertThatThrownBy(() -> hospitalReservationService.restoreNoShow(
+                STAFF_ID,
+                RESERVATION_ID,
+                null
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.INVALID_NO_SHOW_RESTORE_REASON);
+    }
+
+    @Test
     @DisplayName("자기 병원의 예약 요청 목록과 예약자 이력을 조회한다")
     void findHospitalReservations_success() {
         Reservation reservation = reservation(HOSPITAL_ID);
@@ -513,6 +753,15 @@ class HospitalReservationApplicationServiceTest {
                 requestedAt
         );
         ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
+        return reservation;
+    }
+
+    private Reservation reservationWithStatus(
+            Long hospitalId,
+            ReservationStatus status
+    ) {
+        Reservation reservation = reservation(hospitalId);
+        ReflectionTestUtils.setField(reservation, "status", status);
         return reservation;
     }
 
