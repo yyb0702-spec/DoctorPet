@@ -272,6 +272,45 @@ class HospitalServiceTest {
     }
 
     @Test
+    void 운영중인_제휴_병원은_슬롯_조회가_가능하다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        boolean available =
+                hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID);
+
+        assertThat(available).isTrue();
+    }
+
+    @Test
+    void 휴업중인_제휴_병원은_슬롯_조회가_불가능하다() {
+        Hospital hospital = createHospital(
+                BusinessStatus.CLOSED_TEMP,
+                true
+        );
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        boolean available =
+                hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID);
+
+        assertThat(available).isFalse();
+    }
+
+    @Test
+    void 비제휴_병원은_슬롯_조회가_불가능하다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        boolean available =
+                hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID);
+
+        assertThat(available).isFalse();
+    }
+
+    @Test
     void 제휴_병원의_상세정보가_없으면_HOSPITAL_002를_반환한다() {
         Hospital hospital = createHospital(BusinessStatus.OPEN, true);
         given(hospitalRepository.findById(HOSPITAL_ID))

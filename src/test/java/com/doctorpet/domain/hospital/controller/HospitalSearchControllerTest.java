@@ -5,6 +5,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,9 @@ class HospitalSearchControllerTest {
 
     @MockitoBean
     private HospitalService hospitalService;
+
+    @MockitoBean
+    private HospitalSlotApplicationService hospitalSlotApplicationService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
