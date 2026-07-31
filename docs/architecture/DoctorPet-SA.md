@@ -329,6 +329,15 @@ erDiagram
 
 제약: `UNIQUE(payment_id, event_type)` — 중복 수신 1회만 반영.
 
+### schema_migrations (스키마 마이그레이션 마커)
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| applied_at | DATETIME NOT NULL | 실행 시각 |
+
+Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필, 부록A #(email_verified 백필) 참고)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다. 리뷰 지적 P2 대응 — 이 테이블은 이미 코드(`EmailVerifiedBackfillRunner`)로 구현돼 있었으나 정본 §4에는 반영되지 않고 부록 설명에만 등장했다.
+
 ---
 
 # 5. 상태 머신
