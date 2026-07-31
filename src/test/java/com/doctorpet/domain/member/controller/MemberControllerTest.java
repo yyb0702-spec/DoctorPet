@@ -2,20 +2,27 @@ package com.doctorpet.domain.member.controller;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.doctorpet.domain.member.dto.request.NicknameUpdateRequest;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.domain.member.service.MemberWithdrawalApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -25,12 +32,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Level 2 — API 계약(상태코드·ApiResponse 포맷) 검증.
@@ -50,13 +59,23 @@ class MemberControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @MockitoBean
     private MemberService memberService;
 
+    @MockitoBean
+    private MemberWithdrawalApplicationService memberWithdrawalApplicationService;
+
     // @WebMvcTest는 Filter 타입 빈(JwtAuthenticationFilter)을 addFilters=false여도 컨텍스트에는 생성하므로,
-    // 그 생성자 의존성인 JwtTokenProvider가 없으면 NoSuchBeanDefinitionException으로 컨텍스트 로딩이 실패한다.
+    // 그 생성자 의존성인 JwtTokenProvider·MemberBlacklistPort가 없으면 NoSuchBeanDefinitionException으로
+    // 컨텍스트 로딩이 실패한다(MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용 — 리뷰 지적 P1 대응).
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @AfterEach
     void clearSecurityContext() {
@@ -90,6 +109,72 @@ class MemberControllerTest {
         mockMvc.perform(get("/api/members/me"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_006"));
+    }
+
+    @Test
+    @DisplayName("닉네임 수정 성공 시 200과 변경된 회원 정보를 반환한다")
+    void updateNickname_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        NicknameUpdateRequest request = new NicknameUpdateRequest("새닉네임");
+        MemberResponse response = new MemberResponse(1L, "guardian@example.com", "새닉네임", MemberRole.GUARDIAN, null);
+        given(memberService.updateNickname(1L, "새닉네임")).willReturn(response);
+
+        mockMvc.perform(patch("/api/members/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.nickname").value("새닉네임"));
+    }
+
+    @Test
+    @DisplayName("닉네임이 비어있으면 400과 COMMON_001을 반환한다")
+    void updateNickname_blankNickname() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        NicknameUpdateRequest request = new NicknameUpdateRequest("");
+
+        mockMvc.perform(patch("/api/members/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("닉네임 수정 시 토큰은 유효하지만 회원이 존재하지 않으면 404와 MEMBER_006을 반환한다")
+    void updateNickname_memberNotFound() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        NicknameUpdateRequest request = new NicknameUpdateRequest("새닉네임");
+        given(memberService.updateNickname(anyLong(), anyString()))
+                .willThrow(new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND));
+
+        mockMvc.perform(patch("/api/members/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEMBER_006"));
+    }
+
+    @Test
+    @DisplayName("탈퇴 성공 시 200을 반환한다")
+    void withdraw_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+
+        mockMvc.perform(delete("/api/members/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+    }
+
+    @Test
+    @DisplayName("활성 예약이 있으면 409와 MEMBER_008을 반환한다")
+    void withdraw_withdrawalBlocked() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        willThrow(new ServiceException(MemberErrorCode.WITHDRAWAL_BLOCKED))
+                .given(memberWithdrawalApplicationService).withdraw(anyLong());
+
+        mockMvc.perform(delete("/api/members/me"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_008"));
     }
 
     private Authentication memberAuthentication(Long memberId) {

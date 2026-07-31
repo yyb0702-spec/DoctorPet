@@ -23,6 +23,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String TOKEN_PREFIX = "Bearer ";
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final MemberBlacklistPort memberBlacklistPort;
 
     @Override
     protected void doFilterInternal(
@@ -38,6 +39,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)
                 && jwtTokenProvider.getTokenType(token) == TokenType.ACCESS) {
             MemberPrincipal principal = jwtTokenProvider.getMemberPrincipal(token);
+
+            // 탈퇴 회원 Access Token 블랙리스트(리뷰 지적 P1 대응) — JWT 자체의 서명·만료는
+            // 여전히 유효해도, 탈퇴 시 MemberWithdrawalApplicationService가 Redis에 남긴
+            // 블랙리스트에 있으면 인증하지 않는다. SecurityContext를 설정하지 않고 그냥 다음
+            // 필터로 넘기면, 인증이 필요한 API는 Spring Security가 401로 거부한다(permitAll
+            // 엔드포인트는 원래도 인증 없이 통과하므로 영향 없다).
+            if (memberBlacklistPort.isBlacklisted(principal.memberId())) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     principal,
