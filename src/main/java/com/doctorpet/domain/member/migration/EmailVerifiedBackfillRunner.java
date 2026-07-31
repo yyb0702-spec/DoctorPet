@@ -55,7 +55,10 @@ public class EmailVerifiedBackfillRunner implements ApplicationRunner {
                 .createNativeQuery("update members set email_verified = true where email_verified = false")
                 .executeUpdate();
 
-        schemaMigrationRepository.save(new SchemaMigrationRecord(MIGRATION_KEY));
+        // saveAndFlush로 이 메서드가 끝나기 전에 마커를 실제로 DB에 내보낸다 — save()만 쓰면
+        // 트랜잭션 커밋 시점까지 INSERT가 지연될 수 있고, 호출자가 flush 없이 영속성 컨텍스트를
+        // clear()하면(테스트 등) 마커 저장 자체가 유실될 수 있다.
+        schemaMigrationRepository.saveAndFlush(new SchemaMigrationRecord(MIGRATION_KEY));
 
         log.info(
                 "email_verified 백필 완료(리뷰 지적 P1 대응): 기존 회원 {}명을 인증 완료 상태로 전환했습니다.",

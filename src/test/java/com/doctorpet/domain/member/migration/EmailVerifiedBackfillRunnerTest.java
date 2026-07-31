@@ -41,7 +41,7 @@ class EmailVerifiedBackfillRunnerTest {
         runner.run(null);
 
         verify(entityManager, never()).createNativeQuery(anyString());
-        verify(schemaMigrationRepository, never()).save(any());
+        verify(schemaMigrationRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -56,7 +56,7 @@ class EmailVerifiedBackfillRunnerTest {
 
         verify(query).executeUpdate();
         ArgumentCaptor<SchemaMigrationRecord> captor = ArgumentCaptor.forClass(SchemaMigrationRecord.class);
-        verify(schemaMigrationRepository).save(captor.capture());
+        verify(schemaMigrationRepository).saveAndFlush(captor.capture());
         assertThat(captor.getValue().getMigrationKey()).isEqualTo("email_verified_backfill_v1");
     }
 }

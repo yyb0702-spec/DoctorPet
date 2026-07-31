@@ -66,6 +66,11 @@ class EmailVerifiedBackfillRunnerIntegrationTest {
         assertThat(memberRepository.findById(existingMember.getId()).orElseThrow().isEmailVerified()).isFalse();
 
         runner.run(null);
+        // clear()는 아직 flush 안 된 변경을 그냥 버린다 — schemaMigrationRepository.save()로
+        // 생성된 마커 엔티티가 flush 전이라 clear()만 하면 INSERT 자체가 유실된다. 백필
+        // UPDATE는 네이티브 쿼리라 이미 DB에 반영돼 있지만, 마커는 JPA로 저장했으니 먼저
+        // flush로 실제 DB에 내보낸 뒤에 clear로 영속성 컨텍스트를 비워야 한다.
+        entityManager.flush();
         entityManager.clear();
 
         assertThat(memberRepository.findById(existingMember.getId()).orElseThrow().isEmailVerified()).isTrue();
@@ -80,6 +85,11 @@ class EmailVerifiedBackfillRunnerIntegrationTest {
         entityManager.clear();
 
         runner.run(null);
+        // clear()는 아직 flush 안 된 변경을 그냥 버린다 — schemaMigrationRepository.save()로
+        // 생성된 마커 엔티티가 flush 전이라 clear()만 하면 INSERT 자체가 유실된다. 백필
+        // UPDATE는 네이티브 쿼리라 이미 DB에 반영돼 있지만, 마커는 JPA로 저장했으니 먼저
+        // flush로 실제 DB에 내보낸 뒤에 clear로 영속성 컨텍스트를 비워야 한다.
+        entityManager.flush();
         entityManager.clear();
 
         assertThat(memberRepository.findById(newMember.getId()).orElseThrow().isEmailVerified()).isFalse();
