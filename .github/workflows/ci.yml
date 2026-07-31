@@ -87,4 +87,11 @@ jobs:
           MAIL_PROVIDER: fake
           MAIL_VERIFICATION_BASE_URL: http://localhost:8080/api/auth/verify-email
           MAIL_PASSWORD_RESET_BASE_URL: http://localhost:3000/reset-password
+          # email_verified 백필 러너(리뷰 지적 P1 대응)는 실제 ApplicationRunner 빈이라, 이걸
+          # 켜두면 CI에서 전체 컨텍스트를 로드하는 모든 @SpringBootTest가 부팅될 때마다 자동
+          # 실행돼 공유 MySQL 컨테이너에 schema_migrations 마커를 영구히 남긴다. 그러면 이
+          # 러너를 직접 검증하는 EmailVerifiedBackfillRunnerIntegrationTest가 "마커가 아직
+          # 없는" 상태를 전제로 한 테스트를 실행하지 못해 실패한다. CI 기본값은 꺼두고, 그
+          # 테스트 클래스에서만 @TestPropertySource로 다시 켠다.
+          MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED: "false"
         run: ./gradlew clean build
