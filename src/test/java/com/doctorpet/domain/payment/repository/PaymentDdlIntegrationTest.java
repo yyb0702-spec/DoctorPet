@@ -7,6 +7,7 @@ import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentChannel;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.global.config.JpaAuditingConfig;
+import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
@@ -25,7 +26,9 @@ import org.springframework.dao.DataIntegrityViolationException;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(JpaAuditingConfig.class)
+// QuerydslConfig: @DataJpaTest 슬라이스가 병원·예약의 QueryDSL 커스텀 리포지토리를 스캔하며 JPAQueryFactory를
+// 요구하므로 함께 import한다(기존 PaymentMethodDdlIntegrationTest와 동일 패턴).
+@Import({JpaAuditingConfig.class, QuerydslConfig.class})
 class PaymentDdlIntegrationTest {
 
     @Autowired
