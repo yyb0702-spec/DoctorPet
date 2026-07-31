@@ -39,16 +39,16 @@ payment:
     max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
     backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
 
-# 이메일 발송 - 이메일 인증(회원가입)·비밀번호 재설정(백로그 P2)
-# payment.gateway와 동일한 fail-safe 패턴: mail.provider를 명시해야 발송기 빈이 등록됩니다
-# (미설정 시 어떤 발송기도 안 뜸 = fail-safe).
-#   fake : 실제 발송 없이 로그로만 남김(로컬/테스트 — 콘솔에서 인증·재설정 링크 확인 가능)
-#   smtp : 실제 SMTP 연동(운영용, host/username/password 필수, 커밋 금지)
 # AI Gateway 구현체 선택
 #   fake: 외부 LLM을 호출하지 않는 로컬/테스트용 구현체
 ai:
   gateway: fake
 
+# 이메일 발송 - 이메일 인증(회원가입)·비밀번호 재설정(백로그 P2)
+# payment.gateway와 동일한 fail-safe 패턴: mail.provider를 명시해야 발송기 빈이 등록됩니다
+# (미설정 시 어떤 발송기도 안 뜸 = fail-safe).
+#   fake : 실제 발송 없이 로그로만 남김(로컬/테스트 — 콘솔에서 인증·재설정 링크 확인 가능)
+#   smtp : 실제 SMTP 연동(운영용, host/username/password 필수, 커밋 금지)
 mail:
   provider: fake
   from: noreply@doctorpet.example
