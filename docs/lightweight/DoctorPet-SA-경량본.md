@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.19, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.11 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.20, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -87,6 +87,10 @@ domain/
 - 화이트리스트 밖의 카테고리에는 `정확한 답변이 어렵습니다`를 반환한다.
 - 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
 - 입력은 공백이 아닌 `symptomText` 1~1,000자와 `DOG`·`CAT` 중 하나인 `species`가 필수다.
+- `region`, `latitude`, `longitude`는 선택이며 좌표 두 값은 함께 전달한다. 위치 권한은 프론트가 요청하고 서버는 전달받은 좌표를 검색에만 사용한다.
+- Tool 조건은 축종·진료역량·응급·야간·현재 영업·거리 의도로 제한한다. “지금 진료 가능한”은 `openNow`, “야간·24시간”은 `nightCare`, “가까운·근처”는 좌표가 있을 때만 거리순으로 매핑한다.
+- 실제 현재 영업 여부는 서버가 `Asia/Seoul` 시각으로 판정한다. 좌표 없이 거리순이라고 표현하거나 병원 위치를 추측하지 않는다.
+- 수술·입원 조건의 AI 자동 해석, 복합 조건 우선순위·완화, 미래 방문 시각, 대화형 질문과 개인화는 확장 범위다.
 - Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회이며 설정값으로 관리한다.
 - 증상 원본은 저장하지 않고 전화번호·이메일·주민번호 등 패턴을 마스킹한 텍스트만 30일간 보존한 뒤 삭제한다.
 - 구조화 출력 5필드 전체를 `structured_result` JSON으로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계를 위해 별도 컬럼에 중복 저장하고 같은 트랜잭션에서 일관되게 기록한다. AI Gateway 실패 시 `error_type`에 `TIMEOUT`, `TEMPORARY_UNAVAILABLE`, `INVALID_RESPONSE`를 저장하고, `tool_call_status`, `schema_parse_success` 등도 저장해 품질 지표를 측정한다.
