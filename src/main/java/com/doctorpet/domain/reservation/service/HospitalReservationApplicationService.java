@@ -1,5 +1,7 @@
 package com.doctorpet.domain.reservation.service;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
+
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -8,6 +10,7 @@ import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
+import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
@@ -49,7 +52,8 @@ public class HospitalReservationApplicationService {
         assertHospitalOwnership(reservation, hospitalId);
 
         ReservationSlot slot = findSlot(reservation.getSlotId());
-        LocalDateTime now = LocalDateTime.now();
+        validateApprovableSlot(slot, hospitalId);
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         validateApprovalDeadline(reservation, slot, now);
         int updated = reservationRepository.approveIfRequested(
                 reservationId,
@@ -81,7 +85,7 @@ public class HospitalReservationApplicationService {
         Reservation reservation = findReservation(reservationId);
         assertHospitalOwnership(reservation, hospitalId);
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         int updated = reservationRepository.rejectIfRequested(
                 reservationId,
                 hospitalId,
@@ -108,7 +112,7 @@ public class HospitalReservationApplicationService {
         assertHospitalOwnership(reservation, hospitalId);
 
         ReservationSlot slot = findSlot(reservation.getSlotId());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         validateCheckInDeadline(slot, now);
         int updated = reservationRepository.checkInIfConfirmed(
                 reservationId,
@@ -136,7 +140,7 @@ public class HospitalReservationApplicationService {
                 hospitalId,
                 ReservationStatus.CHECKED_IN,
                 ReservationStatus.IN_TREATMENT,
-                LocalDateTime.now()
+                LocalDateTime.now(SEOUL_ZONE_ID)
         );
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
@@ -157,7 +161,7 @@ public class HospitalReservationApplicationService {
                 hospitalId,
                 ReservationStatus.IN_TREATMENT,
                 ReservationStatus.TREATMENT_COMPLETED,
-                LocalDateTime.now()
+                LocalDateTime.now(SEOUL_ZONE_ID)
         );
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
@@ -292,6 +296,18 @@ public class HospitalReservationApplicationService {
             throw new ServiceException(
                     ReservationErrorCode.APPROVAL_DEADLINE_PASSED
             );
+        }
+    }
+
+    private void validateApprovableSlot(
+            ReservationSlot slot,
+            Long hospitalId
+    ) {
+        if (!hospitalId.equals(slot.getHospitalId())) {
+            throw new ServiceException(HospitalErrorCode.NOT_OWN_HOSPITAL);
+        }
+        if (slot.getStatus() != ReservationSlotStatus.RESERVED) {
+            throw new ServiceException(SlotErrorCode.INVALID_STATUS);
         }
     }
 

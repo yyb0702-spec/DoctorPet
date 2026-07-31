@@ -1,5 +1,6 @@
 package com.doctorpet.domain.reservation.service;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,12 +19,14 @@ import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
+import java.util.TimeZone;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -31,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -115,6 +119,60 @@ class HospitalReservationApplicationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(HospitalErrorCode.NOT_OWN_HOSPITAL);
+
+        verify(reservationRepository, never()).approveIfRequested(
+                any(), any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("다른 병원 슬롯과 연결된 예약은 승인할 수 없다")
+    void approve_otherHospitalSlot_throwsNotOwnHospital() {
+        Reservation reservation = reservation(HOSPITAL_ID);
+        ReservationSlot otherHospitalSlot = slot(
+                OTHER_HOSPITAL_ID,
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(1),
+                true
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(otherHospitalSlot));
+
+        assertThatThrownBy(() -> hospitalReservationService.approve(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.NOT_OWN_HOSPITAL);
+
+        verify(reservationRepository, never()).approveIfRequested(
+                any(), any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("RESERVED 상태가 아닌 슬롯의 예약은 승인할 수 없다")
+    void approve_openSlot_throwsInvalidSlotStatus() {
+        Reservation reservation = reservation(HOSPITAL_ID);
+        ReservationSlot openSlot = slot(
+                HOSPITAL_ID,
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(1),
+                false
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(openSlot));
+
+        assertThatThrownBy(() -> hospitalReservationService.approve(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(SlotErrorCode.INVALID_STATUS);
 
         verify(reservationRepository, never()).approveIfRequested(
                 any(), any(), any(), any(), any(), any()
@@ -263,6 +321,41 @@ class HospitalReservationApplicationServiceTest {
     }
 
     @Test
+    @ResourceLock("default-time-zone")
+    @DisplayName("JVM 기본 시간대가 UTC여도 서울 기준 승인 마감을 적용한다")
+    void approve_withUtcJvm_usesSeoulDeadline() {
+        TimeZone originalTimeZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            LocalDateTime nowInSeoul = LocalDateTime.now(SEOUL_ZONE_ID);
+            Reservation reservation = reservation(
+                    HOSPITAL_ID,
+                    nowInSeoul.minusHours(1).minusMinutes(1)
+            );
+            given(reservationRepository.findById(RESERVATION_ID))
+                    .willReturn(Optional.of(reservation));
+            given(reservationSlotRepository.findById(SLOT_ID))
+                    .willReturn(Optional.of(slot(
+                            nowInSeoul.plusDays(1)
+                    )));
+
+            assertThatThrownBy(() -> hospitalReservationService.approve(
+                    STAFF_ID,
+                    RESERVATION_ID
+            ))
+                    .isInstanceOf(ServiceException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(ReservationErrorCode.APPROVAL_DEADLINE_PASSED);
+        } finally {
+            TimeZone.setDefault(originalTimeZone);
+        }
+
+        verify(reservationRepository, never()).approveIfRequested(
+                any(), any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
     @DisplayName("예약 시각 2시간 전이 지나면 요청 후 1시간 이내여도 승인할 수 없다")
     void approve_afterSlotDeadline_throwsDeadlinePassed() {
         Reservation reservation = reservation(HOSPITAL_ID);
@@ -402,7 +495,7 @@ class HospitalReservationApplicationServiceTest {
     }
 
     private Reservation reservation(Long hospitalId) {
-        return reservation(hospitalId, LocalDateTime.now());
+        return reservation(hospitalId, LocalDateTime.now(SEOUL_ZONE_ID));
     }
 
     private Reservation reservation(
@@ -424,17 +517,27 @@ class HospitalReservationApplicationServiceTest {
     }
 
     private ReservationSlot slot() {
-        return slot(LocalDateTime.now().plusDays(1));
+        return slot(LocalDateTime.now(SEOUL_ZONE_ID).plusDays(1));
     }
 
     private ReservationSlot slot(LocalDateTime startAt) {
+        return slot(HOSPITAL_ID, startAt, true);
+    }
+
+    private ReservationSlot slot(
+            Long hospitalId,
+            LocalDateTime startAt,
+            boolean reserved
+    ) {
         ReservationSlot slot = ReservationSlot.create(
-                HOSPITAL_ID,
+                hospitalId,
                 startAt,
                 startAt.plusMinutes(30)
         );
         ReflectionTestUtils.setField(slot, "id", SLOT_ID);
-        slot.reserve();
+        if (reserved) {
+            slot.reserve();
+        }
         return slot;
     }
 }

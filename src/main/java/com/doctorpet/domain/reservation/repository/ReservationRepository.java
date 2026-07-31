@@ -77,7 +77,7 @@ public interface ReservationRepository
             @Param("canceledAt") LocalDateTime canceledAt
     );
 
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
                set r.status = :confirmedStatus,
@@ -96,7 +96,7 @@ public interface ReservationRepository
             @Param("updatedAt") LocalDateTime updatedAt
     );
 
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
                set r.status = :rejectedStatus,
@@ -115,7 +115,7 @@ public interface ReservationRepository
             @Param("updatedAt") LocalDateTime updatedAt
     );
 
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
                set r.status = :checkedInStatus,
@@ -132,7 +132,7 @@ public interface ReservationRepository
             @Param("updatedAt") LocalDateTime updatedAt
     );
 
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
                set r.status = :inTreatmentStatus,
@@ -149,7 +149,7 @@ public interface ReservationRepository
             @Param("updatedAt") LocalDateTime updatedAt
     );
 
-    @Modifying(flushAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
                set r.status = :completedStatus,

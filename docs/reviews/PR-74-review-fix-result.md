@@ -1,7 +1,7 @@
 # PR #74 병원 예약 운영 API 리뷰 반영 결과
 
-> 작성일: 2026년 7월 31일  
-> 대상 브랜치: `feature/reservation-list-detail`  
+> 작성일: 2026년 7월 31일
+> 대상 브랜치: `feature/reservation-list-detail`
 > 기준 커밋: `b315402`
 
 ## 1. 작업 결과 요약
@@ -85,7 +85,7 @@ PRD와 SA의 `슬롯 등록 오류`/`슬롯 오류` 표현 충돌은 상위 정�
 | --- | --- | --- |
 | 필수 서비스·Controller·인가 테스트 | PASS | 시간 제한, 거절 사유, MVC 인가 |
 | 상태 전이 Level 3 테스트 | PASS | 실제 MySQL 승인↔거절, 취소↔거절 경쟁 |
-| 예약 도메인 전체 테스트 | PASS | 최신 develop 병합 후 83개 테스트 |
+| 예약 도메인 전체 테스트 | PASS | 최신 리뷰 반영 후 86개 테스트 |
 | 문서 하네스 | PASS | 문서 링크·경로·섹션·정본 참조 |
 | `git diff --check` | PASS | 공백 오류 없음, CRLF 변환 경고만 존재 |
 | 전체 `clean build` | PARTIAL | 336개 중 6개 실패, 1개 skipped |
@@ -96,7 +96,7 @@ PRD와 SA의 `슬롯 등록 오류`/`슬롯 오류` 표현 충돌은 상위 정�
 - Redis 통합·성능 테스트: 로컬 Redis 미기동
 - `AuthServiceConcurrencyTest`: 같은 컨텍스트 실패의 영향
 
-전체 소스와 테스트 컴파일, Jar 조립은 성공했고 최신 develop 병합 후 예약 도메인 83개 테스트는 모두 통과했다.
+전체 소스와 테스트 컴파일, Jar 조립은 성공했고 최신 리뷰 반영 후 예약 도메인 86개 테스트는 모두 통과했다.
 CI에서는 MySQL·Redis 서비스와 `PAYMENT_GATEWAY=fake` 설정을 제공한 뒤 최종 전체 PASS를 확인해야 한다.
 
 ## 5. develop 병합 충돌 해결
@@ -110,9 +110,35 @@ develop의 회원 탈퇴 활성 예약 확인 메서드를 모두 보존하는 �
 - develop에서 추가된 `MemberBlacklistPort`와 fake mail 테스트 설정을 예약 테스트에 반영
 - 병합 후 예약 도메인 전체 테스트 PASS
 
-## 6. 이번 작업에서 제외한 항목
+## 6. 최신 리뷰 추가 반영
+
+### 6-1. 서울 시간대 기준 통일
+
+- 승인·거절·체크인·진료 시작·진료 완료 시각을 모두 `TimePolicy.SEOUL_ZONE_ID` 기준으로 생성한다.
+- JVM 기본 시간대가 UTC여도 서울 기준 승인 마감이 유지되는 테스트를 추가했다.
+
+### 6-2. 승인 시 예약·슬롯 정합성 재검증
+
+- 슬롯의 `hospitalId`가 스태프 소속 병원과 같은지 확인한다.
+- 슬롯이 계속 `RESERVED` 상태인지 확인한 뒤에만 예약을 `CONFIRMED`로 변경한다.
+- 타 병원 슬롯과 `OPEN` 슬롯의 승인 거부 테스트를 추가했다.
+
+### 6-3. 조건부 UPDATE 이후 1차 캐시 정리
+
+병원 운영 전이 5개 쿼리에 `clearAutomatically = true`를 적용했다.
+벌크 UPDATE 후 같은 트랜잭션에서 오래된 예약 상태를 읽을 가능성을 없앴다.
+취소 쿼리는 UPDATE 전에 조회한 슬롯을 이후 변경하므로 기존 동작을 유지했다.
+
+### 6-4. 검증 기록 정정
+
+- 문서의 trailing whitespace를 제거했다.
+- `.\gradlew.bat test --no-daemon --tests 'com.doctorpet.domain.reservation.*'`: PASS, 86건
+- `git diff --check origin/develop`: PASS
+
+## 7. 이번 작업에서 제외한 항목
 
 알림 저장은 `notifications` 테이블·엔티티·조회 API를 포함하는 별도 도메인 작업이므로 임의로 추가하지 않았다.
-PR #74에서 포함할지 별도 알림 이슈로 분리할지 팀 결정이 필요하다.
+PR #74가 이슈 #27을 자동 종료하지 않도록 `Closes #27`을 `Related to #27`로 변경하고,
+저장형 알림과 예약 상태 이벤트 연동은 후속 이슈 #39로 명시한다.
 
 `HospitalErrorCode.NOT_OWN_HOSPITAL`은 병원 소속·소유권 오류를 표현하므로 현재 구조를 유지했다.
