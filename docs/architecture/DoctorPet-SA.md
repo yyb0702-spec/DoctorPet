@@ -502,7 +502,9 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | 예약 상세 | GET | /api/reservations/{reservationId} | 보호자(본인) |
 | 예약 취소 | PATCH | /api/reservations/{reservationId}/cancel | 보호자(본인) |
 
-예약 요청 `{ petId, slotId, paymentMethodId }`(memberId·hospitalId는 요청에 없음) → 201, 상태 REQUESTED. 요청 시 프로필·빌링키·리드타임을 검증하고 반려동물 스냅샷·결제수단을 확정하고 슬롯을 점유한다. 목록은 전체 진행상태 조합을 표시한다. 실패: 프로필 없음 400, 빌링키 없음 400, 리드타임 위반 400, 슬롯 점유됨 409.
+예약 요청 `{ petId, slotId, paymentMethodId }`(memberId·hospitalId는 요청에 없음) → 201, 상태 REQUESTED. 요청 시 프로필·빌링키·리드타임을 검증하고 반려동물 스냅샷·결제수단을 확정하고 슬롯을 점유한다. 목록은 전체 진행상태 조합을 표시한다. 목록 응답의 `reservedAt`은 예약 요청 시각(`requestedAt`)이 아니라 진료 예약 슬롯의 시작 시각(`reservation_slots.start_at`)이며, `sort=reservedAt,desc`도 같은 값을 기준으로 정렬한다. 실패: 프로필 없음 400, 빌링키 없음 400, 리드타임 위반 400, 슬롯 점유됨 409.
+
+예약 상세·취소에서 존재하는 타인 예약은 `403 FORBIDDEN`, 존재하지 않는 예약은 `404 RESERVATION_NOT_FOUND`로 통일한다. 예약 목록을 조립할 때 예약이 참조하는 슬롯 또는 병원이 누락되면 데이터 무결성 오류로 간주해 `SLOT_NOT_FOUND` 또는 `HOSPITAL_NOT_FOUND`를 반환한다. 이 fail-fast 정책을 유지하기 위해 예약이 참조하는 슬롯과 병원은 하드 삭제하지 않는다.
 
 ### 8-6. 예약·진료 운영 (병원 스태프)
 

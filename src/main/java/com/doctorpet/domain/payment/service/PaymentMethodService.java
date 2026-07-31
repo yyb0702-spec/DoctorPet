@@ -55,6 +55,19 @@ public class PaymentMethodService {
     }
 
     /**
+     * 예약 요청이 인증 회원 소유의 활성 결제수단인지 확인할 때 사용하는 도메인 간 조회 계약.
+     * 빌링키 암호문이나 카드 원본은 반환하지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public boolean isActiveAndOwnedBy(Long memberId, Long paymentMethodId) {
+        return paymentMethodRepository.existsByIdAndMemberIdAndStatus(
+                paymentMethodId,
+                memberId,
+                PaymentMethodStatus.ACTIVE
+        );
+    }
+
+    /**
      * 소프트 삭제. 진행 중 예약이 참조하더라도 삭제를 허용한다(SA §4-2).
      * 청구 시점의 status 재확인·OFFLINE_REQUIRED 전이는 #34의 책임이다.
      */

@@ -42,7 +42,7 @@ public class Reservation extends BaseEntity {
     @Column(name = "payment_method_id", nullable = false)
     private Long paymentMethodId;
 
-    @Column(name = "pet_name_snapshot", nullable = false, length = 50)
+    @Column(name = "pet_name_snapshot", nullable = false, length = 255)
     private String petNameSnapshot;
 
     @Column(name = "pet_species_snapshot", nullable = false, length = 10)
