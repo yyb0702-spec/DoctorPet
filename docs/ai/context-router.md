@@ -38,7 +38,7 @@
 - 필수: [PRD §7(AI 안전 정책)](../product/DoctorPet-PRD.md), SA §9-5(AiGateway·Tool Calling), SA §8-4, SA §4 ai_consultations
 - 조건부: 검색 Tool 인자가 바뀌면 SA §9-1을 추가한다.
 - 제외: 결제·예약 상태 머신은 읽지 않는다.
-- 추가 탐색: 미확정 항목(모델·프롬프트 외부화·Rate Limit)은 구현하지 않고 질문으로 남긴다(SA 부록 A).
+- 추가 탐색: 실제 LLM 모델·제공자는 동일 평가 데이터 비교 전 임의로 선택하지 않는다(SA §9-5·부록 A). 프롬프트 파일 관리·입력 제한·Rate Limit·검색 Tool 실패 fallback은 SA v1.17에서 확정됐다.
 
 ### 예약 요청·승인·취소 (STRICT: 상태 머신 전이)
 
