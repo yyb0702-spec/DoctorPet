@@ -56,6 +56,9 @@ public class SecurityConfig {
                                 HttpMethod.PATCH,
                                 "/api/reservations/*/cancel"
                         ).hasRole("GUARDIAN")
+                        // 병원 예약 운영 API - 병원 스태프 전용 (SA §8-6)
+                        .requestMatchers("/api/hospital/**")
+                        .hasRole("HOSPITAL_STAFF")
                         // 결제수단 등록·조회·삭제 - 보호자 전용 (이슈 #33)
                         .requestMatchers("/api/payment-methods/**").hasRole("GUARDIAN")
                         // 반려동물 프로필 등록·조회·수정·삭제 - 보호자 전용 (SA §8-2)
