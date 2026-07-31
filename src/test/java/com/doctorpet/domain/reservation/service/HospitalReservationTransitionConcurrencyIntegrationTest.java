@@ -11,6 +11,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
@@ -210,8 +211,7 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
                     task.run();
                     successCount.incrementAndGet();
                 } catch (ServiceException exception) {
-                    if (exception.getErrorCode()
-                            != ReservationErrorCode.INVALID_STATUS) {
+                    if (!isExpectedRaceLoss(exception)) {
                         unexpectedErrors.add(exception);
                     }
                 } catch (Throwable throwable) {
@@ -229,6 +229,11 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
         assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
 
         return new RaceResult(successCount.get(), unexpectedErrors);
+    }
+
+    private boolean isExpectedRaceLoss(ServiceException exception) {
+        return exception.getErrorCode() == ReservationErrorCode.INVALID_STATUS
+                || exception.getErrorCode() == SlotErrorCode.INVALID_STATUS;
     }
 
     private ReservationStatus findReservationStatus(Long id) {

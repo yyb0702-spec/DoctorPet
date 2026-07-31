@@ -135,6 +135,15 @@ develop의 회원 탈퇴 활성 예약 확인 메서드를 모두 보존하는 �
 - `.\gradlew.bat test --no-daemon --tests 'com.doctorpet.domain.reservation.*'`: PASS, 86건
 - `git diff --check origin/develop`: PASS
 
+### 6-5. CI 동시성 테스트 경쟁 결과 보정
+
+거절이 먼저 완료되면 슬롯이 `OPEN`으로 반환되므로, 뒤늦은 승인 요청은
+`ReservationErrorCode.INVALID_STATUS`뿐 아니라 `SlotErrorCode.INVALID_STATUS`로도 정상 탈락할 수 있다.
+동시성 테스트가 두 정상 패자 결과를 모두 허용하도록 수정했다.
+
+- 동시성 통합 테스트 반복 실행: PASS
+- 예약 도메인 전체 86건 재실행: PASS
+
 ## 7. 이번 작업에서 제외한 항목
 
 알림 저장은 `notifications` 테이블·엔티티·조회 API를 포함하는 별도 도메인 작업이므로 임의로 추가하지 않았다.
