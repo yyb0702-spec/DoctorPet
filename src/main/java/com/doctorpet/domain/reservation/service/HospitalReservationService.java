@@ -128,6 +128,27 @@ public class HospitalReservationService {
         }
     }
 
+    /**
+     * 병원 스태프가 진료 중인 예약을 진료 완료 처리한다(SA §5-1·§8-6).
+     */
+    @Transactional
+    public void completeTreatment(Long staffMemberId, Long reservationId) {
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+
+        int updated = reservationRepository.completeTreatmentIfInTreatment(
+                reservationId,
+                hospitalId,
+                ReservationStatus.IN_TREATMENT,
+                ReservationStatus.TREATMENT_COMPLETED,
+                LocalDateTime.now()
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+    }
+
     private Long requireHospitalId(Long staffMemberId) {
         MemberResponse member = memberService.getMyInfo(staffMemberId);
         if (member.role() != MemberRole.HOSPITAL_STAFF

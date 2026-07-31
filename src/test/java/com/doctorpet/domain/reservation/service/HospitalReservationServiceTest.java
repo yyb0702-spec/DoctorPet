@@ -258,6 +258,40 @@ class HospitalReservationServiceTest {
                 .isEqualTo(ReservationErrorCode.INVALID_STATUS);
     }
 
+    @Test
+    @DisplayName("IN_TREATMENT 예약을 진료 완료 처리한다")
+    void completeTreatment_success() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+        given(reservationRepository.completeTreatmentIfInTreatment(
+                any(), any(), any(), any(), any()
+        )).willReturn(1);
+
+        hospitalReservationService.completeTreatment(STAFF_ID, RESERVATION_ID);
+
+        verify(reservationRepository).completeTreatmentIfInTreatment(
+                any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("진료 중이 아닌 예약은 진료 완료할 수 없다")
+    void completeTreatment_whenUpdateIsZero_throwsInvalidStatus() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+        given(reservationRepository.completeTreatmentIfInTreatment(
+                any(), any(), any(), any(), any()
+        )).willReturn(0);
+
+        assertThatThrownBy(() -> hospitalReservationService.completeTreatment(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.INVALID_STATUS);
+    }
+
     private Reservation reservation(Long hospitalId) {
         Reservation reservation = Reservation.request(
                 1L,
