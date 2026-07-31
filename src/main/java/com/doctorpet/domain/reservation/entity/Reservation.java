@@ -110,39 +110,6 @@ public class Reservation extends BaseEntity {
         );
     }
 
-    public void confirm(LocalDateTime now) {
-        validateStatus(ReservationStatus.REQUESTED);
-
-        this.status = ReservationStatus.CONFIRMED;
-        this.confirmedAt = now;
-    }
-
-    public void reject(String reason) {
-        validateStatus(ReservationStatus.REQUESTED);
-
-        if (reason == null || reason.isBlank()) {
-            throw new ServiceException(ReservationErrorCode.REJECT_REASON_REQUIRED);
-        }
-
-        this.status = ReservationStatus.REJECTED;
-        this.rejectReason = reason;
-    }
-
-    public void checkIn() {
-        validateStatus(ReservationStatus.CONFIRMED);
-        this.status = ReservationStatus.CHECKED_IN;
-    }
-
-    public void startTreatment() {
-        validateStatus(ReservationStatus.CHECKED_IN);
-        this.status = ReservationStatus.IN_TREATMENT;
-    }
-
-    public void completeTreatment() {
-        validateStatus(ReservationStatus.IN_TREATMENT);
-        this.status = ReservationStatus.TREATMENT_COMPLETED;
-    }
-
     public void markNoShow(LocalDateTime now) {
         validateStatus(ReservationStatus.CONFIRMED);
         this.status = ReservationStatus.NO_SHOW;

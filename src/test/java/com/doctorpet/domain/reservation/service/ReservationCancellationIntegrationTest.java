@@ -19,8 +19,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "payment.gateway=fake",
+        "payment.billing-key.enc-key="
+                + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "mail.provider=fake",
+        "mail.verification.base-url=http://localhost/verify-email",
+        "mail.password-reset.base-url=http://localhost/reset-password",
+        "member.email-verified-backfill.enabled=false"
+})
 class ReservationCancellationIntegrationTest {
 
     @Autowired
@@ -182,12 +191,14 @@ class ReservationCancellationIntegrationTest {
             Reservation reservation,
             ReservationStatus targetStatus
     ) {
+        ReflectionTestUtils.setField(reservation, "status", targetStatus);
         if (targetStatus == ReservationStatus.CONFIRMED
                 || targetStatus == ReservationStatus.CHECKED_IN) {
-            reservation.confirm(LocalDateTime.now());
-        }
-        if (targetStatus == ReservationStatus.CHECKED_IN) {
-            reservation.checkIn();
+            ReflectionTestUtils.setField(
+                    reservation,
+                    "confirmedAt",
+                    LocalDateTime.now()
+            );
         }
     }
 
