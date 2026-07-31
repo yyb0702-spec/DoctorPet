@@ -55,6 +55,10 @@ public interface ReservationRepository
 
     long countBySlotId(Long slotId);
 
+    // 회원 탈퇴 전 활성 예약 보유 여부 확인용(SA §6-3, 부록A 확정 — 탈퇴 보류 정책).
+    // MemberWithdrawalApplicationService가 ReservationService를 경유해 호출한다.
+    boolean existsByMemberIdAndStatusIn(Long memberId, Collection<ReservationStatus> statuses);
+
     @Modifying(flushAutomatically = true)
     @Query("""
             update Reservation r

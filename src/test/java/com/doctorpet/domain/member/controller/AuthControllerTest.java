@@ -1,24 +1,32 @@
 package com.doctorpet.domain.member.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.doctorpet.domain.member.dto.request.EmailRequest;
 import com.doctorpet.domain.member.dto.request.LoginRequest;
+import com.doctorpet.domain.member.dto.request.PasswordResetConfirmRequest;
 import com.doctorpet.domain.member.dto.request.ReissueRequest;
 import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.AuthService;
+import com.doctorpet.domain.member.service.EmailVerificationService;
+import com.doctorpet.domain.member.service.PasswordResetService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -62,11 +70,22 @@ class AuthControllerTest {
     @MockitoBean
     private AuthService authService;
 
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
+
+    @MockitoBean
+    private PasswordResetService passwordResetService;
+
     // addFilters=false는 MockMvc가 필터를 "실행"하지 않게 할 뿐, @WebMvcTest는 Filter 타입 빈을
     // 기본 포함 대상으로 슬라이스 컨텍스트에 여전히 생성한다. JwtAuthenticationFilter가 생성자에서
-    // JwtTokenProvider를 요구하므로, 이 빈이 없으면 컨텍스트 로딩 자체가 실패한다(실제 호출은 없다).
+    // JwtTokenProvider·MemberBlacklistPort를 요구하므로, 이 빈들이 없으면 컨텍스트 로딩 자체가
+    // 실패한다(실제 호출은 없다). MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용
+    // (리뷰 지적 P1 대응).
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @AfterEach
     void clearSecurityContext() {
@@ -222,6 +241,20 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("이메일 인증 전이면 403과 MEMBER_009를 반환한다(백로그 P2)")
+    void login_emailNotVerified() throws Exception {
+        LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
+        given(authService.login(any(LoginRequest.class)))
+                .willThrow(new ServiceException(MemberErrorCode.EMAIL_NOT_VERIFIED));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("MEMBER_009"));
+    }
+
+    @Test
     @DisplayName("로그인 요청에 비밀번호가 비어있으면 400과 COMMON_001을 반환한다")
     void login_blankPassword() throws Exception {
         LoginRequest request = new LoginRequest("guardian@example.com", "");
@@ -315,6 +348,107 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
         verify(authService).logout(1L);
+    }
+
+    @Test
+    @DisplayName("이메일 인증 성공 시 200과 SUCCESS를 반환한다")
+    void verifyEmail_success() throws Exception {
+        mockMvc.perform(get("/api/auth/verify-email").param("token", "valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(emailVerificationService).verifyEmail("valid-token");
+    }
+
+    @Test
+    @DisplayName("이메일 인증 토큰이 유효하지 않거나 만료됐으면 400과 MEMBER_010을 반환한다")
+    void verifyEmail_invalidToken() throws Exception {
+        willThrow(new ServiceException(MemberErrorCode.INVALID_OR_EXPIRED_TOKEN))
+                .given(emailVerificationService).verifyEmail(anyString());
+
+        mockMvc.perform(get("/api/auth/verify-email").param("token", "bad-token"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MEMBER_010"));
+    }
+
+    @Test
+    @DisplayName("인증 메일 재발송 요청은 계정 존재 여부와 무관하게 항상 200과 SUCCESS를 반환한다")
+    void resendVerificationEmail_alwaysSucceeds() throws Exception {
+        EmailRequest request = new EmailRequest("guardian@example.com");
+
+        mockMvc.perform(post("/api/auth/verify-email/resend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(emailVerificationService).resendVerificationEmail("guardian@example.com");
+    }
+
+    @Test
+    @DisplayName("이메일 형식이 올바르지 않으면 재발송 요청도 400과 COMMON_001을 반환한다")
+    void resendVerificationEmail_invalidEmail() throws Exception {
+        EmailRequest request = new EmailRequest("not-an-email");
+
+        mockMvc.perform(post("/api/auth/verify-email/resend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정 요청은 계정 존재 여부와 무관하게 항상 200과 SUCCESS를 반환한다")
+    void requestPasswordReset_alwaysSucceeds() throws Exception {
+        EmailRequest request = new EmailRequest("guardian@example.com");
+
+        mockMvc.perform(post("/api/auth/password-reset/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(passwordResetService).requestPasswordReset("guardian@example.com");
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정 확인 성공 시 200과 SUCCESS를 반환한다")
+    void confirmPasswordReset_success() throws Exception {
+        PasswordResetConfirmRequest request = new PasswordResetConfirmRequest("valid-token", "newPassword1234");
+
+        mockMvc.perform(post("/api/auth/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(passwordResetService).confirmPasswordReset("valid-token", "newPassword1234");
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정 토큰이 유효하지 않거나 만료됐으면 400과 MEMBER_010을 반환한다")
+    void confirmPasswordReset_invalidToken() throws Exception {
+        PasswordResetConfirmRequest request = new PasswordResetConfirmRequest("bad-token", "newPassword1234");
+        willThrow(new ServiceException(MemberErrorCode.INVALID_OR_EXPIRED_TOKEN))
+                .given(passwordResetService).confirmPasswordReset(anyString(), anyString());
+
+        mockMvc.perform(post("/api/auth/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MEMBER_010"));
+    }
+
+    @Test
+    @DisplayName("재설정할 새 비밀번호가 8자 미만이면 400과 COMMON_001을 반환한다")
+    void confirmPasswordReset_shortPassword() throws Exception {
+        PasswordResetConfirmRequest request = new PasswordResetConfirmRequest("valid-token", "short");
+
+        mockMvc.perform(post("/api/auth/password-reset/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
     }
 
     private Authentication memberAuthentication(Long memberId) {

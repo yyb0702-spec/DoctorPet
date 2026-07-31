@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.13 |
+| 문서 버전 | v1.16 |
 | 작성 기준일 | 2026-07-29 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정.
+> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 파생 상태 계약을 확정.
 
 ---
 
@@ -112,6 +112,7 @@ erDiagram
 | nickname | VARCHAR | |
 | role | VARCHAR | GUARDIAN / HOSPITAL_STAFF |
 | hospital_id | BIGINT NULL | 스태프 소속 병원(보호자는 NULL) |
+| email_verified | BOOLEAN NOT NULL DEFAULT FALSE | 이메일 인증 여부(백로그 P2). false인 동안 로그인 차단(§6-4) |
 | failed_login_attempts | INT NOT NULL DEFAULT 0 | 로그인 연속 실패 횟수(A 도메인 결정 #1) |
 | locked_until | DATETIME NULL | 잠금 해제 시각. NULL이면 잠금 상태 아님 |
 | created_at | DATETIME | |
@@ -328,6 +329,15 @@ erDiagram
 
 제약: `UNIQUE(payment_id, event_type)` — 중복 수신 1회만 반영.
 
+### schema_migrations (스키마 마이그레이션 마커)
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| applied_at | DATETIME NOT NULL | 실행 시각 |
+
+Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필, 부록A #(email_verified 백필) 참고)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다. 리뷰 지적 P2 대응 — 이 테이블은 이미 코드(`EmailVerifiedBackfillRunner`)로 구현돼 있었으나 정본 §4에는 반영되지 않고 부록 설명에만 등장했다.
+
 ---
 
 # 5. 상태 머신
@@ -417,6 +427,30 @@ Access Token은 30분~1시간, Refresh Token은 14일이며 Redis에 저장·회
 
 탈퇴는 Soft Delete(`deleted_at`)다. 이메일 중복 검사·로그인은 활성 회원만 대상으로 하므로 탈퇴 후 동일 이메일 재가입이 가능하다. 탈퇴 시 `email`을 고유한 익명 값으로 치환하고 원 이메일을 반환한다(§4-2). `email UNIQUE`를 그대로 유지할 수 있어 부분 인덱스가 필요 없다.
 
+활성 예약(`CONFIRMED`·`CHECKED_IN`) 또는 미수금(`Payment.status == OFFLINE_REQUIRED`)이 남아있는 회원은 탈퇴를 보류한다 — 요청 자체를 거부하고(409), 예약을 취소·완료하거나 미수금을 정산한 뒤 다시 탈퇴하도록 안내한다. 종결 후 익명화(서버가 예약을 강제 취소하고 즉시 탈퇴 처리하는 방식)는 채택하지 않는다(부록A #4 확정 — A/C/D 담당 합의, 근거: 미수금이 남은 상태로 결제 주체를 익명화하면 추후 청구·정산 추적이 어려워지고, 병원 입장에서도 예약이 임의로 취소되는 부작용이 있다).
+
+## 6-4. 이메일 인증·비밀번호 재설정 (백로그 P2)
+
+이메일 발송이 필요한 두 기능을 같은 인프라(`EmailGateway`)로 묶어 구현했다 — 결제(`PaymentGateway`)와 같은 패턴으로, `mail.provider` 설정에 따라 로컬/테스트는 `FakeEmailGateway`(발송 없이 로그만), 운영은 `SmtpEmailGateway`(`JavaMailSender`)가 등록된다. 미설정 시 어떤 발송기도 등록되지 않는다(fail-safe).
+
+**이메일 인증(가입 시 필수)**: 가입 직후 `email_verified=false`로 생성되고 인증 메일이 발송된다. 인증 전에는 이메일·비밀번호가 맞아도 로그인이 403으로 차단된다(계정 존재 확인 이후에 체크하므로 계정 존재 여부를 추가로 노출하지 않는다). 인증 토큰은 Redis에 24시간 TTL로 저장되고(`email-verify:{token}` → memberId), 소비 시 원자적으로 삭제돼 1회용이다 — 만료와 "이미 사용됨"을 서버가 구분하지 않고 같은 오류로 응답한다. 메일을 못 받았으면 재발송 API로 새 토큰을 받을 수 있다. 메일 발송 자체가 실패해도(SMTP 장애 등) 회원가입은 실패하지 않는다.
+
+**비밀번호 재설정**: 로그인 상태가 아니어도(비밀번호를 잊었으므로 애초에 로그인 불가) 이메일 소유 확인만으로 재설정한다. 토큰은 Redis에 1시간 TTL로 저장되고(`pwd-reset:{token}` → memberId) 마찬가지로 1회용이다. 재설정 성공 시 새 비밀번호로 교체함과 동시에 로그인 실패 기록·계정 잠금도 초기화된다(§4 members 테이블 설명과 동일 정책). 재설정 요청 API는 가입 여부와 무관하게 항상 200을 반환해 계정 존재 여부를 노출하지 않는다.
+
+프론트엔드가 아직 없어 인증·재설정 메일의 링크는 임시 URL을 가리킨다(`global/gateway/mail/README.md` 참고) — 프론트 라우트가 확정되면 갱신이 필요하다.
+
+## 6-5. SNS 로그인 (확장 검토, 미착수) `[결정 필요]`
+
+구글·카카오 계정으로 로그인하는 방식으로, §6-4(이메일 인증)와는 인증 주체가 다르다 — 이메일 인증은 우리 서버가 이메일 소유권을 직접 확인하지만, SNS 로그인은 구글/카카오가 이미 검증한 신원·이메일을 OAuth2 토큰으로 넘겨받아 신뢰한다. 비밀번호를 우리가 저장할 필요가 없고, 이 경로로 가입하는 사용자는 이메일 인증 절차 자체가 필요 없다.
+
+기존 이메일·비밀번호 가입 방식을 대체하는 게 아니라 로그인 수단을 하나 추가하는 형태로 병행 가능하다. 다만 착수 전 정해야 할 것들이 있다:
+
+- **계정 연동 정책** — 이미 이메일로 가입한 사용자가 나중에 같은 이메일의 구글 계정으로 로그인하면 같은 `Member`로 볼지, 별도 계정으로 둘지.
+- **지원 프로바이더 범위** — 구글만 할지 카카오까지 할지. 카카오는 이메일 스코프(`account_email`)를 받으려면 비즈 앱 전환(사업자 등록 또는 개인 개발자 비즈 앱 전환 + 검수)이 필요해, 미전환 상태로는 닉네임·프로필 이미지만 받을 수 있다.
+- **가입 스펙 변경 여부** — 현재 PRD·SA는 "이메일·비밀번호·닉네임" 가입만 정의한다(§8-1). SNS 로그인 추가는 코드 격리는 가능해도 PRD/SA 범위·일정에는 영향이 있으므로 팀 합의가 선행돼야 한다.
+
+착수 시점에 인터페이스(예: `OAuth2Gateway` 등, §6-4 `EmailGateway`와 같은 프로바이더 추상화 패턴)부터 확정하고 세부 사항은 그때 결정한다.
+
 ---
 
 # 7. 공통 응답·예외
@@ -448,11 +482,20 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | 토큰 재발급 | POST | /api/auth/reissue | 비인증(Refresh) |
 | 로그아웃 | POST | /api/auth/logout | 인증 |
 | 내 정보 조회 | GET | /api/members/me | 인증 |
+| 프로필 수정(닉네임) | PATCH | /api/members/me | 인증 |
 | 회원 탈퇴 | DELETE | /api/members/me | 인증 |
+| 이메일 인증 확인 | GET | /api/auth/verify-email | 비인증 |
+| 인증 메일 재발송 | POST | /api/auth/verify-email/resend | 비인증 |
+| 비밀번호 재설정 요청 | POST | /api/auth/password-reset/request | 비인증 |
+| 비밀번호 재설정 확인 | POST | /api/auth/password-reset/confirm | 비인증 |
 
 - 회원가입 `{ email, password, nickname }` → 201 `{ memberId }`. 활성 회원 이메일 중복 시 409.
-- 로그인 `{ email, password }` → 200 `{ accessToken, refreshToken }`. 실패 401.
+- 로그인 `{ email, password }` → 200 `{ accessToken, refreshToken }`. 실패 401, 이메일 미인증 403(§6-4).
 - 재발급 `{ refreshToken }` → 200 새 토큰 쌍. 재사용 감지 시 전체 세션 무효화 + 401.
+- 이메일 인증 확인 `?token=` → 200. 토큰이 없거나 만료·이미 사용됐으면 400(§6-4).
+- 인증 메일 재발송·비밀번호 재설정 요청 `{ email }` → 항상 200(계정 존재 여부 비노출, §6-4).
+- 비밀번호 재설정 확인 `{ token, newPassword }` → 200. 토큰이 없거나 만료·이미 사용됐으면 400.
+- 프로필 수정 `{ nickname }` → 200 변경된 회원 정보. 수정 범위는 닉네임으로 한정한다 — email·password는 각각 재가입 정책(§6-3)·인증/재설정 흐름(§6-4)이 따로 있어 이 API의 대상이 아니다(A 도메인 결정).
 
 ### 8-2. 반려동물 프로필
 
@@ -479,6 +522,50 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 병원 검색 화면 최초 진입 시에는 별도 검색 조건이 없는 기본 페이지 크기 20의 목록에서 제휴 병원을 먼저 정렬하고, 제휴 병원이 페이지 크기보다 적으면 남은 슬롯을 비제휴 병원으로 채운다. 클라이언트는 `partnerOnly=false`, `page=1`, `size=20`, `sort=name`으로 요청하며, 동일한 기본 목록에서 페이지 번호만 변경한 경우에도 제휴 우선 정렬을 유지한다. 페이지 크기를 20이 아닌 값으로 변경하면 일반 이름순 정렬을 적용한다. `partnerOnly=true`는 제휴 병원만 조회하려는 명시적 필터로 유지한다. 이 우선 정렬은 사용자가 조건을 입력한 검색 결과를 변경하는 규칙이 아니라 초기 화면의 운영 정책이며, 조건 검색 이후에는 기존 2계층 노출 규칙을 그대로 적용한다.
 
 요청한 `page`가 실제 `totalPages`보다 크면 `400` 예외 대신 `200 OK`와 빈 `content`를 반환한다. 응답에는 요청한 `page`와 실제 `totalElements`·`totalPages`를 그대로 담고 `last=true`로 표시한다.
+
+#### 병원 슬롯 조회 계약
+
+`GET /api/hospitals/{hospitalId}/slots?date=YYYY-MM-DD`는 `date`를 필수로 받는다. 프론트는 최초 진입 시 `Asia/Seoul`의 오늘 날짜를 전달하고 날짜 변경 시 같은 API를 다시 호출한다. 별도 날짜 활성 엔드포인트는 두지 않는다.
+
+응답은 다음 구조다.
+
+```json
+{
+  "selectedDate": "2026-08-01",
+  "dateAvailabilities": [
+    {
+      "date": "2026-08-01",
+      "reservationAvailable": true
+    }
+  ],
+  "slots": [
+    {
+      "slotId": 1,
+      "startAt": "2026-08-01T10:00:00",
+      "endAt": "2026-08-01T10:30:00",
+      "availabilityStatus": "LEAD_TIME_CLOSED"
+    }
+  ]
+}
+```
+
+응답의 `selectedDate`, `dateAvailabilities[].date`, `slots[].startAt`, `slots[].endAt`에는 UTC 오프셋을 포함하지 않는다. 모든 날짜와 시각은 `Asia/Seoul` 기준으로 해석해야 하며, 프론트도 브라우저나 기기의 로컬 시간대로 변환하지 않고 서울 시간으로 표시한다.
+
+`dateAvailabilities`는 `Asia/Seoul`의 오늘부터 오늘+13일까지 14개 날짜를 오름차순으로 반환한다. DB 상태가 `OPEN`이고 `startAt >= 현재 시각+4시간`인 슬롯이 하나라도 있으면 해당 날짜의 `reservationAvailable=true`다.
+
+`slots`는 선택 날짜의 `startAt >= 당일 00:00`, `startAt < 다음 날 00:00`인 `OPEN`, `RESERVED` 슬롯을 `startAt ASC`, `id ASC`로 반환한다. 병원별 영업 마감 시각을 별도로 해석하지 않고 슬롯 시작 날짜를 기준으로 묶으므로 자정 이후 야간 슬롯은 다음 달력 날짜에 포함된다.
+
+DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilityStatus`만 다음처럼 계산한다.
+
+| 조회용 상태 | 조건 | 클릭 가능 |
+| --- | --- | --- |
+| `AVAILABLE` | `status=OPEN`이고 `startAt >= now+4시간` | 예 |
+| `RESERVED` | `status=RESERVED` | 아니요 |
+| `LEAD_TIME_CLOSED` | `status=OPEN`이고 `startAt < now+4시간` | 아니요 |
+
+정확히 `now+4시간`인 슬롯은 `AVAILABLE`이다. 조회 결과는 예약 성공을 보장하지 않으며 예약 생성 트랜잭션에서 4시간 리드타임과 `OPEN → RESERVED` 낙관적 락 점유를 다시 검증한다.
+
+유효한 날짜가 오늘 이전이거나 오늘+14일 이후이면 `200 OK`와 빈 `slots`를 반환한다. 날짜 형식 오류는 `400 VALIDATION_FAILED`다. 비제휴 병원 또는 영업상태가 `OPEN`이 아닌 병원은 `200 OK`와 빈 `dateAvailabilities`·`slots`를 반환한다. 병원이 없으면 `HOSPITAL_NOT_FOUND`다.
 
 ### 8-4. AI 상담
 
@@ -733,7 +820,7 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인.
+확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인, 탈퇴 시 활성 예약·미수금 보유 회원 처리=탈퇴 보류(§6-3), 이메일 인증·비밀번호 재설정 방식=링크형 토큰(Redis TTL, 1회용)·가입 시 이메일 인증 필수(A 도메인 결정, §6-4), 탈퇴 회원 Access Token 무효화=Redis 블랙리스트(`withdrawn:{memberId}`, TTL=Access Token 만료 시간)를 `JwtAuthenticationFilter`가 인증 직전 확인·`MemberBlacklistPort` 인터페이스로 global↔domain 계층 분리(리뷰 지적 P1 대응, A 도메인 조치 완료), 기존 회원 email_verified 백필=신규 컬럼 추가로 ddl-auto=update가 기존 행에 채우는 기본값(false)을 그대로 두지 않고 앱 최초 부팅 시 1회 true로 백필(grandfather)·`schema_migrations` 마커로 재실행 방지(리뷰 지적 P1 대응, A 도메인 조치 완료).
 
 남은 것:
 
@@ -742,8 +829,55 @@ sequenceDiagram
 | 1 | LLM 모델/제공자, 프롬프트 외부화 저장 방식 (AI 착수 시 결정, 인터페이스는 먼저 확정) | §2, §9-5 |
 | 2 | AI 입력 길이 제한·Rate Limit 구체 수치 | §9-5, §11 |
 | 3 | 실시간 push 방식(SSE / WebSocket+STOMP) — 채팅 도입 여부에 따라 재논의 | §2, §9-8 |
-| 4 | 탈퇴 시 활성 예약(CONFIRMED·CHECKED_IN)·미수금(OFFLINE_REQUIRED) 보유 회원 처리 — 탈퇴 보류 vs 종결 후 익명화 | §6-3, §9-4 |
-| 5 | 검색 Tool 호출 실패 응답 주체 — 실패 컨텍스트를 LLM에 전달해 안내 생성 vs 서버가 `fallback=true`와 고정 문구로 직접 검색 유도 | PRD §5-4, 정책 §3.9, §8-4, §9-5 |
+| 4 | 검색 Tool 호출 실패 응답 주체 — 실패 컨텍스트를 LLM에 전달해 안내 생성 vs 서버가 `fallback=true`와 고정 문구로 직접 검색 유도 | PRD §5-4, 정책 §3.9, §8-4, §9-5 |
+| 5 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
+| 6 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
+| 7 | 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선(리뷰 지적 P2, non-blocking) — 상세 설계는 아래 참고 | §6-4 |
+| 8 | 탈퇴 시 Redis 부수효과(Refresh Token 삭제·Access Token 블랙리스트 등록)가 DB 커밋 전에 실행됨(리뷰 지적 P2, non-blocking) — `MemberWithdrawalApplicationService.withdraw()`가 `memberService.withdraw()`(DB, 커밋은 트랜잭션 종료 시점) 직후 Redis 호출 2건을 동기 실행한다. DB 커밋이 그 뒤 실패하면 회원은 실제로 탈퇴되지 않았는데 Access Token 만료 시간만큼 블랙리스트에 남아 재로그인해도 접근이 막힌다. fail-closed 방향이라 보안상 더 안전한 쪽으로 판단해 non-blocking으로 남기지만, 같은 PR의 회원가입 이벤트(`MemberSignedUpEvent` + `AFTER_COMMIT`)와 패턴이 다르다 — 통일하려면 Redis 호출을 `AFTER_COMMIT` 이벤트로 옮기면 되나, 그러면 "커밋됐지만 아직 블랙리스트 전"인 짧은 창이 새로 생긴다(가용성 vs 창 최소화 트레이드오프). | §6-3 |
+
+---
+
+## 부록 A-1. 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선 (남은 것 #7 상세 설계)
+
+**현재 동작과 문제.** `EmailVerificationService.verifyEmail()`·`PasswordResetService.confirmPasswordReset()`은
+다음 순서로 처리한다: (1) Redis에서 토큰을 GET+DEL로 원자적으로 소비, (2) 반환된 memberId로 회원 조회,
+(3) 도메인 상태 변경(`verifyEmail()`/`resetPassword()`) 후 DB 트랜잭션 커밋. 1)과 2)~3) 사이에 회원 조회가
+실패하거나(레이스 컨디션 — 드묾) DB 트랜잭션 커밋 자체가 실패하면(커넥션 장애 등 — 더 드묾), 토큰은 이미
+Redis에서 사라진 뒤라 사용자는 같은 링크로 재시도할 수 없다. 1회용 토큰이 링크 하나당 하나뿐이므로, 사용자는
+재발송(`resendVerificationEmail`)·재요청(`requestPasswordReset`)으로 새 링크를 다시 받아야 한다 — 보안
+구멍이나 데이터 손상은 아니지만 불필요한 재시도를 강제하는 복구성 문제다(리뷰 지적, 2026-07-30).
+
+**왜 단순히 순서만 바꾸면 안 되는가.** "DB 처리 후에 토큰 삭제"로 순서를 뒤집으면 복구성은 좋아지지만, 토큰을
+삭제하지 않은 채로 DB 처리를 하는 동안 같은 토큰으로 동시에 들어온 두 번째 요청이 아직 유효한 토큰을 보고
+동시에 처리를 시작할 수 있다 — 원래 GET+DEL 원자 연산이 막던 "동시 재사용"이 다시 열린다. 즉 "먼저 지우고
+처리"(보안: 동시성 차단, 복구성 없음) vs "처리 후 지우기"(복구성, 동시성 취약)는 서로 트레이드오프 관계라
+단순 순서 교체로는 둘 다 가질 수 없다.
+
+**제안 설계 — 3단계 상태(claim 패턴).**
+토큰의 실제 데이터(`pwd-reset:{token}` 등)는 그대로 두고, 별도의 짧은 TTL을 가진 "처리 중" 표시(claim)만
+추가한다.
+
+1. **Claim 시도**: `SET pwd-reset-claim:{token} 1 NX PX <짧은 TTL, 예: 10~30초>`로 클레임 키를 원자적으로
+   선점한다. 실패하면(이미 다른 요청이 처리 중) 기존과 같은 `INVALID_OR_EXPIRED_TOKEN`으로 응답한다 — 동시
+   재사용은 이 단계에서 막힌다(원래 GET+DEL이 하던 역할을 claim이 대신함).
+2. **DB 처리**: 클레임에 성공한 요청만 토큰 값(memberId)을 조회(GET, 아직 DEL 안 함)해 회원을 찾고, 도메인
+   상태를 변경한 뒤 트랜잭션을 커밋한다.
+3. **최종 확정**:
+   - DB 처리가 **성공**하면 그때 비로소 실제 토큰 키(`pwd-reset:{token}`)와 클레임 키를 함께 삭제한다 —
+     이 시점에야 "진짜 소비 완료"가 된다.
+   - DB 처리가 **실패**하면 실제 토큰 키는 그대로 둔 채 클레임 키만 즉시 삭제(또는 그냥 두고 TTL 만료를
+     기다림)해, 사용자가 같은 링크로 재시도할 수 있게 한다.
+
+이러면 동시 재사용은 클레임 단계에서 차단되고(보안 유지), DB 처리가 일시적으로 실패해도 실제 토큰은 살아있어
+재시도가 가능하다(복구성 확보). 클레임 TTL을 짧게(수십 초) 잡아, 처리 도중 서버가 죽어 클레임 해제 로직 자체가
+못 불려도 오래 막히지 않게 한다.
+
+**영향 범위.** `MemberTokenRepository`의 `consumeEmailVerificationToken()`/`consumePasswordResetToken()`을
+"클레임 획득 → (호출부가 DB 처리) → 커밋 결과에 따라 확정/롤백"의 2~3단계 API로 바꿔야 해서, 지금의 단순한
+"소비 후 Optional 반환" 시그니처보다 호출부(`EmailVerificationService`/`PasswordResetService`) 쪽 트랜잭션
+경계와 더 얽힌다 — 이번 PR에서 정리한 `MemberTokenRepository`의 비밀번호 재설정 단일 활성 토큰 로직
+(`pwd-reset-active:{memberId}`)과도 상호작용을 고려해 함께 설계해야 한다. 착수 시 새 Mockito 단위 테스트뿐
+아니라 동시 요청·DB 실패 시나리오를 검증하는 Level 3(실제 Redis) 테스트도 필요하다.
 
 ---
 

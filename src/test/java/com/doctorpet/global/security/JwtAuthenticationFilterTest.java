@@ -26,6 +26,9 @@ class JwtAuthenticationFilterTest {
     @Mock
     private JwtTokenProvider jwtTokenProvider;
 
+    @Mock
+    private MemberBlacklistPort memberBlacklistPort;
+
     @InjectMocks
     private JwtAuthenticationFilter jwtAuthenticationFilter;
 
@@ -47,11 +50,30 @@ class JwtAuthenticationFilterTest {
         given(jwtTokenProvider.validateToken("access-token")).willReturn(true);
         given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
         given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
+        given(memberBlacklistPort.isBlacklisted(1L)).willReturn(false);
 
         jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+    }
+
+    @Test
+    @DisplayName("서명·만료·타입은 유효해도 탈퇴 등으로 블랙리스트에 있으면 SecurityContext를 설정하지 않는다(리뷰 지적 P1 대응)")
+    void doFilterInternal_blacklistedMember_doesNotAuthenticate() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer access-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN");
+
+        given(jwtTokenProvider.validateToken("access-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
+        given(memberBlacklistPort.isBlacklisted(1L)).willReturn(true);
+
+        jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test

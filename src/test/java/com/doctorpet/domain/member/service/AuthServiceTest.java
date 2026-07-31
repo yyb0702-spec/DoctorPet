@@ -16,6 +16,7 @@ import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.domain.member.event.MemberSignedUpEvent;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -54,6 +56,9 @@ class AuthServiceTest {
     @Mock
     private JwtProperties jwtProperties;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     @InjectMocks
     private AuthService authService;
 
@@ -72,6 +77,10 @@ class AuthServiceTest {
 
         assertThat(response.memberId()).isEqualTo(1L);
         verify(passwordEncoder).encode("password1234");
+        // 백로그 P2 — 가입 직후 이메일 인증 메일 발송 훅. 트랜잭션 커밋 이후에만 발송되도록
+        // 이벤트를 발행하는 것까지만 여기서 검증한다(실제 발송은 MemberSignupEventListener,
+        // AFTER_COMMIT 시점 처리는 리뷰 대응 — 리뷰 대응 이력 참고).
+        verify(eventPublisher).publishEvent(new MemberSignedUpEvent(savedMember));
     }
 
     @Test
@@ -130,6 +139,7 @@ class AuthServiceTest {
         LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
+        member.verifyEmail(); // 이메일 인증 필수(백로그 P2) — 미인증이면 이 성공 시나리오 자체가 불가능하다.
 
         given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
         given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(true);
@@ -172,6 +182,27 @@ class AuthServiceTest {
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.INVALID_CREDENTIALS));
         assertThat(member.getFailedLoginAttempts()).isEqualTo(1);
+        verify(jwtTokenProvider, never()).generateAccessToken(anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("이메일·비밀번호는 맞지만 이메일 인증 전이면 EMAIL_NOT_VERIFIED 예외를 던지고, 토큰은 발급하지 않는다(백로그 P2)")
+    void login_emailNotVerified() {
+        LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        // emailVerified 기본값은 false — 인증 안 함.
+
+        given(memberRepository.findByEmailForUpdate(request.email())).willReturn(Optional.of(member));
+        given(passwordEncoder.matches(request.password(), member.getPassword())).willReturn(true);
+
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.EMAIL_NOT_VERIFIED));
+        // 비밀번호 자체는 맞았으므로 실패 횟수는 그대로 초기화된다(recordLoginSuccess가 먼저 실행됨) —
+        // 미인증 상태는 "틀린 로그인 시도"로 카운트하지 않는다.
+        assertThat(member.getFailedLoginAttempts()).isZero();
         verify(jwtTokenProvider, never()).generateAccessToken(anyLong(), anyString(), anyString());
     }
 

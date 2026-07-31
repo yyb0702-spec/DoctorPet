@@ -13,6 +13,7 @@ import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
+import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -44,6 +45,9 @@ class HospitalReservationAuthorizationTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private MemberBlacklistPort memberBlacklistPort;
 
     @Test
     @DisplayName("비인증 사용자는 병원 예약 운영 API에 접근할 수 없다")

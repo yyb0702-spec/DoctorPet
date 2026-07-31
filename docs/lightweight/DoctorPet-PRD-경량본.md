@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.6 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.13, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
 ## 1. 제품 개요
@@ -88,3 +88,18 @@ AI 상담은 비로그인 사용자도 임시 정보로 이용할 수 있다. MV
 | 응급 처리 | 고정 응답 라우팅 성공률 100% |
 | 면책 문구 | 서버 주입 누락 0건 |
 | 구조화 출력 | 스키마 파싱 성공률 측정, 목표값은 정본의 미확정 사항 유지 |
+
+## 8. 병원 예약 슬롯 조회
+
+- 프론트는 병원 예약 화면 최초 진입 시 서울 기준 오늘 날짜를 전달하고, 날짜 변경 시 같은 API를 다시 호출한다.
+- 조회 API는 `GET /api/hospitals/{hospitalId}/slots?date=YYYY-MM-DD`이며 `date`는 필수다.
+- 조회 기준 시간대는 `Asia/Seoul`이고, 오늘부터 오늘+13일까지 14일을 선택 가능 범위로 사용한다.
+- 응답은 14일의 날짜별 `reservationAvailable`과 선택 날짜의 슬롯 목록을 함께 제공한다.
+- 슬롯 조회용 상태는 다음과 같다.
+  - `AVAILABLE`: DB 상태가 `OPEN`이고 `startAt >= 현재 시각+4시간`
+  - `RESERVED`: DB 상태가 `RESERVED`
+  - `LEAD_TIME_CLOSED`: DB 상태가 `OPEN`이고 `startAt < 현재 시각+4시간`
+- `RESERVED`와 `LEAD_TIME_CLOSED`는 화면에 표시하되 클릭할 수 없다.
+- 과거 또는 오늘+14일 이후 날짜는 `200 OK`와 빈 슬롯 목록을 반환한다.
+- 비제휴·휴업·폐업 병원은 날짜 활성 목록과 슬롯 목록을 비워 반환하고, 존재하지 않는 병원은 `HOSPITAL_NOT_FOUND`로 처리한다.
+- 조회 결과는 예약 성공을 보장하지 않으며, 예약 생성 시 슬롯 상태와 4시간 리드타임을 다시 검증한다.

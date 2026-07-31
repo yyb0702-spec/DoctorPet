@@ -85,7 +85,7 @@ PRD와 SA의 `슬롯 등록 오류`/`슬롯 오류` 표현 충돌은 상위 정�
 | --- | --- | --- |
 | 필수 서비스·Controller·인가 테스트 | PASS | 시간 제한, 거절 사유, MVC 인가 |
 | 상태 전이 Level 3 테스트 | PASS | 실제 MySQL 승인↔거절, 취소↔거절 경쟁 |
-| 예약 도메인 전체 테스트 | PASS | 65개 테스트 |
+| 예약 도메인 전체 테스트 | PASS | 최신 develop 병합 후 83개 테스트 |
 | 문서 하네스 | PASS | 문서 링크·경로·섹션·정본 참조 |
 | `git diff --check` | PASS | 공백 오류 없음, CRLF 변환 경고만 존재 |
 | 전체 `clean build` | PARTIAL | 336개 중 6개 실패, 1개 skipped |
@@ -96,10 +96,21 @@ PRD와 SA의 `슬롯 등록 오류`/`슬롯 오류` 표현 충돌은 상위 정�
 - Redis 통합·성능 테스트: 로컬 Redis 미기동
 - `AuthServiceConcurrencyTest`: 같은 컨텍스트 실패의 영향
 
-전체 소스와 테스트 컴파일, Jar 조립은 성공했고 예약 도메인 65개 테스트는 모두 통과했다.
+전체 소스와 테스트 컴파일, Jar 조립은 성공했고 최신 develop 병합 후 예약 도메인 83개 테스트는 모두 통과했다.
 CI에서는 MySQL·Redis 서비스와 `PAYMENT_GATEWAY=fake` 설정을 제공한 뒤 최종 전체 PASS를 확인해야 한다.
 
-## 5. 이번 작업에서 제외한 항목
+## 5. develop 병합 충돌 해결
+
+`ReservationRepository` 충돌은 우리 브랜치의 병원 예약 목록·이력 집계·조건부 상태 전이 메서드와
+develop의 회원 탈퇴 활성 예약 확인 메서드를 모두 보존하는 방식으로 해결했다.
+
+- 병원 운영: `findByHospitalIdAndStatus`, `findHistoryAggregates`, 상태별 조건부 UPDATE 유지
+- 회원 탈퇴: `existsByMemberIdAndStatusIn` 유지
+- 중복된 import 충돌 마커 제거
+- develop에서 추가된 `MemberBlacklistPort`와 fake mail 테스트 설정을 예약 테스트에 반영
+- 병합 후 예약 도메인 전체 테스트 PASS
+
+## 6. 이번 작업에서 제외한 항목
 
 알림 저장은 `notifications` 테이블·엔티티·조회 API를 포함하는 별도 도메인 작업이므로 임의로 추가하지 않았다.
 PR #74에서 포함할지 별도 알림 이슈로 분리할지 팀 결정이 필요하다.

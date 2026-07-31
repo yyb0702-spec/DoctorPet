@@ -33,7 +33,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 @SpringBootTest(properties = {
         "payment.gateway=fake",
         "payment.billing-key.enc-key="
-                + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+                + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "mail.provider=fake",
+        "mail.verification.base-url=http://localhost/verify-email",
+        "mail.password-reset.base-url=http://localhost/reset-password",
+        "member.email-verified-backfill.enabled=false"
 })
 class HospitalReservationTransitionConcurrencyIntegrationTest {
 
