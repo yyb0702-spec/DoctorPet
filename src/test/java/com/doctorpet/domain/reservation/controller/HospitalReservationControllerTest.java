@@ -1,6 +1,7 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
+import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -36,11 +37,15 @@ class HospitalReservationControllerTest {
 
     @Test
     void reject_delegatesReasonAndReservationId() {
-        ReservationRejectRequest request = new ReservationRejectRequest("진료 슬롯 부족");
+        ReservationRejectRequest request = new ReservationRejectRequest("진료 불가");
 
         ApiResponse<Void> response = hospitalReservationController.reject(principal, 10L, request);
 
-        verify(hospitalReservationService).reject(50L, 10L, "진료 슬롯 부족");
+        verify(hospitalReservationService).reject(
+                50L,
+                10L,
+                ReservationRejectReason.TREATMENT_UNAVAILABLE
+        );
         assertThat(response.code()).isEqualTo("SUCCESS");
     }
 
@@ -70,11 +75,26 @@ class HospitalReservationControllerTest {
 
     @Test
     void getReservations_delegatesAuthenticatedStaffAndPaging() {
-        when(hospitalReservationService.findHospitalReservations(50L, 0, 20))
+        when(hospitalReservationService.findHospitalReservations(
+                50L,
+                "REQUESTED",
+                0,
+                20
+        ))
                 .thenReturn(Page.empty());
-        ApiResponse<?> response = hospitalReservationController.getReservations(principal, 0, 20);
+        ApiResponse<?> response = hospitalReservationController.getReservations(
+                principal,
+                "REQUESTED",
+                0,
+                20
+        );
 
-        verify(hospitalReservationService).findHospitalReservations(50L, 0, 20);
+        verify(hospitalReservationService).findHospitalReservations(
+                50L,
+                "REQUESTED",
+                0,
+                20
+        );
         assertThat(response.code()).isEqualTo("SUCCESS");
     }
 }

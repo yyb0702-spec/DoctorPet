@@ -30,7 +30,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "payment.gateway=fake",
+        "payment.billing-key.enc-key="
+                + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+})
 class ReservationConcurrencyIntegrationTest {
 
     private static final int REQUEST_COUNT = 10;

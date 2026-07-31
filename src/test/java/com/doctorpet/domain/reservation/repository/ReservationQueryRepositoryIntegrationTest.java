@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.global.config.JpaAuditingConfig;
 import com.doctorpet.global.config.QuerydslConfig;
 import java.time.LocalDateTime;
@@ -18,6 +19,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import jakarta.persistence.EntityManager;
+import org.springframework.test.util.ReflectionTestUtils;
+import java.util.List;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -185,6 +188,84 @@ class ReservationQueryRepositoryIntegrationTest {
         )).isZero();
     }
 
+    @Test
+    @DisplayName("병원 예약 목록은 요청한 상태만 조회한다")
+    void findByHospitalIdAndStatus_returnsRequestedStatusOnly() {
+        Reservation requested = saveReservation(
+                1L,
+                LocalDateTime.of(2026, 8, 1, 10, 0),
+                false
+        );
+        saveReservation(
+                2L,
+                LocalDateTime.of(2026, 8, 1, 11, 0),
+                true
+        );
+
+        Page<Reservation> result =
+                reservationRepository.findByHospitalIdAndStatus(
+                        100L,
+                        ReservationStatus.REQUESTED,
+                        PageRequest.of(0, 20)
+                );
+
+        assertThat(result.getContent())
+                .extracting(Reservation::getId)
+                .containsExactly(requested.getId());
+    }
+
+    @Test
+    @DisplayName("회원별 예약 이력은 한 번의 집계 쿼리로 상태별 건수를 계산한다")
+    void findHistoryAggregates_groupsCountsByMember() {
+        long memberId = 301L;
+        saveReservationWithStatus(
+                memberId,
+                LocalDateTime.of(2026, 8, 2, 10, 0),
+                ReservationStatus.TREATMENT_COMPLETED
+        );
+        saveReservationWithStatus(
+                memberId,
+                LocalDateTime.of(2026, 8, 2, 11, 0),
+                ReservationStatus.CANCELED
+        );
+        saveReservationWithStatus(
+                memberId,
+                LocalDateTime.of(2026, 8, 2, 12, 0),
+                ReservationStatus.NO_SHOW
+        );
+        saveReservation(
+                memberId,
+                LocalDateTime.of(2026, 8, 2, 13, 0),
+                false
+        );
+
+        List<ReservationHistoryAggregate> result =
+                reservationRepository.findHistoryAggregates(
+                        List.of(memberId),
+                        ReservationStatus.TREATMENT_COMPLETED,
+                        ReservationStatus.CANCELED,
+                        ReservationStatus.NO_SHOW
+                );
+
+        assertThat(result).singleElement().satisfies(history -> {
+            assertThat(history.memberId()).isEqualTo(memberId);
+            assertThat(history.totalReservationCount()).isEqualTo(4L);
+            assertThat(history.completedCount()).isEqualTo(1L);
+            assertThat(history.cancelCount()).isEqualTo(1L);
+            assertThat(history.noShowCount()).isEqualTo(1L);
+        });
+    }
+
+    private Reservation saveReservationWithStatus(
+            Long memberId,
+            LocalDateTime startAt,
+            ReservationStatus status
+    ) {
+        Reservation reservation = saveReservation(memberId, startAt, false);
+        ReflectionTestUtils.setField(reservation, "status", status);
+        return reservationRepository.saveAndFlush(reservation);
+    }
+
     private Reservation saveReservation(
             Long memberId,
             LocalDateTime startAt,
@@ -208,7 +289,16 @@ class ReservationQueryRepositoryIntegrationTest {
                 startAt.minusDays(1)
         );
         if (confirmed) {
-            reservation.confirm(startAt.minusHours(1));
+            ReflectionTestUtils.setField(
+                    reservation,
+                    "status",
+                    ReservationStatus.CONFIRMED
+            );
+            ReflectionTestUtils.setField(
+                    reservation,
+                    "confirmedAt",
+                    startAt.minusHours(1)
+            );
         }
         return reservationRepository.saveAndFlush(reservation);
     }

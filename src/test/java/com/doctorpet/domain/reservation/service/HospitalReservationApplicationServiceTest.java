@@ -14,6 +14,7 @@ import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
@@ -78,6 +79,8 @@ class HospitalReservationApplicationServiceTest {
         Reservation reservation = reservation(HOSPITAL_ID);
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot()));
         given(reservationRepository.approveIfRequested(
                 any(),
                 any(),
@@ -124,7 +127,7 @@ class HospitalReservationApplicationServiceTest {
         assertThatThrownBy(() -> hospitalReservationService.reject(
                 STAFF_ID,
                 RESERVATION_ID,
-                " "
+                null
         ))
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
@@ -157,7 +160,7 @@ class HospitalReservationApplicationServiceTest {
         hospitalReservationService.reject(
                 STAFF_ID,
                 RESERVATION_ID,
-                "직원 부족"
+                ReservationRejectReason.STAFF_SHORTAGE
         );
 
         assertThat(slot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
@@ -176,6 +179,8 @@ class HospitalReservationApplicationServiceTest {
     void approve_whenUpdateIsZero_throwsInvalidStatus() {
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot()));
         given(reservationRepository.approveIfRequested(
                 any(),
                 any(),
@@ -199,6 +204,8 @@ class HospitalReservationApplicationServiceTest {
     void checkIn_success() {
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot()));
         given(reservationRepository.checkInIfConfirmed(
                 any(), any(), any(), any(), any()
         )).willReturn(1);
@@ -215,6 +222,8 @@ class HospitalReservationApplicationServiceTest {
     void checkIn_whenUpdateIsZero_throwsInvalidStatus() {
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot()));
         given(reservationRepository.checkInIfConfirmed(
                 any(), any(), any(), any(), any()
         )).willReturn(0);
@@ -226,6 +235,73 @@ class HospitalReservationApplicationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(ReservationErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("요청 후 1시간이 지나면 예약을 승인할 수 없다")
+    void approve_afterRequestDeadline_throwsDeadlinePassed() {
+        Reservation reservation = reservation(
+                HOSPITAL_ID,
+                LocalDateTime.now().minusHours(1).minusMinutes(1)
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot()));
+
+        assertThatThrownBy(() -> hospitalReservationService.approve(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.APPROVAL_DEADLINE_PASSED);
+
+        verify(reservationRepository, never()).approveIfRequested(
+                any(), any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("예약 시각 2시간 전이 지나면 요청 후 1시간 이내여도 승인할 수 없다")
+    void approve_afterSlotDeadline_throwsDeadlinePassed() {
+        Reservation reservation = reservation(HOSPITAL_ID);
+        ReservationSlot slot = slot(LocalDateTime.now().plusHours(1));
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot));
+
+        assertThatThrownBy(() -> hospitalReservationService.approve(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.APPROVAL_DEADLINE_PASSED);
+    }
+
+    @Test
+    @DisplayName("예약 시각 10분이 지나면 체크인할 수 없다")
+    void checkIn_afterGraceTime_throwsDeadlinePassed() {
+        Reservation reservation = reservation(HOSPITAL_ID);
+        ReservationSlot slot = slot(LocalDateTime.now().minusMinutes(11));
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(slot));
+
+        assertThatThrownBy(() -> hospitalReservationService.checkIn(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.CHECK_IN_DEADLINE_PASSED);
+
+        verify(reservationRepository, never()).checkInIfConfirmed(
+                any(), any(), any(), any(), any()
+        );
     }
 
     @Test
@@ -301,23 +377,38 @@ class HospitalReservationApplicationServiceTest {
     void findHospitalReservations_success() {
         Reservation reservation = reservation(HOSPITAL_ID);
         ReservationSlot slot = slot();
-        given(reservationRepository.findByHospitalId(any(), any(Pageable.class)))
+        given(reservationRepository.findByHospitalIdAndStatus(
+                any(),
+                any(),
+                any(Pageable.class)
+        ))
                 .willReturn(new PageImpl<>(List.of(reservation)));
-        given(reservationSlotRepository.findById(SLOT_ID))
-                .willReturn(Optional.of(slot));
+        given(reservationSlotRepository.findAllById(any()))
+                .willReturn(List.of(slot));
+        given(reservationRepository.findHistoryAggregates(
+                any(), any(), any(), any()
+        )).willReturn(List.of());
 
         Page<?> result = hospitalReservationService.findHospitalReservations(
-                STAFF_ID, 0, 20
+                STAFF_ID, "REQUESTED", 0, 20
         );
 
         assertThat(result.getContent()).hasSize(1);
-        verify(reservationRepository).findByHospitalId(
+        verify(reservationRepository).findByHospitalIdAndStatus(
                 org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(ReservationStatus.REQUESTED),
                 org.mockito.ArgumentMatchers.any(Pageable.class)
         );
     }
 
     private Reservation reservation(Long hospitalId) {
+        return reservation(hospitalId, LocalDateTime.now());
+    }
+
+    private Reservation reservation(
+            Long hospitalId,
+            LocalDateTime requestedAt
+    ) {
         Reservation reservation = Reservation.request(
                 1L,
                 2L,
@@ -326,17 +417,21 @@ class HospitalReservationApplicationServiceTest {
                 3L,
                 "초코",
                 "DOG",
-                LocalDateTime.now()
+                requestedAt
         );
         ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
         return reservation;
     }
 
     private ReservationSlot slot() {
+        return slot(LocalDateTime.now().plusDays(1));
+    }
+
+    private ReservationSlot slot(LocalDateTime startAt) {
         ReservationSlot slot = ReservationSlot.create(
                 HOSPITAL_ID,
-                LocalDateTime.now().plusDays(1),
-                LocalDateTime.now().plusDays(1).plusMinutes(30)
+                startAt,
+                startAt.plusMinutes(30)
         );
         ReflectionTestUtils.setField(slot, "id", SLOT_ID);
         slot.reserve();

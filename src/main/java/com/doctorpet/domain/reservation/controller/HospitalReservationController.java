@@ -34,12 +34,13 @@ public class HospitalReservationController {
     @GetMapping
     public ApiResponse<HospitalReservationPageResponse> getReservations(
             @AuthenticationPrincipal MemberPrincipal principal,
+            @RequestParam(defaultValue = "REQUESTED") String status,
             @RequestParam(defaultValue = "0") @PositiveOrZero int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         Page<HospitalReservationListItemResponse> result =
                 hospitalReservationService.findHospitalReservations(
-                        principal.memberId(), page, size
+                        principal.memberId(), status, page, size
                 );
         return ApiResponse.success(HospitalReservationPageResponse.from(result));
     }
@@ -59,7 +60,11 @@ public class HospitalReservationController {
             @PathVariable @Positive Long reservationId,
             @Valid @RequestBody ReservationRejectRequest request
     ) {
-        hospitalReservationService.reject(principal.memberId(), reservationId, request.rejectReason());
+        hospitalReservationService.reject(
+                principal.memberId(),
+                reservationId,
+                request.toRejectReason()
+        );
         return ApiResponse.success();
     }
 

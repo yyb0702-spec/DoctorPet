@@ -221,7 +221,16 @@ class ReservationServiceTest {
                 "DOG",
                 requestedAt
         );
-        reservation.confirm(requestedAt.plusHours(1));
+        ReflectionTestUtils.setField(
+                reservation,
+                "status",
+                ReservationStatus.CONFIRMED
+        );
+        ReflectionTestUtils.setField(
+                reservation,
+                "confirmedAt",
+                requestedAt.plusHours(1)
+        );
         ReflectionTestUtils.setField(reservation, "id", 10L);
         return reservation;
     }

@@ -4,8 +4,10 @@ import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
@@ -22,6 +24,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +48,9 @@ public class HospitalReservationApplicationService {
         Reservation reservation = findReservation(reservationId);
         assertHospitalOwnership(reservation, hospitalId);
 
+        ReservationSlot slot = findSlot(reservation.getSlotId());
         LocalDateTime now = LocalDateTime.now();
+        validateApprovalDeadline(reservation, slot, now);
         int updated = reservationRepository.approveIfRequested(
                 reservationId,
                 hospitalId,
@@ -62,9 +71,9 @@ public class HospitalReservationApplicationService {
     public void reject(
             Long staffMemberId,
             Long reservationId,
-            String rejectReason
+            ReservationRejectReason rejectReason
     ) {
-        if (rejectReason == null || rejectReason.isBlank()) {
+        if (rejectReason == null) {
             throw new ServiceException(ReservationErrorCode.REJECT_REASON_REQUIRED);
         }
 
@@ -78,16 +87,14 @@ public class HospitalReservationApplicationService {
                 hospitalId,
                 ReservationStatus.REQUESTED,
                 ReservationStatus.REJECTED,
-                rejectReason,
+                rejectReason.value(),
                 now
         );
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
 
-        ReservationSlot slot = reservationSlotRepository.findById(
-                reservation.getSlotId()
-        ).orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
+        ReservationSlot slot = findSlot(reservation.getSlotId());
         slot.open();
     }
 
@@ -100,12 +107,15 @@ public class HospitalReservationApplicationService {
         Reservation reservation = findReservation(reservationId);
         assertHospitalOwnership(reservation, hospitalId);
 
+        ReservationSlot slot = findSlot(reservation.getSlotId());
+        LocalDateTime now = LocalDateTime.now();
+        validateCheckInDeadline(slot, now);
         int updated = reservationRepository.checkInIfConfirmed(
                 reservationId,
                 hospitalId,
                 ReservationStatus.CONFIRMED,
                 ReservationStatus.CHECKED_IN,
-                LocalDateTime.now()
+                now
         );
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
@@ -156,27 +166,27 @@ public class HospitalReservationApplicationService {
 
     public Page<HospitalReservationListItemResponse> findHospitalReservations(
             Long staffMemberId,
+            String status,
             int page,
             int size
     ) {
         Long hospitalId = requireHospitalId(staffMemberId);
-        Page<Reservation> reservations = reservationRepository.findByHospitalId(
+        ReservationStatus reservationStatus = parseStatus(status);
+        Page<Reservation> reservations = reservationRepository.findByHospitalIdAndStatus(
                 hospitalId,
+                reservationStatus,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "requestedAt"))
         );
 
+        Map<Long, ReservationSlot> slotsById = findSlotsById(reservations.getContent());
+        Map<Long, ReservationHistoryResponse> historiesByMemberId =
+                findHistoriesByMemberId(reservations.getContent());
+
         return reservations.map(reservation -> {
-            ReservationSlot slot = reservationSlotRepository.findById(reservation.getSlotId())
-                    .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
-            Long memberId = reservation.getMemberId();
-            ReservationHistoryResponse history = new ReservationHistoryResponse(
-                    reservationRepository.countByMemberId(memberId),
-                    reservationRepository.countByMemberIdAndStatus(
-                            memberId, ReservationStatus.TREATMENT_COMPLETED),
-                    reservationRepository.countByMemberIdAndStatus(
-                            memberId, ReservationStatus.CANCELED),
-                    reservationRepository.countByMemberIdAndStatus(
-                            memberId, ReservationStatus.NO_SHOW)
+            ReservationSlot slot = requireSlot(slotsById, reservation.getSlotId());
+            ReservationHistoryResponse history = historiesByMemberId.getOrDefault(
+                    reservation.getMemberId(),
+                    new ReservationHistoryResponse(0L, 0L, 0L, 0L)
             );
             return HospitalReservationListItemResponse.from(
                     reservation,
@@ -184,6 +194,66 @@ public class HospitalReservationApplicationService {
                     history
             );
         });
+    }
+
+    private ReservationStatus parseStatus(String status) {
+        try {
+            return ReservationStatus.valueOf(status);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new ServiceException(ReservationErrorCode.INVALID_FILTER_STATUS);
+        }
+    }
+
+    private Map<Long, ReservationSlot> findSlotsById(
+            Collection<Reservation> reservations
+    ) {
+        if (reservations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Collection<Long> slotIds = reservations.stream()
+                .map(Reservation::getSlotId)
+                .distinct()
+                .toList();
+        return reservationSlotRepository.findAllById(slotIds).stream()
+                .collect(Collectors.toMap(
+                        ReservationSlot::getId,
+                        Function.identity()
+                ));
+    }
+
+    private Map<Long, ReservationHistoryResponse> findHistoriesByMemberId(
+            Collection<Reservation> reservations
+    ) {
+        if (reservations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Collection<Long> memberIds = reservations.stream()
+                .map(Reservation::getMemberId)
+                .distinct()
+                .toList();
+        return reservationRepository.findHistoryAggregates(
+                        memberIds,
+                        ReservationStatus.TREATMENT_COMPLETED,
+                        ReservationStatus.CANCELED,
+                        ReservationStatus.NO_SHOW
+                ).stream()
+                .collect(Collectors.toMap(
+                        ReservationHistoryAggregate::memberId,
+                        ReservationHistoryAggregate::toResponse
+                ));
+    }
+
+    private ReservationSlot requireSlot(
+            Map<Long, ReservationSlot> slotsById,
+            Long slotId
+    ) {
+        ReservationSlot slot = slotsById.get(slotId);
+        if (slot == null) {
+            throw new ServiceException(SlotErrorCode.SLOT_NOT_FOUND);
+        }
+        return slot;
     }
 
     private Long requireHospitalId(Long staffMemberId) {
@@ -200,6 +270,40 @@ public class HospitalReservationApplicationService {
                 .orElseThrow(() -> new ServiceException(
                         ReservationErrorCode.RESERVATION_NOT_FOUND
                 ));
+    }
+
+    private ReservationSlot findSlot(Long slotId) {
+        return reservationSlotRepository.findById(slotId)
+                .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
+    }
+
+    private void validateApprovalDeadline(
+            Reservation reservation,
+            ReservationSlot slot,
+            LocalDateTime now
+    ) {
+        LocalDateTime requestDeadline = reservation.getRequestedAt().plusHours(1);
+        LocalDateTime slotDeadline = slot.getStartAt().minusHours(2);
+        LocalDateTime approvalDeadline = requestDeadline.isBefore(slotDeadline)
+                ? requestDeadline
+                : slotDeadline;
+
+        if (now.isAfter(approvalDeadline)) {
+            throw new ServiceException(
+                    ReservationErrorCode.APPROVAL_DEADLINE_PASSED
+            );
+        }
+    }
+
+    private void validateCheckInDeadline(
+            ReservationSlot slot,
+            LocalDateTime now
+    ) {
+        if (now.isAfter(slot.getStartAt().plusMinutes(10))) {
+            throw new ServiceException(
+                    ReservationErrorCode.CHECK_IN_DEADLINE_PASSED
+            );
+        }
     }
 
     private void assertHospitalOwnership(

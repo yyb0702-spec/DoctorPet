@@ -1,8 +1,11 @@
 package com.doctorpet.domain.reservation.repository;
 
+import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -25,11 +28,30 @@ public interface ReservationRepository
             Long hospitalId
     );
 
-    Page<Reservation> findByHospitalId(Long hospitalId, Pageable pageable);
+    Page<Reservation> findByHospitalIdAndStatus(
+            Long hospitalId,
+            ReservationStatus status,
+            Pageable pageable
+    );
 
-    long countByMemberId(Long memberId);
-
-    long countByMemberIdAndStatus(Long memberId, ReservationStatus status);
+    @Query("""
+            select new com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate(
+                    r.memberId,
+                    count(r),
+                    sum(case when r.status = :completedStatus then 1L else 0L end),
+                    sum(case when r.status = :canceledStatus then 1L else 0L end),
+                    sum(case when r.status = :noShowStatus then 1L else 0L end)
+            )
+              from Reservation r
+             where r.memberId in :memberIds
+             group by r.memberId
+            """)
+    List<ReservationHistoryAggregate> findHistoryAggregates(
+            @Param("memberIds") Collection<Long> memberIds,
+            @Param("completedStatus") ReservationStatus completedStatus,
+            @Param("canceledStatus") ReservationStatus canceledStatus,
+            @Param("noShowStatus") ReservationStatus noShowStatus
+    );
 
     long countBySlotId(Long slotId);
 
