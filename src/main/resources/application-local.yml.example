@@ -27,6 +27,7 @@ payment:
   # 빌링키 암호화 키(AES-256-GCM). Base64로 인코딩된 256-bit(32-byte) 랜덤 키.
   # 실제 키는 env/시크릿으로 주입하고 커밋하지 않는다(이슈 #33, AGENTS 보안).
   # 예: openssl rand -base64 32
+
   billing-key:
     enc-key: change-this-to-a-base64-encoded-256-bit-key
   portone:
@@ -43,6 +44,11 @@ payment:
 # (미설정 시 어떤 발송기도 안 뜸 = fail-safe).
 #   fake : 실제 발송 없이 로그로만 남김(로컬/테스트 — 콘솔에서 인증·재설정 링크 확인 가능)
 #   smtp : 실제 SMTP 연동(운영용, host/username/password 필수, 커밋 금지)
+# AI Gateway 구현체 선택
+#   fake: 외부 LLM을 호출하지 않는 로컬/테스트용 구현체
+ai:
+  gateway: fake
+
 mail:
   provider: fake
   from: noreply@doctorpet.example
