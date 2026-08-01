@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.11 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.20, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.12 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.21, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -90,6 +90,7 @@ domain/
 - `region`, `latitude`, `longitude`는 선택이며 좌표 두 값은 함께 전달한다. 위치 권한은 프론트가 요청하고 서버는 전달받은 좌표를 검색에만 사용한다.
 - Tool 조건은 축종·진료역량·응급·야간·현재 영업·거리 의도로 제한한다. “지금 진료 가능한”은 `openNow`, “야간·24시간”은 `nightCare`, “가까운·근처”는 좌표가 있을 때만 거리순으로 매핑한다.
 - 실제 현재 영업 여부는 서버가 `Asia/Seoul` 시각으로 판정한다. 좌표 없이 거리순이라고 표현하거나 병원 위치를 추측하지 않는다.
+- 응급이며 좌표가 있으면 거리 표현 없이도 `emergency=true`, `openNow=true`, `sort=distance`를 적용한다. 좌표가 없으면 `locationRecommended=true`로 선택적 위치 제공을 권장하되 응급 안내와 가능한 지역 검색을 지연하지 않는다. 좌표와 지역이 모두 없으면 전국 이름순 결과를 응급 추천으로 제공하지 않는다.
 - 수술·입원 조건의 AI 자동 해석, 복합 조건 우선순위·완화, 미래 방문 시각, 대화형 질문과 개인화는 확장 범위다.
 - Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회이며 설정값으로 관리한다.
 - 증상 원본은 저장하지 않고 전화번호·이메일·주민번호 등 패턴을 마스킹한 텍스트만 30일간 보존한 뒤 삭제한다.
