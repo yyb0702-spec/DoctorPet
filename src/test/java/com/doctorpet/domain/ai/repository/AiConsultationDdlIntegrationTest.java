@@ -11,6 +11,7 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import jakarta.persistence.EntityManager;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -74,5 +75,31 @@ class AiConsultationDdlIntegrationTest {
         assertThat(reloaded.getErrorType()).isEqualTo(AiGatewayFailureReason.TIMEOUT);
         assertThat(reloaded.isFallbackUsed()).isTrue();
         assertThat(reloaded.isSchemaParseSuccess()).isFalse();
+    }
+
+    @Test
+    @DisplayName("보존 기간이 지난 상담의 증상 텍스트만 삭제한다")
+    void clearSymptomTextsCreatedBefore_clearsOnlyExpiredText() {
+        AiAnalysisResult result = new AiAnalysisResult(
+                List.of("GENERAL"), List.of(), UrgencyLevel.LOW, List.of(), true,
+                null, null, null, null);
+        AiConsultation expired = repository.saveAndFlush(
+                AiConsultation.success(null, "오래된 증상", result, 10));
+        AiConsultation recent = repository.saveAndFlush(
+                AiConsultation.success(null, "최근 증상", result, 10));
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(30);
+        entityManager.createNativeQuery(
+                        "update ai_consultations set created_at = :createdAt where id = :id")
+                .setParameter("createdAt", cutoff.minusSeconds(1))
+                .setParameter("id", expired.getId())
+                .executeUpdate();
+        entityManager.clear();
+
+        int updatedCount = repository.clearSymptomTextsCreatedBefore(cutoff);
+
+        assertThat(updatedCount).isEqualTo(1);
+        assertThat(repository.findById(expired.getId()).orElseThrow().getSymptomText()).isNull();
+        assertThat(repository.findById(recent.getId()).orElseThrow().getSymptomText())
+                .isEqualTo("최근 증상");
     }
 }
