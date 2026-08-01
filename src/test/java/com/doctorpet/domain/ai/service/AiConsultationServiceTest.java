@@ -245,7 +245,7 @@ class AiConsultationServiceTest {
                 null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "name"
-        )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
 
         AiConsultationResponse response = service.consult(
                 1L, request("상태가 갑자기 나빠졌어요", PetSpecies.DOG, "서울"));
@@ -267,7 +267,7 @@ class AiConsultationServiceTest {
                 null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "name"
-        )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
 
         AiConsultationResponse response = service.consult(
                 1L, request("강아지가 호흡곤란을 보여요", PetSpecies.DOG, "서울"));
@@ -291,7 +291,7 @@ class AiConsultationServiceTest {
                 null, null, latitude, longitude, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "distance"
-        )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
 
         AiConsultationResponse response = service.consult(
                 1L,
@@ -342,6 +342,29 @@ class AiConsultationServiceTest {
         assertThat(response.message()).doesNotContain("가까운 순으로 안내");
         assertThat(response.fallback()).isTrue();
         assertThat(response.locationRecommended()).isFalse();
+    }
+
+    @Test
+    @DisplayName("응급 병원 검색 결과가 없으면 병원을 안내했다고 표현하지 않는다")
+    void consult_highUrgencyWithoutSearchResult_returnsNotFoundMessage() {
+        AiAnalysisResult result = new AiAnalysisResult(
+                List.of(), List.of(), UrgencyLevel.HIGH, List.of(), true,
+                null, null, null, null);
+        given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of(), List.of("DOG"), null, null, null, true,
+                false, true, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
+
+        AiConsultationResponse response = service.consult(
+                1L, request("상태가 갑자기 나빠졌어요", PetSpecies.DOG, "서울"));
+
+        assertThat(response.hospitals()).isEmpty();
+        assertThat(response.message()).contains("병원을 찾지 못했습니다");
+        assertThat(response.message()).doesNotContain("입력한 지역에서");
+        assertThat(response.fallback()).isFalse();
+        assertThat(response.locationRecommended()).isTrue();
     }
 
     @Test

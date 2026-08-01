@@ -49,6 +49,8 @@ public class AiConsultationService {
             "응급 상황일 수 있습니다. 가까운 응급 동물병원을 안내하려면 현재 위치를 제공하거나 지역을 입력해 주세요.";
     private static final String EMERGENCY_SEARCH_FAILED_MESSAGE =
             "응급 상황일 수 있지만 현재 병원 정보를 불러오지 못했습니다. 병원 검색에서 가까운 동물병원을 직접 확인하거나 즉시 연락해 주세요.";
+    private static final String EMERGENCY_HOSPITAL_NOT_FOUND_MESSAGE =
+            "응급 상황일 수 있지만 현재 조건에 맞는 병원을 찾지 못했습니다. 병원 검색에서 가까운 동물병원을 직접 확인하거나 즉시 연락해 주세요.";
     private static final String LOCATION_REQUIRED_MESSAGE =
             "가까운 병원을 찾으려면 위치를 제공하거나 지역을 입력해 주세요.";
     private static final String FALLBACK_MESSAGE =
@@ -111,7 +113,7 @@ public class AiConsultationService {
                     AiStructuredResult.from(result),
                     hospitals,
                     DISCLAIMER,
-                    emergency ? emergencyMessage(request) : SUCCESS_MESSAGE,
+                    emergency ? emergencyMessage(request, hospitals) : SUCCESS_MESSAGE,
                     false,
                     emergency && !hasLocation(request)
             );
@@ -187,7 +189,7 @@ public class AiConsultationService {
                 AiStructuredResult.from(result),
                 hospitals,
                 DISCLAIMER,
-                emergencyMessage(request),
+                emergencyMessage(request, hospitals),
                 false,
                 !hasLocation(request)
         );
@@ -224,7 +226,13 @@ public class AiConsultationService {
         return request.latitude() != null && request.longitude() != null;
     }
 
-    private String emergencyMessage(AiConsultationRequest request) {
+    private String emergencyMessage(
+            AiConsultationRequest request,
+            List<HospitalSearchResponse> hospitals
+    ) {
+        if (hospitals.isEmpty()) {
+            return EMERGENCY_HOSPITAL_NOT_FOUND_MESSAGE;
+        }
         if (hasLocation(request)) {
             return EMERGENCY_DISTANCE_MESSAGE;
         }
