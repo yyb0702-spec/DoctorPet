@@ -75,7 +75,8 @@ class AiConsultationControllerTest {
                 .andExpect(jsonPath("$.data.structured.urgencyLevel").value("MODERATE"))
                 .andExpect(jsonPath("$.data.hospitals").isArray())
                 .andExpect(jsonPath("$.data.disclaimer").isNotEmpty())
-                .andExpect(jsonPath("$.data.fallback").value(false));
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.locationRecommended").value(false));
 
         verify(service).consult(eq(7L), any(AiConsultationRequest.class));
     }
@@ -93,6 +94,34 @@ class AiConsultationControllerTest {
                 .andExpect(status().isOk());
 
         verify(service).consult(eq(null), any(AiConsultationRequest.class));
+    }
+
+    @Test
+    @DisplayName("응급 위치 권장 응답은 locationRecommended를 true로 반환한다")
+    void consult_emergencyWithoutLocation_returnsLocationRecommended() throws Exception {
+        AiConsultationResponse response = new AiConsultationResponse(
+                new AiStructuredResult(
+                        List.of(),
+                        List.of(),
+                        UrgencyLevel.HIGH,
+                        List.of("증상 시작 시점"),
+                        true
+                ),
+                List.of(),
+                "AI 분석은 참고용입니다.",
+                "즉시 병원에 방문해 주세요.",
+                false,
+                true
+        );
+        given(service.consult(eq(null), any(AiConsultationRequest.class))).willReturn(response);
+
+        mockMvc.perform(post("/api/ai/consultations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"symptomText":"호흡이 어려워요","species":"DOG"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.locationRecommended").value(true));
     }
 
     @Test
@@ -134,6 +163,64 @@ class AiConsultationControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
     }
 
+    @Test
+    @DisplayName("위도와 경도는 함께 입력해야 한다")
+    void consult_incompleteCoordinates_rejected() throws Exception {
+        mockMvc.perform(post("/api/ai/consultations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "symptomText":"가까운 병원을 찾아줘",
+                                  "species":"DOG",
+                                  "latitude":37.5665
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("위도와 경도의 허용 범위를 벗어나면 거부한다")
+    void consult_outOfRangeCoordinates_rejected() throws Exception {
+        mockMvc.perform(post("/api/ai/consultations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "symptomText":"가까운 병원을 찾아줘",
+                                  "species":"DOG",
+                                  "latitude":91,
+                                  "longitude":181
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("유효한 좌표는 상담 요청으로 전달한다")
+    void consult_validCoordinates_accepted() throws Exception {
+        given(service.consult(eq(null), any(AiConsultationRequest.class)))
+                .willReturn(successResponse());
+
+        mockMvc.perform(post("/api/ai/consultations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "symptomText":"가까운 병원을 찾아줘",
+                                  "species":"DOG",
+                                  "latitude":37.5665,
+                                  "longitude":126.9780
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(service).consult(eq(null), any(AiConsultationRequest.class));
+    }
+
     private AiConsultationResponse successResponse() {
         return new AiConsultationResponse(
                 new AiStructuredResult(
@@ -146,6 +233,7 @@ class AiConsultationControllerTest {
                 List.of(),
                 "AI 분석은 참고용입니다.",
                 "진료역량을 정리했습니다.",
+                false,
                 false
         );
     }

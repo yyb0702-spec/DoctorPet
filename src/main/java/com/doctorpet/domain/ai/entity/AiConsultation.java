@@ -118,6 +118,17 @@ public class AiConsultation {
         return consultation;
     }
 
+    public static AiConsultation successWithoutTool(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            int latencyMs
+    ) {
+        AiConsultation consultation = success(memberId, maskedSymptomText, result, latencyMs);
+        consultation.toolCallStatus = AiToolCallStatus.NOT_CALLED;
+        return consultation;
+    }
+
     public static AiConsultation toolFailed(
             Long memberId,
             String maskedSymptomText,

@@ -9,7 +9,8 @@ public record AiConsultationResponse(
         List<HospitalSearchResponse> hospitals,
         String disclaimer,
         String message,
-        boolean fallback
+        boolean fallback,
+        boolean locationRecommended
 ) {
 
     public AiConsultationResponse {
