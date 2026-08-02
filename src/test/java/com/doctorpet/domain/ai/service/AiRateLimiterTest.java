@@ -60,6 +60,35 @@ class AiRateLimiterTest {
     }
 
     @Test
+    @DisplayName("비로그인 사용자의 분당 네 번째 요청을 거부하고 일일 카운터를 증가시키지 않는다")
+    void check_anonymousFourthRequest_rejectedBeforeDailyCount() {
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:minute:"), any()))
+                .willReturn(4L);
+
+        assertThatThrownBy(() -> rateLimiter.check(null, "203.0.113.10"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(AiErrorCode.RATE_LIMIT_EXCEEDED);
+
+        verify(repository, never()).increment(
+                startsWith("ai-consultation:rate-limit:anonymous:day:"), any());
+    }
+
+    @Test
+    @DisplayName("비로그인 사용자의 일일 서른한 번째 요청을 거부한다")
+    void check_anonymousThirtyFirstDailyRequest_rejected() {
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:minute:"), any()))
+                .willReturn(1L);
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:day:"), any()))
+                .willReturn(31L);
+
+        assertThatThrownBy(() -> rateLimiter.check(null, "203.0.113.10"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(AiErrorCode.RATE_LIMIT_EXCEEDED);
+    }
+
+    @Test
     @DisplayName("Redis 장애 시 AI 상담 요청을 차단하지 않는다")
     void check_redisFailure_failsOpen() {
         given(repository.increment(any(), any()))
