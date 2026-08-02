@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.ai.config.AiRateLimitProperties;
 import com.doctorpet.domain.ai.exception.AiErrorCode;
+import com.doctorpet.domain.ai.exception.AiRateLimitStorageException;
 import com.doctorpet.domain.ai.repository.AiRateLimitRepository;
 import com.doctorpet.global.exception.ServiceException;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,11 +96,24 @@ class AiRateLimiterTest {
     @DisplayName("Redis 장애 시 AI 상담 요청을 차단하지 않는다")
     void check_redisFailure_failsOpen() {
         given(repository.increment(any(), any()))
-                .willThrow(new IllegalStateException("redis unavailable"));
+                .willThrow(new AiRateLimitStorageException("redis unavailable"));
 
         assertThatCode(() -> rateLimiter.check(null, "203.0.113.10"))
                 .doesNotThrowAnyException();
 
-        verify(failureLogger).logFailure(any(IllegalStateException.class));
+        verify(failureLogger).logFailure(any(AiRateLimitStorageException.class));
+    }
+
+    @Test
+    @DisplayName("저장소 장애가 아닌 예상하지 못한 오류는 fail-open으로 숨기지 않는다")
+    void check_unexpectedRuntimeException_propagated() {
+        given(repository.increment(any(), any()))
+                .willThrow(new IllegalStateException("unexpected bug"));
+
+        assertThatThrownBy(() -> rateLimiter.check(null, "203.0.113.10"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("unexpected bug");
+
+        verify(failureLogger, never()).logFailure(any());
     }
 }

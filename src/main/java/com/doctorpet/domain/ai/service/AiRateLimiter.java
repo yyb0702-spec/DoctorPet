@@ -2,6 +2,7 @@ package com.doctorpet.domain.ai.service;
 
 import com.doctorpet.domain.ai.config.AiRateLimitProperties;
 import com.doctorpet.domain.ai.exception.AiErrorCode;
+import com.doctorpet.domain.ai.exception.AiRateLimitStorageException;
 import com.doctorpet.domain.ai.repository.AiRateLimitRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
@@ -35,7 +36,7 @@ public class AiRateLimiter {
         } catch (ServiceException exception) {
             failureLogger.logRecovery();
             throw exception;
-        } catch (RuntimeException exception) {
+        } catch (AiRateLimitStorageException exception) {
             failureLogger.logFailure(exception);
             return;
         }

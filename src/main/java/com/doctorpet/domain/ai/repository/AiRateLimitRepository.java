@@ -1,5 +1,6 @@
 package com.doctorpet.domain.ai.repository;
 
+import com.doctorpet.domain.ai.exception.AiRateLimitStorageException;
 import java.time.Duration;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -22,13 +23,23 @@ public class AiRateLimitRepository {
     private final StringRedisTemplate redisTemplate;
 
     public long increment(String key, Duration ttl) {
-        Long count = redisTemplate.execute(
-                INCREMENT_WITH_TTL,
-                List.of(key),
-                String.valueOf(ttl.toMillis())
-        );
+        List<String> keys = List.of(key);
+        String ttlMillis = String.valueOf(ttl.toMillis());
+        Long count;
+        try {
+            count = redisTemplate.execute(
+                    INCREMENT_WITH_TTL,
+                    keys,
+                    ttlMillis
+            );
+        } catch (RuntimeException exception) {
+            throw new AiRateLimitStorageException(
+                    "AI 상담 Rate Limit 저장소 처리에 실패했습니다.",
+                    exception
+            );
+        }
         if (count == null) {
-            throw new IllegalStateException("AI 상담 Rate Limit 카운터 결과가 없습니다.");
+            throw new AiRateLimitStorageException("AI 상담 Rate Limit 카운터 결과가 없습니다.");
         }
         return count;
     }
