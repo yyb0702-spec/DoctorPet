@@ -1,8 +1,14 @@
 package com.doctorpet.domain.payment.repository;
 
 import com.doctorpet.domain.payment.entity.Payment;
+import com.doctorpet.domain.payment.entity.PaymentStatus;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /*
   진료비 결제 조회(#34). 예약당 1건이라 reservation_id로 존재 여부·단건을 확인한다.
@@ -16,4 +22,21 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findByReservationId(Long reservationId);
 
     Optional<Payment> findByMerchantPaymentId(String merchantPaymentId);
+
+    /*
+      정산 스케줄러(#35, SA §9-7)의 대상 조회. 일정 시간(threshold) 이상 status로 머문 결제를 오래된 순으로
+      배치 크기만큼 가져온다. updatedAt 기준이라 재조회로 갱신된 건은 다음 주기까지 자연히 밀린다(백오프).
+      대상 인덱스는 (status, updated_at)이다.
+     */
+    @Query("""
+            select p from Payment p
+             where p.status = :status
+               and p.updatedAt < :threshold
+             order by p.updatedAt asc
+            """)
+    List<Payment> findReconcileTargets(
+            @Param("status") PaymentStatus status,
+            @Param("threshold") LocalDateTime threshold,
+            Pageable pageable
+    );
 }

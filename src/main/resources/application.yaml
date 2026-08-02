@@ -23,6 +23,12 @@ payment:
     max-amount: 3000000        # 진료비 절대 상한(원)
     max-retry: 3               # 재시도 유효 실패 최대 재시도 횟수(SA §9-4 확정)
     backoff-initial-ms: 500    # 지수 백오프 초기 대기(500 → 1000 → 2000)
+  # 결제 정산 스케줄러(이슈 #35, SA §9-7). 값은 정책 미확정분이라 배포 없이 조정 가능하게 설정으로 둔다.
+  reconcile:
+    interval-ms: 300000        # 실행 주기 5분(SA §9-7)
+    stale-after-ms: 120000     # 이 시간 이상 PENDING인 결제만 대상(방금 청구된 건 제외)
+    batch-size: 100            # 한 배치 처리 최대 건수
+    max-attempts: 10           # 재조회 소진 임계 — 초과 시 OFFLINE_REQUIRED(수동 정산 전환)
 
 # 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
 public-data:
