@@ -2,7 +2,7 @@ package com.doctorpet.domain.ai.service;
 
 record AiRateLimitLogState(
         boolean failureActive,
-        long nextLogAllowedAt,
+        long nextLogAllowedAtNanos,
         long suppressedFailureCount
 ) {
 
@@ -10,14 +10,14 @@ record AiRateLimitLogState(
         return new AiRateLimitLogState(false, 0L, 0L);
     }
 
-    static AiRateLimitLogState failed(long nextLogAllowedAt) {
-        return new AiRateLimitLogState(true, nextLogAllowedAt, 0L);
+    static AiRateLimitLogState failed(long nextLogAllowedAtNanos) {
+        return new AiRateLimitLogState(true, nextLogAllowedAtNanos, 0L);
     }
 
     AiRateLimitLogState suppressFailure() {
         return new AiRateLimitLogState(
                 true,
-                nextLogAllowedAt,
+                nextLogAllowedAtNanos,
                 suppressedFailureCount + 1
         );
     }

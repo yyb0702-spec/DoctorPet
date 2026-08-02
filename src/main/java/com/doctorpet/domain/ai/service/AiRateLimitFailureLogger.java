@@ -10,26 +10,26 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiRateLimitFailureLogger {
 
-    private static final long LOG_INTERVAL_MILLIS = Duration.ofMinutes(1).toMillis();
+    private static final long LOG_INTERVAL_NANOS = Duration.ofMinutes(1).toNanos();
 
-    private final LongSupplier currentTimeMillis;
+    private final LongSupplier nanoTime;
     private final AtomicReference<AiRateLimitLogState> state =
             new AtomicReference<>(AiRateLimitLogState.recovered());
 
     public AiRateLimitFailureLogger() {
-        this(System::currentTimeMillis);
+        this(System::nanoTime);
     }
 
-    AiRateLimitFailureLogger(LongSupplier currentTimeMillis) {
-        this.currentTimeMillis = currentTimeMillis;
+    AiRateLimitFailureLogger(LongSupplier nanoTime) {
+        this.nanoTime = nanoTime;
     }
 
     public void logFailure(RuntimeException exception) {
-        long now = currentTimeMillis.getAsLong();
+        long now = nanoTime.getAsLong();
 
         while (true) {
             AiRateLimitLogState current = state.get();
-            if (now < current.nextLogAllowedAt()) {
+            if (current.failureActive() && now - current.nextLogAllowedAtNanos() < 0L) {
                 AiRateLimitLogState suppressed = current.suppressFailure();
                 if (state.compareAndSet(current, suppressed)) {
                     return;
@@ -38,7 +38,7 @@ public class AiRateLimitFailureLogger {
             }
 
             AiRateLimitLogState logged = AiRateLimitLogState.failed(
-                    now + LOG_INTERVAL_MILLIS
+                    now + LOG_INTERVAL_NANOS
             );
             if (state.compareAndSet(current, logged)) {
                 log.warn(
