@@ -25,11 +25,14 @@ class AiRateLimiterTest {
     @Mock
     private AiRateLimitRepository repository;
 
+    @Mock
+    private AiRateLimitFailureLogger failureLogger;
+
     private AiRateLimiter rateLimiter;
 
     @BeforeEach
     void setUp() {
-        rateLimiter = new AiRateLimiter(repository, new AiRateLimitProperties());
+        rateLimiter = new AiRateLimiter(repository, new AiRateLimitProperties(), failureLogger);
     }
 
     @Test
@@ -96,5 +99,7 @@ class AiRateLimiterTest {
 
         assertThatCode(() -> rateLimiter.check(null, "203.0.113.10"))
                 .doesNotThrowAnyException();
+
+        verify(failureLogger).logFailure(any(IllegalStateException.class));
     }
 }

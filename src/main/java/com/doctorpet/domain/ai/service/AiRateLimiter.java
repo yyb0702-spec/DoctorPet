@@ -13,10 +13,8 @@ import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.util.HexFormat;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiRateLimiter {
@@ -25,19 +23,23 @@ public class AiRateLimiter {
 
     private final AiRateLimitRepository repository;
     private final AiRateLimitProperties properties;
+    private final AiRateLimitFailureLogger failureLogger;
 
     public void check(Long memberId, String clientIp) {
         try {
             if (memberId != null) {
                 checkAuthenticated(memberId);
-                return;
+            } else {
+                checkAnonymous(clientIp);
             }
-            checkAnonymous(clientIp);
         } catch (ServiceException exception) {
+            failureLogger.logRecovery();
             throw exception;
         } catch (RuntimeException exception) {
-            log.warn("Redis Rate Limit 확인에 실패하여 AI 상담 요청을 허용합니다.", exception);
+            failureLogger.logFailure(exception);
+            return;
         }
+        failureLogger.logRecovery();
     }
 
     private void checkAuthenticated(Long memberId) {
