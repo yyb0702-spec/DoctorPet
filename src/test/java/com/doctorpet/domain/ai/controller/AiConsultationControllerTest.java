@@ -3,6 +3,7 @@ package com.doctorpet.domain.ai.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -11,9 +12,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.doctorpet.domain.ai.dto.request.AiConsultationRequest;
 import com.doctorpet.domain.ai.dto.response.AiConsultationResponse;
+import com.doctorpet.domain.ai.exception.AiErrorCode;
 import com.doctorpet.domain.ai.model.AiStructuredResult;
 import com.doctorpet.domain.ai.service.AiConsultationService;
+import com.doctorpet.domain.ai.service.AiRateLimiter;
+import com.doctorpet.domain.ai.support.AiClientIpResolver;
 import com.doctorpet.global.config.SecurityConfig;
+import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
@@ -44,6 +49,12 @@ class AiConsultationControllerTest {
 
     @MockitoBean
     private AiConsultationService service;
+
+    @MockitoBean
+    private AiRateLimiter rateLimiter;
+
+    @MockitoBean
+    private AiClientIpResolver clientIpResolver;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -94,6 +105,24 @@ class AiConsultationControllerTest {
                 .andExpect(status().isOk());
 
         verify(service).consult(eq(null), any(AiConsultationRequest.class));
+    }
+
+    @Test
+    @DisplayName("AI 상담 요청 한도를 초과하면 429 AI_001을 반환한다")
+    void consult_rateLimitExceeded_returnsTooManyRequests() throws Exception {
+        given(clientIpResolver.resolve(any())).willReturn("203.0.113.10");
+        doThrow(new ServiceException(AiErrorCode.RATE_LIMIT_EXCEEDED))
+                .when(rateLimiter).check(null, "203.0.113.10");
+
+        mockMvc.perform(post("/api/ai/consultations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"symptomText":"기침을 해요","species":"CAT"}
+                                """))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("AI_001"));
+
+        verifyNoInteractions(service);
     }
 
     @Test

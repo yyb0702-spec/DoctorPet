@@ -34,6 +34,12 @@ hospital:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
 ai:
+  rate-limit:
+    authenticated-per-minute: ${AI_RATE_LIMIT_AUTHENTICATED_PER_MINUTE:5}
+    anonymous-per-minute: ${AI_RATE_LIMIT_ANONYMOUS_PER_MINUTE:3}
+    anonymous-per-day: ${AI_RATE_LIMIT_ANONYMOUS_PER_DAY:30}
+    minute-window: ${AI_RATE_LIMIT_MINUTE_WINDOW:1m}
+    trusted-proxies: ${AI_RATE_LIMIT_TRUSTED_PROXIES:}
   retention:
     symptom-text-days: ${AI_SYMPTOM_TEXT_RETENTION_DAYS:30}
     cron: ${AI_SYMPTOM_TEXT_RETENTION_CRON:0 0 3 * * *}
