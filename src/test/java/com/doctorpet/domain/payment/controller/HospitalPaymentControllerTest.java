@@ -4,14 +4,19 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
+import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
+import com.doctorpet.domain.payment.entity.PaymentChannel;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.service.PaymentApplicationService;
+import com.doctorpet.domain.payment.service.PaymentQueryService;
+import java.time.LocalDateTime;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
@@ -53,6 +58,9 @@ class HospitalPaymentControllerTest {
 
     @MockitoBean
     private PaymentApplicationService paymentApplicationService;
+
+    @MockitoBean
+    private PaymentQueryService paymentQueryService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -139,6 +147,26 @@ class HospitalPaymentControllerTest {
                         .content("{\"amount\":3000001}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PAYMENT_001"));
+    }
+
+    @Test
+    @DisplayName("병원 결제 내역 조회는 200과 목록을 반환하고, 인증된 스태프 id로 자병원 조회를 호출한다(#47)")
+    void getReservationPayments_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
+        given(paymentQueryService.getForHospital(100L, STAFF_MEMBER_ID)).willReturn(List.of(
+                new PaymentHistoryResponse(1L, 100L, PaymentStatus.OFFLINE_REQUIRED, PaymentChannel.BILLING_KEY,
+                        50000, "VISA", "1234", "NON_RETRIABLE",
+                        LocalDateTime.now(), null, LocalDateTime.now(), null)));
+
+        mockMvc.perform(get(CHARGE_URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data[0].status").value("OFFLINE_REQUIRED"))
+                .andExpect(jsonPath("$.data[0].cardLast4Snapshot").value("1234"))
+                .andExpect(jsonPath("$.data[0].failedAt").exists())
+                .andExpect(jsonPath("$.data[0].pgPaymentId").doesNotExist());
+
+        verify(paymentQueryService).getForHospital(100L, STAFF_MEMBER_ID);
     }
 
     private Authentication staffAuthentication(Long memberId) {
