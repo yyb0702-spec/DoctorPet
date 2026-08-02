@@ -78,6 +78,10 @@ public class Payment extends BaseEntity {
     @Column(name = "pg_payment_id", length = 100)
     private String pgPaymentId;
 
+    // 자동 청구 실패로 오프라인 수납 대상(OFFLINE_REQUIRED)으로 전환된 시각(감사). markOfflineRequired 시 기록한다.
+    @Column(name = "offline_required_at")
+    private LocalDateTime offlineRequiredAt;
+
     // 오프라인 수납 감사 기록(#36에서 채워진다).
     @Column(name = "offline_settled_at")
     private LocalDateTime offlineSettledAt;
@@ -132,6 +136,8 @@ public class Payment extends BaseEntity {
         this.status = PaymentStatus.OFFLINE_REQUIRED;
         this.failureReason = failureReason;
         this.retryCount = retryCount;
+        // 전환 시각은 외부 소스가 없는 시스템 감사값이라 현재 시각으로 기록한다(paidAt은 PG 승인 시각과 달리).
+        this.offlineRequiredAt = LocalDateTime.now();
     }
 
     /**

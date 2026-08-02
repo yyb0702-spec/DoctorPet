@@ -70,7 +70,23 @@ class PaymentDdlIntegrationTest {
         assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(reloaded.getPaymentChannel()).isNull();
         assertThat(reloaded.getPaidAt()).isNull();
+        assertThat(reloaded.getOfflineRequiredAt()).isNull();
         assertThat(reloaded.getRetryCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("OFFLINE_REQUIRED로 전환된 결제는 offline_required_at·failure_reason까지 매핑대로 영속화된다")
+    void offlineRequiredPayment_persistsTimestamp() {
+        Payment payment = Payment.pending(102L, "pay_3", 7L, "VISA", "1234", 40_000);
+        payment.markOfflineRequired("NON_RETRIABLE", 0);
+        Payment saved = paymentRepository.saveAndFlush(payment);
+        entityManager.clear();
+
+        Payment reloaded = paymentRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
+        assertThat(reloaded.getFailureReason()).isEqualTo("NON_RETRIABLE");
+        assertThat(reloaded.getOfflineRequiredAt()).isNotNull();
+        assertThat(reloaded.getPaidAt()).isNull();
     }
 
     @Test

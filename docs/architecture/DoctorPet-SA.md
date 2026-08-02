@@ -276,6 +276,7 @@ erDiagram
 | retry_count | INT | 재시도 횟수 |
 | failure_reason | VARCHAR NULL | 실패 사유 |
 | pg_payment_id | VARCHAR NULL | PortOne 결제 식별자(단건조회용) |
+| offline_required_at | DATETIME NULL | 자동 청구 실패로 `OFFLINE_REQUIRED` 전환된 시각(감사) |
 | offline_settled_at | DATETIME NULL | 오프라인 수납 시각(감사) |
 | offline_settled_by | BIGINT NULL | 오프라인 수납 스태프 member_id(감사) |
 | created_at | DATETIME | |

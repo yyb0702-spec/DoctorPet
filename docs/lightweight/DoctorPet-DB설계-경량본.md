@@ -152,6 +152,7 @@ members 1 ── 0..N notifications
 | `retry_count` | INT | 재시도 횟수 |
 | `failure_reason` | VARCHAR | 실패 사유, `NULL` 가능 |
 | `pg_payment_id` | VARCHAR | PG 결제 ID, `NULL` 가능 |
+| `offline_required_at` | DATETIME | 자동 청구 실패로 오프라인 전환된 시각, `NULL` 가능 |
 | `offline_settled_at` | DATETIME | 오프라인 정산 시각, `NULL` 가능 |
 | `offline_settled_by` | BIGINT | 정산 처리자, `NULL` 가능 |
 | `created_at` | DATETIME | 생성 시각 |
