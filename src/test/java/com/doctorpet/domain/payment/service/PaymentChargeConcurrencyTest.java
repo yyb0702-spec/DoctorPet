@@ -7,6 +7,7 @@ import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
+import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
@@ -79,6 +80,7 @@ class PaymentChargeConcurrencyTest {
     void concurrentCharge_onlyOneSucceeds() throws InterruptedException {
         AtomicInteger success = new AtomicInteger();
         AtomicInteger duplicate = new AtomicInteger();
+        AtomicInteger unexpectedFailure = new AtomicInteger();
 
         ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REQUESTS);
         CountDownLatch readyLatch = new CountDownLatch(CONCURRENT_REQUESTS);
@@ -96,8 +98,13 @@ class PaymentChargeConcurrencyTest {
                         success.incrementAndGet();
                     }
                 } catch (ServiceException e) {
-                    // 승자 외에는 UNIQUE(reservation_id) 경쟁으로 DUPLICATE_CHARGE(409)를 받는다.
-                    duplicate.incrementAndGet();
+                    // 승자 외에는 UNIQUE(reservation_id) 경쟁으로 DUPLICATE_CHARGE(409)를 받아야 한다.
+                    // 다른 오류(INVALID_AMOUNT·PAYMENT_METHOD_NOT_FOUND 등)를 중복으로 오집계하지 않도록 구분한다.
+                    if (e.getErrorCode() == PaymentErrorCode.DUPLICATE_CHARGE) {
+                        duplicate.incrementAndGet();
+                    } else {
+                        unexpectedFailure.incrementAndGet();
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } finally {
@@ -113,6 +120,8 @@ class PaymentChargeConcurrencyTest {
 
         assertThat(completed).isTrue();
         assertThat(success.get()).isEqualTo(1);
+        // 나머지는 모두 DUPLICATE_CHARGE여야 하며, 엉뚱한 실패(unexpectedFailure)는 0이어야 한다.
+        assertThat(unexpectedFailure.get()).isZero();
         assertThat(duplicate.get()).isEqualTo(CONCURRENT_REQUESTS - 1);
         // 예약당 결제 레코드는 정확히 1건만 존재한다.
         assertThat(paymentRepository.findByReservationId(reservationId)).isPresent();

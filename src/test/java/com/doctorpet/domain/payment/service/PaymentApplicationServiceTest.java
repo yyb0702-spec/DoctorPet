@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
@@ -14,7 +15,12 @@ import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.gateway.payment.GatewayFailureReason;
 import com.doctorpet.global.gateway.payment.GatewayPaymentStatus;
+import com.doctorpet.global.gateway.payment.PaymentGateway;
+import com.doctorpet.global.gateway.payment.PaymentGatewayException;
+import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
+import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import com.doctorpet.global.gateway.payment.fake.FakePaymentGateway;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -164,5 +170,62 @@ class PaymentApplicationServiceTest {
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
+    }
+
+    @Test
+    @DisplayName("최초 승인이 PAID여도 승인 금액이 요청 금액과 다르면 PAID로 확정하지 않고 오프라인으로 돌린다(금액 대조)")
+    void approvePaidWithAmountMismatch_offline() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        // FakeGateway는 요청 금액을 그대로 승인하므로, 금액 불일치는 mock 게이트웨이로 주입한다.
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        given(gateway.approve(any())).willReturn(
+                new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT + 1, LocalDateTime.now()));
+
+        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
+    }
+
+    @Test
+    @DisplayName("승인이 PAID여도 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 오프라인으로 돌린다")
+    void approvePaidWithBlankPgPaymentId_offline() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        given(gateway.approve(any())).willReturn(
+                new PaymentApproveResult(GatewayPaymentStatus.PAID, "  ", AMOUNT, LocalDateTime.now()));
+
+        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("INVALID_PG_RESULT");
+    }
+
+    @Test
+    @DisplayName("재시도 승인이 PAID여도 금액이 다르면 오프라인으로 돌린다(재시도 경로도 금액 대조)")
+    void retryApprovePaidWithAmountMismatch_offline() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        // 최초 승인은 RETRIABLE 실패 → 재시도 진입. 재시도의 단건조회는 미확정(PENDING), 재승인은 금액 불일치 PAID.
+        given(gateway.approve(any()))
+                .willThrow(new PaymentGatewayException(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애"))
+                .willReturn(new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-2", AMOUNT + 100, LocalDateTime.now()));
+        given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
+
+        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
+    }
+
+    private PaymentApplicationService serviceWith(PaymentGateway gateway) {
+        return new PaymentApplicationService(
+                paymentChargeService, gateway, billingKeyCryptor, notificationPublisher, attempt -> { }, MAX_RETRY);
     }
 }

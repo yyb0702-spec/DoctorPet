@@ -97,7 +97,7 @@ public class PaymentApplicationService {
 
     private ChargeOutcome resolveApproveResult(PaymentPreRecord pre, PaymentApproveResult result, int retryCount) {
         return switch (result.status()) {
-            case PAID -> paid(result.pgPaymentId(), result.approvedAt());
+            case PAID -> confirmPaid(pre, result.pgPaymentId(), result.approvedAmount(), result.approvedAt(), retryCount);
             // 승인 응답이 미확정(PENDING)으로 오면 단건조회로 재확정한다.
             case PENDING -> resolveByQuery(pre, retryCount);
             // 계약상 실패는 예외로 오지만, 방어적으로 오프라인 확정 처리한다.
@@ -121,9 +121,7 @@ public class PaymentApplicationService {
         try {
             PaymentQueryResult query = paymentGateway.query(pre.merchantPaymentId());
             return switch (query.status()) {
-                case PAID -> query.paidAmount() == pre.amount()
-                        ? paid(query.pgPaymentId(), null)
-                        : ChargeOutcome.offlineRequired("AMOUNT_MISMATCH", retryCount);
+                case PAID -> confirmPaid(pre, query.pgPaymentId(), query.paidAmount(), null, retryCount);
                 case FAILED -> ChargeOutcome.offlineRequired("CONFIRMED_FAILED", retryCount);
                 case PENDING -> ChargeOutcome.pending(retryCount, "UNCONFIRMED_TIMEOUT");
             };
@@ -145,9 +143,7 @@ public class PaymentApplicationService {
             try {
                 PaymentQueryResult query = paymentGateway.query(pre.merchantPaymentId());
                 if (query.status() == GatewayPaymentStatus.PAID) {
-                    return query.paidAmount() == pre.amount()
-                            ? paid(query.pgPaymentId(), null)
-                            : ChargeOutcome.offlineRequired("AMOUNT_MISMATCH", attempt);
+                    return confirmPaid(pre, query.pgPaymentId(), query.paidAmount(), null, attempt);
                 }
             } catch (PaymentGatewayException ignored) {
                 // 조회 실패는 무시하고 재승인으로 진행한다.
@@ -156,7 +152,7 @@ public class PaymentApplicationService {
             try {
                 PaymentApproveResult result = paymentGateway.approve(buildCommand(pre, billingKey));
                 if (result.status() == GatewayPaymentStatus.PAID) {
-                    return paid(result.pgPaymentId(), result.approvedAt());
+                    return confirmPaid(pre, result.pgPaymentId(), result.approvedAmount(), result.approvedAt(), attempt);
                 }
                 // PENDING(미확정)이면 다음 사이클에서 다시 확인한다.
             } catch (PaymentGatewayException e) {
@@ -169,8 +165,20 @@ public class PaymentApplicationService {
         return ChargeOutcome.offlineRequired("RETRY_EXHAUSTED", maxRetry);
     }
 
-    private ChargeOutcome paid(String pgPaymentId, LocalDateTime approvedAt) {
-        return ChargeOutcome.paid(pgPaymentId, approvedAt != null ? approvedAt : LocalDateTime.now());
+    /**
+     * PAID 응답을 확정 전에 검증한다(SA §9-4 — 서버가 클라이언트 결과를 믿지 않고 금액·상태를 확인).
+     * 승인 금액이 요청 금액과 다르거나 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 오프라인 수납 대상으로
+     * 돌린다(PG↔DB 금액 불일치·불완전 응답 차단). 최초 승인·재승인·단건조회의 모든 PAID 경로가 공유한다.
+     */
+    private ChargeOutcome confirmPaid(
+            PaymentPreRecord pre, String pgPaymentId, int paidAmount, LocalDateTime paidAt, int retryCount) {
+        if (paidAmount != pre.amount()) {
+            return ChargeOutcome.offlineRequired("AMOUNT_MISMATCH", retryCount);
+        }
+        if (pgPaymentId == null || pgPaymentId.isBlank()) {
+            return ChargeOutcome.offlineRequired("INVALID_PG_RESULT", retryCount);
+        }
+        return ChargeOutcome.paid(pgPaymentId, paidAt != null ? paidAt : LocalDateTime.now());
     }
 
     private PaymentApproveCommand buildCommand(PaymentPreRecord pre, String billingKey) {
