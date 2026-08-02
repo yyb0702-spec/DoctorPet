@@ -75,12 +75,13 @@ class AiRateLimitFailureLoggerTest {
     }
 
     @Test
-    @DisplayName("Redis 확인 성공 시 복구 로그를 한 번 남기고 다음 장애는 즉시 경고한다")
-    void logRecovery_afterFailure_logsOnceAndResetsInterval(CapturedOutput output) {
+    @DisplayName("복구 시 상태 전체를 초기화하고 다음 장애는 즉시 경고한다")
+    void logRecovery_afterSuppressedFailure_resetsEntireState(CapturedOutput output) {
         AtomicLong now = new AtomicLong(1_000L);
         AiRateLimitFailureLogger failureLogger = new AiRateLimitFailureLogger(now::get);
 
         failureLogger.logFailure(new IllegalStateException("first"));
+        failureLogger.logFailure(new IllegalStateException("suppressed"));
         failureLogger.logRecovery();
         failureLogger.logRecovery();
         failureLogger.logFailure(new IllegalStateException("second"));
@@ -89,6 +90,7 @@ class AiRateLimitFailureLoggerTest {
                 output.getOut(),
                 "Redis Rate Limit 확인이 복구되었습니다."
         )).isEqualTo(1);
+        assertThat(output).contains("복구되었습니다. suppressedCount=1");
         assertThat(StringUtils.countOccurrencesOf(
                 output.getOut(),
                 "Redis Rate Limit 확인에 실패하여 AI 상담 요청을 허용합니다."
