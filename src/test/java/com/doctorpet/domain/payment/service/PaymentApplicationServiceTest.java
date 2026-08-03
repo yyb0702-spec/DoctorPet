@@ -128,11 +128,13 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("재시도 유효(RETRIABLE) 실패가 지속되면 최대 재시도 후 OFFLINE_REQUIRED로 확정한다")
-    void retriableExhausted_offline() {
+    @DisplayName("재시도 소진 후 최종 단건조회로 미승인이 확인되면 OFFLINE_REQUIRED로 확정한다")
+    void retriableExhaustedAndConfirmedNotPaid_offline() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
+        // 최종 조회가 FAILED(성공 아님 확인) → 소진 후 오프라인 전환.
+        paymentGateway.stubQueryResult(MERCHANT_ID, GatewayPaymentStatus.FAILED, 0);
 
         paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
@@ -142,6 +144,23 @@ class PaymentApplicationServiceTest {
         assertThat(outcome.retryCount()).isEqualTo(MAX_RETRY);
         // 최초 1회 + 재시도 maxRetry회.
         assertThat(paymentGateway.receivedMerchantPaymentIds()).hasSize(1 + MAX_RETRY);
+    }
+
+    @Test
+    @DisplayName("재시도 소진 후 최종 단건조회도 미확정이면 OFFLINE_REQUIRED가 아니라 PENDING을 유지한다(오프라인 이중수납 금지)")
+    void retriableExhaustedButUnconfirmed_pending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        // 승인은 계속 실패하고 최종 조회도 미확정(FakeGateway 기본 PENDING) — 승인 여부 미상.
+        paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
+
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("RETRY_EXHAUSTED_UNCONFIRMED");
+        assertThat(outcome.retryCount()).isEqualTo(MAX_RETRY);
     }
 
     @Test

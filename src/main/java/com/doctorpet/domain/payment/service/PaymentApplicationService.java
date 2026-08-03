@@ -24,7 +24,8 @@ import org.springframework.stereotype.Service;
   실패 분기(SA §9-4):
     - NON_RETRIABLE(한도·정지·만료·삭제된 결제수단) → 즉시 OFFLINE_REQUIRED
     - UNKNOWN(타임아웃) → 재시도 금지, 단건조회 먼저 → 미확정이면 PENDING 유지(정산 스케줄러 #35가 확정)
-    - RETRIABLE(네트워크·일시장애) → 조회 우선 후 최대 maxRetry회 재시도 → 소진 시 OFFLINE_REQUIRED
+    - RETRIABLE(네트워크·일시장애) → 조회 우선 후 최대 maxRetry회 재시도 → 소진 시 최종 단건조회로 확정
+                                      (PAID/성공아님 확인은 확정, 미확정이면 PENDING 유지 — 오프라인 이중수납 금지)
   게이트웨이 예외는 모두 여기서 상태(OFFLINE_REQUIRED/PENDING)로 흡수돼 500으로 새지 않는다(#38 리뷰 반영).
 
   단, PG가 PAID를 반환했으나 승인 금액 불일치·pgPaymentId 누락 같은 정합성 오류는 "자동결제 실패"가 아니다 —
@@ -166,7 +167,29 @@ public class PaymentApplicationService {
                 // RETRIABLE/UNKNOWN → 다음 사이클로 계속.
             }
         }
-        return ChargeOutcome.offlineRequired("RETRY_EXHAUSTED", maxRetry);
+        // 소진 직후 곧바로 오프라인으로 보내지 않는다 — 마지막 승인 시도가 UNKNOWN(타임아웃)이었다면 실제로는
+        // 승인됐을 수 있다. 최종 단건조회로 성공/실패를 확인하고, 미확정이면 PENDING을 유지한다(§9-4 소진 분기).
+        return resolveAfterExhaustion(pre);
+    }
+
+    /**
+     * 재시도 소진 후 최종 확정(SA §9-4 — OFFLINE_REQUIRED는 "성공하지 않음이 확인된" 경우에만).
+     * PAID면 금액 대조 후 확정(불일치는 confirmPaid가 PENDING 반환), FAILED(성공 아님 확인)면 오프라인,
+     * 여전히 미확정(PENDING·조회 실패)이면 PENDING 유지 — 이미 승인됐을 수 있어 오프라인 이중수납을 금지하고
+     * 정산 스케줄러(#35)가 확정한다.
+     */
+    private ChargeOutcome resolveAfterExhaustion(PaymentPreRecord pre) {
+        try {
+            PaymentQueryResult query = paymentGateway.query(pre.merchantPaymentId());
+            return switch (query.status()) {
+                case PAID -> confirmPaid(pre, query.pgPaymentId(), query.paidAmount(), null, maxRetry);
+                case FAILED -> ChargeOutcome.offlineRequired("RETRY_EXHAUSTED", maxRetry);
+                case PENDING -> ChargeOutcome.pending(maxRetry, "RETRY_EXHAUSTED_UNCONFIRMED");
+            };
+        } catch (PaymentGatewayException e) {
+            // 최종 조회마저 실패하면 승인 여부를 알 수 없으므로 오프라인 금지, PENDING 유지.
+            return ChargeOutcome.pending(maxRetry, "RETRY_EXHAUSTED_UNCONFIRMED");
+        }
     }
 
     /**

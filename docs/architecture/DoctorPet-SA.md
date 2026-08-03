@@ -9,7 +9,7 @@
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 파생 상태 계약을 확정. v1.17: AI 착수 합의에 따라 Gateway·프롬프트 단계, 입력·Rate Limit, 검색 Tool 실패 fallback, 응급 처리, 운영 MVP 범위를 확정. v1.18: 회원 이메일 인증·비밀번호 재설정·탈퇴 보류·Access Token 블랙리스트·기존 회원 백필 설계를 반영하고, AI와 회원 변경이 겹친 부록 A를 실제 미확정 항목 기준으로 통합. v1.19: 리뷰에서 확인된 `members.email_verified`와 `ai_consultations.error_type` 누락을 복원하고 Gateway 실패 원인 저장 계약을 명확화.
+> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 파생 상태 계약을 확정. v1.17: AI 착수 합의에 따라 Gateway·프롬프트 단계, 입력·Rate Limit, 검색 Tool 실패 fallback, 응급 처리, 운영 MVP 범위를 확정. v1.18: 회원 이메일 인증·비밀번호 재설정·탈퇴 보류·Access Token 블랙리스트·기존 회원 백필 설계를 반영하고, AI와 회원 변경이 겹친 부록 A를 실제 미확정 항목 기준으로 통합. v1.19: 리뷰에서 확인된 `members.email_verified`와 `ai_consultations.error_type` 누락을 복원하고 Gateway 실패 원인 저장 계약을 명확화. v1.20: 결제 실패 분기의 오프라인 전환 안전 조건을 명확화 — PG가 `PAID`를 반환했으나 금액 불일치·`pgPaymentId` 누락인 정합성 오류와, 재시도 소진 시 마지막 결과가 미확정(UNKNOWN)인 경우는 `OFFLINE_REQUIRED`(현장 수납)가 아니라 사유를 기록한 `PENDING`으로 두어 이중결제를 막고 정산 스케줄러가 확정하도록 정의(§5-2·§9-4·§9-7, PR #77 2차 리뷰 반영).
 
 ---
 
@@ -382,8 +382,8 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> PENDING : 청구 준비(멱등키·선기록)
     PENDING --> PAID : 빌링키 승인 성공
-    PENDING --> OFFLINE_REQUIRED : 재시도 무의미 실패 / 재시도 소진
-    PENDING --> PENDING : 결과 미확정(타임아웃) — 정산 스케줄러가 단건 조회로 재확정
+    PENDING --> OFFLINE_REQUIRED : 재시도 무의미 실패 / 재시도 소진(성공 아님이 확인된 경우)
+    PENDING --> PENDING : 결과 미확정(타임아웃·소진 후 미확정·PG PAID 정합성 오류) — 정산 스케줄러가 단건 조회로 재확정
     OFFLINE_REQUIRED --> OFFLINE_PAID : 병원 오프라인 수납 기록
     PAID --> [*]
     OFFLINE_PAID --> [*]
@@ -392,7 +392,9 @@ stateDiagram-v2
 - `payment_channel`: 자동 결제 성공은 `BILLING_KEY`, 오프라인 수납은 `OFFLINE`.
 - 멱등: 청구 시작 시 `merchant_payment_id`를 생성·저장(UNIQUE)하고 PortOne 요청·재시도·조회에 동일하게 쓴다. `reservation_id` UNIQUE(행 중복 방지)와 `merchant_payment_id`(외부 중복 승인 방지)가 함께 이중 청구를 막는다.
 - 타임아웃: 응답이 유실되면 별도 상태 없이 `PENDING`에 머문다. 무조건 재시도 금지(이미 승인됐을 수 있음). 정산 스케줄러가 일정 시간 이상 `PENDING`인 건을 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정(§9-7).
-- 재시도 유효 원인은 `PENDING` 내에서 제한 횟수 재시도, 소진 시 `OFFLINE_REQUIRED`.
+- 재시도 유효 원인은 `PENDING` 내에서 제한 횟수 재시도. 소진 시 마지막으로 단건 조회를 한 번 더 하고, `PAID`면 금액 대조 후 확정, 성공하지 않았음이 확인되면(`FAILED`/미승인) `OFFLINE_REQUIRED`. 마지막 결과가 여전히 미확정(UNKNOWN·조회 실패)이면 `OFFLINE_REQUIRED`로 보내지 않고 `PENDING` 유지 — 이미 승인됐을 수 있어 오프라인 이중수납을 금지하고 정산 스케줄러가 확정한다.
+- **원칙**: `OFFLINE_REQUIRED`(현장 수납을 여는 상태)는 자동결제가 성공하지 않았음이 확인된 경우에만 확정한다. 승인 성공 가능성이 남은 상태는 `PENDING`으로 둔다.
+- PG 정합성 오류: PG가 `PAID`를 반환했더라도 승인 금액이 요청 금액과 다르거나 `pgPaymentId`가 비어 있으면 `PAID`로 확정하지 않는다. 이미 승인돼 돈이 이동했을 수 있으므로 `OFFLINE_REQUIRED`가 아니라 사유(`AMOUNT_MISMATCH`/`INVALID_PG_RESULT`)를 기록한 `PENDING`으로 두고, 정산 스케줄러·운영 확인으로 확정한다.
 - 오프라인 정산(`OFFLINE_PAID`) 후 자동 재시도 파이프라인 중단. 처리 시각·처리자는 `offline_settled_at/by`에 남긴다.
 
 ## 5-3. 예약 슬롯 상태 (SlotStatus)
@@ -677,8 +679,9 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 
 실패 원인별 분기:
 
-- 재시도 유효(네트워크·타임아웃·일시 장애): 단건 조회 → 미처리 시 최대 3회 재시도(지수 백오프) → 지속 실패면 `OFFLINE_REQUIRED`.
+- 재시도 유효(네트워크·타임아웃·일시 장애): 단건 조회 → 미처리 시 최대 3회 재시도(지수 백오프). 소진 시 마지막 단건 조회로 `PAID`(금액 대조 후 확정)/성공 아님 확인(`OFFLINE_REQUIRED`)/미확정(`PENDING` 유지, 스케줄러가 확정)으로 분기한다 — 미확정 건을 `OFFLINE_REQUIRED`로 보내면 이미 승인된 자동결제와 현장 수납이 중복될 수 있다(§5-2 원칙).
 - 재시도 무의미(한도초과·정지·빌링키 만료·삭제된 결제수단): 즉시 `OFFLINE_REQUIRED`, 재시도 안 함.
+- PG 정합성 오류(승인은 `PAID`지만 금액 불일치·`pgPaymentId` 누락): `PAID`로 확정하지 않되 `OFFLINE_REQUIRED`도 아니다. 사유(`AMOUNT_MISMATCH`/`INVALID_PG_RESULT`)를 남긴 `PENDING`으로 두고 정산 스케줄러·운영 확인으로 확정한다(이중결제 방지, §5-2).
 
 결제수단 삭제·만료: 청구 직전 `payment_method.status`를 조회해 `ACTIVE`가 아니면 자동 청구를 시도하지 않고 곧바로 `OFFLINE_REQUIRED`로 확정한다. 결제수단 삭제는 예약이 물려 있어도 자유롭게 허용한다(§4-2).
 
@@ -708,7 +711,7 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 | --- | --- | --- |
 | 노쇼 자동 판정 | 1분 | CONFIRMED 중 예약시각+10분 경과·미체크인 → NO_SHOW(수동 판정 우선) |
 | 예약 요청 타임아웃 | 1분 | REQUESTED 중 승인 데드라인(`min(요청+1h, 예약−2h)`) 경과·미승인 → 자동 REJECTED, 슬롯 반환 |
-| 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정 |
+| 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정. 단, 사유가 `AMOUNT_MISMATCH`/`INVALID_PG_RESULT`인 `PENDING`은 자동 확정하지 않고 운영자 수동 확인 대상으로 분류(금액·식별자 정합성이 깨져 자동 확정 시 잘못된 금액 확정 위험) |
 | 공공데이터 적재 | 주1회 | MVP는 1회 시드 후 유지 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
 
