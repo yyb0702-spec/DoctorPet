@@ -58,7 +58,7 @@ class HospitalPaymentSettlementControllerTest {
 
     private PaymentHistoryResponse settled() {
         return new PaymentHistoryResponse(1L, 100L, PaymentStatus.OFFLINE_PAID, PaymentChannel.OFFLINE,
-                50000, "VISA", "1234", "NON_RETRIABLE",
+                50000, "VISA", "1234",
                 LocalDateTime.now(), null, LocalDateTime.now(), LocalDateTime.now());
     }
 

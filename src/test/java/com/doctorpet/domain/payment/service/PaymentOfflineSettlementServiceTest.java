@@ -38,7 +38,7 @@ class PaymentOfflineSettlementServiceTest {
 
     private PaymentHistoryResponse settledResponse() {
         return new PaymentHistoryResponse(PAYMENT_ID, RESERVATION_ID, PaymentStatus.OFFLINE_PAID,
-                PaymentChannel.OFFLINE, 50_000, "VISA", "1234", "NON_RETRIABLE",
+                PaymentChannel.OFFLINE, 50_000, "VISA", "1234",
                 LocalDateTime.now(), null, LocalDateTime.now(), LocalDateTime.now());
     }
 

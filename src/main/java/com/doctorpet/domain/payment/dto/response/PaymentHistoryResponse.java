@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
   결제 내역 조회 응답(#47, SA §8-7). 온·오프라인 결제 상태를 status+channel로 일관되게 반환한다.
   민감정보는 노출하지 않는다 — 빌링키·카드번호 원본은 저장 자체가 없고, 표시용 카드 스냅샷(brand·last4)만 담는다.
   PG/멱등 식별자(pg_payment_id·merchant_payment_id)는 내부 값이라 응답에 포함하지 않는다.
+  failure_reason도 마찬가지다 — RECONCILE_QUERY_FAILED·CHARGE_ORCHESTRATION_ERROR 같은 내부 처리 분류 코드라,
+  노출하면 내부 구현 변경이 곧 API 계약 변경이 되고 보호자에게도 의미가 없어 응답에 담지 않는다(PR #79 리뷰 반영).
   failedAt은 자동 청구 실패로 오프라인 전환된 시각(offline_required_at)이다.
  */
 public record PaymentHistoryResponse(
@@ -19,7 +21,6 @@ public record PaymentHistoryResponse(
         int amount,
         String cardBrandSnapshot,
         String cardLast4Snapshot,
-        String failureReason,
         LocalDateTime createdAt,
         LocalDateTime paidAt,
         LocalDateTime failedAt,
@@ -35,7 +36,6 @@ public record PaymentHistoryResponse(
                 payment.getAmount(),
                 payment.getCardBrandSnapshot(),
                 payment.getCardLast4Snapshot(),
-                payment.getFailureReason(),
                 payment.getCreatedAt(),
                 payment.getPaidAt(),
                 payment.getOfflineRequiredAt(),
