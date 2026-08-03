@@ -70,18 +70,40 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_SHA: ${{ needs.build-and-push.outputs.sha }}
+          GHCR_READ_USERNAME: ${{ github.repository_owner }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DEPLOY_SHA
+          envs: DEPLOY_SHA,GHCR_READ_USERNAME,GHCR_READ_TOKEN
           script: |
             set -e
             cd ~/DoctorPet
-            git checkout develop
-            git pull origin develop
+
+            # EC2가 GHCR private 패키지를 pull할 수 있도록 로그인한다(리뷰 지적 P1) — 빌드
+            # 잡은 러너에서 GITHUB_TOKEN으로 로그인하지만, 그건 러너 세션일 뿐 이 EC2 SSH
+            # 세션과는 무관하다. read:packages 권한만 있는 PAT를 GHCR_READ_TOKEN 시크릿으로
+            # 등록해서 쓴다.
+            echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_READ_USERNAME" --password-stdin
+
+            git fetch origin "$DEPLOY_SHA"
 
             PREV_SHA="$(cat .last_deployed_sha 2>/dev/null || true)"
+
+            # workflow_run은 CI 완료 순서를 보장하지 않는다 — 느리게 끝난 이전 커밋의 배포가
+            # 나중에 도착하면, 이미 배포된 최신 SHA 위에 오래된 SHA를 덮어쓸 수 있다. 이번
+            # DEPLOY_SHA가 이미 배포된 커밋의 조상(더 오래된 커밋)이면 건너뛴다.
+            if [ -n "$PREV_SHA" ] && git merge-base --is-ancestor "$DEPLOY_SHA" "$PREV_SHA" 2>/dev/null; then
+              echo "이미 더 최신 커밋($PREV_SHA)이 배포되어 있어 $DEPLOY_SHA 배포를 건너뜁니다."
+              exit 0
+            fi
+
+            # 이미지와 Compose 설정을 같은 커밋으로 고정한다(리뷰 지적 P1) — git pull로 실행
+            # 시점의 최신 develop을 쓰면, CI를 통과한 이미지(SHA A)와 그 사이 develop에 병합된
+            # 최신 docker-compose.yml(SHA B)이 조합돼 환경변수·포트·서비스 구조가 어긋난 채로
+            # 배포될 수 있다. detached HEAD로 정확히 DEPLOY_SHA 시점의 파일을 사용한다.
+            git checkout --detach "$DEPLOY_SHA"
 
             # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 지정해서 띄운다(리뷰 지적 P1)
             # — 실행 중인 이미지가 어느 커밋인지 항상 특정할 수 있고, 실패 시 이전 SHA로
@@ -92,14 +114,20 @@ jobs:
 
             # docker compose up -d 성공은 "컨테이너가 시작 요청됐다"는 뜻일 뿐 애플리케이션이
             # 정상 기동했다는 보장이 아니다(리뷰 지적 P1). Dockerfile의 HEALTHCHECK가 판단하는
-            # healthy 상태를 직접 폴링해서 확인한다.
+            # healthy 상태를 직접 폴링해서 확인한다. 컨테이너 이름을 하드코딩하지 않고(리뷰
+            # 지적 P3) compose가 실제로 만든 컨테이너 ID를 조회해서 쓴다 — 디렉터리명/
+            # COMPOSE_PROJECT_NAME이 바뀌어도 안전하다.
             ATTEMPTS=0
             MAX_ATTEMPTS=18
-            until [ "$(docker inspect -f '{{.State.Health.Status}}' doctorpet-app-1 2>/dev/null)" = "healthy" ]; do
+            until [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)" 2>/dev/null)" = "healthy" ]; do
               ATTEMPTS=$((ATTEMPTS + 1))
               if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
                 echo "새 이미지($DEPLOY_SHA)가 제한 시간 내 healthy 상태가 되지 않았습니다. 롤백합니다."
                 if [ -n "$PREV_SHA" ]; then
+                  # 이미지뿐 아니라 Compose 설정도 이전 커밋 시점으로 함께 되돌린다 — 이미지만
+                  # 되돌리면 방금 겪은 것과 같은 이미지·Compose 불일치가 롤백 경로에서도
+                  # 재현된다.
+                  git checkout --detach "$PREV_SHA"
                   export APP_IMAGE_TAG="$PREV_SHA"
                   docker compose pull app
                   docker compose up -d --remove-orphans
