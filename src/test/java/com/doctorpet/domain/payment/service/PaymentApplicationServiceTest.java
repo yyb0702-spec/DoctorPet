@@ -266,6 +266,41 @@ class PaymentApplicationServiceTest {
         assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
     }
 
+    @Test
+    @DisplayName("빌링키 복호화가 실패하면 500 없이 OFFLINE_REQUIRED로 흡수한다(게이트웨이 호출 전 = 청구 미발생)")
+    void decryptFailure_absorbedAsOffline() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willThrow(new IllegalStateException("enc-key mismatch"));
+
+        // 예외가 charge() 밖으로 전파되지 않고(=500 안 남) 정상 응답으로 흡수돼야 한다.
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.failureReason()).isEqualTo("BILLING_KEY_DECRYPT_FAILED");
+        // 복호화 실패라 게이트웨이는 호출되지 않는다.
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("게이트웨이가 계약 외 예외(비-PaymentGatewayException)를 던져도 500 없이 PENDING으로 흡수한다")
+    void gatewayContractViolation_absorbedAsPending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        // 예: PortOne 실연동 전 스켈레톤이 던지는 UnsupportedOperationException 같은 계약 외 RuntimeException.
+        given(gateway.approve(any())).willThrow(new UnsupportedOperationException("integration pending"));
+
+        // 예외가 charge() 밖으로 전파되지 않고 PENDING으로 흡수돼야 한다(승인 도달 불명 → 오프라인 이중수납 금지).
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("CHARGE_ORCHESTRATION_ERROR");
+    }
+
     private PaymentApplicationService serviceWith(PaymentGateway gateway) {
         return new PaymentApplicationService(
                 paymentChargeService, gateway, billingKeyCryptor, notificationPublisher, attempt -> { }, MAX_RETRY);

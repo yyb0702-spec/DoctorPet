@@ -91,6 +91,9 @@ public class PaymentChargeService {
             paymentRepository.saveAndFlush(payment);
         } catch (DataIntegrityViolationException e) {
             // 사전 체크를 통과한 동시 요청이 UNIQUE(reservation_id)에 걸린 경우 → 도메인 에러로 통일.
+            // 현재 payments의 무결성 위반 중 이 경로로 도달 가능한 것은 reservation_id UNIQUE 경쟁뿐이라
+            // DUPLICATE_CHARGE로 뭉쳐도 안전하다: merchant_payment_id는 UUID라 충돌 사실상 불가,
+            // NOT NULL 컬럼은 위에서 모두 채워 넣는다. 향후 다른 제약을 추가하면 제약별로 분기해야 오분류를 막는다.
             throw new ServiceException(PaymentErrorCode.DUPLICATE_CHARGE);
         }
 

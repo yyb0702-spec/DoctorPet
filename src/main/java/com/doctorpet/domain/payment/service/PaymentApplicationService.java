@@ -27,6 +27,8 @@ import org.springframework.stereotype.Service;
     - RETRIABLE(네트워크·일시장애) → 조회 우선 후 최대 maxRetry회 재시도 → 소진 시 최종 단건조회로 확정
                                       (PAID/성공아님 확인은 확정, 미확정이면 PENDING 유지 — 오프라인 이중수납 금지)
   게이트웨이 예외는 모두 여기서 상태(OFFLINE_REQUIRED/PENDING)로 흡수돼 500으로 새지 않는다(#38 리뷰 반영).
+  게이트웨이 계약을 벗어난 예외(복호화 실패·어댑터 버그 등)도 resolveOutcomeSafely가 최종 흡수한다 — 복호화 실패는
+  청구 미발생이 확실해 OFFLINE_REQUIRED, 그 외 오케스트레이션 예외는 승인 도달 불명이라 PENDING으로 흡수한다(PR #77 3차 검증 반영).
 
   단, PG가 PAID를 반환했으나 승인 금액 불일치·pgPaymentId 누락 같은 정합성 오류는 "자동결제 실패"가 아니다 —
   이미 승인돼 돈이 이동했을 수 있으므로 OFFLINE_REQUIRED(현장 수납 허용)로 돌리면 이중결제가 된다.
@@ -68,9 +70,7 @@ public class PaymentApplicationService {
         PaymentPreRecord pre = paymentChargeService.preRecord(reservationId, staffMemberId, amount);
 
         // 외부 승인(트랜잭션 밖). 결제수단이 ACTIVE가 아니면 게이트웨이 호출 없이 즉시 오프라인 확정(SA §9-4·§4-2).
-        ChargeOutcome outcome = pre.paymentMethodActive()
-                ? attemptBillingKeyCharge(pre)
-                : ChargeOutcome.offlineRequired("PAYMENT_METHOD_INACTIVE", 0);
+        ChargeOutcome outcome = resolveOutcomeSafely(pre);
 
         // Tx2 — 상태 확정(커밋).
         Payment payment = paymentChargeService.finalizeOutcome(pre.paymentId(), outcome);
@@ -89,9 +89,37 @@ public class PaymentApplicationService {
 
     // --- 외부 승인·실패 분기 (트랜잭션 밖) ---
 
+    /**
+     * 외부 승인 오케스트레이션을 상태(ChargeOutcome)로 감싸 어떤 예외도 500으로 새지 않게 한다(SA §9-4 핵심 불변식).
+     * 게이트웨이 실패는 branchOnFailure/resolveByQuery가 이미 상태로 흡수하지만, 게이트웨이 계약을 벗어난
+     * RuntimeException(어댑터 버그 등)이 재시도·조회 어느 지점에서 새어 나와도 여기서 최종 흡수한다.
+     * 이때 승인 도달 여부가 불명이라 OFFLINE_REQUIRED(현장 수납)로 보내면 이중결제 위험 → PENDING 유지(#35가 확정).
+     * (복호화 실패는 게이트웨이 호출 전이라 attemptBillingKeyCharge에서 OFFLINE_REQUIRED로 별도 확정한다.)
+     */
+    private ChargeOutcome resolveOutcomeSafely(PaymentPreRecord pre) {
+        if (!pre.paymentMethodActive()) {
+            return ChargeOutcome.offlineRequired("PAYMENT_METHOD_INACTIVE", 0);
+        }
+        try {
+            return attemptBillingKeyCharge(pre);
+        } catch (RuntimeException e) {
+            log.error("결제 외부 승인 오케스트레이션에서 계약 외 예외 — 500 차단, PENDING 유지: paymentId={}",
+                    pre.paymentId(), e);
+            return ChargeOutcome.pending(0, "CHARGE_ORCHESTRATION_ERROR");
+        }
+    }
+
     private ChargeOutcome attemptBillingKeyCharge(PaymentPreRecord pre) {
         // 청구 시점에만 원문 빌링키를 복호화한다(로그·저장 금지). 재시도에 재사용하려 지역 변수로만 보관한다.
-        String billingKey = billingKeyCryptor.decrypt(pre.billingKeyEnc());
+        String billingKey;
+        try {
+            billingKey = billingKeyCryptor.decrypt(pre.billingKeyEnc());
+        } catch (RuntimeException e) {
+            // 복호화 실패는 게이트웨이 호출 전이라 청구가 절대 일어나지 않았음이 확실 → 오프라인 수납으로 안전 확정
+            // (PENDING과 달리 현장에서 즉시 다른 수단으로 수납 가능, 이중결제 위험 없음).
+            log.warn("빌링키 복호화 실패 — 게이트웨이 호출 전이라 청구 미발생, 오프라인 확정: paymentId={}", pre.paymentId(), e);
+            return ChargeOutcome.offlineRequired("BILLING_KEY_DECRYPT_FAILED", 0);
+        }
         try {
             PaymentApproveResult result = paymentGateway.approve(buildCommand(pre, billingKey));
             return resolveApproveResult(pre, result, 0);
