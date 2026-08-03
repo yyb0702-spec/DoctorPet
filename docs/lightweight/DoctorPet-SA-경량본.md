@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.23, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.24, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -131,7 +131,8 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 타임아웃 등으로 결제 결과가 불확실하면 재청구하지 않고 단건 조회로 결과를 확인한다.
 - 네트워크 오류와 일시 장애는 단건 조회 후 미처리 건에 한해 최대 3회 지수 백오프로 재시도한다.
 - 한도 초과, 카드 정지, 빌링키 만료·삭제 등 재시도가 무의미한 오류는 즉시 `OFFLINE_REQUIRED`로 전환한다.
-- 재시도 가능한 오류도 재시도 횟수를 모두 소진하면 `OFFLINE_REQUIRED`로 전환한다.
+- 재시도 가능한 오류도 재시도 횟수를 소진하면 마지막 단건 조회로 확인하고, 성공하지 않았음이 확인된 경우에만 `OFFLINE_REQUIRED`로 전환한다. 마지막 결과가 미확정(UNKNOWN·조회 실패)이면 `OFFLINE_REQUIRED`가 아니라 `PENDING`을 유지해 정산 스케줄러가 확정한다(이미 승인됐을 수 있어 이중결제 방지).
+- PG가 `PAID`를 반환했더라도 금액 불일치·`pgPaymentId` 누락 등 정합성 오류는 `PAID`도 `OFFLINE_REQUIRED`도 아닌, 사유를 기록한 `PENDING`으로 두고 정산 스케줄러·운영 확인으로 확정한다.
 - 오프라인 정산은 `OFFLINE_REQUIRED` 상태에서만 허용한다.
 - 정산 후 `OFFLINE_PAID`와 처리 시각·처리자를 기록한다.
 - 오프라인 정산 후에는 자동 재시도 파이프라인을 중단하여 이중 청구를 방지한다.

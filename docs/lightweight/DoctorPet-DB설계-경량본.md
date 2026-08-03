@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.23, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.24, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
@@ -152,6 +152,7 @@ members 1 ── 0..N notifications
 | `retry_count` | INT | 재시도 횟수 |
 | `failure_reason` | VARCHAR | 실패 사유, `NULL` 가능 |
 | `pg_payment_id` | VARCHAR | PG 결제 ID, `NULL` 가능 |
+| `offline_required_at` | DATETIME | 자동 청구 실패로 오프라인 전환된 시각, `NULL` 가능 |
 | `offline_settled_at` | DATETIME | 오프라인 정산 시각, `NULL` 가능 |
 | `offline_settled_by` | BIGINT | 정산 처리자, `NULL` 가능 |
 | `created_at` | DATETIME | 생성 시각 |
