@@ -82,6 +82,8 @@ class PaymentOfflineSettleIntegrationTest {
         assertThat(settled.getPaymentChannel()).isEqualTo(PaymentChannel.OFFLINE);
         assertThat(settled.getOfflineSettledBy()).isEqualTo(STAFF_MEMBER_ID);
         assertThat(settled.getOfflineSettledAt()).isNotNull();
+        // JPQL bulk UPDATE는 @LastModifiedDate를 우회하므로, updatedAt도 정산 시각으로 명시 갱신됐는지 확인한다(PR #80 P2 후속).
+        assertThat(settled.getUpdatedAt()).isEqualTo(settled.getOfflineSettledAt());
         verify(notificationPublisher, times(1))
                 .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.OFFLINE_PAID));
     }
