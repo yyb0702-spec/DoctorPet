@@ -46,6 +46,7 @@ application-secret.properties
 .env
 .env.*
 !.env.example
+docker-compose.override.yml
 *.pem
 *.p12
 *.jks

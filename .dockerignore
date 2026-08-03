@@ -12,4 +12,7 @@ docs
 .env
 .env.*
 !.env.example
-application-local.yml
+# .dockerignore는 .gitignore와 달리 슬래시 없는 패턴이 하위 디렉터리까지 재귀 매칭되지
+# 않는다(빌드 컨텍스트 루트만 매칭) — 실제 파일이 src/main/resources/ 아래 있어 **/ 접두사가
+# 필요하다(리뷰 지적 P2).
+**/application-local.yml

@@ -1,6 +1,12 @@
 # CI/CD 배포 MVP — app+MySQL+Redis를 한 번에 띄운다. 로컬 검증과 실제 서버(EC2) 배포에 그대로
 # 재사용한다. 실제 값(JWT_SECRET, DB 비밀번호 등)은 .env 파일에 채운다(.env.example 참고,
 # .env 자체는 .gitignore에 등록해 커밋하지 않는다).
+#
+# SPRING_PROFILES_ACTIVE=docker인 이유(리뷰 지적 P1): .env.example 기본값은 payment.gateway=
+# fake, mail.provider=fake라 결제·메일이 실제로 연동되지 않는다. ProductionSafetyGuard가
+# prod 프로파일 + fake 조합이면 부팅 자체를 막으므로, 아직 PortOne·SMTP 실연동 준비가 안 된
+# 이 인프라 검증 단계에서는 prod가 아닌 docker 프로파일로 띄운다. 실제 운영 launch 시에는
+# payment.gateway=portone, mail.provider=smtp로 값을 채우고 이 값을 prod로 바꿀 것.
 services:
   mysql:
     image: mysql:8.0
@@ -8,11 +14,10 @@ services:
     environment:
       MYSQL_DATABASE: doctorpet
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-    ports:
-      # 로컬 호스트에 이미 3306을 쓰는 MySQL이 있을 수 있어 노출 포트만 3307로 바꿨다.
-      # 컨테이너 내부 통신(app -> mysql:3306)에는 영향 없다 — 호스트에서 직접 3306으로
-      # 붙어야 할 때만(DB 클라이언트 등) 3307로 접속하면 된다.
-      - "3307:3306"
+    # 호스트 포트를 게시하지 않는다(리뷰 지적 P2) — app은 같은 compose 네트워크 안에서
+    # mysql:3306으로 붙으므로 호스트 노출이 필요 없고, 노출해두면 보안그룹/방화벽 실수 시
+    # 바로 공격 경로가 된다. 로컬에서 DB 클라이언트로 직접 붙어야 하면
+    # docker-compose.override.yml.example을 참고해 개발용 override에서만 loopback으로 열 것.
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -25,8 +30,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # 호스트 포트를 게시하지 않는다(리뷰 지적 P2) — 이 Redis는 인증(requirepass)이 없어서
+    # 그대로 노출되면 Rate Limit 카운터·기타 캐시 데이터에 누구나 접근할 수 있다. app은
+    # redis:6379로 내부 접속하므로 호스트 노출 자체가 불필요하다.
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -43,7 +49,7 @@ services:
     environment:
       # DB·Redis는 같은 docker compose 네트워크 안의 서비스명으로 접속하므로 .env에서 채울
       # 필요가 없다 — 컨테이너 사이 연결 정보이지 비밀값이 아니다.
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
