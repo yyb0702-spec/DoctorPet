@@ -94,4 +94,6 @@ jobs:
           # 없는" 상태를 전제로 한 테스트를 실행하지 못해 실패한다. CI 기본값은 꺼두고, 그
           # 테스트 클래스에서만 @TestPropertySource로 다시 켠다.
           MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED: "false"
+          # 실제 LLM 제공자 미선정 단계이므로 CI에서는 테스트용 Fake Gateway를 명시한다.
+          AI_GATEWAY: fake
         run: ./gradlew clean build
