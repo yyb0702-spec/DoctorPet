@@ -38,7 +38,7 @@
 - 자동 전이가 먼저 끝난 경우 잠금 조회로 최신 커밋 상태 확인
   - MySQL `REPEATABLE READ`의 이전 스냅샷으로 수동 처리를 잘못 거부하는 문제 방지
 - `reservation_events`에 확정·정정 사유, 처리자 ID, 처리 시각을 append-only로 기록
-- `(reservation_id, event_type)` UNIQUE 및 `INSERT IGNORE`로 중복 이력 차단
+- `(reservation_id, event_type)` UNIQUE 및 `ON DUPLICATE KEY UPDATE id = id`로 같은 사건만 멱등 처리
 - 실제 상태 변경 시 `ReservationStatusChangedEvent` 발행
 
 **수정 파일**
@@ -108,7 +108,7 @@
 
 **미검증 항목**
 
-- Issue #29 자동 노쇼 스케줄러 자체 실행은 해당 이슈 범위에서 검증해야 합니다.
+- Issue #29 구현 시 테스트 내부 복제 SQL을 실제 자동 노쇼 서비스 호출로 교체하고, 상태 UPDATE와 `AUTO_NO_SHOW` 이력이 한 트랜잭션에서 수동 처리와 경쟁하는 Level 3 테스트를 재실행해야 합니다.
 - 알림 저장·조회는 Issue #39 범위이며, 이번 PR은 상태 변경 이벤트 발행까지만 포함합니다.
 - 전체 빌드의 기존 실패 10건은 `EmailGateway` 테스트 설정 누락과 로컬 Redis 미기동 때문입니다.
 - Level 5 로컬 기동은 기본 프로필의 기존 `EmailGateway` 설정 누락으로 진행하지 않았습니다.

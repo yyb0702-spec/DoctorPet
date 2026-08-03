@@ -13,10 +13,11 @@ public interface ReservationEventRepository extends JpaRepository<ReservationEve
 
     @Modifying(flushAutomatically = true)
     @Query(value = """
-            insert ignore into reservation_events
+            insert into reservation_events
                 (reservation_id, event_type, memo, processed_by, occurred_at)
             values
                 (:reservationId, :eventType, :memo, :processedBy, :occurredAt)
+            on duplicate key update id = id
             """, nativeQuery = true)
     int appendIfAbsent(
             @Param("reservationId") Long reservationId,

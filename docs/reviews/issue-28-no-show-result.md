@@ -20,7 +20,7 @@
 - 예약 상태 변경은 `WHERE status = 기대 상태 AND hospital_id = 자병원` 조건부 UPDATE로 보호한다.
 - 조건부 UPDATE가 0행이면 잠금 조회로 최신 커밋 상태를 확인해 MySQL `REPEATABLE READ`의 이전 스냅샷 오판을 막는다.
 - 자동 판정과 수동 확정이 겹치면 최종 상태는 `NO_SHOW`가 되고 수동 판정 이력은 반드시 남는다.
-- `(reservation_id, event_type)` UNIQUE와 `INSERT IGNORE`로 같은 사건의 중복 이력을 막는다.
+- `(reservation_id, event_type)` UNIQUE와 `ON DUPLICATE KEY UPDATE id = id`로 같은 사건만 멱등 처리한다.
 - 기존 이력은 수정하지 않고 정정 이력을 새 행으로 추가한다.
 
 ## 체크리스트 결과
