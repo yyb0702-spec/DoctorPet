@@ -117,7 +117,10 @@ public class PaymentReconcileService {
             return switch (query.status()) {
                 case PAID -> (query.paidAmount() == target.getAmount() && hasText(query.pgPaymentId()))
                         ? ChargeOutcome.paid(query.pgPaymentId(), LocalDateTime.now())
-                        : ChargeOutcome.offlineRequired("RECONCILE_AMOUNT_MISMATCH", target.getRetryCount());
+                        // 금액 불일치·불완전 응답은 PortOne이 이미 청구했을 수 있어, OFFLINE(현장 재수납=이중결제) 대신
+                        // PENDING을 유지해 운영자 수동 확인 대상으로 둔다(#34 리뷰 교정과 동일 원칙 — 불확실 시 오프라인 금지).
+                        : ChargeOutcome.pending(target.getRetryCount(), "RECONCILE_AMOUNT_MISMATCH");
+                // 성공이 아님이 확실한(FAILED) 경우만 오프라인 수납 대상으로 확정한다(이중결제 위험 없음).
                 case FAILED -> ChargeOutcome.offlineRequired("RECONCILE_FAILED", target.getRetryCount());
                 case PENDING -> resolveStillPending(target);
             };
@@ -128,12 +131,13 @@ public class PaymentReconcileService {
     }
 
     private ChargeOutcome resolveStillPending(Payment target) {
-        int nextAttempt = target.getRetryCount() + 1;
-        if (nextAttempt >= maxAttempts) {
-            // 재조회를 소진하도록 오래 미확정이면 오프라인 수납 대상으로 돌려 사람이 처리하게 한다.
-            return ChargeOutcome.offlineRequired("RECONCILE_EXHAUSTED", nextAttempt);
+        // 재조회를 소진하도록 오래 미확정이어도 승인 여부가 불확실하면 OFFLINE(이중결제 위험) 대신 PENDING을 유지한다
+        // (#34 리뷰 교정과 동일 원칙). max-attempts는 자동 OFFLINE 전환이 아니라 재시도 상한·운영 알림 임계로만 쓴다 —
+        // 초과분은 RECONCILE_STUCK 사유로 표시해 운영자가 PortOne에서 직접 확인·수납하도록 남긴다(재시도 수는 더 올리지 않음).
+        if (target.getRetryCount() >= maxAttempts) {
+            return ChargeOutcome.pending(target.getRetryCount(), "RECONCILE_STUCK");
         }
-        return ChargeOutcome.pending(nextAttempt, "RECONCILE_UNCONFIRMED");
+        return ChargeOutcome.pending(target.getRetryCount() + 1, "RECONCILE_UNCONFIRMED");
     }
 
     private void publishResolved(Payment finalized) {

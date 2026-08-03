@@ -143,20 +143,20 @@ class PaymentReconcileServiceTest {
     }
 
     @Test
-    @DisplayName("단건조회 PENDING이 재시도 임계를 소진하면 OFFLINE_REQUIRED로 확정한다(수동 정산 전환)")
-    void queryPending_atMax_offlineRequired() {
-        lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS - 1)));
+    @DisplayName("단건조회 PENDING이 재시도 임계를 넘겨도 불확실하면 OFFLINE 대신 PENDING을 유지한다(RECONCILE_STUCK)")
+    void queryPending_atMax_staysPending() {
+        // 재조회 임계를 넘겨도 승인 여부가 불확실하면 OFFLINE(이중결제 위험) 대신 PENDING을 유지하고 알림도 없다.
+        lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(resolved(PaymentStatus.OFFLINE_REQUIRED));
-        given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
-                new ReservationChargeView(RESERVATION_ID, 1L, GUARDIAN_ID, 7L, true)));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(pendingTarget(MAX_ATTEMPTS));
 
         ReconcileSummary summary = service.reconcile();
 
-        assertThat(summary.offlineRequired()).isEqualTo(1);
+        assertThat(summary.stillPending()).isEqualTo(1);
         ChargeOutcome outcome = captureOutcome();
-        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
-        assertThat(outcome.failureReason()).isEqualTo("RECONCILE_EXHAUSTED");
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("RECONCILE_STUCK");
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
     }
 
     @Test
@@ -190,16 +190,18 @@ class PaymentReconcileServiceTest {
     }
 
     @Test
-    @DisplayName("단건조회 PAID지만 금액이 다르면 OFFLINE_REQUIRED로 확정한다(금액 대조)")
-    void queryPaidAmountMismatch_offlineRequired() {
+    @DisplayName("단건조회 PAID지만 금액이 다르면 OFFLINE 대신 PENDING을 유지한다(이중결제 금지)")
+    void queryPaidAmountMismatch_staysPending() {
+        // 조회는 PAID지만 금액이 다르면 PortOne이 이미 청구했을 수 있어 OFFLINE 대신 PENDING을 유지한다(이중결제 금지).
         lockAcquired(List.of(pendingTarget(0)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT + 1));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(resolved(PaymentStatus.OFFLINE_REQUIRED));
-        given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
-                new ReservationChargeView(RESERVATION_ID, 1L, GUARDIAN_ID, 7L, true)));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(pendingTarget(0));
 
         service.reconcile();
 
-        assertThat(captureOutcome().failureReason()).isEqualTo("RECONCILE_AMOUNT_MISMATCH");
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("RECONCILE_AMOUNT_MISMATCH");
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
     }
 }
