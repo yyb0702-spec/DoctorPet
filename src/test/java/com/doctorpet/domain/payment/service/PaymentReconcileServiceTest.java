@@ -21,7 +21,11 @@ import com.doctorpet.global.gateway.payment.PaymentGateway;
 import com.doctorpet.global.gateway.payment.PaymentGatewayException;
 import com.doctorpet.global.gateway.payment.GatewayFailureReason;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,13 +59,16 @@ class PaymentReconcileServiceTest {
     @Mock private ReservationLookupPort reservationLookupPort;
     @Mock private ReconcileLock reconcileLock;
 
+    // JVM 기본 시간대에 의존하지 않도록 테스트도 고정 Clock을 주입한다(운영은 서울 기준 applicationClock).
+    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC);
+
     private PaymentReconcileService service;
 
     @BeforeEach
     void setUp() {
         service = new PaymentReconcileService(
                 paymentRepository, paymentChargeService, paymentGateway, notificationPublisher,
-                reservationLookupPort, reconcileLock, 120_000L, 100, MAX_ATTEMPTS);
+                reservationLookupPort, reconcileLock, FIXED_CLOCK, 120_000L, 100, MAX_ATTEMPTS);
     }
 
     private Payment pendingTarget(int retryCount) {
@@ -203,5 +210,23 @@ class PaymentReconcileServiceTest {
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("RECONCILE_AMOUNT_MISMATCH");
         verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("정산 대상 조회 임계는 주입된 Clock 기준으로 계산한다(JVM 기본 시간대에 의존하지 않는다)")
+    void threshold_usesInjectedClock() {
+        // updatedAt은 서울 기준 applicationClock으로 저장되는데 임계를 JVM 기본 TZ의 now()로 만들면 UTC JVM에서
+        // 약 9시간 어긋난다. 고정 Clock을 주입해 임계가 (Clock now - staleAfter)로 정확히 계산됨을 증명한다.
+        given(reconcileLock.tryLock()).willReturn(Optional.of(LOCK_TOKEN));
+        given(paymentRepository.findReconcileTargets(eq(PaymentStatus.PENDING), any(LocalDateTime.class), any(Pageable.class)))
+                .willReturn(List.of());
+
+        service.reconcile();
+
+        ArgumentCaptor<LocalDateTime> thresholdCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(paymentRepository)
+                .findReconcileTargets(eq(PaymentStatus.PENDING), thresholdCaptor.capture(), any(Pageable.class));
+        LocalDateTime expected = LocalDateTime.now(FIXED_CLOCK).minus(Duration.ofMillis(120_000L));
+        assertThat(thresholdCaptor.getValue()).isEqualTo(expected);
     }
 }

@@ -11,6 +11,7 @@ import com.doctorpet.domain.payment.scheduler.ReconcileSummary;
 import com.doctorpet.global.gateway.payment.PaymentGateway;
 import com.doctorpet.global.gateway.payment.PaymentGatewayException;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,7 +31,9 @@ import org.springframework.stereotype.Service;
   - 조회 FAILED → OFFLINE_REQUIRED 확정
   - 조회 PENDING(여전히 미확정) → 재시도 수 +1, 임계(max-attempts) 초과면 OFFLINE_REQUIRED(수동 정산 전환), 아니면 PENDING 유지
   - 조회 실패(게이트웨이 예외) → PENDING 유지(다음 배치 재시도), 재시도 수는 올리지 않음
-  다중 인스턴스 동시 실행은 ReconcileLock(Redis)으로 막고, 같은 건 이중 확정은 finalizeOutcome의 PENDING 가드가 최종 방어한다.
+  다중 인스턴스 동시 실행은 ReconcileLock(Redis)으로 막는다 — 배치가 길어져도 처리 중 lease를 갱신(renew)해 만료로
+  다른 인스턴스가 끼어드는 것을 막고, 락 해제는 내 토큰일 때만 원자적으로 한다. finalizeOutcome의 PENDING 가드는 순차
+  재확정(같은 건을 이미 확정된 뒤 다시 확정)만 막으므로, 동시 실행 차단의 1차 방어는 어디까지나 이 락이다.
  */
 @Slf4j
 @Service
@@ -42,6 +45,9 @@ public class PaymentReconcileService {
     private final PaymentNotificationPublisher notificationPublisher;
     private final ReservationLookupPort reservationLookupPort;
     private final ReconcileLock reconcileLock;
+    // JpaAuditing의 updatedAt과 같은 서울 기준 Clock(applicationClock). 조회 임계·확정 시각을 JVM 기본 시간대가
+    // 아니라 이 Clock으로 계산해, 운영·CI JVM이 UTC여도 updatedAt과 임계값의 시간대가 어긋나지 않게 한다.
+    private final Clock clock;
     private final long staleAfterMs;
     private final int batchSize;
     private final int maxAttempts;
@@ -53,6 +59,7 @@ public class PaymentReconcileService {
             PaymentNotificationPublisher notificationPublisher,
             ReservationLookupPort reservationLookupPort,
             ReconcileLock reconcileLock,
+            Clock clock,
             @Value("${payment.reconcile.stale-after-ms:120000}") long staleAfterMs,
             @Value("${payment.reconcile.batch-size:100}") int batchSize,
             @Value("${payment.reconcile.max-attempts:10}") int maxAttempts
@@ -63,6 +70,7 @@ public class PaymentReconcileService {
         this.notificationPublisher = notificationPublisher;
         this.reservationLookupPort = reservationLookupPort;
         this.reconcileLock = reconcileLock;
+        this.clock = clock;
         this.staleAfterMs = staleAfterMs;
         this.batchSize = batchSize;
         this.maxAttempts = maxAttempts;
@@ -75,7 +83,7 @@ public class PaymentReconcileService {
             return ReconcileSummary.skipped();
         }
         try {
-            LocalDateTime threshold = LocalDateTime.now().minus(Duration.ofMillis(staleAfterMs));
+            LocalDateTime threshold = LocalDateTime.now(clock).minus(Duration.ofMillis(staleAfterMs));
             List<Payment> targets = paymentRepository.findReconcileTargets(
                     PaymentStatus.PENDING, threshold, PageRequest.of(0, batchSize));
 
@@ -84,6 +92,8 @@ public class PaymentReconcileService {
             int stillPending = 0;
             int errored = 0;
             for (Payment target : targets) {
+                // 외부 단건조회는 느릴 수 있어, 건별로 락 임대를 갱신해 배치가 길어져도 만료로 다른 인스턴스가 끼어들지 않게 한다.
+                reconcileLock.renew(lock.get());
                 try {
                     switch (reconcileOne(target)) {
                         case PAID -> paid++;
@@ -116,7 +126,7 @@ public class PaymentReconcileService {
             PaymentQueryResult query = paymentGateway.query(target.getMerchantPaymentId());
             return switch (query.status()) {
                 case PAID -> (query.paidAmount() == target.getAmount() && hasText(query.pgPaymentId()))
-                        ? ChargeOutcome.paid(query.pgPaymentId(), LocalDateTime.now())
+                        ? ChargeOutcome.paid(query.pgPaymentId(), LocalDateTime.now(clock))
                         // 금액 불일치·불완전 응답은 PortOne이 이미 청구했을 수 있어, OFFLINE(현장 재수납=이중결제) 대신
                         // PENDING을 유지해 운영자 수동 확인 대상으로 둔다(#34 리뷰 교정과 동일 원칙 — 불확실 시 오프라인 금지).
                         : ChargeOutcome.pending(target.getRetryCount(), "RECONCILE_AMOUNT_MISMATCH");

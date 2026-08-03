@@ -19,6 +19,7 @@ import com.doctorpet.domain.payment.scheduler.ReconcileLock;
 import com.doctorpet.domain.payment.scheduler.ReconcileSummary;
 import com.doctorpet.global.gateway.payment.GatewayPaymentStatus;
 import com.doctorpet.global.gateway.payment.fake.FakePaymentGateway;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -107,6 +109,41 @@ class PaymentReconcileIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("금액불일치·불완전응답(수동 확인 대상)인 PENDING은 정산 조회 대상에서 제외한다(이중결제 금지)")
+    void reconcileTargets_excludeUncertainPaidReasons() {
+        // 청구 단계에서 PG가 PAID를 줬으나 금액·식별자가 불일치해 PENDING으로 남은 건(AMOUNT_MISMATCH·INVALID_PG_RESULT)은
+        // 재조회가 FAILED로 오면 OFFLINE 전환→이중결제가 될 수 있어, 자동 정산 대상에서 빼고 운영자 수동 확인으로 남긴다.
+        Payment normal = persistPending();
+        Payment mismatch = persistPendingWithReason("AMOUNT_MISMATCH");
+        Payment invalid = persistPendingWithReason("INVALID_PG_RESULT");
+
+        List<Payment> targets = paymentRepository.findReconcileTargets(
+                PaymentStatus.PENDING, LocalDateTime.now().plusYears(1), PageRequest.of(0, 100));
+        List<Long> targetIds = targets.stream().map(Payment::getId).toList();
+
+        assertThat(targetIds).contains(normal.getId());
+        assertThat(targetIds).doesNotContain(mismatch.getId(), invalid.getId());
+    }
+
+    @Test
+    @DisplayName("renew는 내가 쥔 락의 임대를 유지하고, unlock은 내 토큰일 때만 원자적으로 해제한다")
+    void lock_renewKeepsOwnership_and_unlockIsTokenScoped() {
+        Optional<String> mine = reconcileLock.tryLock();
+        assertThat(mine).isPresent();
+
+        reconcileLock.renew(mine.get());                       // 여전히 내가 쥔 락이므로
+        assertThat(reconcileLock.tryLock()).isEmpty();          // 다른 인스턴스는 획득 실패해야 한다
+
+        reconcileLock.unlock("someone-else-token");             // 남의 토큰으로는 해제되지 않는다
+        assertThat(reconcileLock.tryLock()).isEmpty();
+
+        reconcileLock.unlock(mine.get());                       // 내 토큰으로만 해제된다
+        Optional<String> reacquired = reconcileLock.tryLock();
+        assertThat(reacquired).isPresent();
+        reconcileLock.unlock(reacquired.get());
+    }
+
     private Payment persistPending() {
         long reservationId = System.nanoTime();
         Payment payment = Payment.pending(reservationId, "pay_" + reservationId, 7L, "VISA", "1234", AMOUNT);
@@ -114,6 +151,16 @@ class PaymentReconcileIntegrationTest {
         paymentIds.add(saved.getId());
         given(reservationLookupPort.findForCharge(reservationId)).willReturn(Optional.of(
                 new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, 7L, true)));
+        return saved;
+    }
+
+    // 청구 단계에서 불확실 사유로 PENDING에 남은 결제 픽스처. remainPending으로 failureReason만 세팅한다(상태는 PENDING).
+    private Payment persistPendingWithReason(String failureReason) {
+        long reservationId = System.nanoTime();
+        Payment payment = Payment.pending(reservationId, "pay_" + reservationId, 7L, "VISA", "1234", AMOUNT);
+        payment.remainPending(0, failureReason);
+        Payment saved = paymentRepository.saveAndFlush(payment);
+        paymentIds.add(saved.getId());
         return saved;
     }
 }
