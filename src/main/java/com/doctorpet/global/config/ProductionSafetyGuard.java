@@ -16,6 +16,10 @@ import java.util.List;
   운영에 쓰면 결제가 항상 승인된 것처럼 저장되거나 인증·재설정 링크가 로그에 그대로 남는 사고로
   이어진다. 배포 스크립트가 "떴으니 성공"으로 오판하지 않도록, 이 조합에서는 컨테이너 자체가
   뜨지 못하게 막는다.
+
+  ai.gateway는 의도적으로 검사하지 않는다(리뷰 지적 P3) — FakeAiGateway 외에 실연동 구현체가
+  아직 없어서, 이걸 막으면 prod 프로파일 자체가 영원히 부팅할 수 없게 된다. 실연동 AiGateway가
+  추가되면 그때 이 검사에 payment.gateway/mail.provider와 같은 방식으로 포함시킬 것.
  */
 @Component
 public class ProductionSafetyGuard {
