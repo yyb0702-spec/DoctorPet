@@ -58,3 +58,7 @@ ai:
 member:
   email-verified-backfill:
     enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
+
+reservation:
+  event-unique-migration:
+    enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}

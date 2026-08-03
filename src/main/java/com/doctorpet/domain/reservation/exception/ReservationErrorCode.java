@@ -79,6 +79,24 @@ public enum ReservationErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "RESERVATION_012",
             "예약 체크인 가능 시간이 지났습니다."
+    ),
+
+    NO_SHOW_TOO_EARLY(
+            HttpStatus.CONFLICT,
+            "RESERVATION_013",
+            "예약 시작 전에는 노쇼를 확정할 수 없습니다."
+    ),
+
+    INVALID_NO_SHOW_REASON(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_014",
+            "노쇼 확정 사유는 필수이며 255자 이하여야 합니다."
+    ),
+
+    INVALID_NO_SHOW_RESTORE_REASON(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_015",
+            "노쇼 정정 사유는 필수이며 255자 이하여야 합니다."
     );
 
     private final HttpStatus httpStatus;
