@@ -108,6 +108,89 @@ class HospitalReservationAuthorizationTest {
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
     }
 
+    @Test
+    @DisplayName("보호자는 노쇼 수동 확정 API에 접근할 수 없다")
+    void guardian_cannotConfirmNoShow() throws Exception {
+        mockMvc.perform(patch(
+                                "/api/hospital/reservations/{reservationId}/no-show",
+                                10L
+                        )
+                        .with(authentication(guardianAuthentication()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"미방문 확인\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("보호자는 노쇼 정정 API에 접근할 수 없다")
+    void guardian_cannotRestoreNoShow() throws Exception {
+        mockMvc.perform(patch(
+                                "/api/hospital/reservations/{reservationId}/restore",
+                                10L
+                        )
+                        .with(authentication(guardianAuthentication()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"현장 도착 확인\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 사유를 포함해 노쇼를 수동 확정할 수 있다")
+    void hospitalStaff_canConfirmNoShow() throws Exception {
+        mockMvc.perform(patch(
+                                "/api/hospital/reservations/{reservationId}/no-show",
+                                10L
+                        )
+                        .with(authentication(memberAuthentication(
+                                50L,
+                                "HOSPITAL_STAFF"
+                        )))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"미방문 확인\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(hospitalReservationApplicationService).confirmNoShow(
+                50L,
+                10L,
+                "미방문 확인"
+        );
+    }
+
+    @Test
+    @DisplayName("노쇼 확정 사유가 공백이면 400으로 거부한다")
+    void confirmNoShow_withBlankReason_returnsBadRequest() throws Exception {
+        mockMvc.perform(patch(
+                                "/api/hospital/reservations/{reservationId}/no-show",
+                                10L
+                        )
+                        .with(authentication(memberAuthentication(
+                                50L,
+                                "HOSPITAL_STAFF"
+                        )))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("노쇼 정정 사유가 없으면 400으로 거부한다")
+    void restoreNoShow_withoutReason_returnsBadRequest() throws Exception {
+        mockMvc.perform(patch(
+                                "/api/hospital/reservations/{reservationId}/restore",
+                                10L
+                        )
+                        .with(authentication(memberAuthentication(
+                                50L,
+                                "HOSPITAL_STAFF"
+                        )))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
     private Authentication guardianAuthentication() {
         return memberAuthentication(1L, "GUARDIAN");
     }
