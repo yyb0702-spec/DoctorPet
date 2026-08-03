@@ -40,7 +40,12 @@ services:
       retries: 5
 
   app:
+    # 로컬: docker compose up --build로 Dockerfile을 직접 빌드해서 image 이름으로 태깅한다.
+    # EC2 배포: GitHub Actions가 미리 빌드해 GHCR에 push해둔 이미지를 build 없이 pull만 해서
+    # 쓴다(`docker compose pull && docker compose up -d`) — EC2에서 매번 Gradle 빌드를 돌리면
+    # 리소스가 부족해 느리고 불안정하다는 걸 이미 겪었기 때문(CI/CD 자동배포 단계).
     build: .
+    image: ghcr.io/yyb0702-spec/doctorpet:latest
     restart: unless-stopped
     ports:
       - "8080:8080"
