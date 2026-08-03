@@ -64,16 +64,27 @@ class PaymentApplicationServiceTest {
     private void stubPreRecord(boolean methodActive) {
         given(paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT)).willReturn(
                 new PaymentPreRecord(PAYMENT_ID, MERCHANT_ID, "v1:enc", AMOUNT, methodActive, GUARDIAN_ID, RESERVATION_ID));
-        // 후확정은 전달된 ChargeOutcome을 실제 상태에 반영한 Payment를 돌려줘 응답 status가 결과를 반영하게 한다.
+        // 후확정은 전달된 ChargeOutcome을 실제 상태에 반영한 Payment와 applied 플래그를 돌려준다.
+        // PAID·OFFLINE_REQUIRED는 실제 전이(applied=true), PENDING 유지는 전이가 아니다(applied=false) — 알림 발행 분기 검증용.
         given(paymentChargeService.finalizeOutcome(anyLong(), any())).willAnswer(invocation -> {
             ChargeOutcome outcome = invocation.getArgument(1);
             Payment payment = Payment.pending(RESERVATION_ID, MERCHANT_ID, 7L, "VISA", "1234", AMOUNT);
+            boolean applied;
             switch (outcome.type()) {
-                case PAID -> payment.markPaid(outcome.pgPaymentId(), outcome.paidAt());
-                case OFFLINE_REQUIRED -> payment.markOfflineRequired(outcome.failureReason(), outcome.retryCount());
-                case PENDING -> payment.remainPending(outcome.retryCount(), outcome.failureReason());
+                case PAID -> {
+                    payment.markPaid(outcome.pgPaymentId(), outcome.paidAt());
+                    applied = true;
+                }
+                case OFFLINE_REQUIRED -> {
+                    payment.markOfflineRequired(outcome.failureReason(), outcome.retryCount());
+                    applied = true;
+                }
+                default -> {
+                    payment.remainPending(outcome.retryCount(), outcome.failureReason());
+                    applied = false;
+                }
             }
-            return payment;
+            return new PaymentChargeService.FinalizeResult(payment, applied);
         });
     }
 
