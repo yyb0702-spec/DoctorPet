@@ -14,12 +14,16 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.time.TimePolicy;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -31,12 +35,19 @@ class NotificationServiceTest {
     private static final Long OWNER_ID = 7L;
     private static final Long OTHER_ID = 8L;
     private static final Long NOTIFICATION_ID = 100L;
+    // 고정 Clock — 읽음 시각이 공통 applicationClock을 통해 계산되는지 검증하기 위함(PR #87 P2).
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), TimePolicy.SEOUL_ZONE_ID);
 
     @Mock
     private NotificationRepository notificationRepository;
 
-    @InjectMocks
     private NotificationService notificationService;
+
+    @BeforeEach
+    void setUp() {
+        notificationService = new NotificationService(notificationRepository, FIXED_CLOCK);
+    }
 
     @Test
     @DisplayName("읽음 처리: 존재하지 않는 알림이면 NOTIFICATION_NOT_FOUND(404)")
@@ -64,7 +75,7 @@ class NotificationServiceTest {
     }
 
     @Test
-    @DisplayName("읽음 처리: 본인 알림이면 소유자·id로 조건부 UPDATE(markReadIfUnread)를 호출한다")
+    @DisplayName("읽음 처리: 본인 알림이면 소유자·id·공통 Clock 기준 시각으로 조건부 UPDATE(markReadIfUnread)를 호출한다")
     void markAsRead_invokesConditionalUpdate() {
         Notification notification = paymentNotification(OWNER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
@@ -73,7 +84,10 @@ class NotificationServiceTest {
 
         notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
 
-        verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any());
+        ArgumentCaptor<LocalDateTime> readAt = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), readAt.capture());
+        // 읽음 시각은 TimePolicy 직접 계산이 아니라 주입된 공통 Clock으로 만들어진다.
+        assertThat(readAt.getValue()).isEqualTo(LocalDateTime.now(FIXED_CLOCK));
     }
 
     @Test

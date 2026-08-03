@@ -11,7 +11,7 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.global.exception.ServiceException;
-import com.doctorpet.global.time.TimePolicy;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -27,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    // JPA 감사 시각(createdAt/updatedAt)과 같은 서울 기준 Clock(applicationClock). 읽음 시각도 이 Clock으로 만들어
+    // 업무 시각과 감사 시각이 같은 시계를 쓰게 한다(SA 시간 정책, PR #87 P2 리뷰 반영).
+    private final Clock clock;
 
     // 상태 전이 이벤트 수신자에게 알림을 저장한다. 수신자(memberId)는 이벤트 발행 도메인이 서버에서 확정해 전달한다.
     @Transactional
@@ -77,6 +80,6 @@ public class NotificationService {
         // WHERE read_at IS NULL 조건부 UPDATE로 최초 1회만 기록한다 — 동시 요청에도 최초 시각이 보존된다(PR #87 P2).
         // 갱신 0건은 이미 읽은 알림이므로 예외 없이 멱등 200으로 둔다.
         notificationRepository.markReadIfUnread(
-                notificationId, memberId, LocalDateTime.now(TimePolicy.SEOUL_ZONE_ID));
+                notificationId, memberId, LocalDateTime.now(clock));
     }
 }
