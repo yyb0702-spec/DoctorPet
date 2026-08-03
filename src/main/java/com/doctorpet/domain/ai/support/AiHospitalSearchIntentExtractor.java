@@ -12,13 +12,20 @@ public class AiHospitalSearchIntentExtractor {
             "지금", "현재", "바로", "문 연", "진료 가능한");
     private static final List<String> NIGHT_CARE_EXPRESSIONS = List.of(
             "야간", "밤 늦게", "밤늦게", "새벽에", "새벽에도", "24시간");
+    private static final List<String> EXPLICIT_NIGHT_CARE_EXPRESSIONS = List.of(
+            "야간 진료", "24시간");
     private static final List<String> DISTANCE_EXPRESSIONS = List.of(
             "가까운", "가장 가까운", "근처", "주변");
 
     public AiHospitalSearchIntent extract(String symptomText) {
+        boolean openNow = containsAny(symptomText, OPEN_NOW_EXPRESSIONS);
+        boolean nightCare = containsAny(symptomText, NIGHT_CARE_EXPRESSIONS);
+        if (openNow && !containsAny(symptomText, EXPLICIT_NIGHT_CARE_EXPRESSIONS)) {
+            nightCare = false;
+        }
         return new AiHospitalSearchIntent(
-                containsAny(symptomText, OPEN_NOW_EXPRESSIONS),
-                containsAny(symptomText, NIGHT_CARE_EXPRESSIONS),
+                openNow,
+                nightCare,
                 containsAny(symptomText, DISTANCE_EXPRESSIONS)
         );
     }
