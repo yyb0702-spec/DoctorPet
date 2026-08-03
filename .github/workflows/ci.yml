@@ -94,4 +94,6 @@ jobs:
           # 없는" 상태를 전제로 한 테스트를 실행하지 못해 실패한다. CI 기본값은 꺼두고, 그
           # 테스트 클래스에서만 @TestPropertySource로 다시 켠다.
           MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED: "false"
+          # UNIQUE 마이그레이션은 전용 실제 MySQL 테스트에서 스키마를 직접 재현한다.
+          RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED: "false"
         run: ./gradlew clean build

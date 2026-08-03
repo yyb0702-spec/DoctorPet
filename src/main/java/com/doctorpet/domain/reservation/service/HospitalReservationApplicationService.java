@@ -17,7 +17,6 @@ import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItem
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
-import com.doctorpet.domain.reservation.event.ReservationStatusChangedEvent;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
@@ -28,7 +27,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -46,7 +44,6 @@ public class HospitalReservationApplicationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
-    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 병원 스태프가 자기 병원의 REQUESTED 예약을 승인한다(SA §5-1, §6-2).
@@ -224,14 +221,6 @@ public class HospitalReservationApplicationService {
                 now
         );
 
-        if (updated == 1) {
-            eventPublisher.publishEvent(new ReservationStatusChangedEvent(
-                    reservationId,
-                    reservation.getMemberId(),
-                    ReservationStatus.NO_SHOW,
-                    now
-            ));
-        }
     }
 
     /**
@@ -271,12 +260,6 @@ public class HospitalReservationApplicationService {
                 staffMemberId,
                 now
         );
-        eventPublisher.publishEvent(new ReservationStatusChangedEvent(
-                reservationId,
-                reservation.getMemberId(),
-                ReservationStatus.CHECKED_IN,
-                now
-        ));
     }
 
     public Page<HospitalReservationListItemResponse> findHospitalReservations(

@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.service;
 
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -22,13 +23,18 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
         "payment.gateway=fake",
@@ -58,6 +64,9 @@ class HospitalNoShowIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Long reservationId;
     private Long slotId;
@@ -205,6 +214,126 @@ class HospitalNoShowIntegrationTest {
         )).isBetween(0L, 1L);
         assertThat(reservationSlotRepository.findById(data.slotId()).orElseThrow()
                 .getStatus()).isEqualTo(ReservationSlotStatus.RESERVED);
+    }
+
+    @Test
+    @DisplayName("수동 트랜잭션의 스냅샷 이후 자동 노쇼가 커밋되어도 잠금 조회는 최신 상태를 읽는다")
+    void automaticCommitAfterManualSnapshot_forUpdateReadsLatestStatus()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch snapshotFixed = new CountDownLatch(1);
+        CountDownLatch automaticCommitted = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        List<Throwable> errors = new CopyOnWriteArrayList<>();
+        AtomicInteger manualUpdated = new AtomicInteger(-1);
+        AtomicReference<ReservationStatus> lockedStatus = new AtomicReference<>();
+
+        executor.submit(() -> {
+            try {
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    Reservation snapshot = reservationRepository
+                            .findById(data.reservationId())
+                            .orElseThrow();
+                    assertThat(snapshot.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+                    snapshotFixed.countDown();
+                    await(automaticCommitted);
+
+                    LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+                    manualUpdated.set(reservationRepository.markNoShowIfConfirmed(
+                            data.reservationId(),
+                            snapshot.getHospitalId(),
+                            ReservationStatus.CONFIRMED,
+                            ReservationStatus.NO_SHOW,
+                            now,
+                            now
+                    ));
+                    lockedStatus.set(reservationRepository
+                            .findByIdAndHospitalIdForUpdate(
+                                    data.reservationId(),
+                                    snapshot.getHospitalId()
+                            )
+                            .orElseThrow()
+                            .getStatus());
+                });
+            } catch (Throwable throwable) {
+                errors.add(throwable);
+            } finally {
+                done.countDown();
+            }
+        });
+
+        executor.submit(() -> {
+            try {
+                await(snapshotFixed);
+                int updated = jdbcTemplate.update("""
+                        update reservations
+                           set status = 'NO_SHOW', no_show_at = now(), updated_at = now()
+                         where id = ? and status = 'CONFIRMED'
+                        """, data.reservationId());
+                assertThat(updated).isEqualTo(1);
+            } catch (Throwable throwable) {
+                errors.add(throwable);
+            } finally {
+                automaticCommitted.countDown();
+                done.countDown();
+            }
+        });
+
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(errors).isEmpty();
+        assertThat(manualUpdated).hasValue(0);
+        assertThat(lockedStatus).hasValue(ReservationStatus.NO_SHOW);
+    }
+
+    @Test
+    @DisplayName("노쇼 조건부 UPDATE는 다른 병원 ID로 예약 상태를 변경하지 않는다")
+    void markNoShowWithOtherHospitalId_updatesNothing() {
+        TestReservation data = saveConfirmedReservation();
+
+        Integer updated = new TransactionTemplate(transactionManager).execute(status -> {
+            LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+            return reservationRepository.markNoShowIfConfirmed(
+                    data.reservationId(),
+                    Long.MIN_VALUE,
+                    ReservationStatus.CONFIRMED,
+                    ReservationStatus.NO_SHOW,
+                    now,
+                    now
+            );
+        });
+
+        assertThat(updated).isZero();
+        assertThat(reservationRepository.findById(data.reservationId())
+                .orElseThrow()
+                .getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("감사 이력 저장은 중복 키가 아닌 외래 키 오류를 숨기지 않는다")
+    void appendHistoryWithUnknownReservation_failsTransaction() {
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> reservationEventRepository.appendIfAbsent(
+                        Long.MAX_VALUE,
+                        ReservationEventType.MANUAL_NO_SHOW.name(),
+                        "존재하지 않는 예약",
+                        null,
+                        LocalDateTime.now(SEOUL_ZONE_ID)
+                )))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("동시성 테스트 대기 시간이 초과되었습니다.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("동시성 테스트가 중단되었습니다.", exception);
+        }
     }
 
     private TestReservation saveConfirmedReservation() {

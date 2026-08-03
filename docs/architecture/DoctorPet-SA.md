@@ -245,6 +245,8 @@ erDiagram
 
 UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실행에도 이력은 한 번만 추가한다. 자동 판정 뒤 수동 확인은 event type이 달라 두 이력을 모두 보존한다.
 
+기존 테이블에 중복 이력이 있으면 `ddl-auto=update`가 UNIQUE 추가에 실패하고도 애플리케이션이 부팅될 수 있다. 이를 막기 위해 `ReservationEventUniqueMigrationRunner`가 최초 배포 시 같은 `(reservation_id, event_type)` 중 가장 작은 `id`의 최초 이력만 남기고 중복을 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다. 성공 여부는 `schema_migrations`의 `reservation_event_unique_v1` 마커로 기록하며, 마커가 있는데 제약이 없으면 부팅을 실패시켜 스키마 불일치를 드러낸다.
+
 예약 도메인의 예외·비가역 사건만 기록한다(방식 B). 정상 전이(요청·승인·체크인·진료·완료·취소)는 `reservations`의 상태·시각 컬럼으로 표현하고 이 테이블에 남기지 않는다. 노쇼 자동/수동 판정, 노쇼 정정, 승인 타임아웃 자동거절처럼 상태만으로는 흔적이 사라지는 사건만 추가한다. 수동 사건은 `memo`에 필수 사유, `processed_by`에 인증된 병원 직원 ID를 기록한다. 결제 사건(오프라인 정산 등)은 여기가 아니라 `payments` 쪽에 기록한다. 추가만 하고 수정·삭제하지 않는다.
 
 ### payment_methods (빌링키)
@@ -339,7 +341,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
 | applied_at | DATETIME NOT NULL | 실행 시각 |
 
-Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필, 부록A #(email_verified 백필) 참고)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다. 리뷰 지적 P2 대응 — 이 테이블은 이미 코드(`EmailVerifiedBackfillRunner`)로 구현돼 있었으나 정본 §4에는 반영되지 않고 부록 설명에만 등장했다.
+Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
 
 ---
 
@@ -359,7 +361,7 @@ stateDiagram-v2
     REQUESTED --> CANCELED : 사용자 취소(예약 2시간 전까지)
     CONFIRMED --> CHECKED_IN : 병원 체크인(그레이스타임 +10분 내)
     CONFIRMED --> CANCELED : 사용자 취소(예약 2시간 전까지)
-    CONFIRMED --> NO_SHOW : 체크인 없이 그레이스타임 경과
+    CONFIRMED --> NO_SHOW : 예약 시작 후 병원 수동 확정 / +10분 경과 자동 판정
     CHECKED_IN --> IN_TREATMENT : 진료 시작
     IN_TREATMENT --> TREATMENT_COMPLETED : 진료 완료
     NO_SHOW --> CHECKED_IN : 병원 정정("사실 도착") + 이력 append
@@ -373,7 +375,7 @@ stateDiagram-v2
 - REQUESTED 진입 전제: 프로필 + 빌링키 등록, 예약시각 4시간 전까지.
 - REJECTED: 병원 거절, 또는 승인 데드라인 경과 시 스케줄러 자동 거절(이력 `TIMEOUT_REJECTED`). 슬롯 반환, 후불이라 환불 불필요. 데드라인 = `min(요청시각+1시간, 예약시각−2시간)`.
 - CANCELED: 사용자 취소. REQUESTED·CONFIRMED 두 상태 모두 예약시각 2시간 전까지. 슬롯 반환.
-- NO_SHOW: 예약시각 +10분 경과 시 스케줄러 자동, 또는 병원 수동(자동보다 우선). 정정 시 CHECKED_IN 재전이.
+- NO_SHOW: 병원은 예약 시작 시각부터 수동 확정할 수 있고, 예약시각 +10분 경과 시 스케줄러가 자동 판정한다(수동 판단 우선). 정정 시 CHECKED_IN 재전이.
 - `PAYMENT_COMPLETED`는 예약 상태에 두지 않는다. 진료 종료가 종착이고, 결제 완료 여부는 Payment 상태로 표현한다.
 
 노쇼 집계: `reservationHistory.noShowCount`는 현재 상태가 `NO_SHOW`인 예약만 센다(전 병원 통합). 정정으로 CHECKED_IN이 된 건은 세지 않는다(정정 = 오판정 취소). 자동판정·정정 흔적은 감사용으로 `reservation_events`에만 남는다.

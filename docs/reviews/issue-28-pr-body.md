@@ -32,20 +32,22 @@
 
 ---
 
-### 동시성·감사 이력·상태 변경 이벤트
+### 동시성·감사 이력·스키마 안전성
 
 - 상태 조건과 병원 ID를 포함한 조건부 UPDATE 적용
 - 자동 전이가 먼저 끝난 경우 잠금 조회로 최신 커밋 상태 확인
   - MySQL `REPEATABLE READ`의 이전 스냅샷으로 수동 처리를 잘못 거부하는 문제 방지
 - `reservation_events`에 확정·정정 사유, 처리자 ID, 처리 시각을 append-only로 기록
 - `(reservation_id, event_type)` UNIQUE 및 `ON DUPLICATE KEY UPDATE id = id`로 같은 사건만 멱등 처리
-- 실제 상태 변경 시 `ReservationStatusChangedEvent` 발행
+- 기존 중복 이력은 최초 한 건만 보존한 뒤 UNIQUE를 명시적으로 추가·검증
+- `schema_migrations`의 `reservation_event_unique_v1` 마커로 1회 실행 보장
+- 마커가 있는데 UNIQUE가 없으면 부팅 실패로 스키마 불일치 노출
 
 **수정 파일**
 
 - `ReservationEvent.java`
 - `ReservationEventRepository.java`
-- `ReservationStatusChangedEvent.java`
+- `ReservationEventUniqueMigrationRunner.java`
 
 ---
 
@@ -58,6 +60,11 @@
 - 수동 확정·정정 시 사유와 처리자 이력 추가
 - 동일 수동 요청의 이력 멱등성 검증
 - 실제 MySQL에서 자동·수동 노쇼 동시 실행 검증
+- 수동 스냅샷 직후 자동 커밋을 강제한 `FOR UPDATE` 최신 읽기 검증
+- Repository의 타 병원 `hospitalId` 조건 검증
+- 기존 중복 데이터 정리·UNIQUE 추가·마커 검증
+- `/restore` 보호자 접근 403 검증
+- 중복 키가 아닌 감사 이력 DB 오류 전파 검증
 - 노쇼·정정 후 슬롯 `RESERVED` 유지 검증
 
 **수정 파일**
@@ -66,6 +73,7 @@
 - `HospitalReservationControllerTest.java`
 - `HospitalReservationAuthorizationTest.java`
 - `HospitalNoShowIntegrationTest.java`
+- `ReservationEventUniqueMigrationIntegrationTest.java`
 
 ---
 
@@ -73,6 +81,7 @@
 
 - SA의 노쇼 API, 허용 시간, 처리자 이력 규칙 보강
 - `reservation_events.processed_by`와 이벤트 UNIQUE 계약 반영
+- 기존 데이터 중복 정리와 UNIQUE 보장 절차 반영
 - 경량 SA·DB 문서와 구현 결과 문서 갱신
 
 **수정 파일**
@@ -101,16 +110,17 @@
 | --- | --- | --- | --- | --- |
 | 1 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalReservationApplicationServiceTest" --tests "com.doctorpet.domain.reservation.controller.HospitalReservationControllerTest"` | PASS | 상태·시간·사유·소유권·Controller 위임 | 없음 |
 | 2 | `./gradlew test --tests "com.doctorpet.domain.reservation.controller.HospitalReservationAuthorizationTest"` | PASS | 보호자 403, 병원 직원 성공, 요청 검증 400 | 없음 |
-| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalNoShowIntegrationTest"` | PASS | 실제 MySQL 상태·이력·슬롯·자동/수동 경쟁 | Issue #29 스케줄러 자체 실행 |
+| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalNoShowIntegrationTest"` | PASS | 실제 MySQL 상태·이력·슬롯·결정적 최신 읽기·병원 ID 조건·DB 오류 전파 | Issue #29 스케줄러 자체 실행 |
+| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.migration.ReservationEventUniqueMigrationIntegrationTest"` | PASS | 기존 중복 정리·UNIQUE 추가·마커 기록·제약 유실 fail-fast | 다중 인스턴스 동시 부팅 |
 | 1·3 | `./gradlew test --tests "com.doctorpet.domain.reservation.*"` | PASS | 예약 도메인 전체 회귀 | 타 도메인 외부 인프라 테스트 |
 | 문서 | `python scripts/harness_check.py` | PASS | 정본·경량 문서 링크와 구조 | 없음 |
-| 전체 | `./gradlew build` | FAIL | 새 노쇼 테스트는 통과했으나 기존 10건 실패 | 아래 미검증 항목 참고 |
+| 전체 | `./gradlew clean build` | FAIL | 431건 중 예약 테스트는 통과했으나 10건이 로컬 메일 설정·Redis 미기동으로 실패 | 아래 미검증 항목 참고 |
 
 **미검증 항목**
 
 - Issue #29 구현 시 테스트 내부 복제 SQL을 실제 자동 노쇼 서비스 호출로 교체하고, 상태 UPDATE와 `AUTO_NO_SHOW` 이력이 한 트랜잭션에서 수동 처리와 경쟁하는 Level 3 테스트를 재실행해야 합니다.
-- 알림 저장·조회는 Issue #39 범위이며, 이번 PR은 상태 변경 이벤트 발행까지만 포함합니다.
-- 전체 빌드의 기존 실패 10건은 `EmailGateway` 테스트 설정 누락과 로컬 Redis 미기동 때문입니다.
+- 알림 저장·조회 및 상태 변경 이벤트는 소비자와 함께 Issue #39에서 구현합니다.
+- 전체 빌드의 실패 10건은 로컬 `MAIL_PROVIDER` 미설정과 Redis 미기동 때문이며, CI에는 Fake 메일 설정과 Redis 7 서비스가 구성돼 있습니다.
 - Level 5 로컬 기동은 기본 프로필의 기존 `EmailGateway` 설정 누락으로 진행하지 않았습니다.
 - Level 6 실제 HTTP 호출은 진행하지 않았습니다. 요청 계약은 MockMvc, 상태·동시성은 실제 MySQL 통합 테스트로 분리 검증했습니다.
 
@@ -126,7 +136,7 @@
 | 항목 | 사용 도구 | AI 제안 내용 | 실제 적용 내용 |
 | --- | --- | --- | --- |
 | 정책·범위 확인 | Codex | Issue #28과 PRD·SA의 노쇼 규칙 비교 | 자동 스케줄러와 알림 저장은 후속 이슈로 분리 |
-| 구현 | Codex | 조건부 UPDATE, 감사 이력, 상태 이벤트 구조 제안 | 기존 예약 서비스·Repository 구조에 맞게 적용 |
+| 구현 | Codex | 조건부 UPDATE, 감사 이력, UNIQUE 보장 구조 제안 | 기존 예약 서비스·Repository·마이그레이션 구조에 맞게 적용 |
 | 동시성 분석 | Codex | 자동·수동 경쟁 테스트와 최신 상태 재조회 제안 | 실제 MySQL 실패를 재현하고 잠금 조회로 수정 |
 | 테스트·문서 | Codex | 단위·MVC·Level 3 테스트와 PR 문서 초안 작성 | 실제 실행 결과만 PASS/FAIL로 기록 |
 

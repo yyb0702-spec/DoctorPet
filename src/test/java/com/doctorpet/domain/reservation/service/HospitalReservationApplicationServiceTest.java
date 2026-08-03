@@ -40,7 +40,6 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class HospitalReservationApplicationServiceTest {
@@ -63,9 +62,6 @@ class HospitalReservationApplicationServiceTest {
     @Mock
     private ReservationEventRepository reservationEventRepository;
 
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
-
     private HospitalReservationApplicationService hospitalReservationService;
 
     @BeforeEach
@@ -74,8 +70,7 @@ class HospitalReservationApplicationServiceTest {
                 memberService,
                 reservationRepository,
                 reservationSlotRepository,
-                reservationEventRepository,
-                eventPublisher
+                reservationEventRepository
         );
         lenient().when(memberService.getMyInfo(STAFF_ID)).thenReturn(
                 new MemberResponse(
@@ -506,7 +501,6 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class)
         );
-        verify(eventPublisher).publishEvent(any(Object.class));
     }
 
     @Test
@@ -589,7 +583,6 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 any(LocalDateTime.class)
         );
-        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
@@ -667,7 +660,6 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 any(LocalDateTime.class)
         );
-        verify(eventPublisher).publishEvent(any(Object.class));
     }
 
     @Test

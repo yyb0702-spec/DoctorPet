@@ -122,6 +122,19 @@ class HospitalReservationAuthorizationTest {
     }
 
     @Test
+    @DisplayName("보호자는 노쇼 정정 API에 접근할 수 없다")
+    void guardian_cannotRestoreNoShow() throws Exception {
+        mockMvc.perform(patch(
+                                "/api/hospital/reservations/{reservationId}/restore",
+                                10L
+                        )
+                        .with(authentication(guardianAuthentication()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"현장 도착 확인\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("병원 스태프는 사유를 포함해 노쇼를 수동 확정할 수 있다")
     void hospitalStaff_canConfirmNoShow() throws Exception {
         mockMvc.perform(patch(

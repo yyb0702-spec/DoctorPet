@@ -95,7 +95,7 @@ REQUESTED → CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 REQUESTED → REJECTED
 REQUESTED → CANCELED
 CONFIRMED → CANCELED
-CONFIRMED → NO_SHOW
+CONFIRMED → NO_SHOW  // 예약 시작 후 병원 수동 확정 또는 +10분 경과 자동 판정
 NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 ```
 - 슬롯과 예약 이력은 1:N이다. 거절·취소·승인 타임아웃으로 반환된 슬롯은 다른 예약에 다시 사용될 수 있다.
