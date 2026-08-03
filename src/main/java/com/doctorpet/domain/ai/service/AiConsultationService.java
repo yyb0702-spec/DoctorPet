@@ -69,7 +69,7 @@ public class AiConsultationService {
         String maskedSymptomText = symptomTextMasker.mask(request.symptomText());
         long startedAt = System.nanoTime();
 
-        if (emergencyKeywordDetector.isEmergency(request.symptomText())) {
+        if (emergencyKeywordDetector.isEmergency(maskedSymptomText)) {
             return consultEmergency(memberId, request, maskedSymptomText, startedAt);
         }
 
@@ -77,7 +77,7 @@ public class AiConsultationService {
             AiAnalysisResult result = aiGateway.analyze(
                     new AiAnalysisRequest(maskedSymptomText, request.species()));
             validateRequiredCapabilities(result.requiredCapabilities());
-            AiHospitalSearchIntent searchIntent = searchIntentExtractor.extract(request.symptomText());
+            AiHospitalSearchIntent searchIntent = searchIntentExtractor.extract(maskedSymptomText);
             boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH;
             if (emergency) {
                 searchIntent = searchIntent.withEmergencyVisit();
@@ -157,7 +157,7 @@ public class AiConsultationService {
             long startedAt
     ) {
         AiAnalysisResult result = emergencyResult();
-        AiHospitalSearchIntent intent = searchIntentExtractor.extract(request.symptomText())
+        AiHospitalSearchIntent intent = searchIntentExtractor.extract(maskedSymptomText)
                 .withEmergencyVisit();
         if (requiresEmergencyLocation(request)) {
             return emergencyWithoutLocation(

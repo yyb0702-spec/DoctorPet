@@ -101,6 +101,8 @@ class AiConsultationServiceTest {
         ArgumentCaptor<AiAnalysisRequest> gatewayRequestCaptor =
                 ArgumentCaptor.forClass(AiAnalysisRequest.class);
         verify(aiGateway).analyze(gatewayRequestCaptor.capture());
+        verify(emergencyKeywordDetector)
+                .isEmergency("[MASKED] 강아지가 밥을 안 먹어요");
         AiConsultation saved = captor.getValue();
         AiAnalysisRequest gatewayRequest = gatewayRequestCaptor.getValue();
         assertThat(response.fallback()).isFalse();

@@ -724,7 +724,7 @@ MVP에서는 축종·진료역량·응급·야간·현재 영업·거리 의도�
 
 장애 격리는 timeout·5xx·Rate Limit·검색 Tool 실패 시 LLM 재호출 없이 Circuit Breaker와 서버 고정 fallback으로 사용자 직접 검색을 유도하고 예약·결제에 영향을 주지 않는다. 기본 장애 차단·복구는 MVP에 포함하지만 세밀한 임계값 튜닝, 운영 대시보드, 고도화된 모니터링은 확장 범위다. `FakeAiGateway` 단계에서는 timeout·fallback 계약을 테스트하고 실제 Circuit Breaker 차단·복구 통합 검증은 외부 호출 Gateway 추가 시 수행한다.
 
-운영·비용 측정은 매 상담을 `ai_consultations`에 model·프롬프트 버전·토큰·지연·status·errorType·fallback·toolCall·스키마 파싱 성공으로 기록한다. `errorType`은 `AiGatewayFailureReason`과 같은 `TIMEOUT`·`TEMPORARY_UNAVAILABLE`·`INVALID_RESPONSE`를 저장하고, 성공하거나 LLM을 호출하지 않은 경우에는 NULL로 둔다. 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹한 증상 텍스트만 외부 `AiGateway`에 전달하고 DB에 저장하며, 30일 경과 시 저장된 증상 텍스트를 삭제하는 배치를 실행한다(§4). 서버 내부의 응급 키워드·검색 의도 판정은 요청 원문을 사용할 수 있지만 외부 제공자에는 원문을 전달하지 않는다.
+운영·비용 측정은 매 상담을 `ai_consultations`에 model·프롬프트 버전·토큰·지연·status·errorType·fallback·toolCall·스키마 파싱 성공으로 기록한다. `errorType`은 `AiGatewayFailureReason`과 같은 `TIMEOUT`·`TEMPORARY_UNAVAILABLE`·`INVALID_RESPONSE`를 저장하고, 성공하거나 LLM을 호출하지 않은 경우에는 NULL로 둔다. 요청 검증 직후 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹하고, 이후 응급 키워드·검색 의도 판정, 외부 `AiGateway` 전달, DB 저장에는 모두 마스킹된 증상 텍스트만 사용한다. 30일 경과 시 저장된 증상 텍스트를 삭제하는 배치를 실행한다(§4).
 
 `FakeAiGateway` 단계에는 프롬프트 파일을 만들지 않는다. 실제 LLM 평가·연동 시 `src/main/resources/prompts`에 종별 파일을 두고 파일명 또는 설정값으로 버전을 구분한다. 별도 버전 매니페스트는 MVP에서 제외하며 실제 호출에 사용한 버전은 `prompt_version`에 기록한다.
 
