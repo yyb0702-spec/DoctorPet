@@ -59,7 +59,7 @@ class ReservationPaymentQueryControllerTest {
 
     private PaymentHistoryResponse paid() {
         return new PaymentHistoryResponse(1L, 100L, PaymentStatus.PAID, PaymentChannel.BILLING_KEY,
-                50000, "VISA", "1234", null, LocalDateTime.now(), LocalDateTime.now(), null, null);
+                50000, "VISA", "1234", LocalDateTime.now(), LocalDateTime.now(), null, null);
     }
 
     @Test
@@ -72,9 +72,10 @@ class ReservationPaymentQueryControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data[0].status").value("PAID"))
                 .andExpect(jsonPath("$.data[0].cardLast4Snapshot").value("1234"))
-                // 내부 식별자(pgPaymentId·merchantPaymentId)는 응답에 없어야 한다.
+                // 내부 식별자(pgPaymentId·merchantPaymentId)와 내부 처리 코드(failureReason)는 응답에 없어야 한다.
                 .andExpect(jsonPath("$.data[0].pgPaymentId").doesNotExist())
-                .andExpect(jsonPath("$.data[0].merchantPaymentId").doesNotExist());
+                .andExpect(jsonPath("$.data[0].merchantPaymentId").doesNotExist())
+                .andExpect(jsonPath("$.data[0].failureReason").doesNotExist());
 
         verify(paymentQueryService).getForGuardian(100L, GUARDIAN_ID);
     }

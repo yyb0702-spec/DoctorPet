@@ -155,7 +155,7 @@ class HospitalPaymentControllerTest {
         SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
         given(paymentQueryService.getForHospital(100L, STAFF_MEMBER_ID)).willReturn(List.of(
                 new PaymentHistoryResponse(1L, 100L, PaymentStatus.OFFLINE_REQUIRED, PaymentChannel.BILLING_KEY,
-                        50000, "VISA", "1234", "NON_RETRIABLE",
+                        50000, "VISA", "1234",
                         LocalDateTime.now(), null, LocalDateTime.now(), null)));
 
         mockMvc.perform(get(CHARGE_URL))
@@ -164,7 +164,9 @@ class HospitalPaymentControllerTest {
                 .andExpect(jsonPath("$.data[0].status").value("OFFLINE_REQUIRED"))
                 .andExpect(jsonPath("$.data[0].cardLast4Snapshot").value("1234"))
                 .andExpect(jsonPath("$.data[0].failedAt").exists())
-                .andExpect(jsonPath("$.data[0].pgPaymentId").doesNotExist());
+                .andExpect(jsonPath("$.data[0].pgPaymentId").doesNotExist())
+                // 내부 처리 분류 코드(failureReason)는 내역 응답에 노출하지 않는다(PR #79 리뷰 반영).
+                .andExpect(jsonPath("$.data[0].failureReason").doesNotExist());
 
         verify(paymentQueryService).getForHospital(100L, STAFF_MEMBER_ID);
     }
