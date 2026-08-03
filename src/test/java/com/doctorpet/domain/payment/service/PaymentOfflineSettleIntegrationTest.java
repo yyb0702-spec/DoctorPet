@@ -109,11 +109,13 @@ class PaymentOfflineSettleIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 결제에 동시 정산이 몰려도 실제 정산은 1건만 성립하고(알림 1회) 나머지는 충돌(409)로 거부된다")
+    @DisplayName("같은 결제에 동시 정산이 몰려도 상태 전이는 1건만 성립하고(알림 1회) 나머지는 멱등 200으로 성공하며 예외가 없다")
     void concurrentSettle_onlyOneSettles() throws InterruptedException {
         Long paymentId = persistPayment(true);
-        // 동시 정산에서 패자는 자기 트랜잭션 스냅샷상 승자의 커밋을 못 봐 OFFLINE_PRECONDITION_FAILED(409)를 받는다.
-        // 이는 정상적인 동시성 충돌 결과이며(순차 반복은 새 트랜잭션이라 멱등 200), 그 외 예외만 실패로 본다.
+        // 동일 결과(OFFLINE_PAID)를 요청한 멱등 호출이므로 동시 요청은 모두 200으로 성공해야 한다(PR #80 P2).
+        // READ_COMMITTED라 진 요청도 재조회에서 승자의 커밋을 보고 alreadySettled(200)로 반환한다 —
+        // 어떤 예외(409 포함)도 발생하면 실패로 본다. 실제 정산은 알림 발행 수(1회)로 검증한다.
+        List<PaymentStatus> responses = new CopyOnWriteArrayList<>();
         List<Throwable> unexpected = new CopyOnWriteArrayList<>();
 
         ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REQUESTS);
@@ -126,15 +128,11 @@ class PaymentOfflineSettleIntegrationTest {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    paymentOfflineSettlementService.settle(paymentId, STAFF_MEMBER_ID);
-                } catch (ServiceException e) {
-                    if (e.getErrorCode() != PaymentErrorCode.OFFLINE_PRECONDITION_FAILED) {
-                        unexpected.add(e);
-                    }
+                    responses.add(paymentOfflineSettlementService.settle(paymentId, STAFF_MEMBER_ID).status());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                } catch (RuntimeException e) {
-                    unexpected.add(e);
+                } catch (Throwable t) {
+                    unexpected.add(t);
                 } finally {
                     doneLatch.countDown();
                 }
@@ -147,8 +145,9 @@ class PaymentOfflineSettleIntegrationTest {
         executor.shutdown();
 
         assertThat(completed).isTrue();
-        // 정산 충돌(409) 외의 예외는 없어야 한다.
+        // 동시 요청은 예외 없이 모두 200으로 성공하고, 응답 상태는 전부 OFFLINE_PAID다(멱등).
         assertThat(unexpected).isEmpty();
+        assertThat(responses).hasSize(CONCURRENT_REQUESTS).containsOnly(PaymentStatus.OFFLINE_PAID);
         // 실제 정산(알림 발행)은 정확히 1회여야 한다 — 중복 정산 없음.
         verify(notificationPublisher, times(1))
                 .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.OFFLINE_PAID));

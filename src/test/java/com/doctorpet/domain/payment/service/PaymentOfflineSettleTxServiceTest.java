@@ -16,11 +16,16 @@ import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.time.TimePolicy;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -38,12 +43,21 @@ class PaymentOfflineSettleTxServiceTest {
     private static final Long HOSPITAL_ID = 1L;
     private static final Long GUARDIAN_ID = 5L;
 
+    // 고정 Clock — offlineSettledAt이 JVM 기본 시간대가 아니라 서울 기준 Clock으로 기록되는지 검증하기 위함(PR #80 P2).
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), TimePolicy.SEOUL_ZONE_ID);
+
     @Mock private PaymentRepository paymentRepository;
     @Mock private ReservationLookupPort reservationLookupPort;
     @Mock private StaffHospitalPort staffHospitalPort;
 
-    @InjectMocks
     private PaymentOfflineSettleTxService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new PaymentOfflineSettleTxService(
+                paymentRepository, reservationLookupPort, staffHospitalPort, FIXED_CLOCK);
+    }
 
     private Payment payment(PaymentStatus status) {
         Payment p = Payment.pending(RESERVATION_ID, "pay_x", 7L, "VISA", "1234", 50_000);
@@ -75,6 +89,22 @@ class PaymentOfflineSettleTxServiceTest {
         assertThat(outcome.freshlySettled()).isTrue();
         assertThat(outcome.response().status()).isEqualTo(PaymentStatus.OFFLINE_PAID);
         assertThat(outcome.guardianMemberId()).isEqualTo(GUARDIAN_ID);
+    }
+
+    @Test
+    @DisplayName("정산 시각(offlineSettledAt)은 JVM 기본 시간대가 아니라 서울 기준 Clock 값으로 조건부 UPDATE에 넘긴다")
+    void settle_usesSeoulClockForSettledAt() {
+        stubOwnHospital();
+        given(paymentRepository.findById(PAYMENT_ID))
+                .willReturn(Optional.of(payment(PaymentStatus.OFFLINE_REQUIRED)),
+                        Optional.of(payment(PaymentStatus.OFFLINE_PAID)));
+        given(paymentRepository.settleOfflineIfRequired(anyLong(), any(), anyLong())).willReturn(1);
+
+        service.settle(PAYMENT_ID, STAFF_MEMBER_ID);
+
+        ArgumentCaptor<LocalDateTime> settledAt = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(paymentRepository).settleOfflineIfRequired(anyLong(), settledAt.capture(), anyLong());
+        assertThat(settledAt.getValue()).isEqualTo(LocalDateTime.now(FIXED_CLOCK));
     }
 
     @Test
