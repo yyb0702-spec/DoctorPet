@@ -72,17 +72,21 @@ public class PaymentApplicationService {
         // 외부 승인(트랜잭션 밖). 결제수단이 ACTIVE가 아니면 게이트웨이 호출 없이 즉시 오프라인 확정(SA §9-4·§4-2).
         ChargeOutcome outcome = resolveOutcomeSafely(pre);
 
-        // Tx2 — 상태 확정(커밋).
-        Payment payment = paymentChargeService.finalizeOutcome(pre.paymentId(), outcome);
+        // Tx2 — 상태 확정(커밋). 조건부 전이라 정산 스케줄러(#35)가 먼저 확정한 경우 이 호출은 덮어쓰지 않는다.
+        PaymentChargeService.FinalizeResult result = paymentChargeService.finalizeOutcome(pre.paymentId(), outcome);
+        Payment payment = result.payment();
         PaymentChargeResponse response = PaymentChargeResponse.from(payment);
 
         // 커밋 이후 알림. 발행 실패가 결제 확정을 되돌리지 않도록 트랜잭션 밖에서 호출하고, 예외도 삼킨다(SA §9-8).
         // 결제는 이미 커밋됐으므로 알림 발행이 실패해도 청구 응답까지 500으로 만들지 않는다.
-        try {
-            notificationPublisher.publishChargeResult(
-                    pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus());
-        } catch (RuntimeException e) {
-            log.warn("결제 알림 발행 실패(결제는 확정됨): paymentId={}, status={}", payment.getId(), payment.getStatus(), e);
+        // 이 호출이 실제로 상태를 전이시켰을 때만 발행한다 — 정산 경로가 먼저 확정했다면 그쪽이 이미 발행했으므로 중복 발행을 막는다.
+        if (result.applied()) {
+            try {
+                notificationPublisher.publishChargeResult(
+                        pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus());
+            } catch (RuntimeException e) {
+                log.warn("결제 알림 발행 실패(결제는 확정됨): paymentId={}, status={}", payment.getId(), payment.getStatus(), e);
+            }
         }
         return response;
     }
