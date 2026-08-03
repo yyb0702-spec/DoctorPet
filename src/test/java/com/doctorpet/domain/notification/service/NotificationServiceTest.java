@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.notification.entity.Notification;
@@ -13,7 +14,6 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.global.exception.ServiceException;
-import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class NotificationServiceTest {
     }
 
     @Test
-    @DisplayName("읽음 처리: 타 사용자 알림이면 NOTIFICATION_ACCESS_DENIED(403)이고 read_at을 건드리지 않는다")
+    @DisplayName("읽음 처리: 타 사용자 알림이면 NOTIFICATION_ACCESS_DENIED(403)이고 조건부 UPDATE를 호출하지 않는다")
     void markAsRead_notOwner_forbidden() {
         Notification notification = paymentNotification(OTHER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
@@ -60,32 +60,33 @@ class NotificationServiceTest {
                 .extracting(e -> ((ServiceException) e).getErrorCode())
                 .isEqualTo(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
         assertThat(notification.isRead()).isFalse();
+        verify(notificationRepository, never()).markReadIfUnread(any(), any(), any());
     }
 
     @Test
-    @DisplayName("읽음 처리: 본인 알림이면 read_at을 기록한다")
-    void markAsRead_setsReadAt() {
+    @DisplayName("읽음 처리: 본인 알림이면 소유자·id로 조건부 UPDATE(markReadIfUnread)를 호출한다")
+    void markAsRead_invokesConditionalUpdate() {
         Notification notification = paymentNotification(OWNER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
+        given(notificationRepository.markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any()))
+                .willReturn(1);
 
         notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
 
-        assertThat(notification.isRead()).isTrue();
-        assertThat(notification.getReadAt()).isNotNull();
+        verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any());
     }
 
     @Test
-    @DisplayName("읽음 처리 멱등: 반복 호출해도 read_at이 최초 시각으로 유지된다")
-    void markAsRead_isIdempotent() {
+    @DisplayName("읽음 처리 멱등: 이미 읽은 알림이라 갱신 0건이어도 예외 없이 멱등하게 처리한다")
+    void markAsRead_isIdempotentWhenNoRowUpdated() {
         Notification notification = paymentNotification(OWNER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
+        given(notificationRepository.markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any()))
+                .willReturn(0);
 
         notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
-        LocalDateTime firstReadAt = notification.getReadAt();
 
-        notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
-
-        assertThat(notification.getReadAt()).isEqualTo(firstReadAt);
+        verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any());
     }
 
     @Test

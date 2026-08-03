@@ -63,9 +63,10 @@ public class NotificationService {
         return NotificationPageResponse.from(result.map(NotificationResponse::from));
     }
 
-    // 개별 알림을 읽음 처리한다. 존재하지 않으면 404, 본인 알림이 아니면 403. 이미 읽은 알림이면 read_at 유지(멱등).
+    // 개별 알림을 읽음 처리한다. 존재하지 않으면 404, 본인 알림이 아니면 403. 이미 읽은 알림이면 read_at 유지(멱등 200).
     @Transactional
     public void markAsRead(Long memberId, Long notificationId) {
+        // 존재·소유권을 먼저 확정해 명확한 404/403을 준다(조건부 UPDATE만으로는 둘을 구분할 수 없다).
         Notification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new ServiceException(NotificationErrorCode.NOTIFICATION_NOT_FOUND));
 
@@ -73,6 +74,9 @@ public class NotificationService {
             throw new ServiceException(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
         }
 
-        notification.markRead(LocalDateTime.now(TimePolicy.SEOUL_ZONE_ID));
+        // WHERE read_at IS NULL 조건부 UPDATE로 최초 1회만 기록한다 — 동시 요청에도 최초 시각이 보존된다(PR #87 P2).
+        // 갱신 0건은 이미 읽은 알림이므로 예외 없이 멱등 200으로 둔다.
+        notificationRepository.markReadIfUnread(
+                notificationId, memberId, LocalDateTime.now(TimePolicy.SEOUL_ZONE_ID));
     }
 }
