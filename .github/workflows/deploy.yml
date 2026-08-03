@@ -1,30 +1,48 @@
 name: Deploy
 
-# develop에 push(=feature/* 브랜치 병합)되면 이미지를 빌드해 GHCR에 올리고, EC2에 SSH로
-# 접속해 그 이미지로 재배포한다. EC2에서 직접 Gradle 빌드를 돌리면(t3.small에서도 겪었듯)
-# 리소스가 부족해 느리고 크래시가 나기 쉬워서, 빌드는 GitHub Actions 러너가 하고 EC2는
-# 완성된 이미지를 pull만 하도록 분리했다.
-# main이 아니라 develop을 트리거로 쓰는 이유: 이 프로젝트는 develop이 실질적인 최신 개발
+# CI(Build and Test) 워크플로가 develop 브랜치에서 성공적으로 끝난 뒤에만 배포한다(리뷰 지적
+# P1) — 이전에는 CI와 별개로 push 이벤트에서 바로 트리거돼서, 같은 커밋의 테스트가 실패해도
+# 이미지 빌드(테스트를 스킵하는 `gradlew bootJar -x test`)만 성공하면 배포가 그대로 진행되는
+# 문제가 있었다. workflow_run으로 CI 완료를 기다리고 conclusion이 success일 때만 진행한다.
+#
+# main이 아니라 develop을 기준으로 쓰는 이유: 이 프로젝트는 develop이 실질적인 최신 개발
 # 브랜치이고, main은 아직 정식 릴리스 시점(develop -> main)에만 갱신되는 상태라 지금 당장은
-# main 트리거로 두면 배포가 전혀 안 돈다. 나중에 main 릴리스 절차가 자리잡으면 트리거를
-# main으로 옮기는 걸 다시 검토할 것.
+# main 기준으로 두면 배포가 전혀 안 돈다. 나중에 main 릴리스 절차가 자리잡으면 다시 검토할 것.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [develop]
   workflow_dispatch:
+
+# 배포가 겹쳐 돌면(연속 push 등) 서버 상태가 꼬일 수 있어 직렬화한다(리뷰 지적 P1). 진행 중인
+# 배포를 취소하지 않고 대기열에 세워 순서대로 처리한다.
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
 
 jobs:
   build-and-push:
     name: Build and push image to GHCR
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     permissions:
       contents: read
       packages: write
 
+    outputs:
+      sha: ${{ steps.resolve_sha.outputs.sha }}
+
     steps:
+      - name: Resolve deploy SHA
+        id: resolve_sha
+        run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve_sha.outputs.sha }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -40,7 +58,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/yyb0702-spec/doctorpet:latest
-            ghcr.io/yyb0702-spec/doctorpet:${{ github.sha }}
+            ghcr.io/yyb0702-spec/doctorpet:${{ steps.resolve_sha.outputs.sha }}
 
   deploy:
     name: Deploy to EC2
@@ -50,15 +68,48 @@ jobs:
     steps:
       - name: SSH into EC2 and redeploy
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_SHA: ${{ needs.build-and-push.outputs.sha }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DEPLOY_SHA
           script: |
             set -e
             cd ~/DoctorPet
             git checkout develop
             git pull origin develop
+
+            PREV_SHA="$(cat .last_deployed_sha 2>/dev/null || true)"
+
+            # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 지정해서 띄운다(리뷰 지적 P1)
+            # — 실행 중인 이미지가 어느 커밋인지 항상 특정할 수 있고, 실패 시 이전 SHA로
+            # 되돌릴 수 있다.
+            export APP_IMAGE_TAG="$DEPLOY_SHA"
             docker compose pull app
             docker compose up -d --remove-orphans
+
+            # docker compose up -d 성공은 "컨테이너가 시작 요청됐다"는 뜻일 뿐 애플리케이션이
+            # 정상 기동했다는 보장이 아니다(리뷰 지적 P1). Dockerfile의 HEALTHCHECK가 판단하는
+            # healthy 상태를 직접 폴링해서 확인한다.
+            ATTEMPTS=0
+            MAX_ATTEMPTS=18
+            until [ "$(docker inspect -f '{{.State.Health.Status}}' doctorpet-app-1 2>/dev/null)" = "healthy" ]; do
+              ATTEMPTS=$((ATTEMPTS + 1))
+              if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+                echo "새 이미지($DEPLOY_SHA)가 제한 시간 내 healthy 상태가 되지 않았습니다. 롤백합니다."
+                if [ -n "$PREV_SHA" ]; then
+                  export APP_IMAGE_TAG="$PREV_SHA"
+                  docker compose pull app
+                  docker compose up -d --remove-orphans
+                fi
+                exit 1
+              fi
+              sleep 10
+            done
+
+            # healthy가 확인된 뒤에만 이전 이미지를 정리한다 — 실패 시 롤백 후보가 남아있어야
+            # 하므로, 성공했을 때만 dangling 이미지를 지운다.
+            echo "$DEPLOY_SHA" > .last_deployed_sha
             docker image prune -f
