@@ -28,8 +28,10 @@ import org.springframework.stereotype.Service;
 
   분기(건별):
   - 조회 PAID(금액·pgId 일치) → PAID 확정
+  - 조회 PAID지만 금액·pgId 불일치 → RECONCILE_AMOUNT_MISMATCH로 PENDING 유지(이미 청구됐을 수 있어 오프라인 금지, 수동 확인 대상)
   - 조회 FAILED → OFFLINE_REQUIRED 확정
-  - 조회 PENDING(여전히 미확정) → 재시도 수 +1, 임계(max-attempts) 초과면 OFFLINE_REQUIRED(수동 정산 전환), 아니면 PENDING 유지
+  - 조회 PENDING(여전히 미확정) → 재시도 수 +1로 PENDING 유지. 임계(max-attempts) 초과여도 승인 여부가 불확실하면
+    OFFLINE(이중결제 위험) 대신 RECONCILE_STUCK로 PENDING을 유지해 운영자 확인 대상으로 남긴다(자동 현장수납 전환 금지)
   - 조회 실패(게이트웨이 예외) → PENDING 유지(다음 배치 재시도), 재시도 수는 올리지 않음
   다중 인스턴스 동시 실행은 ReconcileLock(Redis)으로 막는다 — 배치가 길어져도 처리 중 lease를 갱신(renew)해 만료로
   다른 인스턴스가 끼어드는 것을 막고, 락 해제는 내 토큰일 때만 원자적으로 한다. 락은 정산-정산 경합만 막으므로,

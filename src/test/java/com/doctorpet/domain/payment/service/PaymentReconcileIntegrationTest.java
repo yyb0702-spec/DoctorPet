@@ -112,18 +112,20 @@ class PaymentReconcileIntegrationTest {
     @Test
     @DisplayName("금액불일치·불완전응답(수동 확인 대상)인 PENDING은 정산 조회 대상에서 제외한다(이중결제 금지)")
     void reconcileTargets_excludeUncertainPaidReasons() {
-        // 청구 단계에서 PG가 PAID를 줬으나 금액·식별자가 불일치해 PENDING으로 남은 건(AMOUNT_MISMATCH·INVALID_PG_RESULT)은
-        // 재조회가 FAILED로 오면 OFFLINE 전환→이중결제가 될 수 있어, 자동 정산 대상에서 빼고 운영자 수동 확인으로 남긴다.
+        // 이미 청구됐을 수 있는 불확실 결제는 재조회가 FAILED로 오면 OFFLINE 전환→이중결제가 될 수 있어, 자동 정산 대상에서
+        // 빼고 운영자 수동 확인으로 남긴다. 청구 단계 사유(AMOUNT_MISMATCH·INVALID_PG_RESULT)뿐 아니라 정산 단계에서
+        // 금액·pgId 불일치로 남긴 RECONCILE_AMOUNT_MISMATCH도 다음 배치에서 다시 선택되지 않아야 한다(PR #81 P1 후속 리뷰).
         Payment normal = persistPending();
         Payment mismatch = persistPendingWithReason("AMOUNT_MISMATCH");
         Payment invalid = persistPendingWithReason("INVALID_PG_RESULT");
+        Payment reconcileMismatch = persistPendingWithReason("RECONCILE_AMOUNT_MISMATCH");
 
         List<Payment> targets = paymentRepository.findReconcileTargets(
                 PaymentStatus.PENDING, LocalDateTime.now().plusYears(1), PageRequest.of(0, 100));
         List<Long> targetIds = targets.stream().map(Payment::getId).toList();
 
         assertThat(targetIds).contains(normal.getId());
-        assertThat(targetIds).doesNotContain(mismatch.getId(), invalid.getId());
+        assertThat(targetIds).doesNotContain(mismatch.getId(), invalid.getId(), reconcileMismatch.getId());
     }
 
     @Test

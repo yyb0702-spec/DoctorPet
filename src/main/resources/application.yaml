@@ -28,7 +28,7 @@ payment:
     interval-ms: 300000        # 실행 주기 5분(SA §9-7)
     stale-after-ms: 120000     # 이 시간 이상 PENDING인 결제만 대상(방금 청구된 건 제외)
     batch-size: 100            # 한 배치 처리 최대 건수
-    max-attempts: 10           # 재조회 소진 임계 — 초과 시 OFFLINE_REQUIRED(수동 정산 전환)
+    max-attempts: 10           # 재조회 소진 임계 — 초과여도 불확실하면 RECONCILE_STUCK로 PENDING 유지(자동 OFFLINE 전환 금지, 운영자 확인)
 
 # 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
 public-data:

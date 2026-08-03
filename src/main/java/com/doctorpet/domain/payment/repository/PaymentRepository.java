@@ -29,17 +29,18 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
       배치 크기만큼 가져온다. updatedAt 기준이라 재조회로 갱신된 건은 다음 주기까지 자연히 밀린다(백오프).
       대상 인덱스는 (status, updated_at)이다.
 
-      단, 청구 단계에서 PG가 PAID를 줬으나 금액·식별자가 불일치해(PaymentApplicationService.confirmPaid의
-      AMOUNT_MISMATCH·INVALID_PG_RESULT) PENDING으로 남은 건은 조회에서 제외한다 — 이미 승인돼 돈이 이동했을 수
-      있어, 재조회 결과가 FAILED로 오면 OFFLINE_REQUIRED(현장 재수납)로 전환돼 이중결제가 될 수 있다. 이 건들은
-      자동 확정 대상이 아니라 운영자 수동 확인 대상으로 남긴다(SA §9-7 — 불확실 결제 자동 확정 금지).
+      단, PG가 PAID를 줬으나 금액·식별자가 불일치해 이미 돈이 이동했을 수 있는 "불확실 결제"는 조회에서 제외한다 —
+      재조회 결과가 FAILED로 오면 OFFLINE_REQUIRED(현장 재수납)로 전환돼 이중결제가 될 수 있어, 자동 확정 대상이
+      아니라 운영자 수동 확인 대상으로 남긴다(SA §9-7 — 불확실 결제 자동 확정 금지). 제외 사유는 두 경로에서 온다:
+      - 청구 단계(PaymentApplicationService.confirmPaid): AMOUNT_MISMATCH·INVALID_PG_RESULT
+      - 정산 단계(resolveByQuery): RECONCILE_AMOUNT_MISMATCH (금액 불일치·pgId 누락 모두 이 사유로 PENDING 유지)
      */
     @Query("""
             select p from Payment p
              where p.status = :status
                and p.updatedAt < :threshold
                and (p.failureReason is null
-                    or p.failureReason not in ('AMOUNT_MISMATCH', 'INVALID_PG_RESULT'))
+                    or p.failureReason not in ('AMOUNT_MISMATCH', 'INVALID_PG_RESULT', 'RECONCILE_AMOUNT_MISMATCH'))
              order by p.updatedAt asc
             """)
     List<Payment> findReconcileTargets(
