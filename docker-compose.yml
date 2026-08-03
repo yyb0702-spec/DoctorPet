@@ -9,7 +9,10 @@ services:
       MYSQL_DATABASE: doctorpet
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
     ports:
-      - "3306:3306"
+      # 로컬 호스트에 이미 3306을 쓰는 MySQL이 있을 수 있어 노출 포트만 3307로 바꿨다.
+      # 컨테이너 내부 통신(app -> mysql:3306)에는 영향 없다 — 호스트에서 직접 3306으로
+      # 붙어야 할 때만(DB 클라이언트 등) 3307로 접속하면 된다.
+      - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
