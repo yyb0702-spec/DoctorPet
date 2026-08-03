@@ -44,6 +44,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // 배포 헬스체크(CI/CD MVP)·운영 지표 노출용. /actuator/health를 배포 스크립트가 확인한다.
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     // 이메일 인증·비밀번호 재설정 메일 발송(SA §6-1 백로그 P2). mail.provider=smtp일 때만 사용된다
     // (JavaMailSender 빈은 MailConfig에서 mail.provider 값에 따라 조건부로 생성).
     implementation 'org.springframework.boot:spring-boot-starter-mail'
@@ -96,4 +98,12 @@ clean.doLast {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// Spring Boot Gradle 플러그인은 기본으로 실행 가능한 bootJar 외에 archiveClassifier="plain"인
+// 일반 jar도 build/libs/에 함께 만든다. 이 프로젝트는 그 plain jar를 쓸 일이 없고, 남겨두면
+// CI/CD 배포용 Dockerfile이 `build/libs/*.jar`로 산출물을 골라올 때 두 개가 매칭돼 실패한다.
+// 그래서 아예 끈다.
+tasks.named('jar') {
+    enabled = false
 }
