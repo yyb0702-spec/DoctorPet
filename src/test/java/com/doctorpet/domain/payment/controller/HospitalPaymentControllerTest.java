@@ -4,14 +4,19 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
+import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
+import com.doctorpet.domain.payment.entity.PaymentChannel;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.service.PaymentApplicationService;
+import com.doctorpet.domain.payment.service.PaymentQueryService;
+import java.time.LocalDateTime;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
@@ -53,6 +58,9 @@ class HospitalPaymentControllerTest {
 
     @MockitoBean
     private PaymentApplicationService paymentApplicationService;
+
+    @MockitoBean
+    private PaymentQueryService paymentQueryService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -139,6 +147,44 @@ class HospitalPaymentControllerTest {
                         .content("{\"amount\":3000001}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PAYMENT_001"));
+    }
+
+    @Test
+    @DisplayName("병원 결제 내역 조회는 200과 목록을 반환하고, 인증된 스태프 id로 자병원 조회를 호출한다(#47)")
+    void getReservationPayments_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
+        // 상태별 status↔paymentChannel 계약을 고정한다(PR #79 P2 리뷰): OFFLINE_REQUIRED는 정산 방식 미확정이라 채널이 null,
+        // PAID는 BILLING_KEY, OFFLINE_PAID는 OFFLINE. 운영에서 나올 수 없는 조합(OFFLINE_REQUIRED+BILLING_KEY)을 쓰지 않는다.
+        given(paymentQueryService.getForHospital(100L, STAFF_MEMBER_ID)).willReturn(List.of(
+                new PaymentHistoryResponse(1L, 100L, PaymentStatus.OFFLINE_REQUIRED, null,
+                        50000, "VISA", "1234",
+                        LocalDateTime.now(), null, LocalDateTime.now(), null),
+                new PaymentHistoryResponse(2L, 101L, PaymentStatus.PAID, PaymentChannel.BILLING_KEY,
+                        30000, "VISA", "5678",
+                        LocalDateTime.now(), LocalDateTime.now(), null, null),
+                new PaymentHistoryResponse(3L, 102L, PaymentStatus.OFFLINE_PAID, PaymentChannel.OFFLINE,
+                        20000, "VISA", "9012",
+                        LocalDateTime.now(), null, LocalDateTime.now(), LocalDateTime.now())));
+
+        mockMvc.perform(get(CHARGE_URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data[0].status").value("OFFLINE_REQUIRED"))
+                .andExpect(jsonPath("$.data[0].cardLast4Snapshot").value("1234"))
+                .andExpect(jsonPath("$.data[0].failedAt").exists())
+                // OFFLINE_REQUIRED는 정산 방식이 미확정이라 paymentChannel이 null이어야 한다(계약 회귀 방지).
+                .andExpect(jsonPath("$.data[0].paymentChannel").isEmpty())
+                .andExpect(jsonPath("$.data[0].pgPaymentId").doesNotExist())
+                // 내부 처리 분류 코드(failureReason)는 내역 응답에 노출하지 않는다(PR #79 리뷰 반영).
+                .andExpect(jsonPath("$.data[0].failureReason").doesNotExist())
+                .andExpect(jsonPath("$.data[1].status").value("PAID"))
+                .andExpect(jsonPath("$.data[1].paymentChannel").value("BILLING_KEY"))
+                .andExpect(jsonPath("$.data[1].paidAt").exists())
+                .andExpect(jsonPath("$.data[2].status").value("OFFLINE_PAID"))
+                .andExpect(jsonPath("$.data[2].paymentChannel").value("OFFLINE"))
+                .andExpect(jsonPath("$.data[2].offlineSettledAt").exists());
+
+        verify(paymentQueryService).getForHospital(100L, STAFF_MEMBER_ID);
     }
 
     private Authentication staffAuthentication(Long memberId) {

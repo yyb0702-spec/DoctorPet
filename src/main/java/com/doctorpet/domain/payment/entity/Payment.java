@@ -8,6 +8,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
@@ -29,7 +30,9 @@ import lombok.NoArgsConstructor;
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_payments_reservation_id", columnNames = "reservation_id"),
                 @UniqueConstraint(name = "uk_payments_merchant_payment_id", columnNames = "merchant_payment_id")
-        }
+        },
+        // 정산 스케줄러(#35)가 오래 PENDING인 결제를 조회하는 대상 인덱스(SA §9-7).
+        indexes = @Index(name = "idx_payments_status_updated_at", columnList = "status, updated_at")
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment extends BaseEntity {

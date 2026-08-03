@@ -3,6 +3,7 @@ package com.doctorpet.domain.payment.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -17,7 +18,10 @@ import com.doctorpet.domain.payment.port.StaffHospitalPort;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,13 +53,16 @@ class PaymentChargeServiceTest {
     @Mock private StaffHospitalPort staffHospitalPort;
     @Mock private MerchantPaymentIdGenerator merchantPaymentIdGenerator;
 
+    // JVM 기본 시간대에 의존하지 않도록 고정 Clock을 주입한다(운영은 서울 기준 applicationClock).
+    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC);
+
     private PaymentChargeService paymentChargeService;
 
     @BeforeEach
     void setUp() {
         paymentChargeService = new PaymentChargeService(
                 paymentRepository, paymentMethodRepository, reservationLookupPort,
-                staffHospitalPort, merchantPaymentIdGenerator, MAX_AMOUNT);
+                staffHospitalPort, merchantPaymentIdGenerator, FIXED_CLOCK, MAX_AMOUNT);
     }
 
     private void stubChargeableReservation() {
@@ -169,51 +176,76 @@ class PaymentChargeServiceTest {
     }
 
     @Nested
-    @DisplayName("finalizeOutcome 상태 확정")
+    @DisplayName("finalizeOutcome 조건부 상태 확정")
     class FinalizeOutcome {
 
         @Test
-        @DisplayName("PAID 결과는 PAID·BILLING_KEY·pgPaymentId·paidAt로 확정한다")
-        void paid() {
-            Payment payment = Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT);
-            given(paymentRepository.findById(1L)).willReturn(Optional.of(payment));
+        @DisplayName("PAID 결과는 WHERE status='PENDING' 조건부 UPDATE로 전이하고, 1건 갱신되면 applied=true다")
+        void paid_applied() {
+            LocalDateTime paidAt = LocalDateTime.of(2026, 7, 28, 10, 0);
+            given(paymentRepository.markPaidIfPending(eq(1L), eq("PG-1"), eq(paidAt), any(LocalDateTime.class)))
+                    .willReturn(1);
+            given(paymentRepository.findById(1L)).willReturn(Optional.of(
+                    Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT)));
 
-            paymentChargeService.finalizeOutcome(1L,
-                    ChargeOutcome.paid("PG-1", LocalDateTime.of(2026, 7, 28, 10, 0)));
+            PaymentChargeService.FinalizeResult result =
+                    paymentChargeService.finalizeOutcome(1L, ChargeOutcome.paid("PG-1", paidAt));
 
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
-            assertThat(payment.getPgPaymentId()).isEqualTo("PG-1");
-            assertThat(payment.getPaidAt()).isNotNull();
+            assertThat(result.applied()).isTrue();
+            assertThat(result.payment()).isNotNull();
+            verify(paymentRepository).markPaidIfPending(eq(1L), eq("PG-1"), eq(paidAt), any(LocalDateTime.class));
         }
 
         @Test
-        @DisplayName("OFFLINE_REQUIRED 결과는 사유·재시도 횟수와 함께 오프라인 대상으로 확정한다")
-        void offlineRequired() {
-            Payment payment = Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT);
-            given(paymentRepository.findById(1L)).willReturn(Optional.of(payment));
+        @DisplayName("OFFLINE_REQUIRED 결과는 사유·재시도 횟수로 조건부 전이하고, 1건 갱신되면 applied=true다")
+        void offlineRequired_applied() {
+            given(paymentRepository.markOfflineRequiredIfPending(eq(1L), eq("NON_RETRIABLE"), eq(2), any(LocalDateTime.class)))
+                    .willReturn(1);
+            given(paymentRepository.findById(1L)).willReturn(Optional.of(
+                    Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT)));
 
-            paymentChargeService.finalizeOutcome(1L, ChargeOutcome.offlineRequired("NON_RETRIABLE", 2));
+            PaymentChargeService.FinalizeResult result =
+                    paymentChargeService.finalizeOutcome(1L, ChargeOutcome.offlineRequired("NON_RETRIABLE", 2));
 
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
-            assertThat(payment.getFailureReason()).isEqualTo("NON_RETRIABLE");
-            assertThat(payment.getRetryCount()).isEqualTo(2);
+            assertThat(result.applied()).isTrue();
+            verify(paymentRepository).markOfflineRequiredIfPending(eq(1L), eq("NON_RETRIABLE"), eq(2), any(LocalDateTime.class));
         }
 
         @Test
-        @DisplayName("PENDING 결과는 상태를 PENDING으로 유지하고 재시도 횟수·사유만 갱신한다")
-        void pending() {
-            Payment payment = Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT);
-            given(paymentRepository.findById(1L)).willReturn(Optional.of(payment));
+        @DisplayName("PENDING 유지는 상태 전이가 아니므로 재시도 수·사유만 갱신하고 applied=false다(알림 대상 아님)")
+        void pending_notApplied() {
+            given(paymentRepository.remainPendingIfPending(eq(1L), eq(1), eq("UNCONFIRMED_TIMEOUT"), any(LocalDateTime.class)))
+                    .willReturn(1);
+            given(paymentRepository.findById(1L)).willReturn(Optional.of(
+                    Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT)));
 
-            paymentChargeService.finalizeOutcome(1L, ChargeOutcome.pending(1, "UNCONFIRMED_TIMEOUT"));
+            PaymentChargeService.FinalizeResult result =
+                    paymentChargeService.finalizeOutcome(1L, ChargeOutcome.pending(1, "UNCONFIRMED_TIMEOUT"));
 
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
-            assertThat(payment.getFailureReason()).isEqualTo("UNCONFIRMED_TIMEOUT");
+            assertThat(result.applied()).isFalse();
+            verify(paymentRepository).remainPendingIfPending(eq(1L), eq(1), eq("UNCONFIRMED_TIMEOUT"), any(LocalDateTime.class));
+        }
+
+        @Test
+        @DisplayName("이미 다른 경로가 확정해 조건부 UPDATE가 0건이면 덮어쓰지 않고 applied=false로 현재 상태를 반환한다")
+        void alreadyFinalized_notApplied() {
+            // 정산이 먼저 OFFLINE_REQUIRED로 확정한 뒤 청구 후확정이 PAID를 시도하는 경합 상황.
+            given(paymentRepository.markPaidIfPending(eq(1L), any(), any(), any(LocalDateTime.class))).willReturn(0);
+            Payment alreadyOffline = Payment.pending(RESERVATION_ID, "pay_x", PAYMENT_METHOD_ID, "VISA", "1234", VALID_AMOUNT);
+            alreadyOffline.markOfflineRequired("RECONCILE_FAILED", 0);
+            given(paymentRepository.findById(1L)).willReturn(Optional.of(alreadyOffline));
+
+            PaymentChargeService.FinalizeResult result =
+                    paymentChargeService.finalizeOutcome(1L, ChargeOutcome.paid("PG-1", LocalDateTime.now()));
+
+            assertThat(result.applied()).isFalse();
+            assertThat(result.payment().getStatus()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
         }
 
         @Test
         @DisplayName("결제 레코드가 없으면 PAYMENT_NOT_FOUND")
         void notFound() {
+            given(paymentRepository.markPaidIfPending(eq(1L), any(), any(), any(LocalDateTime.class))).willReturn(0);
             given(paymentRepository.findById(1L)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentChargeService.finalizeOutcome(1L,

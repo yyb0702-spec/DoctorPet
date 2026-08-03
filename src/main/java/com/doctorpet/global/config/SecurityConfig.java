@@ -60,6 +60,8 @@ public class SecurityConfig {
                                 "/api/reservations",
                                 "/api/reservations/*"
                         ).hasRole("GUARDIAN")
+                        // 보호자 결제 내역 조회 (SA §8-7, 이슈 #47). 본인 예약 여부는 서비스에서 재검증한다.
+                        .requestMatchers(HttpMethod.GET, "/api/reservations/*/payments").hasRole("GUARDIAN")
                         .requestMatchers(
                                 HttpMethod.PATCH,
                                 "/api/reservations/*/cancel"

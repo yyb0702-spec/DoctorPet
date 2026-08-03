@@ -46,6 +46,10 @@ class HospitalPaymentAuthorizationTest {
     @MockitoBean
     private PaymentApplicationService paymentApplicationService;
 
+    // 컨트롤러가 조회 서비스(#47)에도 의존하므로 컨텍스트 로딩용으로 목을 채운다.
+    @MockitoBean
+    private com.doctorpet.domain.payment.service.PaymentQueryService paymentQueryService;
+
     // JwtAuthenticationFilter 빈이 JwtTokenProvider·MemberBlacklistPort를 요구하므로 컨텍스트 로딩용으로 목을 채운다.
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;

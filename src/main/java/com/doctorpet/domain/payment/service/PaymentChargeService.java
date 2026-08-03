@@ -12,6 +12,8 @@ import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,9 @@ public class PaymentChargeService {
     private final ReservationLookupPort reservationLookupPort;
     private final StaffHospitalPort staffHospitalPort;
     private final MerchantPaymentIdGenerator merchantPaymentIdGenerator;
+    // JpaAuditing의 updatedAt과 같은 서울 기준 Clock(applicationClock). 조건부 UPDATE로 갱신하는 updatedAt·
+    // offlineRequiredAt을 JVM 기본 시간대가 아니라 이 Clock으로 만들어 정산 임계(§9-7)와 시간대가 어긋나지 않게 한다.
+    private final Clock clock;
     private final int maxAmount;
 
     public PaymentChargeService(
@@ -38,6 +43,7 @@ public class PaymentChargeService {
             ReservationLookupPort reservationLookupPort,
             StaffHospitalPort staffHospitalPort,
             MerchantPaymentIdGenerator merchantPaymentIdGenerator,
+            Clock clock,
             // 진료비 절대 상한(원). 코드 상수가 아니라 설정값으로 둬 배포 없이 상향 가능하게 한다(SA §9-4).
             @Value("${payment.charge.max-amount:3000000}") int maxAmount
     ) {
@@ -46,7 +52,16 @@ public class PaymentChargeService {
         this.reservationLookupPort = reservationLookupPort;
         this.staffHospitalPort = staffHospitalPort;
         this.merchantPaymentIdGenerator = merchantPaymentIdGenerator;
+        this.clock = clock;
         this.maxAmount = maxAmount;
+    }
+
+    /**
+     * 후확정 결과. {@code applied}는 이 호출이 실제로 상태를 전이시켰는지다 — 조건부 UPDATE가 0건이면(다른 경로가
+     * 먼저 확정) false이고, 호출부는 상태를 덮어쓰거나 알림을 중복 발행하지 않는다(PR #81 P1). PENDING 유지도 전이가
+     * 아니므로 applied=false다.
+     */
+    public record FinalizeResult(Payment payment, boolean applied) {
     }
 
     /**
@@ -104,18 +119,26 @@ public class PaymentChargeService {
     }
 
     /**
-     * Tx2 — 외부 승인 결과로 결제 상태를 확정한다. 상태 전이는 엔티티 도메인 메서드로만 한다(SA §5 상태 머신).
+     * Tx2 — 외부 승인 결과로 결제 상태를 확정한다. 전이는 {@code WHERE status='PENDING'} 조건부 UPDATE로 원자화해
+     * 후확정(#34)과 정산(#35)이 같은 PENDING 결제를 동시에 확정하는 경합을 막는다(SA §5·§9-7, PR #81 P1).
+     * 조건부 UPDATE가 0건이면 다른 경로가 이미 확정한 것이므로 현재 상태를 그대로 반환하고 {@code applied=false}로
+     * 알림 중복 발행을 막는다. PENDING 유지는 상태 전이가 아니므로 applied=false다.
      */
     @Transactional
-    public Payment finalizeOutcome(Long paymentId, ChargeOutcome outcome) {
+    public FinalizeResult finalizeOutcome(Long paymentId, ChargeOutcome outcome) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        int updated = switch (outcome.type()) {
+            case PAID -> paymentRepository.markPaidIfPending(
+                    paymentId, outcome.pgPaymentId(), outcome.paidAt(), now);
+            case OFFLINE_REQUIRED -> paymentRepository.markOfflineRequiredIfPending(
+                    paymentId, outcome.failureReason(), outcome.retryCount(), now);
+            case PENDING -> paymentRepository.remainPendingIfPending(
+                    paymentId, outcome.retryCount(), outcome.failureReason(), now);
+        };
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-        switch (outcome.type()) {
-            case PAID -> payment.markPaid(outcome.pgPaymentId(), outcome.paidAt());
-            case OFFLINE_REQUIRED -> payment.markOfflineRequired(outcome.failureReason(), outcome.retryCount());
-            case PENDING -> payment.remainPending(outcome.retryCount(), outcome.failureReason());
-        }
-        return payment;
+        boolean applied = updated > 0 && outcome.type() != ChargeOutcome.Type.PENDING;
+        return new FinalizeResult(payment, applied);
     }
 
     private void validateAmount(int amount) {
