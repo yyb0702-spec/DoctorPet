@@ -1,6 +1,8 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRestoreRequest;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.response.ApiResponse;
@@ -70,6 +72,43 @@ class HospitalReservationControllerTest {
         ApiResponse<Void> response = hospitalReservationController.completeTreatment(principal, 10L);
 
         verify(hospitalReservationService).completeTreatment(50L, 10L);
+        assertThat(response.code()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void confirmNoShow_delegatesReasonAndReservationId() {
+        ReservationNoShowRequest request = new ReservationNoShowRequest("미방문 확인");
+
+        ApiResponse<Void> response = hospitalReservationController.confirmNoShow(
+                principal,
+                10L,
+                request
+        );
+
+        verify(hospitalReservationService).confirmNoShow(
+                50L,
+                10L,
+                "미방문 확인"
+        );
+        assertThat(response.code()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void restoreNoShow_delegatesReasonAndReservationId() {
+        ReservationNoShowRestoreRequest request =
+                new ReservationNoShowRestoreRequest("현장 접수 확인");
+
+        ApiResponse<Void> response = hospitalReservationController.restoreNoShow(
+                principal,
+                10L,
+                request
+        );
+
+        verify(hospitalReservationService).restoreNoShow(
+                50L,
+                10L,
+                "현장 접수 확인"
+        );
         assertThat(response.code()).isEqualTo("SUCCESS");
     }
 

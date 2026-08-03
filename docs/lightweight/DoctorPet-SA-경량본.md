@@ -105,7 +105,7 @@ REQUESTED → CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 REQUESTED → REJECTED
 REQUESTED → CANCELED
 CONFIRMED → CANCELED
-CONFIRMED → NO_SHOW
+CONFIRMED → NO_SHOW  // 예약 시작 후 병원 수동 확정 또는 +10분 경과 자동 판정
 NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 ```
 - 슬롯과 예약 이력은 1:N이다. 거절·취소·승인 타임아웃으로 반환된 슬롯은 다른 예약에 다시 사용될 수 있다.
@@ -115,6 +115,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 체크인은 예약시간부터 예약시간 +10분까지 허용한다.
 - +10분이 지나도록 체크인하지 않으면 자동으로 `NO_SHOW` 처리한다.
 - 노쇼는 예약시각이 지난 건이므로 슬롯을 반환하지 않고 `RESERVED`로 유지한다.
+- 병원 직원은 예약 시작 시각부터 수동 노쇼 확정이 가능하며, 확정·정정 사유와 처리자를 append-only 이력으로 남긴다.
 - 노쇼 이력은 전 병원 통합으로 집계하며 정정된 건은 노쇼 횟수에서 제외한다.
 ### 동시성 보호
 - 실제 채택 방식은 낙관적 락이다.

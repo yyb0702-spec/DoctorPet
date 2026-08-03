@@ -75,3 +75,7 @@ management:
       show-details: never
       probes:
         enabled: true
+
+reservation:
+  event-unique-migration:
+    enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}
