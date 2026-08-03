@@ -44,6 +44,10 @@ public class PaymentApplicationService {
     private final PaymentNotificationPublisher notificationPublisher;
     private final RetryBackoff retryBackoff;
     private final int maxRetry;
+    // 재시도 백오프 누적 대기의 상한(ms, #85 데드라인 캡). HTTP 요청 스레드가 지수 백오프로 과도하게 점유돼
+    // 스레드풀이 고갈되는 것을 막는다. 기본값은 현재 기본 백오프 3회 누적(500+1000+2000)과 같은 3500ms라
+    // 기본 설정의 동작을 바꾸지 않는다 — backoff-initial-ms·max-retry를 상향하면 이 값도 함께 올려야 한다.
+    private final long retryBackoffDeadlineMs;
 
     public PaymentApplicationService(
             PaymentChargeService paymentChargeService,
@@ -52,7 +56,8 @@ public class PaymentApplicationService {
             PaymentNotificationPublisher notificationPublisher,
             RetryBackoff retryBackoff,
             // 재시도 유효 실패의 최대 재시도 횟수(SA §9-4 확정 = 3).
-            @Value("${payment.charge.max-retry:3}") int maxRetry
+            @Value("${payment.charge.max-retry:3}") int maxRetry,
+            @Value("${payment.charge.retry-backoff-deadline-ms:3500}") long retryBackoffDeadlineMs
     ) {
         this.paymentChargeService = paymentChargeService;
         this.paymentGateway = paymentGateway;
@@ -60,6 +65,7 @@ public class PaymentApplicationService {
         this.notificationPublisher = notificationPublisher;
         this.retryBackoff = retryBackoff;
         this.maxRetry = maxRetry;
+        this.retryBackoffDeadlineMs = retryBackoffDeadlineMs;
     }
 
     /**
@@ -173,8 +179,16 @@ public class PaymentApplicationService {
      * NON_RETRIABLE로 바뀌면 즉시 오프라인, 소진되면 오프라인 확정한다.
      */
     private ChargeOutcome retryCharge(PaymentPreRecord pre, String billingKey) {
+        // 백오프 누적 시간 예산(#85 데드라인 캡). 지수 백오프가 HTTP 요청 스레드를 무한정 동기 점유해
+        // 스레드풀을 굶기지 않도록, 누적 대기가 예산을 넘으면 더 재시도하지 않고 최종 확정으로 빠진다.
+        long backoffUsedMs = 0;
         for (int attempt = 1; attempt <= maxRetry; attempt++) {
-            retryBackoff.pause(attempt);
+            long remainingBudgetMs = retryBackoffDeadlineMs - backoffUsedMs;
+            if (remainingBudgetMs <= 0) {
+                // 백오프 예산 소진 — 남은 재시도를 포기하고 최종 단건조회로 안전 확정한다(미확정이면 PENDING 유지, #35가 정산).
+                break;
+            }
+            backoffUsedMs += retryBackoff.pause(attempt, remainingBudgetMs);
 
             // 조회 우선 — 앞선 승인이 실제로는 처리됐을 수 있다.
             try {

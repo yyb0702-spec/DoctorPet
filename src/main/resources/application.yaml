@@ -23,6 +23,7 @@ payment:
     max-amount: 3000000        # 진료비 절대 상한(원)
     max-retry: 3               # 재시도 유효 실패 최대 재시도 횟수(SA §9-4 확정)
     backoff-initial-ms: 500    # 지수 백오프 초기 대기(500 → 1000 → 2000)
+    retry-backoff-deadline-ms: 3500  # 재시도 백오프 누적 대기 상한(ms, #85). HTTP 스레드 점유 상한 — 기본 백오프 3회 누적(500+1000+2000)과 동일해 기본 동작 불변. backoff-initial-ms·max-retry 상향 시 함께 올릴 것
   # 결제 정산 스케줄러(이슈 #35, SA §9-7). 값은 정책 미확정분이라 배포 없이 조정 가능하게 설정으로 둔다.
   reconcile:
     interval-ms: 300000        # 실행 주기 5분(SA §9-7)
