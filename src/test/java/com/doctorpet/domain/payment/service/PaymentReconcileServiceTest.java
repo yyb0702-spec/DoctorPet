@@ -8,6 +8,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.doctorpet.domain.payment.config.PaymentReconcileProperties;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
@@ -66,9 +67,21 @@ class PaymentReconcileServiceTest {
 
     @BeforeEach
     void setUp() {
+        PaymentReconcileProperties properties = new PaymentReconcileProperties();
+        properties.setStaleAfterMs(120_000L);
+        properties.setBatchSize(100);
+        properties.setMaxAttempts(MAX_ATTEMPTS);
         service = new PaymentReconcileService(
                 paymentRepository, paymentChargeService, paymentGateway, notificationPublisher,
-                reservationLookupPort, reconcileLock, FIXED_CLOCK, 120_000L, 100, MAX_ATTEMPTS);
+                reservationLookupPort, reconcileLock, FIXED_CLOCK, properties);
+    }
+
+    private PaymentChargeService.FinalizeResult applied(Payment payment) {
+        return new PaymentChargeService.FinalizeResult(payment, true);
+    }
+
+    private PaymentChargeService.FinalizeResult notApplied(Payment payment) {
+        return new PaymentChargeService.FinalizeResult(payment, false);
     }
 
     private Payment pendingTarget(int retryCount) {
@@ -121,7 +134,7 @@ class PaymentReconcileServiceTest {
     void queryPaid_finalizesPaid() {
         lockAcquired(List.of(pendingTarget(0)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(resolved(PaymentStatus.PAID));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(applied(resolved(PaymentStatus.PAID)));
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
                 new ReservationChargeView(RESERVATION_ID, 1L, GUARDIAN_ID, 7L, true)));
 
@@ -138,7 +151,7 @@ class PaymentReconcileServiceTest {
     void queryPending_underMax_remainsPending() {
         lockAcquired(List.of(pendingTarget(0)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(pendingTarget(1));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(1)));
 
         ReconcileSummary summary = service.reconcile();
 
@@ -155,7 +168,7 @@ class PaymentReconcileServiceTest {
         // 재조회 임계를 넘겨도 승인 여부가 불확실하면 OFFLINE(이중결제 위험) 대신 PENDING을 유지하고 알림도 없다.
         lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(pendingTarget(MAX_ATTEMPTS));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(MAX_ATTEMPTS)));
 
         ReconcileSummary summary = service.reconcile();
 
@@ -171,7 +184,7 @@ class PaymentReconcileServiceTest {
     void queryFailed_offlineRequired() {
         lockAcquired(List.of(pendingTarget(0)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.FAILED, null, 0));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(resolved(PaymentStatus.OFFLINE_REQUIRED));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(applied(resolved(PaymentStatus.OFFLINE_REQUIRED)));
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
                 new ReservationChargeView(RESERVATION_ID, 1L, GUARDIAN_ID, 7L, true)));
 
@@ -187,7 +200,7 @@ class PaymentReconcileServiceTest {
         lockAcquired(List.of(pendingTarget(0)));
         given(paymentGateway.query(MERCHANT_ID))
                 .willThrow(new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null, "조회 실패"));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(pendingTarget(0));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(0)));
 
         ReconcileSummary summary = service.reconcile();
 
@@ -202,7 +215,7 @@ class PaymentReconcileServiceTest {
         // 조회는 PAID지만 금액이 다르면 PortOne이 이미 청구했을 수 있어 OFFLINE 대신 PENDING을 유지한다(이중결제 금지).
         lockAcquired(List.of(pendingTarget(0)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT + 1));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(pendingTarget(0));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(0)));
 
         service.reconcile();
 

@@ -1,5 +1,6 @@
 package com.doctorpet.domain.payment.service;
 
+import com.doctorpet.domain.payment.config.PaymentReconcileProperties;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
@@ -17,7 +18,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -32,8 +32,9 @@ import org.springframework.stereotype.Service;
   - 조회 PENDING(여전히 미확정) → 재시도 수 +1, 임계(max-attempts) 초과면 OFFLINE_REQUIRED(수동 정산 전환), 아니면 PENDING 유지
   - 조회 실패(게이트웨이 예외) → PENDING 유지(다음 배치 재시도), 재시도 수는 올리지 않음
   다중 인스턴스 동시 실행은 ReconcileLock(Redis)으로 막는다 — 배치가 길어져도 처리 중 lease를 갱신(renew)해 만료로
-  다른 인스턴스가 끼어드는 것을 막고, 락 해제는 내 토큰일 때만 원자적으로 한다. finalizeOutcome의 PENDING 가드는 순차
-  재확정(같은 건을 이미 확정된 뒤 다시 확정)만 막으므로, 동시 실행 차단의 1차 방어는 어디까지나 이 락이다.
+  다른 인스턴스가 끼어드는 것을 막고, 락 해제는 내 토큰일 때만 원자적으로 한다. 락은 정산-정산 경합만 막으므로,
+  같은 락을 쓰지 않는 청구 후확정(#34)과의 경합은 finalizeOutcome의 WHERE status='PENDING' 조건부 UPDATE가 막는다 —
+  전이가 1건만 성립하고, 이 호출이 실제로 전이시켰을 때(applied)만 알림을 발행해 중복 발행을 막는다(PR #81 P1).
  */
 @Slf4j
 @Service
@@ -48,9 +49,7 @@ public class PaymentReconcileService {
     // JpaAuditing의 updatedAt과 같은 서울 기준 Clock(applicationClock). 조회 임계·확정 시각을 JVM 기본 시간대가
     // 아니라 이 Clock으로 계산해, 운영·CI JVM이 UTC여도 updatedAt과 임계값의 시간대가 어긋나지 않게 한다.
     private final Clock clock;
-    private final long staleAfterMs;
-    private final int batchSize;
-    private final int maxAttempts;
+    private final PaymentReconcileProperties properties;
 
     public PaymentReconcileService(
             PaymentRepository paymentRepository,
@@ -60,9 +59,7 @@ public class PaymentReconcileService {
             ReservationLookupPort reservationLookupPort,
             ReconcileLock reconcileLock,
             Clock clock,
-            @Value("${payment.reconcile.stale-after-ms:120000}") long staleAfterMs,
-            @Value("${payment.reconcile.batch-size:100}") int batchSize,
-            @Value("${payment.reconcile.max-attempts:10}") int maxAttempts
+            PaymentReconcileProperties properties
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentChargeService = paymentChargeService;
@@ -71,9 +68,7 @@ public class PaymentReconcileService {
         this.reservationLookupPort = reservationLookupPort;
         this.reconcileLock = reconcileLock;
         this.clock = clock;
-        this.staleAfterMs = staleAfterMs;
-        this.batchSize = batchSize;
-        this.maxAttempts = maxAttempts;
+        this.properties = properties;
     }
 
     /** 정산 배치 1회 실행. 다른 인스턴스가 실행 중이면 스킵한다. */
@@ -83,9 +78,9 @@ public class PaymentReconcileService {
             return ReconcileSummary.skipped();
         }
         try {
-            LocalDateTime threshold = LocalDateTime.now(clock).minus(Duration.ofMillis(staleAfterMs));
+            LocalDateTime threshold = LocalDateTime.now(clock).minus(Duration.ofMillis(properties.getStaleAfterMs()));
             List<Payment> targets = paymentRepository.findReconcileTargets(
-                    PaymentStatus.PENDING, threshold, PageRequest.of(0, batchSize));
+                    PaymentStatus.PENDING, threshold, PageRequest.of(0, properties.getBatchSize()));
 
             int paid = 0;
             int offlineRequired = 0;
@@ -114,9 +109,10 @@ public class PaymentReconcileService {
 
     private ChargeOutcome.Type reconcileOne(Payment target) {
         ChargeOutcome outcome = resolveByQuery(target);
-        Payment finalized = paymentChargeService.finalizeOutcome(target.getId(), outcome);
-        if (outcome.type() != ChargeOutcome.Type.PENDING) {
-            publishResolved(finalized);
+        PaymentChargeService.FinalizeResult result = paymentChargeService.finalizeOutcome(target.getId(), outcome);
+        // 이 호출이 실제로 상태를 전이시켰을 때만 발행한다 — 청구 후확정이 먼저 확정했다면(조건부 UPDATE 0건) 중복 발행하지 않는다.
+        if (result.applied()) {
+            publishResolved(result.payment());
         }
         return outcome.type();
     }
@@ -144,7 +140,7 @@ public class PaymentReconcileService {
         // 재조회를 소진하도록 오래 미확정이어도 승인 여부가 불확실하면 OFFLINE(이중결제 위험) 대신 PENDING을 유지한다
         // (#34 리뷰 교정과 동일 원칙). max-attempts는 자동 OFFLINE 전환이 아니라 재시도 상한·운영 알림 임계로만 쓴다 —
         // 초과분은 RECONCILE_STUCK 사유로 표시해 운영자가 PortOne에서 직접 확인·수납하도록 남긴다(재시도 수는 더 올리지 않음).
-        if (target.getRetryCount() >= maxAttempts) {
+        if (target.getRetryCount() >= properties.getMaxAttempts()) {
             return ChargeOutcome.pending(target.getRetryCount(), "RECONCILE_STUCK");
         }
         return ChargeOutcome.pending(target.getRetryCount() + 1, "RECONCILE_UNCONFIRMED");

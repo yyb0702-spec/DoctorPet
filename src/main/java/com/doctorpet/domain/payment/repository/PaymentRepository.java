@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -45,5 +46,67 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             @Param("status") PaymentStatus status,
             @Param("threshold") LocalDateTime threshold,
             Pageable pageable
+    );
+
+    /*
+      후확정(#34) ↔ 정산(#35)의 동시 경합을 막는 조건부 상태 전이(PR #81 P1 리뷰). Payment에는 @Version이 없어
+      findById 후 메모리 검사(ensurePending)만으로는 두 트랜잭션이 같은 PENDING을 읽고 둘 다 확정해 마지막 커밋이
+      앞선 결과를 덮어쓸 수 있다. WHERE status='PENDING' 조건부 UPDATE로 전이를 원자화하고, 갱신 0건이면 이미 확정된
+      것이므로 호출부가 상태를 덮어쓰거나 알림을 중복 발행하지 않도록 한다.
+
+      JPQL bulk UPDATE는 Hibernate 생명주기를 우회해 @LastModifiedDate(updatedAt)를 자동 갱신하지 않으므로
+      updatedAt을 서울 기준 Clock 값으로 명시 갱신한다 — remainPending(상태 유지)에서 이를 빠뜨리면 정산 백오프
+      (updatedAt 기준으로 다음 주기까지 미루기)가 깨진다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+               set p.status = com.doctorpet.domain.payment.entity.PaymentStatus.PAID,
+                   p.paymentChannel = com.doctorpet.domain.payment.entity.PaymentChannel.BILLING_KEY,
+                   p.pgPaymentId = :pgPaymentId,
+                   p.paidAt = :paidAt,
+                   p.updatedAt = :now
+             where p.id = :id
+               and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.PENDING
+            """)
+    int markPaidIfPending(
+            @Param("id") Long id,
+            @Param("pgPaymentId") String pgPaymentId,
+            @Param("paidAt") LocalDateTime paidAt,
+            @Param("now") LocalDateTime now
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+               set p.status = com.doctorpet.domain.payment.entity.PaymentStatus.OFFLINE_REQUIRED,
+                   p.failureReason = :failureReason,
+                   p.retryCount = :retryCount,
+                   p.offlineRequiredAt = :now,
+                   p.updatedAt = :now
+             where p.id = :id
+               and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.PENDING
+            """)
+    int markOfflineRequiredIfPending(
+            @Param("id") Long id,
+            @Param("failureReason") String failureReason,
+            @Param("retryCount") int retryCount,
+            @Param("now") LocalDateTime now
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+               set p.retryCount = :retryCount,
+                   p.failureReason = :failureReason,
+                   p.updatedAt = :now
+             where p.id = :id
+               and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.PENDING
+            """)
+    int remainPendingIfPending(
+            @Param("id") Long id,
+            @Param("retryCount") int retryCount,
+            @Param("failureReason") String failureReason,
+            @Param("now") LocalDateTime now
     );
 }
