@@ -18,6 +18,7 @@ import com.doctorpet.domain.payment.port.StaffHospitalPort;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.ServiceException;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -31,6 +32,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * Level 1 — 청구 전제 검증·선기록·후확정 단위 검증(트랜잭션 경계 서비스). 외부 승인·재시도 분기는
@@ -172,6 +174,36 @@ class PaymentChargeServiceTest {
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
             verify(paymentRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("선기록이 UNIQUE 위반(23000/1062)이면 사전 체크를 통과한 경쟁으로 보고 DUPLICATE_CHARGE (#83)")
+        void saveUniqueViolation_duplicate() {
+            stubSaveThrows(new SQLException("Duplicate entry", "23000", 1062));
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
+        }
+
+        @Test
+        @DisplayName("선기록이 UNIQUE가 아닌 무결성 위반(NOT NULL 23000/1048)이면 DUPLICATE_CHARGE로 오분류하지 않고 원 예외를 전파한다 (#83)")
+        void saveNonUniqueViolation_propagates() {
+            stubSaveThrows(new SQLException("Column cannot be null", "23000", 1048));
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        }
+
+        // saveAndFlush까지 도달하도록 정상 경로를 스텁하고, 저장에서 주어진 SQLException을 감싼 무결성 위반을 던진다.
+        private void stubSaveThrows(SQLException cause) {
+            stubChargeableReservation();
+            given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+            given(merchantPaymentIdGenerator.generate()).willReturn("pay_test");
+            given(paymentMethodRepository.findByIdAndMemberId(PAYMENT_METHOD_ID, GUARDIAN_ID))
+                    .willReturn(Optional.of(PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234")));
+            given(paymentRepository.saveAndFlush(any()))
+                    .willThrow(new DataIntegrityViolationException("save failed", cause));
         }
     }
 

@@ -12,6 +12,7 @@ import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import org.springframework.beans.factory.annotation.Value;
@@ -105,11 +106,18 @@ public class PaymentChargeService {
         try {
             paymentRepository.saveAndFlush(payment);
         } catch (DataIntegrityViolationException e) {
-            // 사전 체크를 통과한 동시 요청이 UNIQUE(reservation_id)에 걸린 경우 → 도메인 에러로 통일.
-            // 현재 payments의 무결성 위반 중 이 경로로 도달 가능한 것은 reservation_id UNIQUE 경쟁뿐이라
-            // DUPLICATE_CHARGE로 뭉쳐도 안전하다: merchant_payment_id는 UUID라 충돌 사실상 불가,
-            // NOT NULL 컬럼은 위에서 모두 채워 넣는다. 향후 다른 제약을 추가하면 제약별로 분기해야 오분류를 막는다.
-            throw new ServiceException(PaymentErrorCode.DUPLICATE_CHARGE);
+            // 사전 체크(existsByReservationId)를 통과한 동시 요청이 UNIQUE(reservation_id) 경쟁에 걸린 경우만
+            // 도메인 에러(DUPLICATE_CHARGE)로 통일한다. 지금 이 경로로 도달 가능한 무결성 위반은 reservation_id
+            // UNIQUE 경쟁뿐이지만(merchant_payment_id는 UUID라 충돌 사실상 불가, NOT NULL은 위에서 모두 채움),
+            // 향후 payments에 다른 제약/NOT NULL이 추가되면 그 위반까지 DUPLICATE_CHARGE로 뭉쳐 오분류된다(#83).
+            // 이를 막기 위해 "UNIQUE 중복 위반인지"만 판별한다 — 제약명·메시지 문자열은 드라이버 의존이라 쓰지 않고
+            // GlobalExceptionHandler와 동일하게 SQLState/벤더 오류코드(제약명과 무관하게 항상 같은 신호)로 본다.
+            // 중복 위반이 아니면(NOT NULL·FK 등) DUPLICATE_CHARGE로 오분류하지 않고 원 예외를 그대로 전파해
+            // GlobalExceptionHandler가 실제 오류(500)로 드러내게 한다. rollback-only 트랜잭션이라 재조회는 하지 않는다.
+            if (isDuplicateEntry(e)) {
+                throw new ServiceException(PaymentErrorCode.DUPLICATE_CHARGE);
+            }
+            throw e;
         }
 
         boolean methodActive = method.getStatus() == PaymentMethodStatus.ACTIVE;
@@ -145,5 +153,18 @@ public class PaymentChargeService {
         if (amount <= 0 || amount > maxAmount) {
             throw new ServiceException(PaymentErrorCode.INVALID_AMOUNT);
         }
+    }
+
+    // MySQL이 UNIQUE 제약 위반(중복 키, ER_DUP_ENTRY)에 내려주는 SQLState·벤더 오류코드. 제약명·메시지
+    // 문자열은 드라이버/방언에 따라 달라 신뢰할 수 없으나 SQLState/벤더 코드는 제약 이름과 무관하게 항상 같다
+    // (GlobalExceptionHandler.resolveDataIntegrityErrorCode와 동일한 판별 근거). NOT NULL(1048)·FK(1452) 등
+    // 다른 무결성 위반은 이 코드가 아니라, DUPLICATE_CHARGE 오분류에서 걸러진다.
+    private static final String MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE = "23000";
+    private static final int MYSQL_DUPLICATE_ENTRY_ERROR_CODE = 1062;
+
+    private boolean isDuplicateEntry(DataIntegrityViolationException exception) {
+        return exception.getMostSpecificCause() instanceof SQLException sqlException
+                && MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())
+                && sqlException.getErrorCode() == MYSQL_DUPLICATE_ENTRY_ERROR_CODE;
     }
 }
