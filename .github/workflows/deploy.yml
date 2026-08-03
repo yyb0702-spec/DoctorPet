@@ -1,0 +1,64 @@
+name: Deploy
+
+# develop에 push(=feature/* 브랜치 병합)되면 이미지를 빌드해 GHCR에 올리고, EC2에 SSH로
+# 접속해 그 이미지로 재배포한다. EC2에서 직접 Gradle 빌드를 돌리면(t3.small에서도 겪었듯)
+# 리소스가 부족해 느리고 크래시가 나기 쉬워서, 빌드는 GitHub Actions 러너가 하고 EC2는
+# 완성된 이미지를 pull만 하도록 분리했다.
+# main이 아니라 develop을 트리거로 쓰는 이유: 이 프로젝트는 develop이 실질적인 최신 개발
+# 브랜치이고, main은 아직 정식 릴리스 시점(develop -> main)에만 갱신되는 상태라 지금 당장은
+# main 트리거로 두면 배포가 전혀 안 돈다. 나중에 main 릴리스 절차가 자리잡으면 트리거를
+# main으로 옮기는 걸 다시 검토할 것.
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build and push image to GHCR
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/yyb0702-spec/doctorpet:latest
+            ghcr.io/yyb0702-spec/doctorpet:${{ github.sha }}
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH into EC2 and redeploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/DoctorPet
+            git checkout develop
+            git pull origin develop
+            docker compose pull app
+            docker compose up -d --remove-orphans
+            docker image prune -f
