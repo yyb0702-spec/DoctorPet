@@ -128,11 +128,13 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("재시도 유효(RETRIABLE) 실패가 지속되면 최대 재시도 후 OFFLINE_REQUIRED로 확정한다")
-    void retriableExhausted_offline() {
+    @DisplayName("재시도 소진 후 최종 단건조회로 미승인이 확인되면 OFFLINE_REQUIRED로 확정한다")
+    void retriableExhaustedAndConfirmedNotPaid_offline() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
+        // 최종 조회가 FAILED(성공 아님 확인) → 소진 후 오프라인 전환.
+        paymentGateway.stubQueryResult(MERCHANT_ID, GatewayPaymentStatus.FAILED, 0);
 
         paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
@@ -142,6 +144,23 @@ class PaymentApplicationServiceTest {
         assertThat(outcome.retryCount()).isEqualTo(MAX_RETRY);
         // 최초 1회 + 재시도 maxRetry회.
         assertThat(paymentGateway.receivedMerchantPaymentIds()).hasSize(1 + MAX_RETRY);
+    }
+
+    @Test
+    @DisplayName("재시도 소진 후 최종 단건조회도 미확정이면 OFFLINE_REQUIRED가 아니라 PENDING을 유지한다(오프라인 이중수납 금지)")
+    void retriableExhaustedButUnconfirmed_pending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        // 승인은 계속 실패하고 최종 조회도 미확정(FakeGateway 기본 PENDING) — 승인 여부 미상.
+        paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
+
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("RETRY_EXHAUSTED_UNCONFIRMED");
+        assertThat(outcome.retryCount()).isEqualTo(MAX_RETRY);
     }
 
     @Test
@@ -173,8 +192,8 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("최초 승인이 PAID여도 승인 금액이 요청 금액과 다르면 PAID로 확정하지 않고 오프라인으로 돌린다(금액 대조)")
-    void approvePaidWithAmountMismatch_offline() {
+    @DisplayName("최초 승인이 PAID여도 승인 금액이 다르면 PAID로 확정하지 않고 PENDING을 유지한다(이미 승인됐을 수 있어 오프라인 금지)")
+    void approvePaidWithAmountMismatch_pending() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         // FakeGateway는 요청 금액을 그대로 승인하므로, 금액 불일치는 mock 게이트웨이로 주입한다.
@@ -182,32 +201,35 @@ class PaymentApplicationServiceTest {
         given(gateway.approve(any())).willReturn(
                 new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT + 1, LocalDateTime.now()));
 
-        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
+        // PG가 PAID를 반환했으므로 OFFLINE_REQUIRED(현장 수납)로 돌리면 이중결제 — PENDING 유지로 오프라인 정산을 막는다.
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
-        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
     }
 
     @Test
-    @DisplayName("승인이 PAID여도 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 오프라인으로 돌린다")
-    void approvePaidWithBlankPgPaymentId_offline() {
+    @DisplayName("승인이 PAID여도 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 PENDING을 유지한다(오프라인 금지)")
+    void approvePaidWithBlankPgPaymentId_pending() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         PaymentGateway gateway = mock(PaymentGateway.class);
         given(gateway.approve(any())).willReturn(
                 new PaymentApproveResult(GatewayPaymentStatus.PAID, "  ", AMOUNT, LocalDateTime.now()));
 
-        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
-        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("INVALID_PG_RESULT");
     }
 
     @Test
-    @DisplayName("재시도 승인이 PAID여도 금액이 다르면 오프라인으로 돌린다(재시도 경로도 금액 대조)")
-    void retryApprovePaidWithAmountMismatch_offline() {
+    @DisplayName("재시도 승인이 PAID여도 금액이 다르면 PENDING을 유지한다(재시도 경로도 오프라인 금지)")
+    void retryApprovePaidWithAmountMismatch_pending() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         PaymentGateway gateway = mock(PaymentGateway.class);
@@ -217,11 +239,66 @@ class PaymentApplicationServiceTest {
                 .willReturn(new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-2", AMOUNT + 100, LocalDateTime.now()));
         given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
 
-        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
+    }
+
+    @Test
+    @DisplayName("단건조회 결과가 PAID여도 금액이 다르면 PENDING을 유지한다(조회 경로도 오프라인 금지)")
+    void queryPaidWithAmountMismatch_pending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        // 최초 승인은 UNKNOWN(응답 유실) → 단건조회 우선. 조회는 PAID지만 금액 불일치 → 오프라인 금지, PENDING 유지.
+        given(gateway.approve(any()))
+                .willThrow(new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null, "응답 유실"));
+        given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PAID, "PG-Q", AMOUNT + 5));
+
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
+    }
+
+    @Test
+    @DisplayName("빌링키 복호화가 실패하면 500 없이 OFFLINE_REQUIRED로 흡수한다(게이트웨이 호출 전 = 청구 미발생)")
+    void decryptFailure_absorbedAsOffline() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willThrow(new IllegalStateException("enc-key mismatch"));
+
+        // 예외가 charge() 밖으로 전파되지 않고(=500 안 남) 정상 응답으로 흡수돼야 한다.
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
-        assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
+        assertThat(outcome.failureReason()).isEqualTo("BILLING_KEY_DECRYPT_FAILED");
+        // 복호화 실패라 게이트웨이는 호출되지 않는다.
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("게이트웨이가 계약 외 예외(비-PaymentGatewayException)를 던져도 500 없이 PENDING으로 흡수한다")
+    void gatewayContractViolation_absorbedAsPending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        // 예: PortOne 실연동 전 스켈레톤이 던지는 UnsupportedOperationException 같은 계약 외 RuntimeException.
+        given(gateway.approve(any())).willThrow(new UnsupportedOperationException("integration pending"));
+
+        // 예외가 charge() 밖으로 전파되지 않고 PENDING으로 흡수돼야 한다(승인 도달 불명 → 오프라인 이중수납 금지).
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("CHARGE_ORCHESTRATION_ERROR");
     }
 
     private PaymentApplicationService serviceWith(PaymentGateway gateway) {
