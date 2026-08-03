@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.24, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.14 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.25, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 회원·인증
@@ -74,7 +74,7 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
 - 검색 결과에 없는 병원·질환명·처치 지시를 생성하지 않는다.
 - 면책 문구는 LLM 출력이 아니라 서버가 항상 주입한다.
-- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 제공자·모델은 평가 후 선택한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
+- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 연동은 OpenAI `gpt-4.1-mini`의 Structured Outputs를 사용한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
 - `symptomText`는 공백 불가 1~1,000자, `species`는 `DOG`·`CAT`만 허용한다.
 - 지역과 사용자 동의로 얻은 위도·경도는 선택 입력이며, 좌표는 검색에만 사용한다.
 - AI가 자동 해석하는 검색 조건은 MVP에서 축종·진료역량·응급·야간·현재 영업·거리 의도로 제한한다. 현재 영업 여부는 서버가 서울 시간으로 판단하고, 거리순은 유효한 좌표가 있을 때만 사용한다. 응급이며 좌표가 있으면 거리 표현 없이도 거리순을 적용하고, 좌표가 없으면 응급 안내를 지연하지 않은 채 선택적 위치 제공을 권장한다.

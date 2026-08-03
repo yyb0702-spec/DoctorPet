@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.24, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.14 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.25, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 제품 개요
@@ -55,7 +55,7 @@ AI 상담은 비로그인 사용자도 임시 정보로 이용할 수 있다. MV
 - AI는 진단·처방·조회되지 않은 병원을 생성하지 않는다.
 - AI 장애가 검색·예약·결제에 영향을 주지 않아야 한다.
 - AI 구조화 출력 5필드는 모두 저장하고, 검색·집계용 2필드는 별도 컬럼에 중복 저장한다.
-- AI 공통 기능은 제공자 비종속 `AiGateway`와 `FakeAiGateway`로 먼저 구현하고, 실제 제공자·모델은 동일 평가 데이터 비교 후 선택한다.
+- AI 공통 기능은 제공자 비종속 `AiGateway`와 `FakeAiGateway`로 먼저 구현하고, 실제 연동은 OpenAI `gpt-4.1-mini`의 Structured Outputs를 사용한다.
 - `symptomText`는 공백 불가 1~1,000자, `species`는 `DOG`·`CAT`만 허용한다.
 - `region`과 사용자 동의로 얻은 위도·경도는 선택 입력이다. 좌표가 있을 때만 가까운 병원을 거리순으로 제공하며 위치를 추측하지 않는다.
 - AI는 MVP에서 축종·진료역량·응급·야간·현재 영업·거리 의도만 검색 조건으로 구조화한다. 현재 영업 여부는 서버가 서울 시간으로 판정한다.
