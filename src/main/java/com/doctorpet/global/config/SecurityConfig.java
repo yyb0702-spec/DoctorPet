@@ -37,6 +37,11 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // 배포 헬스체크(CI/CD MVP) - 로드밸런서·배포 스크립트가 인증 없이 호출한다.
+                        // management.endpoints.web.exposure.include로 health 외 다른 액추에이터
+                        // 엔드포인트는 노출 자체를 막아뒀으니(application.yaml), 여기서 전체
+                        // /actuator/**를 열어도 실질적으로 health만 응답한다.
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         // 인증/재발급 - 정책상 비인증 API (정책 결정 사항 §1, API 명세서 §1 참고)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/signup", "/api/auth/login", "/api/auth/reissue"
