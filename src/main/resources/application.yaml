@@ -41,6 +41,17 @@ hospital:
   search:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
+ai:
+  rate-limit:
+    authenticated-per-minute: ${AI_RATE_LIMIT_AUTHENTICATED_PER_MINUTE:5}
+    anonymous-per-minute: ${AI_RATE_LIMIT_ANONYMOUS_PER_MINUTE:3}
+    anonymous-per-day: ${AI_RATE_LIMIT_ANONYMOUS_PER_DAY:30}
+    minute-window: ${AI_RATE_LIMIT_MINUTE_WINDOW:1m}
+    trusted-proxies: ${AI_RATE_LIMIT_TRUSTED_PROXIES:}
+  retention:
+    symptom-text-days: ${AI_SYMPTOM_TEXT_RETENTION_DAYS:30}
+    cron: ${AI_SYMPTOM_TEXT_RETENTION_CRON:0 0 3 * * *}
+
 # email_verified 컬럼 추가로 인한 기존 회원 백필(리뷰 지적 P1) — 기본값 true로 두어 배포 시
 # 끄는 걸 잊어서 전원 로그인 차단되는 사고를 방지한다. 마커(schema_migrations)로 1회만
 # 실행되므로 계속 켜둬도 안전하다.
