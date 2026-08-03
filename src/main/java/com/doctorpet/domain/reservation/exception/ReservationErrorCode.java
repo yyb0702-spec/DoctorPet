@@ -67,6 +67,18 @@ public enum ReservationErrorCode implements ErrorCode {
             HttpStatus.BAD_REQUEST,
             "RESERVATION_010",
             "지원하지 않는 예약 정렬 조건입니다."
+    ),
+
+    APPROVAL_DEADLINE_PASSED(
+            HttpStatus.CONFLICT,
+            "RESERVATION_011",
+            "예약 승인 가능 시간이 지났습니다."
+    ),
+
+    CHECK_IN_DEADLINE_PASSED(
+            HttpStatus.CONFLICT,
+            "RESERVATION_012",
+            "예약 체크인 가능 시간이 지났습니다."
     );
 
     private final HttpStatus httpStatus;
