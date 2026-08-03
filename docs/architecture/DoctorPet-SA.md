@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.24 |
+| 문서 버전 | v1.25 |
 | 작성 기준일 | 2026-08-03 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 원격 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 예약 가능 상태 계약을 확정. v1.17: AI 착수 합의에 따라 Gateway·프롬프트 단계, 입력·Rate Limit, 검색 Tool 실패 fallback, 응급 처리, 운영 MVP 범위를 확정. v1.18: 회원 이메일 인증·비밀번호 재설정·탈퇴 보류·Access Token 블랙리스트·기존 회원 백필 설계를 반영하고, AI와 회원 변경이 겹친 부록 A를 실제 미확정 항목 기준으로 통합. v1.19: 리뷰에서 확인된 `members.email_verified`와 `ai_consultations.error_type` 누락을 복원하고 Gateway 실패 원인 저장 계약을 명확화. v1.20: AI 상담의 선택 좌표와 제한된 검색 Tool 조건, 자연어 시간·거리 의도 매핑, 서버 판정 책임과 확장 경계를 확정. v1.21: 응급 시 좌표 기반 거리순 자동 적용, 좌표 미제공 시 비차단 위치 권장 신호와 검색 fallback을 확정. v1.22: 외부 AI Gateway에는 개인정보 패턴을 마스킹한 증상 텍스트만 전달하도록 경계를 확정. v1.23: JPA 감사 시각과 시간 기반 배치가 JVM 기본 시간대와 무관하게 공통 서울 Clock을 사용하도록 확정. v1.24: 결제 실패 분기의 오프라인 전환 안전 조건을 명확화 — PG가 `PAID`를 반환했으나 금액 불일치·`pgPaymentId` 누락인 정합성 오류와, 재시도 소진 시 마지막 결과가 미확정(UNKNOWN)인 경우는 `OFFLINE_REQUIRED`(현장 수납)가 아니라 사유를 기록한 `PENDING`으로 두어 이중결제를 막고 정산 스케줄러가 확정하도록 정의(§5-2·§9-4·§9-7, PR #77 2차 리뷰 반영).
+> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 원격 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 예약 가능 상태 계약을 확정. v1.17: AI 착수 합의에 따라 Gateway·프롬프트 단계, 입력·Rate Limit, 검색 Tool 실패 fallback, 응급 처리, 운영 MVP 범위를 확정. v1.18: 회원 이메일 인증·비밀번호 재설정·탈퇴 보류·Access Token 블랙리스트·기존 회원 백필 설계를 반영하고, AI와 회원 변경이 겹친 부록 A를 실제 미확정 항목 기준으로 통합. v1.19: 리뷰에서 확인된 `members.email_verified`와 `ai_consultations.error_type` 누락을 복원하고 Gateway 실패 원인 저장 계약을 명확화. v1.20: AI 상담의 선택 좌표와 제한된 검색 Tool 조건, 자연어 시간·거리 의도 매핑, 서버 판정 책임과 확장 경계를 확정. v1.21: 응급 시 좌표 기반 거리순 자동 적용, 좌표 미제공 시 비차단 위치 권장 신호와 검색 fallback을 확정. v1.22: 외부 AI Gateway에는 개인정보 패턴을 마스킹한 증상 텍스트만 전달하도록 경계를 확정. v1.23: JPA 감사 시각과 시간 기반 배치가 JVM 기본 시간대와 무관하게 공통 서울 Clock을 사용하도록 확정. v1.24: 결제 실패 분기의 오프라인 전환 안전 조건을 명확화 — PG가 `PAID`를 반환했으나 금액 불일치·`pgPaymentId` 누락인 정합성 오류와, 재시도 소진 시 마지막 결과가 미확정(UNKNOWN)인 경우는 `OFFLINE_REQUIRED`(현장 수납)가 아니라 사유를 기록한 `PENDING`으로 두어 이중결제를 막고 정산 스케줄러가 확정하도록 정의(§5-2·§9-4·§9-7, PR #77 2차 리뷰 반영). v1.25: `notifications` 스키마를 저장형 알림 구현(#39)에 맞춰 확정 — 읽음 상태를 `is_read` 대신 `read_at`(NULL=미읽음, `isRead`는 파생) 정본으로 두고 최초 1회만 기록해 멱등화하며, 연결 리소스를 `resource_type`+`resource_id` generic 참조로 추가하고, 삭제·접근 불가 리소스는 목록 조회 시 서버가 확장하지 않음을 명시(§4 notifications·§8-8·§9-8).
 
 ---
 
@@ -320,11 +320,15 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | id | BIGINT PK | |
-| member_id | BIGINT FK | |
-| type | VARCHAR | RESERVATION_CONFIRMED / REJECTED / PAYMENT_RESULT / NO_SHOW 등 |
-| content | VARCHAR | |
-| is_read | BOOLEAN | |
+| member_id | BIGINT FK | 수신자(논리 FK — §4 크로스도메인 표기 규약) |
+| type | VARCHAR | RESERVATION_CONFIRMED / RESERVATION_REJECTED / PAYMENT_RESULT / NO_SHOW |
+| content | VARCHAR | 알림 문구 스냅샷 |
+| resource_type | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
+| resource_id | BIGINT NULL | 연결 리소스 id(논리 참조) |
+| read_at | DATETIME NULL | 읽은 시각(NULL=미읽음). `is_read`는 이 값의 파생(`read_at IS NOT NULL`) |
 | created_at | DATETIME | |
+
+읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). MVP(#39)에서 실제 발행은 결제 결과(`PAYMENT_RESULT`)뿐이고, 예약·노쇼 유형은 후속 이벤트 연동 시 발행한다. push는 여전히 추상화만 두고 MVP는 폴링이다(§9-8).
 
 ### payment_webhooks (확장)
 
