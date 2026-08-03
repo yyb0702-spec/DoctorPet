@@ -328,7 +328,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | read_at | DATETIME NULL | 읽은 시각(NULL=미읽음). `is_read`는 이 값의 파생(`read_at IS NOT NULL`) |
 | created_at | DATETIME | |
 
-읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). MVP(#39)에서 실제 발행은 결제 결과(`PAYMENT_RESULT`)뿐이고, 예약·노쇼 유형은 후속 이벤트 연동 시 발행한다. push는 여전히 추상화만 두고 MVP는 폴링이다(§9-8).
+읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). #39는 알림 **저장 메커니즘**(엔티티·조회·읽음 처리)과 결제 결과(`PAYMENT_RESULT`) **발행**을 제공한다. 예약(`RESERVATION_CONFIRMED`/`RESERVATION_REJECTED`)·노쇼(`NO_SHOW`) 이벤트의 저장 연동은 §9-8 요구사항으로 **유지**되며(범위 축소가 아니다), 예약·노쇼 도메인 이벤트가 준비되는 **후속 이슈(#88)**에서 이 저장 메커니즘에 연결한다. push는 여전히 추상화만 두고 MVP는 폴링이다(§9-8).
 
 ### payment_webhooks (확장)
 
