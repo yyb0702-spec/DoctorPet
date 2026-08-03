@@ -1,0 +1,119 @@
+package com.doctorpet.domain.ai.service;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+import com.doctorpet.domain.ai.config.AiRateLimitProperties;
+import com.doctorpet.domain.ai.exception.AiErrorCode;
+import com.doctorpet.domain.ai.exception.AiRateLimitStorageException;
+import com.doctorpet.domain.ai.repository.AiRateLimitRepository;
+import com.doctorpet.global.exception.ServiceException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class AiRateLimiterTest {
+
+    @Mock
+    private AiRateLimitRepository repository;
+
+    @Mock
+    private AiRateLimitFailureLogger failureLogger;
+
+    private AiRateLimiter rateLimiter;
+
+    @BeforeEach
+    void setUp() {
+        rateLimiter = new AiRateLimiter(repository, new AiRateLimitProperties(), failureLogger);
+    }
+
+    @Test
+    @DisplayName("로그인 사용자의 분당 여섯 번째 요청을 거부한다")
+    void check_authenticatedSixthRequest_rejected() {
+        given(repository.increment(startsWith("ai-consultation:rate-limit:member:minute:7"), any()))
+                .willReturn(6L);
+
+        assertThatThrownBy(() -> rateLimiter.check(7L, "203.0.113.10"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(AiErrorCode.RATE_LIMIT_EXCEEDED);
+
+        verify(repository, never()).increment(
+                startsWith("ai-consultation:rate-limit:anonymous:"), any());
+    }
+
+    @Test
+    @DisplayName("비로그인 사용자의 분당 세 번째와 일일 서른 번째 요청을 허용한다")
+    void check_anonymousAtLimits_allowed() {
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:minute:"), any()))
+                .willReturn(3L);
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:day:"), any()))
+                .willReturn(30L);
+
+        assertThatCode(() -> rateLimiter.check(null, "203.0.113.10"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("비로그인 사용자의 분당 네 번째 요청을 거부하고 일일 카운터를 증가시키지 않는다")
+    void check_anonymousFourthRequest_rejectedBeforeDailyCount() {
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:minute:"), any()))
+                .willReturn(4L);
+
+        assertThatThrownBy(() -> rateLimiter.check(null, "203.0.113.10"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(AiErrorCode.RATE_LIMIT_EXCEEDED);
+
+        verify(repository, never()).increment(
+                startsWith("ai-consultation:rate-limit:anonymous:day:"), any());
+    }
+
+    @Test
+    @DisplayName("비로그인 사용자의 일일 서른한 번째 요청을 거부한다")
+    void check_anonymousThirtyFirstDailyRequest_rejected() {
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:minute:"), any()))
+                .willReturn(1L);
+        given(repository.increment(startsWith("ai-consultation:rate-limit:anonymous:day:"), any()))
+                .willReturn(31L);
+
+        assertThatThrownBy(() -> rateLimiter.check(null, "203.0.113.10"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(AiErrorCode.RATE_LIMIT_EXCEEDED);
+    }
+
+    @Test
+    @DisplayName("Redis 장애 시 AI 상담 요청을 차단하지 않는다")
+    void check_redisFailure_failsOpen() {
+        given(repository.increment(any(), any()))
+                .willThrow(new AiRateLimitStorageException("redis unavailable"));
+
+        assertThatCode(() -> rateLimiter.check(null, "203.0.113.10"))
+                .doesNotThrowAnyException();
+
+        verify(failureLogger).logFailure(any(AiRateLimitStorageException.class));
+    }
+
+    @Test
+    @DisplayName("저장소 장애가 아닌 예상하지 못한 오류는 fail-open으로 숨기지 않는다")
+    void check_unexpectedRuntimeException_propagated() {
+        given(repository.increment(any(), any()))
+                .willThrow(new IllegalStateException("unexpected bug"));
+
+        assertThatThrownBy(() -> rateLimiter.check(null, "203.0.113.10"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("unexpected bug");
+
+        verify(failureLogger, never()).logFailure(any());
+    }
+}

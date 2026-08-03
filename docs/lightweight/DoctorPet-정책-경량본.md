@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.10 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.19, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.24, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 회원·인증
@@ -76,8 +76,11 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - 면책 문구는 LLM 출력이 아니라 서버가 항상 주입한다.
 - 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 제공자·모델은 평가 후 선택한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
 - `symptomText`는 공백 불가 1~1,000자, `species`는 `DOG`·`CAT`만 허용한다.
+- 지역과 사용자 동의로 얻은 위도·경도는 선택 입력이며, 좌표는 검색에만 사용한다.
+- AI가 자동 해석하는 검색 조건은 MVP에서 축종·진료역량·응급·야간·현재 영업·거리 의도로 제한한다. 현재 영업 여부는 서버가 서울 시간으로 판단하고, 거리순은 유효한 좌표가 있을 때만 사용한다. 응급이며 좌표가 있으면 거리 표현 없이도 거리순을 적용하고, 좌표가 없으면 응급 안내를 지연하지 않은 채 선택적 위치 제공을 권장한다.
+- 수술·입원 조건의 AI 자동 해석과 복합 조건 조정·미래 시각·대화형 질문·개인화는 확장 범위다.
 - Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회다.
-- 증상 원본은 저장하지 않고 개인정보 패턴을 마스킹한 텍스트만 30일 보존한 뒤 삭제한다.
+- 개인정보 패턴을 마스킹한 증상 텍스트만 외부 AI Gateway에 전달하고 DB에 30일 보존한 뒤 삭제한다.
 - timeout·fallback·기본 Circuit Breaker는 MVP에 포함한다.
 ## 7. 알림
 - 예약 승인·거절, 결제 결과, 노쇼 등 주요 상태 변경을 알림으로 저장한다.
