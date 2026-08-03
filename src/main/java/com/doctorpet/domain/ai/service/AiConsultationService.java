@@ -75,7 +75,7 @@ public class AiConsultationService {
 
         try {
             AiAnalysisResult result = aiGateway.analyze(
-                    new AiAnalysisRequest(request.symptomText(), request.species()));
+                    new AiAnalysisRequest(maskedSymptomText, request.species()));
             validateRequiredCapabilities(result.requiredCapabilities());
             AiHospitalSearchIntent searchIntent = searchIntentExtractor.extract(request.symptomText());
             boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH;

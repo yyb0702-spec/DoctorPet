@@ -67,7 +67,7 @@ class AiConsultationServiceTest {
     }
 
     @Test
-    @DisplayName("성공 결과를 구조화해 반환하고 개인정보가 마스킹된 상담 로그를 저장한다")
+    @DisplayName("개인정보를 마스킹해 Gateway에 전달하고 상담 로그를 저장한다")
     void consult_success() {
         AiAnalysisResult result = result(List.of("BLOOD_TEST"));
         given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
@@ -98,13 +98,18 @@ class AiConsultationServiceTest {
 
         ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
         verify(repository).save(captor.capture());
+        ArgumentCaptor<AiAnalysisRequest> gatewayRequestCaptor =
+                ArgumentCaptor.forClass(AiAnalysisRequest.class);
+        verify(aiGateway).analyze(gatewayRequestCaptor.capture());
         AiConsultation saved = captor.getValue();
+        AiAnalysisRequest gatewayRequest = gatewayRequestCaptor.getValue();
         assertThat(response.fallback()).isFalse();
         assertThat(response.structured().requiredCapabilities()).containsExactly("BLOOD_TEST");
         assertThat(response.hospitals()).containsExactly(hospital);
         assertThat(response.disclaimer()).isNotBlank();
         assertThat(saved.getMemberId()).isEqualTo(1L);
         assertThat(saved.getSymptomText()).isEqualTo("[MASKED] 강아지가 밥을 안 먹어요");
+        assertThat(gatewayRequest.symptomText()).isEqualTo("[MASKED] 강아지가 밥을 안 먹어요");
         assertThat(saved.getStatus()).isEqualTo(AiConsultationStatus.SUCCESS);
         assertThat(saved.getRequiredCapabilities()).containsExactly("BLOOD_TEST");
         assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.SUCCESS);

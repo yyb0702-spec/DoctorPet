@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.12 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.21, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.22, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 제품 개요
@@ -62,7 +62,7 @@ AI 상담은 비로그인 사용자도 임시 정보로 이용할 수 있다. MV
 - Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회다.
 - 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
 - 응급 키워드는 LLM 호출 전, `urgencyLevel=HIGH`는 호출 후 안전 분기로 처리한다. 응급이며 좌표가 있으면 거리 표현 없이도 현재 영업 중인 응급 병원을 거리순으로 검색한다. 좌표가 없으면 응급 안내와 가능한 지역 검색을 먼저 제공하고 선택적 위치 제공을 권장한다.
-- 마스킹된 증상 텍스트만 30일 보존하며 timeout·fallback·기본 Circuit Breaker를 MVP에 포함한다.
+- 개인정보 패턴을 마스킹한 증상 텍스트만 외부 AI Gateway에 전달하고 30일 보존하며 timeout·fallback·기본 Circuit Breaker를 MVP에 포함한다.
 상세 조건과 상태 전이는 프로젝트 정책 및 저장소 SA 정본을 따른다.
 ## 6. MVP 범위
 ### 포함
