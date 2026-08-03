@@ -96,4 +96,6 @@ jobs:
           MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED: "false"
           # UNIQUE 마이그레이션은 전용 실제 MySQL 테스트에서 스키마를 직접 재현한다.
           RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED: "false"
+          # 실제 LLM 제공자 미선정 단계이므로 CI에서는 테스트용 Fake Gateway를 명시한다.
+          AI_GATEWAY: fake
         run: ./gradlew clean build

@@ -37,6 +37,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
+        "ai.gateway=fake",
         "payment.gateway=fake",
         "payment.billing-key.enc-key="
                 + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

@@ -9,6 +9,12 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest(properties = {
+        "ai.gateway=fake",
         "payment.gateway=fake",
         "payment.billing-key.enc-key="
                 + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -115,6 +122,48 @@ class ReservationEventUniqueMigrationIntegrationTest {
                 .hasMessageContaining("UNIQUE 제약이 없습니다");
     }
 
+    @Test
+    @DisplayName("두 인스턴스가 동시에 최초 기동해도 DB 잠금으로 마이그레이션을 한 번만 실행한다")
+    void concurrentRunners_areSerializedByDatabaseLock() throws InterruptedException {
+        saveReservation();
+        dropUniqueConstraint();
+        insertManualNoShowEvent("최초 이력");
+        insertManualNoShowEvent("중복 이력");
+
+        ReservationEventUniqueMigrationRunner runner =
+                new ReservationEventUniqueMigrationRunner(jdbcTemplate);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        List<Throwable> errors = new CopyOnWriteArrayList<>();
+
+        for (int i = 0; i < 2; i++) {
+            executor.submit(() -> {
+                ready.countDown();
+                try {
+                    start.await();
+                    runner.run(null);
+                } catch (Throwable throwable) {
+                    errors.add(throwable);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+
+        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(errors).isEmpty();
+        assertThat(uniqueConstraintExists()).isTrue();
+        assertThat(migrationMarkerExists()).isTrue();
+        assertThat(manualNoShowEventCount()).isEqualTo(1);
+    }
+
     private void saveReservation() {
         long hospitalId = System.nanoTime();
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID).withNano(0);
@@ -147,6 +196,16 @@ class ReservationEventUniqueMigrationIntegrationTest {
                     (reservation_id, event_type, memo, processed_by, occurred_at)
                 values (?, 'MANUAL_NO_SHOW', ?, 1, now())
                 """, reservationId, memo);
+    }
+
+    private int manualNoShowEventCount() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from reservation_events
+                 where reservation_id = ?
+                   and event_type = 'MANUAL_NO_SHOW'
+                """, Integer.class, reservationId);
+        return count == null ? 0 : count;
     }
 
     private void ensureUniqueConstraint() {

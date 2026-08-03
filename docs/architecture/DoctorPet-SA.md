@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.16 |
-| 작성 기준일 | 2026-07-29 |
+| 문서 버전 | v1.23 |
+| 작성 기준일 | 2026-08-03 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 파생 상태 계약을 확정.
+> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 원격 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 예약 가능 상태 계약을 확정. v1.17: AI 착수 합의에 따라 Gateway·프롬프트 단계, 입력·Rate Limit, 검색 Tool 실패 fallback, 응급 처리, 운영 MVP 범위를 확정. v1.18: 회원 이메일 인증·비밀번호 재설정·탈퇴 보류·Access Token 블랙리스트·기존 회원 백필 설계를 반영하고, AI와 회원 변경이 겹친 부록 A를 실제 미확정 항목 기준으로 통합. v1.19: 리뷰에서 확인된 `members.email_verified`와 `ai_consultations.error_type` 누락을 복원하고 Gateway 실패 원인 저장 계약을 명확화. v1.20: AI 상담의 선택 좌표와 제한된 검색 Tool 조건, 자연어 시간·거리 의도 매핑, 서버 판정 책임과 확장 경계를 확정. v1.21: 응급 시 좌표 기반 거리순 자동 적용, 좌표 미제공 시 비차단 위치 권장 신호와 검색 fallback을 확정. v1.22: 외부 AI Gateway에는 개인정보 패턴을 마스킹한 증상 텍스트만 전달하도록 경계를 확정. v1.23: JPA 감사 시각과 시간 기반 배치가 JVM 기본 시간대와 무관하게 공통 서울 Clock을 사용하도록 확정.
 
 ---
 
@@ -49,6 +49,8 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 - 인프라(도전): Docker, AWS(EC2·RDS·ElastiCache), GitHub Actions, k6
 
 확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 LLM 연동(구조화 출력 + Tool Calling)이되 `AiGateway` 인터페이스만 먼저 확정하고 모델/제공자 구현체는 착수 시 정한다. 실시간 알림은 MVP는 폴링이고 SSE/WebSocket push는 채팅 도입 여부에 따라 추후 재논의한다(§9-8).
+
+시간 정책: 애플리케이션의 업무 시각은 `TimePolicy.SEOUL_ZONE_ID`를 적용한 공통 `Clock`을 사용한다. JPA `@CreatedDate`·`@LastModifiedDate`와 시간 기반 배치는 같은 Clock으로 `LocalDateTime`을 생성해 JVM 기본 시간대가 UTC인 환경에서도 저장 시각과 비교 기준이 어긋나지 않게 한다.
 
 ---
 
@@ -112,7 +114,7 @@ erDiagram
 | nickname | VARCHAR | |
 | role | VARCHAR | GUARDIAN / HOSPITAL_STAFF |
 | hospital_id | BIGINT NULL | 스태프 소속 병원(보호자는 NULL) |
-| email_verified | BOOLEAN NOT NULL DEFAULT FALSE | 이메일 인증 여부(백로그 P2). false인 동안 로그인 차단(§6-4) |
+| email_verified | BOOLEAN NOT NULL DEFAULT FALSE | 이메일 인증 여부. false인 동안 로그인 차단(§6-4) |
 | failed_login_attempts | INT NOT NULL DEFAULT 0 | 로그인 연속 실패 횟수(A 도메인 결정 #1) |
 | locked_until | DATETIME NULL | 잠금 해제 시각. NULL이면 잠금 상태 아님 |
 | created_at | DATETIME | |
@@ -245,7 +247,7 @@ erDiagram
 
 UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실행에도 이력은 한 번만 추가한다. 자동 판정 뒤 수동 확인은 event type이 달라 두 이력을 모두 보존한다.
 
-기존 테이블에 중복 이력이 있으면 `ddl-auto=update`가 UNIQUE 추가에 실패하고도 애플리케이션이 부팅될 수 있다. 이를 막기 위해 `ReservationEventUniqueMigrationRunner`가 최초 배포 시 같은 `(reservation_id, event_type)` 중 가장 작은 `id`의 최초 이력만 남기고 중복을 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다. 성공 여부는 `schema_migrations`의 `reservation_event_unique_v1` 마커로 기록하며, 마커가 있는데 제약이 없으면 부팅을 실패시켜 스키마 불일치를 드러낸다.
+기존 테이블에 중복 이력이 있으면 `ddl-auto=update`가 UNIQUE 추가에 실패하고도 애플리케이션이 부팅될 수 있다. 이를 막기 위해 `ReservationEventUniqueMigrationRunner`가 최초 배포 시 같은 `(reservation_id, event_type)` 중 가장 작은 `id`의 최초 이력만 남기고 중복을 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다. 다중 인스턴스 최초 기동은 MySQL `GET_LOCK` advisory lock으로 직렬화한다. 성공 여부는 `schema_migrations`의 `reservation_event_unique_v1` 마커로 기록하며, 마커가 있는데 제약이 없으면 부팅을 실패시켜 스키마 불일치를 드러낸다.
 
 예약 도메인의 예외·비가역 사건만 기록한다(방식 B). 정상 전이(요청·승인·체크인·진료·완료·취소)는 `reservations`의 상태·시각 컬럼으로 표현하고 이 테이블에 남기지 않는다. 노쇼 자동/수동 판정, 노쇼 정정, 승인 타임아웃 자동거절처럼 상태만으로는 흔적이 사라지는 사건만 추가한다. 수동 사건은 `memo`에 필수 사유, `processed_by`에 인증된 병원 직원 ID를 기록한다. 결제 사건(오프라인 정산 등)은 여기가 아니라 `payments` 쪽에 기록한다. 추가만 하고 수정·삭제하지 않는다.
 
@@ -294,23 +296,23 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | --- | --- | --- |
 | id | BIGINT PK | |
 | member_id | BIGINT FK NULL | 비로그인 임시 상담 시 NULL |
-| symptom_text | TEXT | 입력 증상. 보존 30일 + 패턴 마스킹(전화·이메일·주민번호 등 정규식 마스킹). 30일 경과 건 배치 삭제 |
+| symptom_text | TEXT | 개인정보 패턴을 마스킹한 입력 증상만 저장. 30일 경과 후 증상 텍스트 삭제 |
 | structured_result | JSON | AI 구조화 출력 5필드(`possibleFocusAreas`, `requiredCapabilities`, `urgencyLevel`, `preVisitCheckpoints`, `recommendVetVisit`) 전체 |
 | required_capabilities | JSON | AI 도출 역량. 검색·조회 편의를 위해 `structured_result`와 중복 저장 |
 | urgency_level | VARCHAR | LOW / MODERATE / HIGH. 조회·집계 편의를 위해 `structured_result`와 중복 저장 |
-| model | VARCHAR | 사용 모델 |
-| prompt_version | VARCHAR | 프롬프트 버전 |
-| prompt_tokens | INT | 입력 토큰 |
-| completion_tokens | INT | 출력 토큰 |
+| model | VARCHAR NULL | 사용 모델. 응급 키워드 선분기 등 LLM 미호출은 NULL |
+| prompt_version | VARCHAR NULL | 실제 LLM 호출에 사용한 프롬프트 버전. Fake·LLM 미호출은 NULL |
+| prompt_tokens | INT NULL | 입력 토큰. LLM 미호출은 NULL |
+| completion_tokens | INT NULL | 출력 토큰. LLM 미호출은 NULL |
 | latency_ms | INT | 응답 지연 |
 | status | VARCHAR | SUCCESS / FAILED |
-| error_type | VARCHAR NULL | TIMEOUT / RATE_LIMIT / SERVER_ERROR |
+| error_type | VARCHAR NULL | AI Gateway 실패 원인(`TIMEOUT` / `TEMPORARY_UNAVAILABLE` / `INVALID_RESPONSE`). 성공·LLM 미호출은 NULL |
 | fallback_used | BOOLEAN | 규칙기반 대체 여부 |
 | tool_call_status | VARCHAR | 검색 Tool 호출 성공/실패 |
 | schema_parse_success | BOOLEAN | 구조화 출력 파싱 성공 |
 | created_at | DATETIME | |
 
-`structured_result`에는 AI 구조화 출력 5필드 원본을 그대로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계 편의를 위한 중복 저장 컬럼이며 같은 트랜잭션에서 일관되게 기록한다. 이 필드들로 AI 필수 요건(구조화 출력·Tool Calling·장애 격리)과 비용·품질을 수치로 검증한다. 원문(`symptom_text`)만 30일 후 삭제하고, 나머지 구조화 지표 필드는 개인정보가 아니므로 더 길게(프로젝트 기간 내) 보관해 분석에 쓴다. 입력 길이 제한·Rate Limit 수치는 `[결정 필요]`.
+`structured_result`에는 AI 구조화 출력 5필드 원본을 그대로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계 편의를 위한 중복 저장 컬럼이며 같은 트랜잭션에서 일관되게 기록한다. 이 필드들로 AI 필수 요건(구조화 출력·Tool Calling·장애 격리)과 비용·품질을 수치로 검증한다. `symptom_text`에는 원본이 아니라 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹한 텍스트만 저장하고 30일 후 증상 텍스트를 삭제한다. 나머지 구조화 지표 필드는 개인정보가 아니므로 프로젝트 기간 내 보관해 분석에 쓴다.
 
 ### notifications
 
@@ -578,12 +580,15 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | --- | --- | --- | --- |
 | 증상 기반 진료역량 추천·검색 | POST | /api/ai/consultations | 공개(임시 정보 허용) |
 
-- 요청 `{ symptomText, species?, region? }`.
-- 응답 `{ structured: { possibleFocusAreas, requiredCapabilities, urgencyLevel, preVisitCheckpoints, recommendVetVisit }, hospitals: [...], disclaimer, message }`.
+- 요청 `{ symptomText, species, region?, latitude?, longitude? }`. 비로그인 상담은 `member_id`가 NULL이다. 위치 권한 요청과 좌표 조회는 프론트가 수행하고 사용자가 동의한 경우에만 전달한다.
+- `symptomText`는 필수이며 공백만 입력할 수 없고 1자 이상 1,000자 이하이다. `species`는 필수이며 `DOG`, `CAT`만 허용한다. `latitude`와 `longitude`는 함께 존재하거나 함께 없어야 하며 각각 `-90~90`, `-180~180` 범위여야 한다.
+- 응답 `{ structured: { possibleFocusAreas, requiredCapabilities, urgencyLevel, preVisitCheckpoints, recommendVetVisit }, hospitals: [...], disclaimer, message, fallback, locationRecommended }`.
 - `disclaimer`는 LLM 출력이 아니라 서버가 응답 조립 시 고정 문구로 주입한다(누락 불가).
-- AI 장애 시 `structured` 없이 `fallback=true` + 직접 검색 유도.
-
-> **[결정 필요 — 문서 충돌]** 검색 Tool 호출 실패 시 안내 응답의 생성 주체가 정본 간 일치하지 않는다. PRD §5-4·정책 §3.9는 실패 컨텍스트를 LLM에 전달해 안내 문구를 생성하고, 이 문서의 장애 격리 설계(§9-5)는 `fallback=true`로 사용자 직접 검색을 유도한다. LLM 재호출 여부와 서버 고정 문구 사용 여부는 팀 합의 후 PRD·정책·SA를 함께 수정한다. 결정 전에는 해당 실패 응답 방식을 구현하지 않는다.
+- `locationRecommended`는 응급 상황인데 유효한 좌표가 없을 때 `true`다. 위치 제공은 선택 사항이며 이 값은 병원 안내나 응급 고정 안내를 보류하는 차단 조건으로 사용하지 않는다. 프론트는 `true`이면 응급 안내를 먼저 표시한 뒤 위치 권한을 요청하고, 좌표 획득 시 같은 상담 또는 병원 검색을 좌표와 함께 다시 요청한다.
+- 로그인 사용자는 `memberId`당 1분 5회, 비로그인 사용자는 IP당 1분 3회와 `Asia/Seoul` 날짜당 30회로 제한하며 초과 시 `429 Too Many Requests`를 반환한다. 횟수·시간 구간은 설정값으로 관리하고 로그인 요청에는 IP 제한을 중복 적용하지 않는다.
+- 비로그인 IP는 신뢰하도록 설정한 프록시가 전달한 주소 또는 직접 연결 주소만 사용하며 임의의 전달 헤더를 신뢰하지 않는다.
+- 좌표는 검색 조건으로만 사용하고 저장·인증·인가 판단에는 사용하지 않는다. 좌표가 없을 때 AI나 서버가 위치를 추측해서는 안 된다.
+- 검색 Tool 실패·timeout·LLM 장애 시 LLM을 재호출하지 않고 `structured` 없이 서버 고정 안내, `fallback=true`, 직접 검색 유도를 반환한다.
 
 ### 8-5. 예약 (보호자)
 
@@ -689,11 +694,46 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 
 ## 9-5. AI Tool Calling
 
-`AiGateway`로 구현체를 격리하고, 구조화 출력 스키마(PRD §7) 검증 실패 시 재요청/대체한다. 3단계다 — 증상을 `requiredCapabilities`로 구조화하고, `searchNearbyVets(...)` Tool로 검색 API를 호출하고, 조회된 실데이터만 근거로 자연어 응답을 만든다.
+`AiGateway`로 구현체를 격리한다. 공통 기능은 실제 LLM을 호출하지 않는 `FakeAiGateway`로 먼저 구현하고, 실제 연동 전 동일한 평가 데이터로 구조화 출력 파싱 성공률, `urgencyLevel`·`requiredCapabilities` 정확도, 응답 지연, 호출당 비용을 비교해 제공자와 모델을 결정한다. 실제 Gateway는 설정으로 교체하며 상담 서비스 코드는 변경하지 않는다.
 
-환각 방어: disclaimer 서버 주입, 응급 키워드 고정 응답 라우팅, 화이트리스트 카테고리, 질환명·처치 생성 차단, 조회 안 된 병원·데이터 생성 차단. 장애 격리: 타임아웃·5xx·Rate Limit 시 Circuit Breaker → 사용자 직접 검색으로 대체하고 예약·결제에 영향을 주지 않는다.
+정상 연동은 3단계다 — 증상을 `requiredCapabilities`로 구조화하고, `searchNearbyVets(...)` Tool로 검색 API를 호출하고, 조회된 실데이터만 근거로 자연어 응답을 만든다. `requiredCapabilities`는 §4의 진료역량 화이트리스트 값만 허용하며 서버가 LLM 결과를 후검증한다.
 
-운영·비용 측정: 매 호출을 `ai_consultations`에 model·프롬프트 버전·토큰·지연·status·errorType·fallback·toolCall·스키마 파싱 성공으로 기록해 AI 필수 요건·비용·품질을 수치로 검증한다. 공개 AI API의 입력 길이 제한·Rate Limit 구체 수치는 별도 정한다(`[결정 필요]`). 증상 원문은 전화번호·이메일·주민번호 등을 패턴 마스킹한 뒤 30일간 보존하고, 30일 경과 건은 배치 삭제한다(§4). 파라미터는 temperature 0.2~0.3, max_tokens 약 500, 프롬프트는 종별·증상 카테고리별로 최소 2개 분기. `AiGateway` 인터페이스만 먼저 확정하고 모델/제공자 구현체·프롬프트 외부화는 AI 착수 시점에 정한다(관측 필드는 제공자와 무관하게 유효).
+MVP의 `searchNearbyVets` 인자는 다음 화이트리스트로 제한한다. 사용하지 않는 선택 조건은 `null`로 두며 `false`를 명시적인 반대 조건으로 해석하지 않는다.
+
+```text
+region, latitude, longitude,
+supportedSpecies, requiredCapabilities,
+emergency, nightCare, openNow, sort
+```
+
+`supportedSpecies`는 요청의 `species`를 서버가 주입하고, 위치 좌표도 요청에 실제로 전달된 값만 사용한다. AI가 좌표나 축종을 새로 생성할 수 없다. Tool 인자는 서버가 타입·범위·enum·진료역량 화이트리스트를 검증한 뒤 기존 QueryDSL 병원 검색에 전달한다. 검색 기본값은 `page=1`, `size=20`, `partnerOnly=false`이며 거리 의도가 없으면 기존 기본 정렬을 사용한다.
+
+자연어 검색 의도는 다음과 같이 매핑한다.
+
+| 사용자 표현·상황 | Tool 조건 | 판정 책임 |
+| --- | --- | --- |
+| “지금”, “현재”, “바로”, “문 연”, “지금 진료 가능한” | `openNow=true` | 서버가 `Asia/Seoul` 현재 시각과 병원 운영시간으로 판정 |
+| “야간 진료”, “밤늦게”, “새벽에도”, “24시간” | `nightCare=true` | AI는 의도만 구조화하고 병원 데이터는 서버가 검증 |
+| “새벽인데 지금 진료 가능한” | `openNow=true` | 현재 방문 가능 여부가 목적이므로 야간 조건을 자동 중복 적용하지 않음 |
+| 현재 영업과 야간 진료를 모두 명시 | `openNow=true`, `nightCare=true` | 두 조건을 AND로 검색 |
+| “가까운”, “가장 가까운”, “근처”, “주변” + 유효 좌표 | `sort=distance` | 서버가 좌표 기반 거리 계산·정렬 |
+| 거리 의도 + 좌표 없음 + 지역 있음 | 지역 검색, 기본 정렬 | 거리순이라고 표현하지 않음 |
+| 거리 의도 + 좌표·지역 모두 없음 | Tool 미호출 | 서버 고정 안내로 위치 제공·직접 검색 유도 |
+| 응급 + 유효 좌표 | `emergency=true`, `openNow=true`, `sort=distance` | 거리 표현 여부와 관계없이 서버가 거리순을 강제 |
+| 응급 + 좌표 없음 + 지역 있음 | `emergency=true`, `openNow=true`, 지역 검색, `locationRecommended=true` | 응급 안내와 지역 검색을 먼저 제공하고 선택적 위치 제공을 권장 |
+| 응급 + 좌표·지역 모두 없음 | Tool 미호출, `locationRecommended=true` | 전국 이름순 결과를 응급 추천으로 제공하지 않고 응급 안내와 위치 제공·직접 검색을 안내 |
+
+응급 키워드가 감지되거나 LLM 결과가 `urgencyLevel=HIGH`이면 즉시 방문 안내와 함께 `emergency=true`, `openNow=true`로 실제 병원을 검색한다. 유효 좌표가 있으면 사용자의 거리 의도와 무관하게 전체 일치 후보를 거리순으로 정렬한 뒤 페이징한다. 좌표가 없으면 거리순을 적용하지 않으며 위치 제공을 기다리느라 응급 안내나 가능한 지역 검색을 지연하지 않는다. 조회 결과가 없더라도 응급 안내는 유지하고 존재하지 않는 병원을 생성하지 않는다.
+
+MVP에서는 축종·진료역량·응급·야간·현재 영업·거리 의도까지만 AI가 자동 구조화한다. 병원 검색 API가 이미 지원하는 수술·입원 조건은 사용자가 검색 화면에서 직접 선택할 수 있으나, 해당 표현의 AI 자동 해석은 복합 조건 우선순위·자동 완화·미래 방문 시각·대화형 추가 질문·개인화·고급 랭킹·자유 형식 또는 다중 Tool Calling과 함께 확장 범위로 둔다.
+
+환각 방어는 2단계다. 서버가 별도 리소스 파일의 응급 키워드를 먼저 검사하고 감지 시 LLM 호출 없이 즉시 병원 방문 고정 안내를 반환한다. 키워드에 걸리지 않아 LLM을 호출한 경우에도 `urgencyLevel=HIGH`이면 처치성 문구를 차단하고 즉시 병원 방문·연결 안내로 강제 분기한다. 그 밖에도 disclaimer 서버 주입, 화이트리스트 후검증, 질환명·처치 생성 차단, 조회 안 된 병원·데이터 생성 차단을 적용한다.
+
+장애 격리는 timeout·5xx·Rate Limit·검색 Tool 실패 시 LLM 재호출 없이 Circuit Breaker와 서버 고정 fallback으로 사용자 직접 검색을 유도하고 예약·결제에 영향을 주지 않는다. 기본 장애 차단·복구는 MVP에 포함하지만 세밀한 임계값 튜닝, 운영 대시보드, 고도화된 모니터링은 확장 범위다. `FakeAiGateway` 단계에서는 timeout·fallback 계약을 테스트하고 실제 Circuit Breaker 차단·복구 통합 검증은 외부 호출 Gateway 추가 시 수행한다.
+
+운영·비용 측정은 매 상담을 `ai_consultations`에 model·프롬프트 버전·토큰·지연·status·errorType·fallback·toolCall·스키마 파싱 성공으로 기록한다. `errorType`은 `AiGatewayFailureReason`과 같은 `TIMEOUT`·`TEMPORARY_UNAVAILABLE`·`INVALID_RESPONSE`를 저장하고, 성공하거나 LLM을 호출하지 않은 경우에는 NULL로 둔다. 요청 검증 직후 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹하고, 이후 응급 키워드·검색 의도 판정, 외부 `AiGateway` 전달, DB 저장에는 모두 마스킹된 증상 텍스트만 사용한다. 30일 경과 시 저장된 증상 텍스트를 삭제하는 배치를 실행한다(§4).
+
+`FakeAiGateway` 단계에는 프롬프트 파일을 만들지 않는다. 실제 LLM 평가·연동 시 `src/main/resources/prompts`에 종별 파일을 두고 파일명 또는 설정값으로 버전을 구분한다. 별도 버전 매니페스트는 MVP에서 제외하며 실제 호출에 사용한 버전은 `prompt_version`에 기록한다.
 
 ## 9-6. 공공데이터 배치 적재·2계층 매핑
 
@@ -804,7 +844,7 @@ sequenceDiagram
 - 결제는 클라이언트 결과를 믿지 않고 서버 단건 조회로 검증하며 `merchant_payment_id`로 멱등 처리한다.
 - 요청의 memberId·hospitalId를 믿지 않고 `@AuthenticationPrincipal`과 소속 병원 일치를 재검증한다.
 - 회원·거래 데이터는 물리 삭제하지 않고(Soft Delete) 활성 기준으로 조회한다.
-- AI 증상 원문은 30일 보존 + 패턴 마스킹.
+- AI 증상 원문은 저장하지 않고 마스킹된 텍스트만 30일 보존한 뒤 삭제.
 - 데모 고지: 실제 병원명·주소가 노출되므로 학습용 데모임을 상단 고정 배너와 예약/접수 실행 직전 확인 단계 두 곳에서 고지한다.
 - (확장) 웹훅은 서명 검증 + `(payment_id, event_type)` 멱등.
 
@@ -825,24 +865,22 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인, 탈퇴 시 활성 예약·미수금 보유 회원 처리=탈퇴 보류(§6-3), 이메일 인증·비밀번호 재설정 방식=링크형 토큰(Redis TTL, 1회용)·가입 시 이메일 인증 필수(A 도메인 결정, §6-4), 탈퇴 회원 Access Token 무효화=Redis 블랙리스트(`withdrawn:{memberId}`, TTL=Access Token 만료 시간)를 `JwtAuthenticationFilter`가 인증 직전 확인·`MemberBlacklistPort` 인터페이스로 global↔domain 계층 분리(리뷰 지적 P1 대응, A 도메인 조치 완료), 기존 회원 email_verified 백필=신규 컬럼 추가로 ddl-auto=update가 기존 행에 채우는 기본값(false)을 그대로 두지 않고 앱 최초 부팅 시 1회 true로 백필(grandfather)·`schema_migrations` 마커로 재실행 방지(리뷰 지적 P1 대응, A 도메인 조치 완료).
+확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일, 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, AI 제공자 비종속 Gateway·Fake 우선 구현, 프롬프트 리소스 파일 관리, 입력 1,000자·DOG/CAT 제한, 회원·비회원 Rate Limit, 검색 Tool 실패 서버 fallback, 2단계 응급 분기, 기본 Circuit Breaker, 탈퇴 시 활성 예약·미수금 보유 회원 처리=탈퇴 보류(§6-3), 이메일 인증·비밀번호 재설정 방식=링크형 토큰(Redis TTL, 1회용)·가입 시 이메일 인증 필수(§6-4), 탈퇴 회원 Access Token 무효화=Redis 블랙리스트(`withdrawn:{memberId}`, TTL=Access Token 만료 시간), 기존 회원 `email_verified` 백필=앱 최초 부팅 시 1회 true로 백필·`schema_migrations` 마커로 재실행 방지, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인.
 
 남은 것:
 
 | # | 항목 | 위치 |
 | --- | --- | --- |
-| 1 | LLM 모델/제공자, 프롬프트 외부화 저장 방식 (AI 착수 시 결정, 인터페이스는 먼저 확정) | §2, §9-5 |
-| 2 | AI 입력 길이 제한·Rate Limit 구체 수치 | §9-5, §11 |
-| 3 | 실시간 push 방식(SSE / WebSocket+STOMP) — 채팅 도입 여부에 따라 재논의 | §2, §9-8 |
-| 4 | 검색 Tool 호출 실패 응답 주체 — 실패 컨텍스트를 LLM에 전달해 안내 생성 vs 서버가 `fallback=true`와 고정 문구로 직접 검색 유도 | PRD §5-4, 정책 §3.9, §8-4, §9-5 |
-| 5 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
-| 6 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
-| 7 | 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선(리뷰 지적 P2, non-blocking) — 상세 설계는 아래 참고 | §6-4 |
-| 8 | 탈퇴 시 Redis 부수효과(Refresh Token 삭제·Access Token 블랙리스트 등록)가 DB 커밋 전에 실행됨(리뷰 지적 P2, non-blocking) — `MemberWithdrawalApplicationService.withdraw()`가 `memberService.withdraw()`(DB, 커밋은 트랜잭션 종료 시점) 직후 Redis 호출 2건을 동기 실행한다. DB 커밋이 그 뒤 실패하면 회원은 실제로 탈퇴되지 않았는데 Access Token 만료 시간만큼 블랙리스트에 남아 재로그인해도 접근이 막힌다. fail-closed 방향이라 보안상 더 안전한 쪽으로 판단해 non-blocking으로 남기지만, 같은 PR의 회원가입 이벤트(`MemberSignedUpEvent` + `AFTER_COMMIT`)와 패턴이 다르다 — 통일하려면 Redis 호출을 `AFTER_COMMIT` 이벤트로 옮기면 되나, 그러면 "커밋됐지만 아직 블랙리스트 전"인 짧은 창이 새로 생긴다(가용성 vs 창 최소화 트레이드오프). | §6-3 |
+| 1 | 실제 LLM 제공자·모델 — 동일 평가 데이터 비교 후 연동 착수 시 선택 | §9-5 |
+| 2 | 실시간 push 방식(SSE / WebSocket+STOMP) — 채팅 도입 여부에 따라 재논의 | §2, §9-8 |
+| 3 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
+| 4 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
+| 5 | 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선(리뷰 지적 P2, non-blocking) — 상세 설계는 아래 참고 | §6-4 |
+| 6 | 탈퇴 시 Redis 부수효과가 DB 커밋 전에 실행되는 문제(리뷰 지적 P2, non-blocking) — 현재는 fail-closed 방향으로 수용하며, `AFTER_COMMIT` 전환 시 생기는 짧은 인증 허용 창과 비교해 후속 결정 | §6-3 |
 
 ---
 
-## 부록 A-1. 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선 (남은 것 #7 상세 설계)
+## 부록 A-1. 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선 (남은 것 #5 상세 설계)
 
 **현재 동작과 문제.** `EmailVerificationService.verifyEmail()`·`PasswordResetService.confirmPasswordReset()`은
 다음 순서로 처리한다: (1) Redis에서 토큰을 GET+DEL로 원자적으로 소비, (2) 반환된 memberId로 회원 조회,

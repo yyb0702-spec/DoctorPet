@@ -41,6 +41,7 @@
 - `(reservation_id, event_type)` UNIQUE 및 `ON DUPLICATE KEY UPDATE id = id`로 같은 사건만 멱등 처리
 - 기존 중복 이력은 최초 한 건만 보존한 뒤 UNIQUE를 명시적으로 추가·검증
 - `schema_migrations`의 `reservation_event_unique_v1` 마커로 1회 실행 보장
+- MySQL `GET_LOCK` advisory lock으로 다중 인스턴스 최초 기동 직렬화
 - 마커가 있는데 UNIQUE가 없으면 부팅 실패로 스키마 불일치 노출
 
 **수정 파일**
@@ -63,6 +64,7 @@
 - 수동 스냅샷 직후 자동 커밋을 강제한 `FOR UPDATE` 최신 읽기 검증
 - Repository의 타 병원 `hospitalId` 조건 검증
 - 기존 중복 데이터 정리·UNIQUE 추가·마커 검증
+- 두 마이그레이션 러너 동시 실행 시 단일 DDL 실행 검증
 - `/restore` 보호자 접근 403 검증
 - 중복 키가 아닌 감사 이력 DB 오류 전파 검증
 - 노쇼·정정 후 슬롯 `RESERVED` 유지 검증
@@ -111,7 +113,7 @@
 | 1 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalReservationApplicationServiceTest" --tests "com.doctorpet.domain.reservation.controller.HospitalReservationControllerTest"` | PASS | 상태·시간·사유·소유권·Controller 위임 | 없음 |
 | 2 | `./gradlew test --tests "com.doctorpet.domain.reservation.controller.HospitalReservationAuthorizationTest"` | PASS | 보호자 403, 병원 직원 성공, 요청 검증 400 | 없음 |
 | 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalNoShowIntegrationTest"` | PASS | 실제 MySQL 상태·이력·슬롯·결정적 최신 읽기·병원 ID 조건·DB 오류 전파 | Issue #29 스케줄러 자체 실행 |
-| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.migration.ReservationEventUniqueMigrationIntegrationTest"` | PASS | 기존 중복 정리·UNIQUE 추가·마커 기록·제약 유실 fail-fast | 다중 인스턴스 동시 부팅 |
+| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.migration.ReservationEventUniqueMigrationIntegrationTest"` | PASS | 기존 중복 정리·UNIQUE 추가·마커 기록·제약 유실 fail-fast·동시 기동 직렬화 | 없음 |
 | 1·3 | `./gradlew test --tests "com.doctorpet.domain.reservation.*"` | PASS | 예약 도메인 전체 회귀 | 타 도메인 외부 인프라 테스트 |
 | 문서 | `python scripts/harness_check.py` | PASS | 정본·경량 문서 링크와 구조 | 없음 |
 | 전체 | `./gradlew clean build` | FAIL | 431건 중 예약 테스트는 통과했으나 10건이 로컬 메일 설정·Redis 미기동으로 실패 | 아래 미검증 항목 참고 |

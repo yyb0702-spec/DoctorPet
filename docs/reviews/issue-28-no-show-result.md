@@ -21,6 +21,7 @@
 - 자동 판정과 수동 확정이 겹치면 최종 상태는 `NO_SHOW`가 되고 수동 판정 이력은 반드시 남는다.
 - `(reservation_id, event_type)` UNIQUE와 `ON DUPLICATE KEY UPDATE id = id`로 같은 사건만 멱등 처리한다.
 - 기존 중복 이력은 최초 한 건만 보존한 뒤 UNIQUE를 추가·검증하는 1회성 마이그레이션으로 정리한다.
+- 다중 인스턴스의 동시 최초 기동은 MySQL `GET_LOCK`으로 직렬화해 중복 DDL 실행을 막는다.
 - 수동 트랜잭션의 스냅샷 직후 자동 커밋을 강제해 `FOR UPDATE`가 최신 상태를 읽는지 결정적으로 검증한다.
 - 기존 이력은 수정하지 않고 정정 이력을 새 행으로 추가한다.
 
@@ -45,7 +46,7 @@
 | 1 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalReservationApplicationServiceTest" --tests "com.doctorpet.domain.reservation.controller.HospitalReservationControllerTest"` | PASS | 상태·시간·사유·소유권·위임 | 없음 |
 | 2 | `./gradlew test --tests "com.doctorpet.domain.reservation.controller.HospitalReservationAuthorizationTest"` | PASS | 401/403 경로, 병원 직원 성공, 요청 검증 400 | 없음 |
 | 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalNoShowIntegrationTest"` | PASS | 실제 MySQL 상태·이력·슬롯·결정적 최신 읽기·병원 ID 조건·DB 오류 전파 | Issue #29 스케줄러 자체 실행 |
-| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.migration.ReservationEventUniqueMigrationIntegrationTest"` | PASS | 기존 중복 정리·UNIQUE 추가·마커 기록·제약 유실 fail-fast | 다중 인스턴스 동시 부팅 |
+| 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.migration.ReservationEventUniqueMigrationIntegrationTest"` | PASS | 기존 중복 정리·UNIQUE 추가·마커 기록·제약 유실 fail-fast·동시 기동 직렬화 | 없음 |
 | 1·3 | `./gradlew test --tests "com.doctorpet.domain.reservation.*"` | PASS | 예약 도메인 전체 회귀 | 타 도메인 외부 인프라 테스트 |
 | 문서 | `python scripts/harness_check.py` | PASS | 정본·경량 문서 링크와 구조 | 없음 |
 | 전체 | `./gradlew clean build` | FAIL | 431건 중 예약 테스트는 통과했으나 10건이 로컬 `MAIL_PROVIDER` 미설정·Redis 미기동으로 실패 | MySQL·Redis·메일 환경변수가 준비된 CI 결과 |

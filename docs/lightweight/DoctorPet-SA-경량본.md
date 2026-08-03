@@ -2,12 +2,13 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.23, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
 DoctorPet은 보호자용 API, 병원 직원용 API, 외부 연동 및 배치 작업으로 구성한다.
+- JPA 감사 시각과 시간 기반 배치는 JVM 기본 시간대가 아니라 공통 `Asia/Seoul` Clock을 사용한다.
 - 보호자: 회원·반려동물 관리, AI 증상 상담, 병원 검색, 예약, 결제, 알림
 - 병원 직원: 예약 승인·거절, 체크인, 진료 상태 변경, 진료비 청구, 오프라인 정산
 - 외부 연동: AI, 결제대행사, 공공데이터, 알림 전송
@@ -83,11 +84,20 @@ domain/
 | `urgencyLevel` | 긴급도 |
 | `preVisitCheckpoints` | 내원 전 확인 사항 |
 | `recommendVetVisit` | 병원 방문 권고 여부 |
-- 응급 키워드가 감지되면 LLM 판단을 우회하고 고정 응답을 반환한다.
+- 응급 키워드가 감지되면 LLM 호출을 생략하고 고정 응답을 반환하며, LLM 결과가 `urgencyLevel=HIGH`인 경우에도 즉시 병원 안내로 강제 분기한다.
 - 화이트리스트 밖의 카테고리에는 `정확한 답변이 어렵습니다`를 반환한다.
-- **\[결정 필요 — 정본 충돌\]** 병원 검색 Tool 실패 시 PRD·정책은 실패 컨텍스트를 LLM에 전달해 안내 문구를 생성하고, SA 장애 격리는 `fallback=true`로 직접 검색을 유도한다. LLM 재호출 여부와 서버 고정 문구 사용 여부는 추후 팀 합의 후 정본을 함께 수정하며, 결정 전에는 구현하지 않는다.
-- 증상 원문은 전화번호·이메일·주민번호 등 패턴을 마스킹해 30일간 보존하고, 30일이 지난 원문은 배치로 삭제한다. 배치 주기와 구현 방식은 정본에 확정되어 있지 않다.
-- 구조화 출력 5필드 전체를 `structured_result` JSON으로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계를 위해 별도 컬럼에 중복 저장하고 같은 트랜잭션에서 일관되게 기록한다. `error_type`, `tool_call_status`, `schema_parse_success` 등도 저장해 품질 지표를 측정한다.
+- 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
+- 입력은 공백이 아닌 `symptomText` 1~1,000자와 `DOG`·`CAT` 중 하나인 `species`가 필수다.
+- `region`, `latitude`, `longitude`는 선택이며 좌표 두 값은 함께 전달한다. 위치 권한은 프론트가 요청하고 서버는 전달받은 좌표를 검색에만 사용한다.
+- Tool 조건은 축종·진료역량·응급·야간·현재 영업·거리 의도로 제한한다. “지금 진료 가능한”은 `openNow`, “야간·24시간”은 `nightCare`, “가까운·근처”는 좌표가 있을 때만 거리순으로 매핑한다.
+- 실제 현재 영업 여부는 서버가 `Asia/Seoul` 시각으로 판정한다. 좌표 없이 거리순이라고 표현하거나 병원 위치를 추측하지 않는다.
+- 응급이며 좌표가 있으면 거리 표현 없이도 `emergency=true`, `openNow=true`, `sort=distance`를 적용한다. 좌표가 없으면 `locationRecommended=true`로 선택적 위치 제공을 권장하되 응급 안내와 가능한 지역 검색을 지연하지 않는다. 좌표와 지역이 모두 없으면 전국 이름순 결과를 응급 추천으로 제공하지 않는다.
+- 수술·입원 조건의 AI 자동 해석, 복합 조건 우선순위·완화, 미래 방문 시각, 대화형 질문과 개인화는 확장 범위다.
+- Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회이며 설정값으로 관리한다.
+- 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹한 증상 텍스트만 외부 AI Gateway에 전달하고 DB에 30일간 보존한 뒤 삭제한다.
+- 구조화 출력 5필드 전체를 `structured_result` JSON으로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계를 위해 별도 컬럼에 중복 저장하고 같은 트랜잭션에서 일관되게 기록한다. AI Gateway 실패 시 `error_type`에 `TIMEOUT`, `TEMPORARY_UNAVAILABLE`, `INVALID_RESPONSE`를 저장하고, `tool_call_status`, `schema_parse_success` 등도 저장해 품질 지표를 측정한다.
+- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 제공자·모델은 평가 후 선택한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
+- timeout·fallback·기본 Circuit Breaker는 MVP에 포함하고 세밀한 튜닝·대시보드는 확장으로 둔다.
 ## 7. 예약과 상태 전이
 ### 예약 흐름
 ```plain text
@@ -143,11 +153,12 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 외부 시스템 요청·응답에는 민감정보를 그대로 기록하지 않는다.
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
-- LLM 모델·제공자와 프롬프트 외부화 저장 방식
-- AI 입력 길이 제한과 Rate Limit 구체 수치
+- 실제 LLM 제공자·모델
 - 실시간 push 방식(SSE 또는 WebSocket+STOMP)
-- 활성 예약·미수금을 보유한 회원의 탈퇴 처리
-- 검색 Tool 실패 응답 주체: LLM 안내 생성 또는 서버 `fallback=true`·고정 문구
+- 미인증 계정의 장기 미완료 처리
+- SNS 로그인 도입 범위와 기존 계정 연동 정책
+- 이메일 인증·비밀번호 재설정 토큰 소비 순서
+- 탈퇴 트랜잭션과 Redis 부수효과 순서
 위 항목은 저장소 SA 부록 A에서 결정되기 전까지 임의로 구현하지 않는다.
 
 ## 12. 병원 슬롯 조회 계약
