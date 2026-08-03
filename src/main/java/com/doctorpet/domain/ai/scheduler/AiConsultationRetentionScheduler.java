@@ -2,7 +2,7 @@ package com.doctorpet.domain.ai.scheduler;
 
 import com.doctorpet.domain.ai.config.AiRetentionProperties;
 import com.doctorpet.domain.ai.repository.AiConsultationRepository;
-import com.doctorpet.global.time.TimePolicy;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,11 +17,12 @@ public class AiConsultationRetentionScheduler {
 
     private final AiConsultationRepository repository;
     private final AiRetentionProperties properties;
+    private final Clock applicationClock;
 
     @Scheduled(cron = "${ai.retention.cron:0 0 3 * * *}", zone = "Asia/Seoul")
     @Transactional
     public void clearExpiredSymptomTexts() {
-        LocalDateTime cutoff = LocalDateTime.now(TimePolicy.SEOUL_ZONE_ID)
+        LocalDateTime cutoff = LocalDateTime.now(applicationClock)
                 .minusDays(properties.getSymptomTextDays());
         int updatedCount = repository.clearSymptomTextsCreatedBefore(cutoff);
         log.info(
