@@ -26,6 +26,10 @@ import org.springframework.stereotype.Service;
     - UNKNOWN(타임아웃) → 재시도 금지, 단건조회 먼저 → 미확정이면 PENDING 유지(정산 스케줄러 #35가 확정)
     - RETRIABLE(네트워크·일시장애) → 조회 우선 후 최대 maxRetry회 재시도 → 소진 시 OFFLINE_REQUIRED
   게이트웨이 예외는 모두 여기서 상태(OFFLINE_REQUIRED/PENDING)로 흡수돼 500으로 새지 않는다(#38 리뷰 반영).
+
+  단, PG가 PAID를 반환했으나 승인 금액 불일치·pgPaymentId 누락 같은 정합성 오류는 "자동결제 실패"가 아니다 —
+  이미 승인돼 돈이 이동했을 수 있으므로 OFFLINE_REQUIRED(현장 수납 허용)로 돌리면 이중결제가 된다.
+  이 경우 사유를 기록한 채 PENDING을 유지해 오프라인 정산을 막고, #35 재조회·운영 확인으로 확정한다(PRD §6-7, PR #77 2차 리뷰 반영).
  */
 @Slf4j
 @Service
@@ -167,16 +171,19 @@ public class PaymentApplicationService {
 
     /**
      * PAID 응답을 확정 전에 검증한다(SA §9-4 — 서버가 클라이언트 결과를 믿지 않고 금액·상태를 확인).
-     * 승인 금액이 요청 금액과 다르거나 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 오프라인 수납 대상으로
-     * 돌린다(PG↔DB 금액 불일치·불완전 응답 차단). 최초 승인·재승인·단건조회의 모든 PAID 경로가 공유한다.
+     * 승인 금액이 요청 금액과 다르거나 pgPaymentId가 비어 있으면 PAID로 확정하지 않는다. 다만 PG가 PAID를 반환한
+     * 이상 이미 승인돼 돈이 이동했을 수 있으므로, 오프라인 수납 대상(OFFLINE_REQUIRED)으로 돌리면 자동결제와
+     * 현장 수납이 중복된다. 따라서 정합성 오류 사유를 기록한 채 PENDING을 유지해 오프라인 정산을 막고, 정산
+     * 스케줄러(#35) 재조회·운영 확인으로 확정한다(PRD §6-7·SA §9-4 이중청구 방지, PR #77 2차 리뷰 반영).
+     * 최초 승인·재승인·단건조회의 모든 PAID 경로가 공유한다.
      */
     private ChargeOutcome confirmPaid(
             PaymentPreRecord pre, String pgPaymentId, int paidAmount, LocalDateTime paidAt, int retryCount) {
         if (paidAmount != pre.amount()) {
-            return ChargeOutcome.offlineRequired("AMOUNT_MISMATCH", retryCount);
+            return ChargeOutcome.pending(retryCount, "AMOUNT_MISMATCH");
         }
         if (pgPaymentId == null || pgPaymentId.isBlank()) {
-            return ChargeOutcome.offlineRequired("INVALID_PG_RESULT", retryCount);
+            return ChargeOutcome.pending(retryCount, "INVALID_PG_RESULT");
         }
         return ChargeOutcome.paid(pgPaymentId, paidAt != null ? paidAt : LocalDateTime.now());
     }

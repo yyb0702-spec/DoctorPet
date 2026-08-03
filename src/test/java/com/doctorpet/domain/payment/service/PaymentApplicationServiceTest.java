@@ -173,8 +173,8 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("최초 승인이 PAID여도 승인 금액이 요청 금액과 다르면 PAID로 확정하지 않고 오프라인으로 돌린다(금액 대조)")
-    void approvePaidWithAmountMismatch_offline() {
+    @DisplayName("최초 승인이 PAID여도 승인 금액이 다르면 PAID로 확정하지 않고 PENDING을 유지한다(이미 승인됐을 수 있어 오프라인 금지)")
+    void approvePaidWithAmountMismatch_pending() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         // FakeGateway는 요청 금액을 그대로 승인하므로, 금액 불일치는 mock 게이트웨이로 주입한다.
@@ -182,32 +182,35 @@ class PaymentApplicationServiceTest {
         given(gateway.approve(any())).willReturn(
                 new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT + 1, LocalDateTime.now()));
 
-        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
+        // PG가 PAID를 반환했으므로 OFFLINE_REQUIRED(현장 수납)로 돌리면 이중결제 — PENDING 유지로 오프라인 정산을 막는다.
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
-        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
     }
 
     @Test
-    @DisplayName("승인이 PAID여도 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 오프라인으로 돌린다")
-    void approvePaidWithBlankPgPaymentId_offline() {
+    @DisplayName("승인이 PAID여도 pgPaymentId가 비어 있으면 PAID로 확정하지 않고 PENDING을 유지한다(오프라인 금지)")
+    void approvePaidWithBlankPgPaymentId_pending() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         PaymentGateway gateway = mock(PaymentGateway.class);
         given(gateway.approve(any())).willReturn(
                 new PaymentApproveResult(GatewayPaymentStatus.PAID, "  ", AMOUNT, LocalDateTime.now()));
 
-        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
-        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("INVALID_PG_RESULT");
     }
 
     @Test
-    @DisplayName("재시도 승인이 PAID여도 금액이 다르면 오프라인으로 돌린다(재시도 경로도 금액 대조)")
-    void retryApprovePaidWithAmountMismatch_offline() {
+    @DisplayName("재시도 승인이 PAID여도 금액이 다르면 PENDING을 유지한다(재시도 경로도 오프라인 금지)")
+    void retryApprovePaidWithAmountMismatch_pending() {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         PaymentGateway gateway = mock(PaymentGateway.class);
@@ -217,10 +220,30 @@ class PaymentApplicationServiceTest {
                 .willReturn(new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-2", AMOUNT + 100, LocalDateTime.now()));
         given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
 
-        serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
 
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
-        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
+        assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
+    }
+
+    @Test
+    @DisplayName("단건조회 결과가 PAID여도 금액이 다르면 PENDING을 유지한다(조회 경로도 오프라인 금지)")
+    void queryPaidWithAmountMismatch_pending() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        // 최초 승인은 UNKNOWN(응답 유실) → 단건조회 우선. 조회는 PAID지만 금액 불일치 → 오프라인 금지, PENDING 유지.
+        given(gateway.approve(any()))
+                .willThrow(new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null, "응답 유실"));
+        given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PAID, "PG-Q", AMOUNT + 5));
+
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("AMOUNT_MISMATCH");
     }
 
