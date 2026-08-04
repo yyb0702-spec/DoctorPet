@@ -7,7 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 
 import com.doctorpet.global.gateway.payment.GatewayFailureReason;
@@ -19,6 +22,7 @@ import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
@@ -61,6 +65,19 @@ class PortOnePaymentGatewayTest {
         props.setBaseUrl("https://api.portone.io");
         props.setApiSecret("test-secret");
         // store-id 미설정
+
+        assertThrows(IllegalStateException.class,
+                () -> new PortOnePaymentGateway(props, errorCodeMapper));
+    }
+
+    @Test
+    @DisplayName("channel-key가 누락되면 생성 시점에 실패한다")
+    void requireChannelKey() {
+        PortOneProperties props = new PortOneProperties();
+        props.setBaseUrl("https://api.portone.io");
+        props.setApiSecret("test-secret");
+        props.setStoreId("store-test");
+        // channel-key 미설정
 
         assertThrows(IllegalStateException.class,
                 () -> new PortOnePaymentGateway(props, errorCodeMapper));
@@ -153,6 +170,38 @@ class PortOnePaymentGatewayTest {
         assertThat(result.status()).isEqualTo(GatewayPaymentStatus.PAID);
         assertThat(result.pgPaymentId()).isEqualTo("pgtx_1");
         assertThat(result.approvedAmount()).isEqualTo(50000);
+        assertThat(result.approvedAt()).isEqualTo(LocalDateTime.of(2026, 8, 4, 10, 0));
+    }
+
+    @Test
+    @DisplayName("승인 요청은 merchantPaymentId를 Idempotency-Key 헤더로 실어 재시도 시 이중 승인을 막는다")
+    void approve_sendsIdempotencyKey() throws Exception {
+        PortOnePaymentGateway gateway = gatewayWith(response(200,
+                "{\"payment\":{\"id\":\"pay_1\",\"status\":\"PAID\",\"amount\":{\"total\":50000}}}"));
+
+        gateway.approve(new PaymentApproveCommand("pay_1", "billing-key-1", 50000, "DoctorPet 진료비"));
+
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        // 토큰 발급(1) + 승인(1)로 2번 send 한다. 빌링키 결제 요청을 골라 헤더를 확인한다.
+        verify(httpClient, times(2)).send(captor.capture(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+        HttpRequest approveRequest = captor.getAllValues().stream()
+                .filter(req -> req.uri().getPath().endsWith("/billing-key"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(approveRequest.headers().firstValue("Idempotency-Key")).contains("pay_1");
+    }
+
+    @Test
+    @DisplayName("UTC(Z) 승인 시각은 offset을 버리지 않고 서울 시각으로 변환한다")
+    void approve_paidAtUtcConvertedToSeoul() throws Exception {
+        PortOnePaymentGateway gateway = gatewayWith(response(200,
+                "{\"payment\":{\"id\":\"pay_1\",\"status\":\"PAID\",\"amount\":{\"total\":50000},"
+                        + "\"paidAt\":\"2026-08-04T01:00:00Z\"}}"));
+
+        PaymentApproveResult result = gateway.approve(
+                new PaymentApproveCommand("pay_1", "billing-key-1", 50000, "DoctorPet 진료비"));
+
+        // 01:00Z == 서울 10:00. toLocalDateTime()만 썼다면 01:00으로 9시간 틀어진다.
         assertThat(result.approvedAt()).isEqualTo(LocalDateTime.of(2026, 8, 4, 10, 0));
     }
 

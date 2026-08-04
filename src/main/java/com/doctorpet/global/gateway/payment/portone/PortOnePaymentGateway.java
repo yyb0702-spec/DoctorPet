@@ -9,6 +9,7 @@ import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import com.doctorpet.global.gateway.payment.support.SensitiveDataMasker;
+import com.doctorpet.global.time.TimePolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -107,6 +108,10 @@ public class PortOnePaymentGateway implements PaymentGateway {
         HttpResponse<String> response = send(
                 authorized("/payments/" + encodePathSegment(command.merchantPaymentId()) + "/billing-key", token)
                         .header("Content-Type", "application/json")
+                        // PortOne V2 멱등 키(공식 문서 권장). 통신 오류 후 상위가 같은 merchantPaymentId로 승인을
+                        // 재요청해도 PortOne이 기존 요청 결과를 반환해(진행 중이면 409 IDEMPOTENCY_OUTSTANDING_REQUEST)
+                        // 이중 승인을 막는다. 최초·재시도가 반드시 같은 값이어야 하므로 merchantPaymentId를 그대로 쓴다.
+                        .header("Idempotency-Key", idempotencyKey(command.merchantPaymentId()))
                         .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                         .build(), "approve");
         JsonNode root = ensureSuccess(response, command.merchantPaymentId(), "approve");
@@ -301,7 +306,11 @@ public class PortOnePaymentGateway implements PaymentGateway {
             return null;
         }
         try {
-            return OffsetDateTime.parse(value).toLocalDateTime();
+            // offset을 버리지 않고 같은 순간의 서울 시각으로 변환한다(공통 시간 정책). 예: 01:00Z → 10:00.
+            // toLocalDateTime()만 쓰면 UTC 응답이 그대로 저장돼 9시간 틀어진다(PR #95 리뷰 반영).
+            return OffsetDateTime.parse(value)
+                    .atZoneSameInstant(TimePolicy.SEOUL_ZONE_ID)
+                    .toLocalDateTime();
         } catch (RuntimeException e) {
             try {
                 return LocalDateTime.parse(value);
@@ -323,12 +332,28 @@ public class PortOnePaymentGateway implements PaymentGateway {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
+    /**
+     * PortOne 멱등 키를 만든다. 최초 승인과 통신 오류 후 재시도가 반드시 같은 값이어야 이중 승인을 막을 수
+     * 있으므로, 결제당 유일한 merchantPaymentId를 그대로 쓴다. HTTP 헤더 값으로 나가므로 공백만 방어한다.
+     */
+    private String idempotencyKey(String merchantPaymentId) {
+        if (isBlank(merchantPaymentId)) {
+            throw new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null,
+                    "PortOne 승인 요청에 merchantPaymentId(멱등 키)가 없습니다.", null);
+        }
+        return merchantPaymentId;
+    }
+
     private void requireConfigured() {
+        // channel-key는 빌링키 결제 body에 실려야 하는 필수값이다. 빠지면 기동은 성공하고 실제 결제
+        // 시점에만 실패하므로(운영 장애) base-url·api-secret·store-id와 함께 기동 시점에 막는다(PR #95 리뷰 반영).
         if (isBlank(properties.getBaseUrl())
                 || isBlank(properties.getApiSecret())
-                || isBlank(properties.getStoreId())) {
+                || isBlank(properties.getStoreId())
+                || isBlank(properties.getChannelKey())) {
             throw new IllegalStateException(
-                    "PortOne 실연동 설정이 없습니다. payment.portone.base-url·api-secret·store-id를 모두 주입하세요(커밋 금지).");
+                    "PortOne 실연동 설정이 없습니다. payment.portone.base-url·api-secret·store-id·channel-key를 "
+                            + "모두 주입하세요(커밋 금지).");
         }
     }
 

@@ -37,7 +37,7 @@ payment:
     channel-key: change-this-channel-key   # 결제(정기결제) 채널의 채널 키(channel-key-...) — 빌링키 결제 대상 채널
     webhook-secret: change-this-webhook-secret   # 결제알림(Webhook)에서 발급한 시크릿 — 웹훅 서명 검증용(#48, 커밋 금지)
     connect-timeout-ms: 2000               # 연결 타임아웃
-    read-timeout-ms: 5000                  # 읽기 타임아웃
+    read-timeout-ms: 60000                 # 읽기 타임아웃 — PortOne V2 권장 최소 60초(PG·원천사 지연 대비)
     max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
     backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
 
