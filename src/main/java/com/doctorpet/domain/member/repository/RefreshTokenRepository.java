@@ -1,5 +1,6 @@
 package com.doctorpet.domain.member.repository;
 
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import java.time.Duration;
 import java.util.List;
@@ -15,17 +16,19 @@ import org.springframework.stereotype.Repository;
  * 즉 회원당 세션이 하나뿐이며, 저장(덮어쓰기) 자체가 곧 회전(rotate)이다: 같은 키에 새 값을 쓰면
  * 이전 토큰은 더 이상 저장된 값과 일치하지 않으므로 자동으로 무효화된다([[A 도메인]] #6).
  *
- * MemberBlacklistPort도 구현한다 — 탈퇴 회원의 남은 Access Token을 인증 단계(global.security.
- * JwtAuthenticationFilter)에서 걸러내려면 그 필터가 이 저장소를 참조해야 하는데, global 패키지가
- * domain을 직접 참조하면 안 되므로 인터페이스는 global.security에 두고 여기서 구현만 제공한다.
+ * MemberBlacklistPort·AccessTokenBlacklistPort도 함께 구현한다 — 탈퇴 회원(회원 단위)·로그아웃한
+ * 특정 토큰(토큰 단위)을 인증 단계(global.security.JwtAuthenticationFilter)에서 걸러내려면 그
+ * 필터가 이 저장소를 참조해야 하는데, global 패키지가 domain을 직접 참조하면 안 되므로 인터페이스는
+ * global.security에 두고 여기서 구현만 제공한다.
  */
 @Repository
 @RequiredArgsConstructor
-public class RefreshTokenRepository implements MemberBlacklistPort {
+public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenBlacklistPort {
 
     private static final String KEY_PREFIX = "refresh:";
     private static final String LOCK_KEY_PREFIX = "refresh-lock:";
     private static final String WITHDRAWN_KEY_PREFIX = "withdrawn:";
+    private static final String LOGOUT_BLACKLIST_KEY_PREFIX = "at-blacklist:";
 
     // 회원당 재발급 요청을 직렬화하는 락의 TTL. 크래시 등으로 unlock()이 못 불려도 이 시간 뒤엔
     // 자동으로 풀린다 — 정상 처리(회원 조회 + JWT 2개 생성 + Redis CAS 1회)는 이보다 훨씬 빨리 끝난다.
@@ -131,6 +134,34 @@ public class RefreshTokenRepository implements MemberBlacklistPort {
         return Boolean.TRUE.equals(redisTemplate.hasKey(withdrawnKey(memberId)));
     }
 
+    /*
+     * 로그아웃 시 Access Token 블랙리스트(#124) — JWT는 무상태라 로그아웃 시점에 이미 발급된
+     * Access Token을 서버가 즉시 폐기할 수단이 없다. Refresh Token 삭제(재발급 차단)만으로는
+     * 만료 전까지 남은 Access Token으로 API를 계속 호출하는 것까지는 막지 못한다.
+     *
+     * 탈퇴(blacklistMember)와 달리 회원 단위가 아니라 jti(토큰 고유 ID) 단위로 막는다 — 단일
+     * 세션 정책상 회원 단위로 막으면, 로그아웃 직후 재로그인해서 받은 새 Access Token까지
+     * 같은 memberId라는 이유로 함께 막혀버린다. jti는 토큰마다 유일하므로 "로그아웃한 바로 그
+     * 토큰"만 정확히 걸러낸다.
+     *
+     * TTL은 호출자(AuthService)가 그 토큰의 실제 남은 수명(JwtTokenProvider#getRemainingTtl)을
+     * 넘겨준다 — 그 시점 이후엔 어차피 자연 만료라 블랙리스트 항목도 자동으로 사라진다. ttl이
+     * 0 이하(경쟁 상태로 이미 만료된 토큰)면 Redis에 쓰지 않는다 — 어차피 서명 검증에서 걸러지고,
+     * PX에 0/음수를 넘기면 Redis가 에러를 낸다.
+     */
+    public void blacklistAccessToken(String jti, Duration ttl) {
+        if (ttl.isZero() || ttl.isNegative()) {
+            return;
+        }
+        redisTemplate.opsForValue().set(logoutBlacklistKey(jti), "1", ttl);
+    }
+
+    /** JwtAuthenticationFilter가 Access Token 인증 직전에 호출해, 로그아웃된 토큰인지 확인한다. */
+    @Override
+    public boolean isBlacklisted(String jti) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(logoutBlacklistKey(jti)));
+    }
+
     private String key(Long memberId) {
         return KEY_PREFIX + memberId;
     }
@@ -141,5 +172,9 @@ public class RefreshTokenRepository implements MemberBlacklistPort {
 
     private String withdrawnKey(Long memberId) {
         return WITHDRAWN_KEY_PREFIX + memberId;
+    }
+
+    private String logoutBlacklistKey(String jti) {
+        return LOGOUT_BLACKLIST_KEY_PREFIX + jti;
     }
 }
