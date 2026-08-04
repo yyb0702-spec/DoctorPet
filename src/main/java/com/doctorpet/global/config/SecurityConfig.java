@@ -37,6 +37,11 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // 배포 헬스체크(CI/CD MVP) - 로드밸런서·배포 스크립트가 인증 없이 호출한다.
+                        // management.endpoints.web.exposure.include로 health 외 다른 액추에이터
+                        // 엔드포인트는 노출 자체를 막아뒀으니(application.yaml), 여기서 전체
+                        // /actuator/**를 열어도 실질적으로 health만 응답한다.
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         // 인증/재발급 - 정책상 비인증 API (정책 결정 사항 §1, API 명세서 §1 참고)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/signup", "/api/auth/login", "/api/auth/reissue"
@@ -60,14 +65,21 @@ public class SecurityConfig {
                                 "/api/reservations",
                                 "/api/reservations/*"
                         ).hasRole("GUARDIAN")
+                        // 보호자 결제 내역 조회 (SA §8-7, 이슈 #47). 본인 예약 여부는 서비스에서 재검증한다.
+                        .requestMatchers(HttpMethod.GET, "/api/reservations/*/payments").hasRole("GUARDIAN")
                         .requestMatchers(
                                 HttpMethod.PATCH,
                                 "/api/reservations/*/cancel"
                         ).hasRole("GUARDIAN")
+                        // 병원 예약 운영 API - 병원 스태프 전용 (SA §8-6)
+                        .requestMatchers("/api/hospital/**")
+                        .hasRole("HOSPITAL_STAFF")
                         // 결제수단 등록·조회·삭제 - 보호자 전용 (이슈 #33)
                         .requestMatchers("/api/payment-methods/**").hasRole("GUARDIAN")
                         // 반려동물 프로필 등록·조회·수정·삭제 - 보호자 전용 (SA §8-2)
                         .requestMatchers("/api/pets/**").hasRole("GUARDIAN")
+                        // 진료비 청구(POST /api/hospital/reservations/*/payments)는 위
+                        // /api/hospital/** 규칙이 이미 HOSPITAL_STAFF로 가드한다(이슈 #34·#74).
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handler -> handler

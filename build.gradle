@@ -44,6 +44,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // 배포 헬스체크(CI/CD MVP)·운영 지표 노출용. /actuator/health를 배포 스크립트가 확인한다.
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     // 이메일 인증·비밀번호 재설정 메일 발송(SA §6-1 백로그 P2). mail.provider=smtp일 때만 사용된다
     // (JavaMailSender 빈은 MailConfig에서 mail.provider 값에 따라 조건부로 생성).
     implementation 'org.springframework.boot:spring-boot-starter-mail'
@@ -96,4 +98,18 @@ clean.doLast {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // 통합 테스트(@SpringBootTest)는 설정별로 ApplicationContext를 캐시하고 각 컨텍스트가 Hikari 커넥션 풀을
+    // 따로 유지한다. 통합 테스트가 늘며 (캐시된 컨텍스트 수 × 기본 풀 10)이 MySQL max_connections(기본 151)를
+    // 넘어, 뒤늦게 로딩되는 컨텍스트가 "Too many connections"로 컨텍스트 로딩에 실패했다(Dialect 결정 불가).
+    // 컨텍스트 캐시 크기를 제한해 동시에 살아있는 풀 수를 묶는다 — evict된 컨텍스트는 풀을 닫으므로 동시 커넥션이
+    // 최대 12×10=120으로 상한된다(<151). 풀 크기 자체는 줄이지 않아 동시성 테스트의 병렬성은 그대로 유지한다.
+    systemProperty 'spring.test.context.cache.maxSize', '12'
+}
+
+// Spring Boot Gradle 플러그인은 기본으로 실행 가능한 bootJar 외에 archiveClassifier="plain"인
+// 일반 jar도 build/libs/에 함께 만든다. 이 프로젝트는 그 plain jar를 쓸 일이 없고, 남겨두면
+// CI/CD 배포용 Dockerfile이 `build/libs/*.jar`로 산출물을 골라올 때 두 개가 매칭돼 실패한다.
+// 그래서 아예 끈다.
+tasks.named('jar') {
+    enabled = false
 }

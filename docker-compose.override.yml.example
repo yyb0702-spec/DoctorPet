@@ -1,0 +1,15 @@
+# 로컬에서 DB 클라이언트(DBeaver 등)로 mysql/redis 컨테이너에 직접 붙어야 할 때만 사용한다.
+# 이 파일을 그대로 docker-compose.override.yml로 복사하면, docker compose가 docker-compose.yml과
+# 자동으로 합쳐서 적용한다(override 파일은 .gitignore에 등록해 커밋하지 않는다 — 필요하면 추가할 것).
+#
+# 운영(EC2) 배포에는 이 override 파일을 절대 올리지 않는다 — mysql/redis 호스트 포트 노출은
+# 로컬 디버깅 전용이다(리뷰 지적 P2, docker-compose.yml 본문 주석 참고).
+#
+# 127.0.0.1에만 바인딩해 로컬 머신 밖에서는 접근할 수 없게 한다(0.0.0.0으로 열지 말 것).
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:3307:3306"
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

@@ -27,6 +27,7 @@ payment:
   # 빌링키 암호화 키(AES-256-GCM). Base64로 인코딩된 256-bit(32-byte) 랜덤 키.
   # 실제 키는 env/시크릿으로 주입하고 커밋하지 않는다(이슈 #33, AGENTS 보안).
   # 예: openssl rand -base64 32
+
   billing-key:
     enc-key: change-this-to-a-base64-encoded-256-bit-key
   portone:
@@ -37,6 +38,11 @@ payment:
     read-timeout-ms: 5000                  # 읽기 타임아웃
     max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
     backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
+
+# AI Gateway 구현체 선택
+#   fake: 외부 LLM을 호출하지 않는 로컬/테스트용 구현체
+ai:
+  gateway: fake
 
 # 이메일 발송 - 이메일 인증(회원가입)·비밀번호 재설정(백로그 P2)
 # payment.gateway와 동일한 fail-safe 패턴: mail.provider를 명시해야 발송기 빈이 등록됩니다

@@ -2,10 +2,10 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.9 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.16, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.25, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v8 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
 ```plain text
 members 1 ── 0..N pet_profiles
@@ -124,8 +124,11 @@ members 1 ── 0..N notifications
 | `reservation_id` | BIGINT | 예약 FK |
 | `event_type` | VARCHAR | `AUTO_NO_SHOW`, `MANUAL_NO_SHOW`, `NO_SHOW_CORRECTED`, `TIMEOUT_REJECTED` |
 | `memo` | VARCHAR | 메모, `NULL` 가능 |
+| `processed_by` | BIGINT | 수동 처리자 회원 ID, 자동 처리면 `NULL` |
 | `occurred_at` | DATETIME | 발생 시각 |
-`reservation_events`는 append-only 방식 B를 사용한다. 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하고, 노쇼 자동·수동 판정, 노쇼 정정, 승인 타임아웃처럼 상태만으로 흔적이 사라지는 예외·비가역 사건만 기록한다.
+UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 한 번만 기록한다.
+
+`reservation_events`는 append-only 방식 B를 사용한다. 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하고, 노쇼 자동·수동 판정, 노쇼 정정, 승인 타임아웃처럼 상태만으로 흔적이 사라지는 예외·비가역 사건만 기록한다. 수동 사건은 사유와 인증된 처리자 ID를 함께 남긴다. 기존 중복은 `reservation_event_unique_v1` 일회성 마이그레이션에서 최초 이력만 보존해 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다.
 ## 5. 결제
 ### `payment_methods`
 | 필드 | 타입 | 제약·설명 |
@@ -152,6 +155,7 @@ members 1 ── 0..N notifications
 | `retry_count` | INT | 재시도 횟수 |
 | `failure_reason` | VARCHAR | 실패 사유, `NULL` 가능 |
 | `pg_payment_id` | VARCHAR | PG 결제 ID, `NULL` 가능 |
+| `offline_required_at` | DATETIME | 자동 청구 실패로 오프라인 전환된 시각, `NULL` 가능 |
 | `offline_settled_at` | DATETIME | 오프라인 정산 시각, `NULL` 가능 |
 | `offline_settled_by` | BIGINT | 정산 처리자, `NULL` 가능 |
 | `created_at` | DATETIME | 생성 시각 |
@@ -162,17 +166,17 @@ members 1 ── 0..N notifications
 | --- | --- | --- |
 | `id` | BIGINT | PK |
 | `member_id` | BIGINT | 회원 FK, 비로그인 상담은 `NULL` 가능 |
-| `symptom_text` | TEXT | 전화번호·이메일·주민번호 등 패턴 마스킹, 30일 보존 후 원문 배치 삭제 |
+| `symptom_text` | TEXT | 개인정보 패턴을 마스킹한 텍스트만 저장, 30일 보존 후 삭제 |
 | `structured_result` | JSON | AI 구조화 출력 5필드 전체 원본 |
 | `required_capabilities` | JSON | 검색·조회용 중복 저장 진료역량 |
 | `urgency_level` | VARCHAR | `LOW`, `MODERATE`, `HIGH`; 조회·집계용 중복 저장 |
-| `model` | VARCHAR | 사용 모델 |
-| `prompt_version` | VARCHAR | 프롬프트 버전 |
-| `prompt_tokens` | INT | 입력 토큰 수 |
-| `completion_tokens` | INT | 출력 토큰 수 |
+| `model` | VARCHAR | 사용 모델, LLM 미호출은 `NULL` |
+| `prompt_version` | VARCHAR | 실제 사용 프롬프트 버전, Fake·LLM 미호출은 `NULL` |
+| `prompt_tokens` | INT | 입력 토큰 수, LLM 미호출은 `NULL` |
+| `completion_tokens` | INT | 출력 토큰 수, LLM 미호출은 `NULL` |
 | `latency_ms` | INT | 응답 지연시간 |
 | `status` | VARCHAR | `SUCCESS`, `FAILED` |
-| `error_type` | VARCHAR | `TIMEOUT`, `RATE_LIMIT`, `SERVER_ERROR`, `NULL` 가능 |
+| `error_type` | VARCHAR | AI Gateway 실패 원인(`TIMEOUT`, `TEMPORARY_UNAVAILABLE`, `INVALID_RESPONSE`), 성공·LLM 미호출은 `NULL` |
 | `fallback_used` | BOOLEAN | 대체 처리 여부 |
 | `tool_call_status` | VARCHAR | Tool 호출 상태 |
 | `schema_parse_success` | BOOLEAN | 구조화 출력 파싱 성공 여부 |
@@ -184,7 +188,9 @@ members 1 ── 0..N notifications
 | `member_id` | BIGINT | 회원 FK |
 | `type` | VARCHAR | 알림 유형 |
 | `content` | VARCHAR | 알림 내용 |
-| `is_read` | BOOLEAN | 읽음 여부 |
+| `resource_type` | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
+| `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |
+| `read_at` | DATETIME NULL | 읽은 시각(NULL=미읽음). `isRead`는 `read_at IS NOT NULL` 파생 |
 | `created_at` | DATETIME | 생성 시각 |
 ## 7. 확장 테이블
 ### `payment_webhooks` `(확장)`

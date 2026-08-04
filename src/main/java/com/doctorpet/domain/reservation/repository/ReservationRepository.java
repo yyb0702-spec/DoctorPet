@@ -1,15 +1,21 @@
 package com.doctorpet.domain.reservation.repository;
 
+import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 
 public interface ReservationRepository
         extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
@@ -17,6 +23,48 @@ public interface ReservationRepository
     Optional <Reservation> findByIdAndMemberId(
             Long reservationId,
             Long memberId
+    );
+
+    Optional<Reservation> findByIdAndHospitalId(
+            Long reservationId,
+            Long hospitalId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r
+              from Reservation r
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+            """)
+    Optional<Reservation> findByIdAndHospitalIdForUpdate(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId
+    );
+
+    Page<Reservation> findByHospitalIdAndStatus(
+            Long hospitalId,
+            ReservationStatus status,
+            Pageable pageable
+    );
+
+    @Query("""
+            select new com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate(
+                    r.memberId,
+                    count(r),
+                    sum(case when r.status = :completedStatus then 1L else 0L end),
+                    sum(case when r.status = :canceledStatus then 1L else 0L end),
+                    sum(case when r.status = :noShowStatus then 1L else 0L end)
+            )
+              from Reservation r
+             where r.memberId in :memberIds
+             group by r.memberId
+            """)
+    List<ReservationHistoryAggregate> findHistoryAggregates(
+            @Param("memberIds") Collection<Long> memberIds,
+            @Param("completedStatus") ReservationStatus completedStatus,
+            @Param("canceledStatus") ReservationStatus canceledStatus,
+            @Param("noShowStatus") ReservationStatus noShowStatus
     );
 
     long countBySlotId(Long slotId);
@@ -41,5 +89,130 @@ public interface ReservationRepository
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
             @Param("canceledStatus") ReservationStatus canceledStatus,
             @Param("canceledAt") LocalDateTime canceledAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :confirmedStatus,
+                   r.confirmedAt = :confirmedAt,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :requestedStatus
+            """)
+    int approveIfRequested(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("confirmedAt") LocalDateTime confirmedAt,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :rejectedStatus,
+                   r.rejectReason = :rejectReason,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :requestedStatus
+            """)
+    int rejectIfRequested(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("rejectedStatus") ReservationStatus rejectedStatus,
+            @Param("rejectReason") String rejectReason,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :checkedInStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :confirmedStatus
+            """)
+    int checkInIfConfirmed(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :inTreatmentStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :checkedInStatus
+            """)
+    int startTreatmentIfCheckedIn(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus,
+            @Param("inTreatmentStatus") ReservationStatus inTreatmentStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :completedStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :inTreatmentStatus
+            """)
+    int completeTreatmentIfInTreatment(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("inTreatmentStatus") ReservationStatus inTreatmentStatus,
+            @Param("completedStatus") ReservationStatus completedStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :noShowStatus,
+                   r.noShowAt = :noShowAt,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :confirmedStatus
+            """)
+    int markNoShowIfConfirmed(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("noShowStatus") ReservationStatus noShowStatus,
+            @Param("noShowAt") LocalDateTime noShowAt,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :checkedInStatus,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :noShowStatus
+            """)
+    int restoreNoShowIfNoShow(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("noShowStatus") ReservationStatus noShowStatus,
+            @Param("checkedInStatus") ReservationStatus checkedInStatus,
+            @Param("updatedAt") LocalDateTime updatedAt
     );
 }

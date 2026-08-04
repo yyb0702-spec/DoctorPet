@@ -16,6 +16,20 @@ logging:
   level:
     org.hibernate.SQL: debug
 
+# 진료비 청구 공통 설정(이슈 #34). 비밀값이 아니므로 모든 실행 환경 공통으로 둔다.
+# 절대 상한은 코드 상수가 아니라 설정값으로 둬 배포 없이 상향 가능하게 한다(SA §9-4).
+payment:
+  charge:
+    max-amount: 3000000        # 진료비 절대 상한(원)
+    max-retry: 3               # 재시도 유효 실패 최대 재시도 횟수(SA §9-4 확정)
+    backoff-initial-ms: 500    # 지수 백오프 초기 대기(500 → 1000 → 2000)
+  # 결제 정산 스케줄러(이슈 #35, SA §9-7). 값은 정책 미확정분이라 배포 없이 조정 가능하게 설정으로 둔다.
+  reconcile:
+    interval-ms: 300000        # 실행 주기 5분(SA §9-7)
+    stale-after-ms: 120000     # 이 시간 이상 PENDING인 결제만 대상(방금 청구된 건 제외)
+    batch-size: 100            # 한 배치 처리 최대 건수
+    max-attempts: 10           # 재조회 소진 임계 — 초과여도 불확실하면 RECONCILE_STUCK로 PENDING 유지(자동 OFFLINE 전환 금지, 운영자 확인)
+
 # 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
 public-data:
   animal-hospital:
@@ -33,9 +47,41 @@ hospital:
   search:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
+ai:
+  rate-limit:
+    authenticated-per-minute: ${AI_RATE_LIMIT_AUTHENTICATED_PER_MINUTE:5}
+    anonymous-per-minute: ${AI_RATE_LIMIT_ANONYMOUS_PER_MINUTE:3}
+    anonymous-per-day: ${AI_RATE_LIMIT_ANONYMOUS_PER_DAY:30}
+    minute-window: ${AI_RATE_LIMIT_MINUTE_WINDOW:1m}
+    trusted-proxies: ${AI_RATE_LIMIT_TRUSTED_PROXIES:}
+  retention:
+    symptom-text-days: ${AI_SYMPTOM_TEXT_RETENTION_DAYS:30}
+    cron: ${AI_SYMPTOM_TEXT_RETENTION_CRON:0 0 3 * * *}
+
 # email_verified 컬럼 추가로 인한 기존 회원 백필(리뷰 지적 P1) — 기본값 true로 두어 배포 시
 # 끄는 걸 잊어서 전원 로그인 차단되는 사고를 방지한다. 마커(schema_migrations)로 1회만
 # 실행되므로 계속 켜둬도 안전하다.
 member:
   email-verified-backfill:
     enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
+
+# 배포 헬스체크(CI/CD MVP). health 외 다른 액추에이터 엔드포인트(env, beans 등)는 민감정보를
+# 노출할 수 있어 명시적으로 켜지 않는 한 웹으로 노출하지 않는다.
+# show-details는 never로 둔다 — /actuator/health가 permitAll이라 인증 없는 호출자에게도
+# DB 종류·Redis 버전·디스크 경로 같은 내부 구성 정보가 노출되는 걸 막는다(리뷰 지적 P2).
+# UP/DOWN 집계 상태와 HTTP 상태 코드만으로도 배포 스크립트가 정상 기동 여부를 판정하는 데는
+# 지장이 없다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+reservation:
+  event-unique-migration:
+    enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}
