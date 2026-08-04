@@ -9,6 +9,7 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -38,6 +39,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "reservation.approval-timeout.initial-delay-ms=3600000"
 })
 class ReservationApprovalDeadlineMigrationIntegrationTest {
+
+    private static final DateTimeFormatter MYSQL_DATETIME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -90,12 +94,8 @@ class ReservationApprovalDeadlineMigrationIntegrationTest {
 
         new ReservationApprovalDeadlineMigrationRunner(jdbcTemplate).run(null);
 
-        LocalDateTime actual = jdbcTemplate.queryForObject(
-                "select approval_deadline_at from reservations where id = ?",
-                LocalDateTime.class,
-                data.reservationId()
-        );
-        assertThat(actual).isEqualTo(data.expectedDeadline());
+        assertThat(approvalDeadlineText(data.reservationId()))
+                .isEqualTo(data.expectedDeadlineText());
         assertThat(approvalDeadlineNullable()).isFalse();
         assertThat(approvalDeadlineIndexExists()).isTrue();
         assertThat(migrationMarkerExists()).isTrue();
@@ -156,11 +156,8 @@ class ReservationApprovalDeadlineMigrationIntegrationTest {
         assertThat(approvalDeadlineNullable()).isFalse();
         assertThat(approvalDeadlineIndexExists()).isTrue();
         assertThat(migrationMarkerExists()).isTrue();
-        assertThat(jdbcTemplate.queryForObject(
-                "select approval_deadline_at from reservations where id = ?",
-                LocalDateTime.class,
-                data.reservationId()
-        )).isEqualTo(data.expectedDeadline());
+        assertThat(approvalDeadlineText(data.reservationId()))
+                .isEqualTo(data.expectedDeadlineText());
     }
 
     private TestReservation saveReservation() {
@@ -169,8 +166,6 @@ class ReservationApprovalDeadlineMigrationIntegrationTest {
                 .withNano(0)
                 .minusMinutes(10);
         LocalDateTime slotStartAt = requestedAt.plusHours(8);
-        LocalDateTime expectedDeadline = requestedAt.plusHours(1);
-
         ReservationSlot slot = ReservationSlot.create(
                 hospitalId,
                 slotStartAt,
@@ -193,7 +188,10 @@ class ReservationApprovalDeadlineMigrationIntegrationTest {
         );
         reservation = reservationRepository.saveAndFlush(reservation);
         reservationId = reservation.getId();
-        return new TestReservation(reservationId, expectedDeadline);
+        return new TestReservation(
+                reservationId,
+                expectedDeadlineFromStoredValues(reservationId)
+        );
     }
 
     private void backfillAllReservations() {
@@ -277,6 +275,38 @@ class ReservationApprovalDeadlineMigrationIntegrationTest {
         return count != null && count > 0;
     }
 
-    private record TestReservation(Long reservationId, LocalDateTime expectedDeadline) {
+    private String approvalDeadlineText(Long targetReservationId) {
+        return jdbcTemplate.queryForObject("""
+                select date_format(approval_deadline_at, '%Y-%m-%d %H:%i:%s')
+                  from reservations
+                 where id = ?
+                """, String.class, targetReservationId);
+    }
+
+    private String expectedDeadlineFromStoredValues(Long targetReservationId) {
+        return jdbcTemplate.queryForObject("""
+                select date_format(reservation.requested_at, '%Y-%m-%d %H:%i:%s'),
+                       date_format(slot.start_at, '%Y-%m-%d %H:%i:%s')
+                  from reservations reservation
+                  join reservation_slots slot on slot.id = reservation.slot_id
+                 where reservation.id = ?
+                """, (resultSet, rowNumber) -> {
+                    LocalDateTime requestedAt = LocalDateTime.parse(
+                            resultSet.getString(1),
+                            MYSQL_DATETIME_FORMAT
+                    );
+                    LocalDateTime slotStartAt = LocalDateTime.parse(
+                            resultSet.getString(2),
+                            MYSQL_DATETIME_FORMAT
+                    );
+                    LocalDateTime requestDeadline = requestedAt.plusHours(1);
+                    LocalDateTime slotDeadline = slotStartAt.minusHours(2);
+                    return (requestDeadline.isBefore(slotDeadline)
+                            ? requestDeadline
+                            : slotDeadline).format(MYSQL_DATETIME_FORMAT);
+                }, targetReservationId);
+    }
+
+    private record TestReservation(Long reservationId, String expectedDeadlineText) {
     }
 }
