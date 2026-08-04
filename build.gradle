@@ -98,6 +98,12 @@ clean.doLast {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // 통합 테스트(@SpringBootTest)는 설정별로 ApplicationContext를 캐시하고 각 컨텍스트가 Hikari 커넥션 풀을
+    // 따로 유지한다. 통합 테스트가 늘며 (캐시된 컨텍스트 수 × 기본 풀 10)이 MySQL max_connections(기본 151)를
+    // 넘어, 뒤늦게 로딩되는 컨텍스트가 "Too many connections"로 컨텍스트 로딩에 실패했다(Dialect 결정 불가).
+    // 컨텍스트 캐시 크기를 제한해 동시에 살아있는 풀 수를 묶는다 — evict된 컨텍스트는 풀을 닫으므로 동시 커넥션이
+    // 최대 12×10=120으로 상한된다(<151). 풀 크기 자체는 줄이지 않아 동시성 테스트의 병렬성은 그대로 유지한다.
+    systemProperty 'spring.test.context.cache.maxSize', '12'
 }
 
 // Spring Boot Gradle 플러그인은 기본으로 실행 가능한 bootJar 외에 archiveClassifier="plain"인

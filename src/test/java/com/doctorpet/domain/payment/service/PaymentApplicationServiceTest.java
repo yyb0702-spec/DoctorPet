@@ -10,6 +10,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.doctorpet.domain.payment.audit.PaymentChargeAuditLogger;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
@@ -51,6 +52,7 @@ class PaymentApplicationServiceTest {
     @Mock private PaymentChargeService paymentChargeService;
     @Mock private BillingKeyCryptor billingKeyCryptor;
     @Mock private PaymentNotificationPublisher notificationPublisher;
+    @Mock private PaymentChargeAuditLogger chargeAuditLogger;
 
     private FakePaymentGateway paymentGateway;
     private PaymentApplicationService paymentApplicationService;
@@ -63,6 +65,7 @@ class PaymentApplicationServiceTest {
         paymentApplicationService = new PaymentApplicationService(
                 paymentChargeService, paymentGateway, billingKeyCryptor,
                 notificationPublisher, (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
+                notificationPublisher, chargeAuditLogger, attempt -> { }, MAX_RETRY);
     }
 
     private void stubPreRecord(boolean methodActive) {
@@ -110,6 +113,28 @@ class PaymentApplicationServiceTest {
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
         assertThat(paymentGateway.receivedMerchantPaymentIds()).containsExactly(MERCHANT_ID);
         verify(notificationPublisher).publishChargeResult(GUARDIAN_ID, RESERVATION_ID, null, PaymentStatus.PAID);
+    }
+
+    @Test
+    @DisplayName("청구 접수 시 누가·얼마·어느 예약을 감사 로그로 남긴다(#84)")
+    void charge_recordsAudit() {
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        // 선기록된 결제(pre.paymentId=PAYMENT_ID)와 스태프·예약·금액을 그대로 감사 기록한다(외부 승인 결과와 무관).
+        verify(chargeAuditLogger).recordChargeAccepted(STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
+    }
+
+    @Test
+    @DisplayName("결제수단 비활성으로 게이트웨이를 건너뛰어도 청구 접수 감사는 남긴다(#84)")
+    void charge_recordsAuditEvenWhenGatewaySkipped() {
+        stubPreRecord(false);
+
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        verify(chargeAuditLogger).recordChargeAccepted(STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
     }
 
     @Test
@@ -348,5 +373,6 @@ class PaymentApplicationServiceTest {
         return new PaymentApplicationService(
                 paymentChargeService, gateway, billingKeyCryptor, notificationPublisher,
                 (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
+                chargeAuditLogger, attempt -> { }, MAX_RETRY);
     }
 }

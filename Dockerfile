@@ -26,6 +26,10 @@ RUN groupadd -r doctorpet && useradd -r -g doctorpet doctorpet
 
 COPY --from=build /workspace/build/libs/*.jar app.jar
 RUN chown doctorpet:doctorpet app.jar
+
+# 청구 감사 로그 전용 디렉터리(PR #91). 여기에 docker-compose가 볼륨을 마운트해, 배포 시 컨테이너가
+# 교체돼도 감사 파일이 보존되게 한다. 비루트(doctorpet)로 실행하므로 미리 소유권을 넘겨 쓰기 권한을 준다.
+RUN mkdir -p /app/logs && chown -R doctorpet:doctorpet /app/logs
 USER doctorpet
 
 EXPOSE 8080
