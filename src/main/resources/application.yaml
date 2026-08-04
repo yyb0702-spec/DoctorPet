@@ -53,9 +53,6 @@ ai:
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4.1-mini}
     prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v4}
-    # GPT-4.1 mini Standard 기준 예상 비용 계산용. 가격 변경·모델 교체 시 환경변수로 갱신한다.
-    input-price-per-million-usd: ${OPENAI_INPUT_PRICE_PER_MILLION_USD:0.40}
-    output-price-per-million-usd: ${OPENAI_OUTPUT_PRICE_PER_MILLION_USD:1.60}
     connect-timeout-ms: ${OPENAI_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${OPENAI_READ_TIMEOUT_MS:10000}
     circuit-breaker-failure-threshold: ${OPENAI_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}

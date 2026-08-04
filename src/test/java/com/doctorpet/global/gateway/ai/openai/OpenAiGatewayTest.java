@@ -18,15 +18,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
-@ExtendWith(OutputCaptureExtension.class)
 class OpenAiGatewayTest {
 
     private MockRestServiceServer server;
@@ -46,7 +42,7 @@ class OpenAiGatewayTest {
 
     @Test
     @DisplayName("모델의 병원 검색 Tool Call을 실행하고 결과를 돌려준 뒤 최종 구조화 응답을 반환한다")
-    void consult_toolCall_executesToolAndReturnsFinalResponse(CapturedOutput output) {
+    void consult_toolCall_executesToolAndReturnsFinalResponse() {
         server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
                 .andExpect(header("Authorization", "Bearer test-key"))
                 .andExpect(jsonPath("$.tools[0].name").value("searchNearbyVets"))
@@ -89,12 +85,6 @@ class OpenAiGatewayTest {
         assertThat(result.analysis().completionTokens()).isEqualTo(50);
         assertThat(captured.get().openNow()).isTrue();
         assertThat(captured.get().analysis().requiredCapabilities()).containsExactly("XRAY");
-        assertThat(output).contains(
-                "model=gpt-4.1-mini",
-                "promptTokens=180",
-                "completionTokens=50",
-                "estimatedCostUsd=0.000152"
-        );
     }
 
     @Test

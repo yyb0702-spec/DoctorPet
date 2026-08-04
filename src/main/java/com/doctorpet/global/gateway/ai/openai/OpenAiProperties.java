@@ -2,8 +2,6 @@ package com.doctorpet.global.gateway.ai.openai;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.PositiveOrZero;
-import java.math.BigDecimal;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -26,12 +24,6 @@ public class OpenAiProperties {
 
     @NotBlank
     private String promptVersion = "doctorpet-ai-v4";
-
-    @PositiveOrZero
-    private BigDecimal inputPricePerMillionUsd = new BigDecimal("0.40");
-
-    @PositiveOrZero
-    private BigDecimal outputPricePerMillionUsd = new BigDecimal("1.60");
 
     @Positive
     private int connectTimeoutMs = 2000;

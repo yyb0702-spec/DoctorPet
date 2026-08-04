@@ -13,8 +13,6 @@ import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -23,7 +21,6 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,7 +43,6 @@ import tools.jackson.databind.ObjectMapper;
  * 최대 한 번만 허용하며, 공급자 응답 저장 상태에 의존하지 않도록 모든 요청에 {@code store=false}를 사용한다.
  */
 @Component
-@Slf4j
 @EnableConfigurationProperties(OpenAiProperties.class)
 @ConditionalOnProperty(name = "ai.gateway", havingValue = "openai")
 public class OpenAiGateway implements AiGateway {
@@ -181,7 +177,6 @@ public class OpenAiGateway implements AiGateway {
                     exception
             );
         }
-        logUsage(promptTokens, completionTokens);
         return new AiGatewayConsultationResult(
                 analysis,
                 null,
@@ -432,21 +427,6 @@ public class OpenAiGateway implements AiGateway {
 
     private int usage(JsonNode response, String field) {
         return response.path("usage").path(field).asInt(0);
-    }
-
-    private void logUsage(int promptTokens, int completionTokens) {
-        BigDecimal estimatedCostUsd = properties.getInputPricePerMillionUsd()
-                .multiply(BigDecimal.valueOf(promptTokens))
-                .add(properties.getOutputPricePerMillionUsd()
-                        .multiply(BigDecimal.valueOf(completionTokens)))
-                .divide(BigDecimal.valueOf(1_000_000), 8, RoundingMode.HALF_UP);
-        log.info(
-                "OpenAI usage model={} promptTokens={} completionTokens={} estimatedCostUsd={}",
-                properties.getModel(),
-                promptTokens,
-                completionTokens,
-                estimatedCostUsd.stripTrailingZeros().toPlainString()
-        );
     }
 
     private AiGatewayException invalidResponse(String message) {
