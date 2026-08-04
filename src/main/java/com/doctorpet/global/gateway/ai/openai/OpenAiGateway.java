@@ -136,7 +136,8 @@ public class OpenAiGateway implements AiGateway {
         // Responses API의 arguments는 JSON 객체가 아니라 JSON 문자열이므로 OpenAI 전용 DTO로 한 번 파싱한다.
         OpenAiToolArguments arguments = parseToolArguments(toolCallNode.path("arguments").asText());
         // Service가 넘긴 람다가 실제로 실행되는 지점이다. 반환 JSON은 아래 2차 OpenAI 호출의 Tool 결과가 된다.
-        String toolOutput = toolExecutor.searchNearbyVets(toToolCall(arguments));
+        String toolOutput = toolExecutor.searchNearbyVets(
+                toToolCall(arguments, promptTokens, completionTokens));
 
         // 2차 호출: 최초 사용자 입력 + 모델의 function_call + 서버의 function_call_output을 모두 재전송한다.
         JsonNode second = invoke(followUpRequest(
@@ -413,9 +414,13 @@ public class OpenAiGateway implements AiGateway {
         }
     }
 
-    private AiHospitalSearchToolCall toToolCall(OpenAiToolArguments arguments) {
+    private AiHospitalSearchToolCall toToolCall(
+            OpenAiToolArguments arguments,
+            int promptTokens,
+            int completionTokens
+    ) {
         try {
-            return arguments.toToolCall(properties);
+            return arguments.toToolCall(properties, promptTokens, completionTokens);
         } catch (NullPointerException exception) {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,

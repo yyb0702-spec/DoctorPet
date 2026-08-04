@@ -23,8 +23,12 @@ record OpenAiToolArguments(
         HospitalSearchSort sort
 ) {
 
-    AiHospitalSearchToolCall toToolCall(OpenAiProperties properties) {
-        // Tool 호출 시점에는 전체 Responses API usage가 확정되지 않았으므로 토큰 값은 null로 둔다.
+    AiHospitalSearchToolCall toToolCall(
+            OpenAiProperties properties,
+            int promptTokens,
+            int completionTokens
+    ) {
+        // 2차 호출 전 Tool이 실패해도 이미 사용한 1차 Responses API usage는 상담 이력에 남겨야 한다.
         OpenAiAnalysisFields analysis = new OpenAiAnalysisFields(
                 possibleFocusAreas,
                 requiredCapabilities,
@@ -33,7 +37,12 @@ record OpenAiToolArguments(
                 recommendVetVisit
         );
         return new AiHospitalSearchToolCall(
-                analysis.toResult(properties.getModel(), properties.getPromptVersion(), null, null),
+                analysis.toResult(
+                        properties.getModel(),
+                        properties.getPromptVersion(),
+                        promptTokens,
+                        completionTokens
+                ),
                 emergency,
                 nightCare,
                 openNow,

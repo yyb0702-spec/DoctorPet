@@ -236,6 +236,51 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("OpenAI Tool 검색 실패 시 이미 사용한 1차 호출 토큰을 실패 상담에 저장한다")
+    void consult_openAiToolSearchFailure_preservesFirstCallUsage() {
+        AiAnalysisResult firstAnalysis = new AiAnalysisResult(
+                List.of("GENERAL"),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of("ONSET_TIME"),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v4",
+                100,
+                20
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    firstAnalysis,
+                    null,
+                    null,
+                    true,
+                    HospitalSearchSort.NAME
+            ));
+            throw new AssertionError("검색 실패 후 Gateway가 정상 결과를 반환하면 안 됩니다.");
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(Boolean.class), any(Boolean.class),
+                any(Integer.class), any(Integer.class), any()
+        )).willThrow(new IllegalStateException("search failed"));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("다리를 절어요", PetSpecies.DOG, "인천")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        AiConsultation saved = captor.getValue();
+        assertThat(response.fallback()).isTrue();
+        assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.FAILED);
+        assertThat(saved.getPromptTokens()).isEqualTo(100);
+        assertThat(saved.getCompletionTokens()).isEqualTo(20);
+    }
+
+    @Test
     @DisplayName("위치와 현재·야간·거리 의도를 병원 검색 조건으로 전달한다")
     void consult_searchIntent_passesAllowedConditions() {
         AiAnalysisResult result = result(List.of("BLOOD_TEST"));

@@ -85,6 +85,8 @@ class OpenAiGatewayTest {
         assertThat(result.analysis().completionTokens()).isEqualTo(50);
         assertThat(captured.get().openNow()).isTrue();
         assertThat(captured.get().analysis().requiredCapabilities()).containsExactly("XRAY");
+        assertThat(captured.get().analysis().promptTokens()).isEqualTo(100);
+        assertThat(captured.get().analysis().completionTokens()).isEqualTo(20);
     }
 
     @Test
