@@ -73,6 +73,12 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      # 청구 감사 로그를 남길 디렉터리(PR #91). 아래 payment-audit-logs 볼륨을 이 경로에 마운트해,
+      # `up -d --remove-orphans`로 앱 컨테이너가 교체돼도 감사 파일이 사라지지 않게 한다.
+      AUDIT_LOG_DIR: /app/logs
+    volumes:
+      # 청구 감사 로그 영속 볼륨 — 컨테이너 수명과 분리해 배포/재기동 후에도 사후 추적을 가능하게 한다.
+      - payment-audit-logs:/app/logs
     depends_on:
       mysql:
         condition: service_healthy
@@ -81,3 +87,4 @@ services:
 
 volumes:
   mysql-data:
+  payment-audit-logs:
