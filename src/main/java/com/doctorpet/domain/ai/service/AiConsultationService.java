@@ -180,7 +180,8 @@ public class AiConsultationService {
         }
         if (gatewayResult.toolCalled()
                 && toolState.analysis() != null
-                && !toolState.analysis().requiredCapabilities().equals(result.requiredCapabilities())) {
+                && !Set.copyOf(toolState.analysis().requiredCapabilities())
+                        .equals(Set.copyOf(result.requiredCapabilities()))) {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,
                     "Tool 호출과 최종 응답의 필수 진료역량이 일치하지 않습니다."

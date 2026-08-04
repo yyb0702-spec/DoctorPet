@@ -280,6 +280,51 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("Tool 호출과 최종 응답의 진료역량 순서가 달라도 같은 조건으로 처리한다")
+    void consult_toolCallingCapabilitiesInDifferentOrder_succeeds() {
+        AiAnalysisResult toolAnalysis = result(List.of("XRAY", "ULTRASOUND"));
+        AiAnalysisResult finalAnalysis = result(List.of("ULTRASOUND", "XRAY"));
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    toolAnalysis,
+                    null,
+                    null,
+                    null,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    finalAnalysis,
+                    "조건에 맞는 병원을 확인했습니다.",
+                    false,
+                    true,
+                    true
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"), null, null,
+                null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                new AiConsultationRequest(
+                        "검사 가능한 병원을 알려줘",
+                        PetSpecies.DOG,
+                        "서울",
+                        null,
+                        null
+                )
+        );
+
+        assertThat(response.fallback()).isFalse();
+        assertThat(response.hospitals()).containsExactly(hospital());
+        assertThat(response.structured().requiredCapabilities())
+                .containsExactly("ULTRASOUND", "XRAY");
+    }
+
+    @Test
     @DisplayName("Tool Calling Gateway가 Tool 없이 HIGH를 반환하면 서버가 응급 검색을 강제한다")
     void consult_toolCallingHighWithoutTool_forcesEmergencySearch() {
         AiAnalysisResult high = new AiAnalysisResult(
