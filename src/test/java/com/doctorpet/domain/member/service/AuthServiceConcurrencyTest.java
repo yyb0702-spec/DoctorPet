@@ -111,8 +111,10 @@ class AuthServiceConcurrencyTest {
         assertThat(successCount).isEqualTo(1);
 
         // 핵심 회귀 검증: 나머지 요청들이 승자가 방금 받은 새 Refresh Token을 지워버리지 않아야 한다.
+        // 저장소는 원문이 아니라 해시를 저장하므로(#123) findByMemberId로 직접 비교할 수 없고,
+        // matches()로 "이 원문 토큰이 현재 저장된 해시와 일치하는지"를 확인한다.
         String winningRefreshToken = successes.get(0).refreshToken();
-        assertThat(refreshTokenRepository.findByMemberId(memberId)).contains(winningRefreshToken);
+        assertThat(refreshTokenRepository.matches(memberId, winningRefreshToken)).isTrue();
     }
 
     /** N개의 작업을 모두 준비시킨 뒤 동시에 출발시켜, 진짜 경쟁 상태를 재현한다. */
