@@ -48,6 +48,15 @@ hospital:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
 ai:
+  openai:
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    api-key: ${OPENAI_API_KEY:}
+    model: ${OPENAI_MODEL:gpt-4.1-mini}
+    prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v1}
+    connect-timeout-ms: ${OPENAI_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${OPENAI_READ_TIMEOUT_MS:10000}
+    circuit-breaker-failure-threshold: ${OPENAI_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
+    circuit-breaker-open-ms: ${OPENAI_CIRCUIT_BREAKER_OPEN_MS:30000}
   rate-limit:
     authenticated-per-minute: ${AI_RATE_LIMIT_AUTHENTICATED_PER_MINUTE:5}
     anonymous-per-minute: ${AI_RATE_LIMIT_ANONYMOUS_PER_MINUTE:3}
