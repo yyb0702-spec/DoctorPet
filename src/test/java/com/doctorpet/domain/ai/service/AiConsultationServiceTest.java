@@ -189,7 +189,7 @@ class AiConsultationServiceTest {
                 5
         );
         doReturn(new AiGatewayConsultationResult(
-                unsafe, "골절로 보입니다.", false, true, false))
+                unsafe, false, true, false))
                 .when(aiGateway).consult(any(), any());
 
         AiConsultationResponse response = service.consult(
@@ -264,7 +264,7 @@ class AiConsultationServiceTest {
     }
 
     @Test
-    @DisplayName("Tool Calling Gateway가 선택한 조건으로 병원을 검색하고 모델 최종 메시지를 반환한다")
+    @DisplayName("Tool Calling Gateway가 선택한 조건으로 병원을 검색하고 서버 안내를 반환한다")
     void consult_toolCallingGateway_executesModelSelectedSearch() {
         AiAnalysisResult result = result(List.of("XRAY"));
         doAnswer(invocation -> {
@@ -278,7 +278,6 @@ class AiConsultationServiceTest {
             ));
             return new AiGatewayConsultationResult(
                     result,
-                    "검색 결과를 바탕으로 방문 가능한 병원을 정리했습니다.",
                     false,
                     true,
                     true
@@ -328,7 +327,6 @@ class AiConsultationServiceTest {
             ));
             return new AiGatewayConsultationResult(
                     finalAnalysis,
-                    "조건에 맞는 병원을 확인했습니다.",
                     false,
                     true,
                     true
@@ -366,7 +364,6 @@ class AiConsultationServiceTest {
         );
         doAnswer(invocation -> new AiGatewayConsultationResult(
                 high,
-                "모델 메시지",
                 false,
                 true,
                 false
@@ -397,7 +394,6 @@ class AiConsultationServiceTest {
         AiAnalysisResult result = result(List.of());
         doAnswer(invocation -> new AiGatewayConsultationResult(
                 result,
-                "위치가 필요합니다.",
                 true,
                 true,
                 false

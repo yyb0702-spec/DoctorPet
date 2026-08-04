@@ -10,7 +10,6 @@ import java.util.Objects;
  */
 public record AiGatewayConsultationResult(
         AiAnalysisResult analysis,
-        String message,
         boolean locationRequired,
         boolean toolCallingHandled,
         boolean toolCalled
@@ -21,6 +20,6 @@ public record AiGatewayConsultationResult(
     }
 
     public static AiGatewayConsultationResult withoutToolCalling(AiAnalysisResult analysis) {
-        return new AiGatewayConsultationResult(analysis, null, false, false, false);
+        return new AiGatewayConsultationResult(analysis, false, false, false);
     }
 }

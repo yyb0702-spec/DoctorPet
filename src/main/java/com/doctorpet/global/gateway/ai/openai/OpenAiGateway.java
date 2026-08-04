@@ -180,7 +180,6 @@ public class OpenAiGateway implements AiGateway {
         }
         return new AiGatewayConsultationResult(
                 analysis,
-                null,
                 output.locationRequired(),
                 true, // 이 구현체는 Tool Calling 전체 흐름을 처리했음
                 toolCalled
