@@ -10,7 +10,6 @@ record OpenAiFinalOutput(
         UrgencyLevel urgencyLevel,
         List<String> preVisitCheckpoints,
         boolean recommendVetVisit,
-        String message,
         boolean locationRequired
 ) {
 

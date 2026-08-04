@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.15 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.28, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.16 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.29, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -79,10 +79,10 @@ domain/
 - 구조화 출력은 다음 5개 필드로 고정한다.
 | 필드 | 설명 |
 | --- | --- |
-| `possibleFocusAreas` | 의심되는 진료 집중 영역 |
+| `possibleFocusAreas` | 질환명이 아닌 허용된 증상 관찰 범위 enum을 서버 문구로 변환한 값 |
 | `requiredCapabilities` | 병원 검색에 필요한 진료역량 |
 | `urgencyLevel` | 긴급도 |
-| `preVisitCheckpoints` | 내원 전 확인 사항 |
+| `preVisitCheckpoints` | 허용된 보호자 관찰 항목 enum을 서버 문구로 변환한 값 |
 | `recommendVetVisit` | 병원 방문 권고 여부 |
 - 응급 키워드가 감지되면 LLM 호출을 생략하고 고정 응답을 반환하며, LLM 결과가 `urgencyLevel=HIGH`인 경우에도 즉시 병원 안내로 강제 분기한다.
 - 화이트리스트 밖의 카테고리에는 `정확한 답변이 어렵습니다`를 반환한다.

@@ -7,7 +7,9 @@ import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
+import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.io.IOException;
@@ -51,7 +53,7 @@ public class OpenAiGateway implements AiGateway {
 
     static final String SEARCH_TOOL_NAME = "searchNearbyVets";
     private static final String RESPONSES_PATH = "/responses";
-    private static final String PROMPT_PATH = "prompts/ai-consultation-v3.txt";
+    private static final String PROMPT_PATH = "prompts/ai-consultation-v4.txt";
 
     private final OpenAiProperties properties;
     private final ObjectMapper objectMapper;
@@ -182,7 +184,7 @@ public class OpenAiGateway implements AiGateway {
         logUsage(promptTokens, completionTokens);
         return new AiGatewayConsultationResult(
                 analysis,
-                output.message(),
+                null,
                 output.locationRequired(),
                 true, // 이 구현체는 Tool Calling 전체 흐름을 처리했음
                 toolCalled
@@ -312,7 +314,6 @@ public class OpenAiGateway implements AiGateway {
 
     private Map<String, Object> finalOutputFormat() {
         Map<String, Object> properties = new LinkedHashMap<>(analysisProperties());
-        properties.put("message", Map.of("type", "string"));
         properties.put("locationRequired", Map.of("type", "boolean"));
         return Map.of(
                 "type", "json_schema",
@@ -324,10 +325,16 @@ public class OpenAiGateway implements AiGateway {
 
     private Map<String, Object> analysisProperties() {
         Map<String, Object> fields = new LinkedHashMap<>();
-        fields.put("possibleFocusAreas", stringArray());
+        fields.put("possibleFocusAreas", enumArray(
+                AiFocusArea.names(),
+                "진단명이 아닌 증상 관찰 범위"
+        ));
         fields.put("requiredCapabilities", capabilityArray());
         fields.put("urgencyLevel", Map.of("type", "string", "enum", List.of("LOW", "MODERATE", "HIGH")));
-        fields.put("preVisitCheckpoints", stringArray());
+        fields.put("preVisitCheckpoints", enumArray(
+                AiPreVisitCheckpoint.names(),
+                "약물이나 처치 지시가 아닌 보호자 관찰 항목"
+        ));
         fields.put("recommendVetVisit", Map.of("type", "boolean"));
         return fields;
     }
@@ -342,8 +349,12 @@ public class OpenAiGateway implements AiGateway {
         );
     }
 
-    private Map<String, Object> stringArray() {
-        return Map.of("type", "array", "items", Map.of("type", "string"));
+    private Map<String, Object> enumArray(List<String> values, String description) {
+        return Map.of(
+                "type", "array",
+                "items", Map.of("type", "string", "enum", values),
+                "description", description
+        );
     }
 
     private Map<String, Object> capabilityArray() {

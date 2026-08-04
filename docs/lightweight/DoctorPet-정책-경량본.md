@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.15 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.28, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.16 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.29, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 회원·인증
@@ -73,6 +73,7 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - AI가 허용된 화이트리스트 밖의 카테고리를 생성하면 `"정확한 답변이 어렵습니다"`로 응답한다.
 - 검색 Tool 실패 시 LLM을 재호출하지 않고 서버 고정 안내와 `fallback=true`로 직접 검색을 유도한다.
 - 검색 결과에 없는 병원·질환명·처치 지시를 생성하지 않는다.
+- `possibleFocusAreas`·`preVisitCheckpoints`는 허용 enum만 받고 서버가 안전한 한국어 문구로 변환하며, 최종 안내 문구도 서버가 검색 결과로 생성한다.
 - 면책 문구는 LLM 출력이 아니라 서버가 항상 주입한다.
 - 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 연동은 OpenAI `gpt-4.1-mini`의 Structured Outputs를 사용한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
 - `symptomText`는 공백 불가 1~1,000자, `species`는 `DOG`·`CAT`만 허용한다.

@@ -54,6 +54,11 @@ class OpenAiGatewayTest {
                         .value("BLOOD_TEST"))
                 .andExpect(jsonPath("$.tools[0].parameters.properties.requiredCapabilities.items.enum[1]")
                         .value("XRAY"))
+                .andExpect(jsonPath("$.tools[0].parameters.properties.possibleFocusAreas.items.enum[0]")
+                        .value("GENERAL"))
+                .andExpect(jsonPath("$.text.format.schema.properties.preVisitCheckpoints.items.enum[0]")
+                        .value("ONSET_TIME"))
+                .andExpect(jsonPath("$.text.format.schema.properties.message").doesNotExist())
                 .andExpect(jsonPath("$.instructions").value(
                         org.hamcrest.Matchers.containsString("지역만 제공됐어도 병원 검색이 가능")))
                 .andExpect(jsonPath("$.input[0].content").value(
@@ -144,7 +149,7 @@ class OpenAiGatewayTest {
 
     private String firstToolCallResponse() {
         String arguments = """
-                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["증상 시작 시점"],"recommendVetVisit":true,"emergency":null,"nightCare":null,"openNow":true,"sort":"NAME"}
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"emergency":null,"nightCare":null,"openNow":true,"sort":"NAME"}
                 """.trim().replace("\"", "\\\"");
         return """
                 {
@@ -163,7 +168,7 @@ class OpenAiGatewayTest {
 
     private String finalResponse(boolean locationRequired) {
         String output = """
-                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["증상 시작 시점"],"recommendVetVisit":true,"message":"조건에 맞는 병원을 확인했습니다.","locationRequired":%s}
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":%s}
                 """.formatted(locationRequired).trim().replace("\"", "\\\"");
         return """
                 {
@@ -177,7 +182,7 @@ class OpenAiGatewayTest {
 
     private String finalResponseWithoutRequiredCapabilities() {
         String output = """
-                {"possibleFocusAreas":["RESPIRATORY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["기침 횟수"],"recommendVetVisit":true,"message":"진료를 권장합니다.","locationRequired":false}
+                {"possibleFocusAreas":["RESPIRATORY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["FREQUENCY"],"recommendVetVisit":true,"locationRequired":false}
                 """.trim().replace("\"", "\\\"");
         return """
                 {
@@ -191,7 +196,7 @@ class OpenAiGatewayTest {
 
     private String toolCallResponseWithoutRequiredCapabilities() {
         String arguments = """
-                {"possibleFocusAreas":["MUSCULOSKELETAL"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["증상 시작 시점"],"recommendVetVisit":true,"emergency":null,"nightCare":null,"openNow":true,"sort":"NAME"}
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"emergency":null,"nightCare":null,"openNow":true,"sort":"NAME"}
                 """.trim().replace("\"", "\\\"");
         return """
                 {

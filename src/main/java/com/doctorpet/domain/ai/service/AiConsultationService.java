@@ -19,6 +19,8 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
+import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import java.util.EnumSet;
@@ -92,6 +94,9 @@ public class AiConsultationService {
             );
             AiAnalysisResult result = gatewayResult.analysis();
             validateRequiredCapabilities(result.requiredCapabilities());
+            if (gatewayResult.toolCallingHandled()) {
+                validateSafeStructuredFields(result);
+            }
             if (gatewayResult.toolCallingHandled()) {
                 return completeToolCallingConsultation(
                         memberId,
@@ -196,7 +201,7 @@ public class AiConsultationService {
                     DISCLAIMER,
                     gatewayResult.locationRequired()
                             ? LOCATION_REQUIRED_MESSAGE
-                            : resolveModelMessage(gatewayResult.message()),
+                            : SUCCESS_MESSAGE,
                     false,
                     gatewayResult.locationRequired(),
                     false
@@ -210,7 +215,7 @@ public class AiConsultationService {
                 AiStructuredResult.from(result),
                 hospitals,
                 DISCLAIMER,
-                emergency ? emergencyMessage(request, hospitals) : resolveModelMessage(gatewayResult.message()),
+                emergency ? emergencyMessage(request, hospitals) : hospitalSearchMessage(hospitals),
                 false,
                 emergency && !hasLocation(request)
         );
@@ -259,6 +264,7 @@ public class AiConsultationService {
             AiToolExecutionState state
     ) {
         validateRequiredCapabilities(call.analysis().requiredCapabilities());
+        validateSafeStructuredFields(call.analysis());
         boolean emergency = Boolean.TRUE.equals(call.emergency())
                 || call.analysis().urgencyLevel() == UrgencyLevel.HIGH;
         state.updateAnalysis(call.analysis(), emergency);
@@ -298,8 +304,11 @@ public class AiConsultationService {
         }
     }
 
-    private String resolveModelMessage(String message) {
-        return StringUtils.hasText(message) ? message : SUCCESS_MESSAGE;
+    private String hospitalSearchMessage(List<HospitalSearchResponse> hospitals) {
+        if (hospitals.isEmpty()) {
+            return "조건에 맞는 동물병원을 찾지 못했습니다.";
+        }
+        return "조건에 맞는 동물병원 %d곳을 찾았습니다.".formatted(hospitals.size());
     }
 
     private List<HospitalSearchResponse> searchHospitals(
@@ -462,6 +471,19 @@ public class AiConsultationService {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,
                     "AI 응답에 허용되지 않은 진료역량이 포함되어 있습니다."
+            );
+        }
+    }
+
+    private void validateSafeStructuredFields(AiAnalysisResult result) {
+        boolean validFocusAreas = result.possibleFocusAreas().stream()
+                .allMatch(AiFocusArea.names()::contains);
+        boolean validCheckpoints = result.preVisitCheckpoints().stream()
+                .allMatch(AiPreVisitCheckpoint.names()::contains);
+        if (!validFocusAreas || !validCheckpoints) {
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "AI 응답에 허용되지 않은 관찰 항목이 포함되어 있습니다."
             );
         }
     }

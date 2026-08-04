@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -174,6 +175,38 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("Tool Calling 응답의 자유 질환명과 처치 지시는 INVALID_RESPONSE로 차단한다")
+    void consult_unsafeStructuredStrings_returnsFallback() {
+        AiAnalysisResult unsafe = new AiAnalysisResult(
+                List.of("골절"),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of("진통제를 먹이세요"),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v4",
+                10,
+                5
+        );
+        doReturn(new AiGatewayConsultationResult(
+                unsafe, "골절로 보입니다.", false, true, false))
+                .when(aiGateway).consult(any(), any());
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("다리를 절어요", PetSpecies.DOG, "서울")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        assertThat(response.fallback()).isTrue();
+        assertThat(response.structured()).isNull();
+        assertThat(response.message()).doesNotContain("골절", "진통제");
+        assertThat(captor.getValue().getErrorType())
+                .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE);
+    }
+
+    @Test
     @DisplayName("병원 검색 실패는 구조화 결과를 노출하지 않고 fallback과 Tool 실패를 저장한다")
     void consult_hospitalSearchFailure_returnsFallback() {
         AiAnalysisResult result = result(List.of("XRAY"));
@@ -271,7 +304,7 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.hospitals()).containsExactly(hospital());
-        assertThat(response.message()).isEqualTo("검색 결과를 바탕으로 방문 가능한 병원을 정리했습니다.");
+        assertThat(response.message()).isEqualTo("조건에 맞는 동물병원 1곳을 찾았습니다.");
         verify(hospitalService).hospitalSearch(
                 null, null, latitude, longitude, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
@@ -329,7 +362,7 @@ class AiConsultationServiceTest {
     void consult_toolCallingHighWithoutTool_forcesEmergencySearch() {
         AiAnalysisResult high = new AiAnalysisResult(
                 List.of(), List.of(), UrgencyLevel.HIGH, List.of(), true,
-                "gpt-4.1-mini", "doctorpet-ai-v3", 100, 20
+                "gpt-4.1-mini", "doctorpet-ai-v4", 100, 20
         );
         doAnswer(invocation -> new AiGatewayConsultationResult(
                 high,
@@ -626,7 +659,7 @@ class AiConsultationServiceTest {
                 List.of("GENERAL"),
                 capabilities,
                 UrgencyLevel.MODERATE,
-                List.of("증상 시작 시점을 확인해 주세요."),
+                List.of("ONSET_TIME"),
                 true,
                 null,
                 null,
