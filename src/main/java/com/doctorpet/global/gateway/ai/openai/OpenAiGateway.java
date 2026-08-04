@@ -88,16 +88,15 @@ public class OpenAiGateway implements AiGateway {
         boolean halfOpenProbe = circuitBreaker.beforeCall();
         try {
             AiGatewayConsultationResult result = doConsult(request, toolExecutor);
-            // 정상 응답에는 Tool 미호출 응답과 Tool 호출 후 최종 응답이 모두 포함된다. Circuit Breaker는
-            // 완료 순서 기준 연속 실패 정책이므로 이 요청이 HALF_OPEN 시험 소유자인지와 무관하게 성공을 알린다.
-            circuitBreaker.onSuccess();
+            // HALF_OPEN 상태에서는 시험 요청 소유자의 성공만 회로를 닫을 수 있다.
+            circuitBreaker.onSuccess(halfOpenProbe);
             return result;
         } catch (AiGatewayException exception) {
             // 공급자 장애만 회로 실패로 집계한다. 잘못된 구조화 응답은 요청/모델 출력 문제일 수 있으므로
             // Circuit Breaker를 열지 않는다.
             if (exception.getFailureReason() == AiGatewayFailureReason.TIMEOUT
                     || exception.getFailureReason() == AiGatewayFailureReason.TEMPORARY_UNAVAILABLE) {
-                circuitBreaker.onFailure();
+                circuitBreaker.onFailure(halfOpenProbe);
             } else {
                 circuitBreaker.onIgnoredFailure(halfOpenProbe);
             }

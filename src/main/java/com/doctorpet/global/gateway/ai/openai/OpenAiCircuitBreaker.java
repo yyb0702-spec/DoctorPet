@@ -8,9 +8,9 @@ import java.util.function.LongSupplier;
 /**
  * 외부 OpenAI 장애가 반복될 때 제한 시간 동안 호출을 차단하는 경량 Circuit Breaker.
  *
- * <p>연속 실패는 요청 시작 순서가 아니라 완료 통지 순서로 계산한다. HALF_OPEN 시험 중이더라도 먼저
- * 시작했던 요청이 성공하면 공급자가 현재 응답 가능한 증거로 인정해 회로를 닫고 실패 횟수를 초기화한다.
- * 이후 시험 요청이 실패하면 성공 이후의 첫 번째 연속 실패로 집계한다.
+ * <p>CLOSED에서는 요청 완료 순서로 연속 실패를 계산한다. OPEN 또는 HALF_OPEN으로 전환된 뒤에는 이전
+ * CLOSED 요청의 늦은 완료가 현재 회로 상태를 바꾸지 않으며, HALF_OPEN 시험 요청 소유자의 결과만 회복 또는
+ * 재차단을 결정한다.
  */
 final class OpenAiCircuitBreaker {
 
@@ -52,15 +52,22 @@ final class OpenAiCircuitBreaker {
         return true;
     }
 
-    synchronized void onSuccess() {
-        // 요청 시작 상태와 무관하게 모든 성공은 공급자 회복 증거다. 완료 순서 기준 연속 실패 정책에 따라
-        // HALF_OPEN 시험 중 기존 요청이 성공한 경우에도 회로를 CLOSED 상태로 완전히 초기화한다.
+    synchronized void onSuccess(boolean halfOpenProbe) {
+        // OPEN/HALF_OPEN 전환 전에 시작한 일반 요청의 늦은 성공은 진행 중인 시험 요청을 대신할 수 없다.
+        if (!halfOpenProbe && consecutiveFailures >= failureThreshold) {
+            return;
+        }
         consecutiveFailures = 0;
         openedAt = 0L;
         halfOpenProbeInProgress = false;
     }
 
-    synchronized void onFailure() {
+    synchronized void onFailure(boolean halfOpenProbe) {
+        // OPEN/HALF_OPEN 전환 전에 시작한 일반 요청의 늦은 실패도 현재 시험 요청의 소유권을 해제하거나
+        // 차단 시간을 다시 시작하게 하지 않는다.
+        if (!halfOpenProbe && consecutiveFailures >= failureThreshold) {
+            return;
+        }
         // HALF_OPEN 시험 실패도 새 실패로 기록하고 차단 시간을 현재 시점부터 다시 시작한다.
         consecutiveFailures++;
         halfOpenProbeInProgress = false;

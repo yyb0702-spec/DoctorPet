@@ -16,9 +16,9 @@ class OpenAiCircuitBreakerTest {
         AtomicLong now = new AtomicLong();
         OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
 
-        circuitBreaker.onFailure();
+        circuitBreaker.onFailure(false);
         assertThat(circuitBreaker.beforeCall()).isFalse();
-        circuitBreaker.onFailure();
+        circuitBreaker.onFailure(false);
 
         assertThatThrownBy(circuitBreaker::beforeCall)
                 .isInstanceOf(AiGatewayException.class);
@@ -28,7 +28,7 @@ class OpenAiCircuitBreakerTest {
         assertThatThrownBy(circuitBreaker::beforeCall)
                 .isInstanceOf(AiGatewayException.class);
 
-        circuitBreaker.onSuccess();
+        circuitBreaker.onSuccess(true);
         assertThat(circuitBreaker.beforeCall()).isFalse();
     }
 
@@ -37,8 +37,8 @@ class OpenAiCircuitBreakerTest {
     void ignoredFailure_releasesOwnedHalfOpenProbe() {
         AtomicLong now = new AtomicLong();
         OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
-        circuitBreaker.onFailure();
-        circuitBreaker.onFailure();
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
         now.set(1_000_000_000L);
 
         boolean halfOpenProbe = circuitBreaker.beforeCall();
@@ -52,8 +52,8 @@ class OpenAiCircuitBreakerTest {
     void ignoredFailure_fromClosedCall_doesNotReleaseAnotherProbe() {
         AtomicLong now = new AtomicLong();
         OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
-        circuitBreaker.onFailure();
-        circuitBreaker.onFailure();
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
         now.set(1_000_000_000L);
         assertThat(circuitBreaker.beforeCall()).isTrue();
 
@@ -64,20 +64,45 @@ class OpenAiCircuitBreakerTest {
     }
 
     @Test
-    @DisplayName("HALF_OPEN 중 기존 요청 성공도 회복으로 인정하고 이후 실패를 첫 연속 실패로 센다")
-    void successFromEarlierRequest_resetsFailuresByCompletionOrder() {
+    @DisplayName("HALF_OPEN 중 기존 요청 성공은 시험 요청을 대신해 회로를 닫지 않는다")
+    void successFromEarlierRequest_doesNotCloseHalfOpenProbe() {
         AtomicLong now = new AtomicLong();
         OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
 
-        assertThat(circuitBreaker.beforeCall()).isFalse(); // 장애 전에 시작한 기존 요청
-        circuitBreaker.onFailure();
-        circuitBreaker.onFailure();
+        boolean earlierRequest = circuitBreaker.beforeCall();
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
         now.set(1_000_000_000L);
-        assertThat(circuitBreaker.beforeCall()).isTrue(); // HALF_OPEN 시험 요청
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
 
-        circuitBreaker.onSuccess(); // 기존 요청이 나중에 성공 완료
-        circuitBreaker.onFailure(); // 시험 요청 실패는 성공 이후 첫 실패
+        circuitBreaker.onSuccess(earlierRequest);
 
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+
+        circuitBreaker.onSuccess(halfOpenProbe);
         assertThat(circuitBreaker.beforeCall()).isFalse();
+    }
+
+    @Test
+    @DisplayName("HALF_OPEN 중 기존 요청 실패는 시험 요청 소유권과 차단 시간을 바꾸지 않는다")
+    void failureFromEarlierRequest_doesNotReleaseHalfOpenProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+
+        boolean earlierRequest = circuitBreaker.beforeCall();
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
+        now.set(1_000_000_000L);
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
+
+        circuitBreaker.onFailure(earlierRequest);
+
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+
+        circuitBreaker.onFailure(halfOpenProbe);
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
     }
 }
