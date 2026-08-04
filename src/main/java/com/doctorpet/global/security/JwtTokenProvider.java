@@ -6,6 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Date;
 import java.util.UUID;
 import javax.crypto.SecretKey;
@@ -88,6 +89,28 @@ public class JwtTokenProvider {
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * 토큰의 jti(고유 ID) 클레임을 반환한다. {@link #validateToken(String)}으로 서명·만료를
+     * 먼저 검증한 뒤에만 호출해야 한다 — 로그아웃 시 이 특정 토큰만 콕 집어 블랙리스트에 넣기
+     * 위해 쓴다(회원 단위 블랙리스트는 탈퇴처럼 "이 회원의 모든 토큰을 영구히 막아야 하는"
+     * 경우에만 맞다 — 로그아웃 직후 재로그인하면 새 토큰은 즉시 다시 유효해야 하므로, 회원
+     * 단위로 막으면 그 새 토큰까지 같이 막혀버린다).
+     */
+    public String getJti(String token) {
+        return parseClaims(token).getId();
+    }
+
+    /**
+     * 토큰이 자연 만료될 때까지 남은 시간을 반환한다. 이미 만료됐다면(호출 시점 경쟁 등)
+     * {@link Duration#ZERO}를 반환한다 — 음수 Duration을 Redis TTL로 그대로 넘기면 에러가 나고,
+     * 어차피 만료된 토큰은 블랙리스트에 넣을 필요가 없다(서명 검증에서 이미 걸러진다).
+     */
+    public Duration getRemainingTtl(String token) {
+        Date expiration = parseClaims(token).getExpiration();
+        long remainingMillis = expiration.getTime() - System.currentTimeMillis();
+        return remainingMillis > 0 ? Duration.ofMillis(remainingMillis) : Duration.ZERO;
     }
 
     public MemberPrincipal getMemberPrincipal(String token) {
