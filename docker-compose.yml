@@ -49,8 +49,11 @@ services:
     build: .
     # APP_IMAGE_TAG는 배포 스크립트가 특정 SHA로 지정해서 띄운다(리뷰 지적 P1) — latest만
     # 계속 쓰면 지금 실행 중인 이미지가 정확히 어느 커밋인지 알 수 없고, 롤백 대상도 특정할 수
-    # 없다. 값이 없으면(로컬 개발) latest로 폴백한다.
-    image: ghcr.io/yyb0702-spec/doctorpet:${APP_IMAGE_TAG:-latest}
+    # 없다. GHCR에는 더 이상 latest 태그를 push하지 않으므로(리뷰 지적 P2), 폴백 값도
+    # latest가 아닌 local로 바꿨다 — 로컬 개발은 build: .가 직접 태깅하므로 이 값 자체가
+    # 실제로 안 쓰이고, 서버에서 실수로 APP_IMAGE_TAG 없이 pull하면 존재하지 않는 태그라
+    # 곧바로 명확하게 실패한다(예전엔 latest가 실제로 있어서 조용히 과거 이미지를 받아왔다).
+    image: ghcr.io/yyb0702-spec/doctorpet:${APP_IMAGE_TAG:-local}
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -70,6 +73,12 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      # 청구 감사 로그를 남길 디렉터리(PR #91). 아래 payment-audit-logs 볼륨을 이 경로에 마운트해,
+      # `up -d --remove-orphans`로 앱 컨테이너가 교체돼도 감사 파일이 사라지지 않게 한다.
+      AUDIT_LOG_DIR: /app/logs
+    volumes:
+      # 청구 감사 로그 영속 볼륨 — 컨테이너 수명과 분리해 배포/재기동 후에도 사후 추적을 가능하게 한다.
+      - payment-audit-logs:/app/logs
     depends_on:
       mysql:
         condition: service_healthy
@@ -78,3 +87,4 @@ services:
 
 volumes:
   mysql-data:
+  payment-audit-logs:

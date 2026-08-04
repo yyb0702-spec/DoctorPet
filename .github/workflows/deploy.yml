@@ -56,9 +56,12 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ghcr.io/yyb0702-spec/doctorpet:latest
-            ghcr.io/yyb0702-spec/doctorpet:${{ steps.resolve_sha.outputs.sha }}
+          # latest 태그는 여기서 갱신하지 않는다(리뷰 지적 P2) — workflow_run 완료 순서가
+          # 보장되지 않아, 오래된 커밋의 빌드·푸시가 최신 커밋보다 늦게 끝나면 latest가
+          # 실제로는 더 과거 이미지를 가리키게 될 수 있다. EC2는 항상 SHA 태그로만 배포하므로
+          # latest 태그 자체가 필요 없다 — 로컬 개발도 build: .로 직접 빌드해 image 이름만
+          # 로컬 태그로 쓰는 것이라 GHCR의 latest 태그 존재 여부와 무관하다.
+          tags: ghcr.io/yyb0702-spec/doctorpet:${{ steps.resolve_sha.outputs.sha }}
 
   deploy:
     name: Deploy to EC2
@@ -66,22 +69,81 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # EC2의 SSH(22)를 상시 0.0.0.0/0으로 열어두지 않는다(리뷰 지적 P1) — 이미 만들어둔
+      # EC2_HOST/EC2_USERNAME/EC2_SSH_KEY/GHCR_READ_TOKEN 시크릿을 그대로 쓰기 위해
+      # self-hosted runner 대신, 배포가 실행되는 이 짧은 구간에만 GitHub Actions 러너의
+      # 현재 공인 IP를 보안 그룹에 임시로 허용하고 배포가 끝나면(성공/실패 무관) 회수하는
+      # 방식을 쓴다. AWS 자격증명은 이 보안 그룹의 ingress 규칙 추가/삭제만 가능한 최소
+      # 권한 IAM 사용자를 별도로 만들어 사용한다.
+      - name: Configure AWS credentials (SG 임시 허용용)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_DEPLOY_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Resolve runner public IP
+        id: runner_ip
+        run: echo "cidr=$(curl -s https://checkip.amazonaws.com)/32" >> "$GITHUB_OUTPUT"
+
+      - name: Authorize runner IP for SSH (temporary)
+        run: |
+          # revoke가 실패했던 이전 실행이 있으면 같은 CIDR 규칙이 이미 남아있을 수 있다
+          # (리뷰 지적 P2) — 그대로 authorize하면 InvalidPermission.Duplicate로 이 스텝이
+          # 실패한다. 먼저 같은 CIDR을 (있으면) 지우고 나서 새로 추가해 항상 idempotent하게
+          # 만든다. 규칙이 원래 없어서 나는 에러는 무시한다.
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 \
+            --cidr "${{ steps.runner_ip.outputs.cidr }}" 2>/dev/null || true
+
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 \
+            --cidr "${{ steps.runner_ip.outputs.cidr }}"
+
       - name: SSH into EC2 and redeploy
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_SHA: ${{ needs.build-and-push.outputs.sha }}
+          GHCR_READ_USERNAME: ${{ github.repository_owner }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DEPLOY_SHA
+          envs: DEPLOY_SHA,GHCR_READ_USERNAME,GHCR_READ_TOKEN
           script: |
             set -e
             cd ~/DoctorPet
-            git checkout develop
-            git pull origin develop
+
+            # EC2가 GHCR private 패키지를 pull할 수 있도록 로그인한다(리뷰 지적 P1) — 빌드
+            # 잡은 러너에서 GITHUB_TOKEN으로 로그인하지만, 그건 러너 세션일 뿐 이 EC2 SSH
+            # 세션과는 무관하다. read:packages 권한만 있는 PAT를 GHCR_READ_TOKEN 시크릿으로
+            # 등록해서 쓴다.
+            echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_READ_USERNAME" --password-stdin
+
+            git fetch origin "$DEPLOY_SHA"
 
             PREV_SHA="$(cat .last_deployed_sha 2>/dev/null || true)"
+
+            # workflow_run은 CI 완료 순서를 보장하지 않는다 — 느리게 끝난 이전 커밋의 배포가
+            # 나중에 도착하면, 이미 배포된 최신 SHA 위에 오래된 SHA를 덮어쓸 수 있다. 이번
+            # DEPLOY_SHA가 이미 배포된 커밋보다 진짜 오래된 조상일 때만 건너뛴다(리뷰 지적 P2)
+            # — git merge-base --is-ancestor는 커밋을 자기 자신의 조상으로도 취급하므로,
+            # DEPLOY_SHA == PREV_SHA(같은 커밋 재배포/복구)인 경우까지 스킵되지 않도록 동일
+            # SHA는 명시적으로 제외한다.
+            if [ -n "$PREV_SHA" ] && [ "$DEPLOY_SHA" != "$PREV_SHA" ] \
+               && git merge-base --is-ancestor "$DEPLOY_SHA" "$PREV_SHA" 2>/dev/null; then
+              echo "이미 더 최신 커밋($PREV_SHA)이 배포되어 있어 $DEPLOY_SHA 배포를 건너뜁니다."
+              exit 0
+            fi
+
+            # 이미지와 Compose 설정을 같은 커밋으로 고정한다(리뷰 지적 P1) — git pull로 실행
+            # 시점의 최신 develop을 쓰면, CI를 통과한 이미지(SHA A)와 그 사이 develop에 병합된
+            # 최신 docker-compose.yml(SHA B)이 조합돼 환경변수·포트·서비스 구조가 어긋난 채로
+            # 배포될 수 있다. detached HEAD로 정확히 DEPLOY_SHA 시점의 파일을 사용한다.
+            git checkout --detach "$DEPLOY_SHA"
 
             # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 지정해서 띄운다(리뷰 지적 P1)
             # — 실행 중인 이미지가 어느 커밋인지 항상 특정할 수 있고, 실패 시 이전 SHA로
@@ -92,14 +154,26 @@ jobs:
 
             # docker compose up -d 성공은 "컨테이너가 시작 요청됐다"는 뜻일 뿐 애플리케이션이
             # 정상 기동했다는 보장이 아니다(리뷰 지적 P1). Dockerfile의 HEALTHCHECK가 판단하는
-            # healthy 상태를 직접 폴링해서 확인한다.
+            # healthy 상태를 직접 폴링해서 확인한다. 컨테이너 이름을 하드코딩하지 않고(리뷰
+            # 지적 P3) compose가 실제로 만든 컨테이너 ID를 조회해서 쓴다 — 디렉터리명/
+            # COMPOSE_PROJECT_NAME이 바뀌어도 안전하다.
             ATTEMPTS=0
             MAX_ATTEMPTS=18
-            until [ "$(docker inspect -f '{{.State.Health.Status}}' doctorpet-app-1 2>/dev/null)" = "healthy" ]; do
+            until [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)" 2>/dev/null)" = "healthy" ]; do
               ATTEMPTS=$((ATTEMPTS + 1))
               if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
                 echo "새 이미지($DEPLOY_SHA)가 제한 시간 내 healthy 상태가 되지 않았습니다. 롤백합니다."
                 if [ -n "$PREV_SHA" ]; then
+                  # 정방향 경로는 checkout 전에 git fetch로 DEPLOY_SHA 객체를 받아오지만,
+                  # 여기서는 PREV_SHA를 fetch하지 않고 바로 checkout했다(리뷰 지적 P2) —
+                  # detached HEAD로만 운영하므로 로컬 ref가 전진하지 않고, PREV_SHA 객체가
+                  # 로컬에 없으면(예: git gc로 정리됨, 서버 재클론 직후 등) checkout이 실패해
+                  # set -e 때문에 롤백 자체가 수행되지 않는다. 먼저 fetch로 보장한다.
+                  git fetch origin "$PREV_SHA"
+                  # 이미지뿐 아니라 Compose 설정도 이전 커밋 시점으로 함께 되돌린다 — 이미지만
+                  # 되돌리면 방금 겪은 것과 같은 이미지·Compose 불일치가 롤백 경로에서도
+                  # 재현된다.
+                  git checkout --detach "$PREV_SHA"
                   export APP_IMAGE_TAG="$PREV_SHA"
                   docker compose pull app
                   docker compose up -d --remove-orphans
@@ -113,3 +187,13 @@ jobs:
             # 하므로, 성공했을 때만 dangling 이미지를 지운다.
             echo "$DEPLOY_SHA" > .last_deployed_sha
             docker image prune -f
+
+      # 배포 성공/실패와 무관하게 임시로 허용했던 러너 IP는 반드시 회수한다(리뷰 지적 P1) —
+      # 여기서 실패하면 보안 그룹에 열린 IP가 그대로 남으므로 always()로 강제 실행한다.
+      - name: Revoke runner IP for SSH
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 \
+            --cidr "${{ steps.runner_ip.outputs.cidr }}"
