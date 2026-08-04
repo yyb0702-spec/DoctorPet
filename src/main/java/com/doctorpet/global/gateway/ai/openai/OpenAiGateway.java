@@ -88,7 +88,8 @@ public class OpenAiGateway implements AiGateway {
         boolean halfOpenProbe = circuitBreaker.beforeCall();
         try {
             AiGatewayConsultationResult result = doConsult(request, toolExecutor);
-            // 정상 응답에는 Tool 미호출 응답과 Tool 호출 후 최종 응답이 모두 포함된다.
+            // 정상 응답에는 Tool 미호출 응답과 Tool 호출 후 최종 응답이 모두 포함된다. Circuit Breaker는
+            // 완료 순서 기준 연속 실패 정책이므로 이 요청이 HALF_OPEN 시험 소유자인지와 무관하게 성공을 알린다.
             circuitBreaker.onSuccess();
             return result;
         } catch (AiGatewayException exception) {

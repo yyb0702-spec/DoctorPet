@@ -62,4 +62,22 @@ class OpenAiCircuitBreakerTest {
         assertThatThrownBy(circuitBreaker::beforeCall)
                 .isInstanceOf(AiGatewayException.class);
     }
+
+    @Test
+    @DisplayName("HALF_OPEN 중 기존 요청 성공도 회복으로 인정하고 이후 실패를 첫 연속 실패로 센다")
+    void successFromEarlierRequest_resetsFailuresByCompletionOrder() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+
+        assertThat(circuitBreaker.beforeCall()).isFalse(); // 장애 전에 시작한 기존 요청
+        circuitBreaker.onFailure();
+        circuitBreaker.onFailure();
+        now.set(1_000_000_000L);
+        assertThat(circuitBreaker.beforeCall()).isTrue(); // HALF_OPEN 시험 요청
+
+        circuitBreaker.onSuccess(); // 기존 요청이 나중에 성공 완료
+        circuitBreaker.onFailure(); // 시험 요청 실패는 성공 이후 첫 실패
+
+        assertThat(circuitBreaker.beforeCall()).isFalse();
+    }
 }

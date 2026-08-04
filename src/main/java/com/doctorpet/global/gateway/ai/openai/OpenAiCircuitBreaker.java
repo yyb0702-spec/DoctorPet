@@ -5,7 +5,13 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
-/** 외부 OpenAI 장애가 반복될 때 제한 시간 동안 호출을 차단하는 경량 Circuit Breaker. */
+/**
+ * 외부 OpenAI 장애가 반복될 때 제한 시간 동안 호출을 차단하는 경량 Circuit Breaker.
+ *
+ * <p>연속 실패는 요청 시작 순서가 아니라 완료 통지 순서로 계산한다. HALF_OPEN 시험 중이더라도 먼저
+ * 시작했던 요청이 성공하면 공급자가 현재 응답 가능한 증거로 인정해 회로를 닫고 실패 횟수를 초기화한다.
+ * 이후 시험 요청이 실패하면 성공 이후의 첫 번째 연속 실패로 집계한다.
+ */
 final class OpenAiCircuitBreaker {
 
     private final int failureThreshold;
@@ -47,7 +53,8 @@ final class OpenAiCircuitBreaker {
     }
 
     synchronized void onSuccess() {
-        // 정상 호출 또는 HALF_OPEN 시험 성공: 회로를 CLOSED 상태로 완전히 초기화한다.
+        // 요청 시작 상태와 무관하게 모든 성공은 공급자 회복 증거다. 완료 순서 기준 연속 실패 정책에 따라
+        // HALF_OPEN 시험 중 기존 요청이 성공한 경우에도 회로를 CLOSED 상태로 완전히 초기화한다.
         consecutiveFailures = 0;
         openedAt = 0L;
         halfOpenProbeInProgress = false;
