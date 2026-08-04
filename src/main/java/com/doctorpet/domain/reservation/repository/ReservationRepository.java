@@ -100,6 +100,7 @@ public interface ReservationRepository
              where r.id = :reservationId
                and r.hospitalId = :hospitalId
                and r.status = :requestedStatus
+               and r.approvalDeadlineAt > :confirmedAt
             """)
     int approveIfRequested(
             @Param("reservationId") Long reservationId,
@@ -144,6 +145,22 @@ public interface ReservationRepository
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
             @Param("checkedInStatus") ReservationStatus checkedInStatus,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+        update Reservation r
+           set r.status = :rejectedStatus,
+               r.updatedAt = :now
+         where r.id = :reservationId
+           and r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+        """)
+    int rejectByTimeoutIfRequested(
+            @Param("reservationId") Long reservationId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("rejectedStatus") ReservationStatus rejectedStatus,
+            @Param("now") LocalDateTime now
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
@@ -214,5 +231,19 @@ public interface ReservationRepository
             @Param("noShowStatus") ReservationStatus noShowStatus,
             @Param("checkedInStatus") ReservationStatus checkedInStatus,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+
+    @Query("""
+        select r
+          from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutTargets(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
     );
 }

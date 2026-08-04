@@ -25,7 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
-import java.util.List;
 
 import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
@@ -97,7 +96,8 @@ public class ReservationService {
                 request.paymentMethodId(),
                 petNameSnapshot,
                 petSpeciesSnapshot,
-                now
+                now,
+                slot.getStartAt()
         );
 
         return ReservationResponse.from(reservationRepository.save(reservation));

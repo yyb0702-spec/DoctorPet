@@ -4,6 +4,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.global.entity.BaseEntity;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.LocalDateTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,14 +12,20 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
-import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "reservations")
+@Table(
+        name = "reservations",
+        indexes = @Index(
+                name = "idx_reservations_status_approval_deadline",
+                columnList = "status, approval_deadline_at"
+        )
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Reservation extends BaseEntity {
@@ -64,6 +71,9 @@ public class Reservation extends BaseEntity {
     @Column(name = "canceled_at")
     private LocalDateTime canceledAt;
 
+    @Column(name = "approval_deadline_at", nullable = false)
+    private LocalDateTime approvalDeadlineAt;
+
     @Column(name = "no_show_at")
     private LocalDateTime noShowAt;
 
@@ -75,7 +85,8 @@ public class Reservation extends BaseEntity {
             Long paymentMethodId,
             String petNameSnapshot,
             String petSpeciesSnapshot,
-            LocalDateTime requestedAt
+            LocalDateTime requestedAt,
+            LocalDateTime approvalDeadlineAt
     ) {
         this.memberId = memberId;
         this.petId = petId;
@@ -86,6 +97,7 @@ public class Reservation extends BaseEntity {
         this.petSpeciesSnapshot = petSpeciesSnapshot;
         this.status = ReservationStatus.REQUESTED;
         this.requestedAt = requestedAt;
+        this.approvalDeadlineAt = approvalDeadlineAt;
     }
 
     public static Reservation request(
@@ -106,7 +118,42 @@ public class Reservation extends BaseEntity {
                 paymentMethodId,
                 petNameSnapshot,
                 petSpeciesSnapshot,
-                requestedAt
+                requestedAt,
+                requestedAt.plusHours(1)
+        );
+    }
+
+    /**
+     * 승인 마감 시각을 예약 생성 시 확정한다.
+     * 마감은 요청 후 1시간과 예약 시작 2시간 전 중 더 이른 시각이다.
+     */
+    public static Reservation request(
+            Long memberId,
+            Long petId,
+            Long hospitalId,
+            Long slotId,
+            Long paymentMethodId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot,
+            LocalDateTime requestedAt,
+            LocalDateTime slotStartAt
+    ) {
+        LocalDateTime requestDeadline = requestedAt.plusHours(1);
+        LocalDateTime slotDeadline = slotStartAt.minusHours(2);
+        LocalDateTime approvalDeadlineAt = requestDeadline.isBefore(slotDeadline)
+                ? requestDeadline
+                : slotDeadline;
+
+        return new Reservation(
+                memberId,
+                petId,
+                hospitalId,
+                slotId,
+                paymentMethodId,
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                requestedAt,
+                approvalDeadlineAt
         );
     }
 
