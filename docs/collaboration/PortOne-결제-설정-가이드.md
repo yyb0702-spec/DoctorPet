@@ -8,6 +8,8 @@
 - 시크릿·상점 설정은 `application-local.yml`(= `.gitignore` 대상)에만 있어 **커밋되지 않는다.** 그래서 pull 하면 "코드는 있지만 설정은 없는" 상태다 → 의도된 보안 동작.
 - **`payment.gateway: fake`면 시크릿 없이도 결제 흐름 개발이 된다**(승인이 가짜 `PAID` 반환). 실제 PortOne 결제·웹훅을 돌릴 때만 아래 설정이 필요하다.
 
+> **원칙: 로컬은 `fake`, 실 결제 확인은 스테이징.** 그러면 PortOne 시크릿(api-secret·webhook-secret 등)을 **팀원에게 개인별로 공유할 필요가 없다** — 로컬 개발자는 시크릿이 없어도 되고(§0), 실제 승인은 GitHub Actions Secrets로 값을 받는 배포 서버에서 확인한다(§4). 개인 노트북에서 굳이 실 PortOne을 켜는 경우에만 그 사람이 안전 채널로 시크릿을 개인적으로 받는다.
+
 ## 1. 로컬 설정
 
 1. `src/main/resources/application-local.yml`이 없으면 `application-local.yml.example`을 복사해 만든다.
@@ -45,8 +47,13 @@
 
 ## 4. 배포 (스테이징·운영)
 
-- 로컬 파일이 아니라 **서버 `.env`(또는 GitHub Actions Secrets)**에 시크릿을 주입한다. `docker-compose.yml`이 `.env`를 읽고, Spring이 환경변수를 완화 바인딩으로 매핑한다(`PAYMENT_PORTONE_API_SECRET` → `payment.portone.api-secret` 등).
-- 주입할 것: `PAYMENT_PORTONE_API_SECRET`, `PAYMENT_PORTONE_STORE_ID`, `PAYMENT_PORTONE_CHANNEL_KEY`, `PAYMENT_PORTONE_WEBHOOK_SECRET`, `PAYMENT_BILLING_KEY_ENC_KEY`, `JWT_SECRET`, 그리고 `PAYMENT_GATEWAY=portone`.
+**PortOne 비밀값은 GitHub Actions Secrets에 등록하면 팀원에게 로컬로 공유하지 않아도 된다.** 배포 워크플로가 배포 시점에만 값을 꺼내 서버 컨테이너에 주입하므로, 서버 `.env` 파일에 시크릿을 적어 돌려볼 필요도 없다.
+
+- **어디에 넣나** — 리포지토리 Settings → Secrets and variables → Actions → *New repository secret*. 아래 이름 그대로 등록한다. (시크릿 값 입력은 GitHub UI에서 **사람이 직접** 한다.)
+  - `PAYMENT_PORTONE_API_SECRET`, `PAYMENT_PORTONE_STORE_ID`, `PAYMENT_PORTONE_CHANNEL_KEY`, `PAYMENT_PORTONE_WEBHOOK_SECRET`
+- **어떻게 전달되나** — `deploy.yml`의 SSH 스텝이 이 Secrets를 EC2 세션의 셸 환경으로 주입하고(`envs:`), `docker-compose.yml`의 `app.environment`가 그 값을 `${...}`로 보간해 컨테이너에 넣는다. `environment` 블록은 `env_file(.env)`보다 우선하므로 **서버 `.env`에 값을 남기지 않아도** 컨테이너가 값을 받는다. Spring은 완화 바인딩으로 매핑한다(`PAYMENT_PORTONE_API_SECRET` → `payment.portone.api-secret` 등).
+- **비파괴** — Secrets 미등록이거나 서버 `.env`의 `PAYMENT_GATEWAY=fake`이면 빈 값으로 무시되어 현재 배포를 깨지 않는다. 실연동 전환은 서버 `.env`에서 `PAYMENT_GATEWAY=portone`·`SPRING_PROFILES_ACTIVE=prod`로 **별도로 결정**한다(그 전까지 시크릿을 등록해두기만 해도 안전하다).
+- **enc-key·JWT** — `PAYMENT_BILLING_KEY_ENC_KEY`·`JWT_SECRET`도 같은 방식(Actions Secrets 또는 서버 `.env`)으로 주입한다. enc-key는 환경 안에서 하나로 고정한다(§5).
 - 웹훅은 개인 ngrok 대신 **스테이징 고정 도메인**을 콘솔에 등록해 팀 공용으로 쓴다.
 
 ## 5. 주의 — enc-key 일관성
