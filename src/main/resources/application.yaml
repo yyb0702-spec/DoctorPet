@@ -85,3 +85,9 @@ management:
 reservation:
   event-unique-migration:
     enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}
+  approval-timeout:
+    interval-ms: ${RESERVATION_APPROVAL_TIMEOUT_INTERVAL_MS:60000}
+    initial-delay-ms: ${RESERVATION_APPROVAL_TIMEOUT_INITIAL_DELAY_MS:60000}
+    batch-size: ${RESERVATION_APPROVAL_TIMEOUT_BATCH_SIZE:100}
+    max-attempts: ${RESERVATION_APPROVAL_TIMEOUT_MAX_ATTEMPTS:2}
+    lock-wait-seconds: ${RESERVATION_APPROVAL_TIMEOUT_LOCK_WAIT_SECONDS:0}
