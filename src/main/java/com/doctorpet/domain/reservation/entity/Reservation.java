@@ -12,20 +12,13 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(
-        name = "reservations",
-        indexes = @Index(
-                name = "idx_reservations_status_approval_deadline",
-                columnList = "status, approval_deadline_at"
-        )
-)
+@Table(name = "reservations")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Reservation extends BaseEntity {
@@ -71,7 +64,11 @@ public class Reservation extends BaseEntity {
     @Column(name = "canceled_at")
     private LocalDateTime canceledAt;
 
-    @Column(name = "approval_deadline_at", nullable = false)
+    /*
+     * 기존 행 백필 전에 Hibernate가 nullable 컬럼을 먼저 추가해야 한다. DB의 NOT NULL과
+     * 조회 인덱스는 ReservationApprovalDeadlineMigrationRunner가 백필 후 적용·검증한다.
+     */
+    @Column(name = "approval_deadline_at")
     private LocalDateTime approvalDeadlineAt;
 
     @Column(name = "no_show_at")
