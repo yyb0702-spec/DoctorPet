@@ -51,7 +51,7 @@ public class OpenAiGateway implements AiGateway {
 
     static final String SEARCH_TOOL_NAME = "searchNearbyVets";
     private static final String RESPONSES_PATH = "/responses";
-    private static final String PROMPT_PATH = "prompts/ai-consultation-v2.txt";
+    private static final String PROMPT_PATH = "prompts/ai-consultation-v3.txt";
 
     private final OpenAiProperties properties;
     private final ObjectMapper objectMapper;
@@ -241,11 +241,13 @@ public class OpenAiGateway implements AiGateway {
                 축종: %s
                 사용자 지역 제공 여부: %s
                 사용자 좌표 제공 여부: %s
+                병원 검색 가능 위치 제공 여부: %s
                 증상: %s
                 """.formatted(
                 request.species().name(),
                 request.hasRegion(),
                 request.hasCoordinates(),
+                request.hasRegion() || request.hasCoordinates(),
                 request.symptomText()
         );
         return Map.of("role", "user", "content", content);

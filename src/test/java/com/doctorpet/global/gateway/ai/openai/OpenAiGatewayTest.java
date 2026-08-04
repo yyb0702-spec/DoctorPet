@@ -54,6 +54,10 @@ class OpenAiGatewayTest {
                         .value("BLOOD_TEST"))
                 .andExpect(jsonPath("$.tools[0].parameters.properties.requiredCapabilities.items.enum[1]")
                         .value("XRAY"))
+                .andExpect(jsonPath("$.instructions").value(
+                        org.hamcrest.Matchers.containsString("지역만 제공됐어도 병원 검색이 가능")))
+                .andExpect(jsonPath("$.input[0].content").value(
+                        org.hamcrest.Matchers.containsString("병원 검색 가능 위치 제공 여부: true")))
                 .andExpect(jsonPath("$.parallel_tool_calls").value(false))
                 .andRespond(withSuccess(firstToolCallResponse(), MediaType.APPLICATION_JSON));
         server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
@@ -65,7 +69,7 @@ class OpenAiGatewayTest {
         AtomicReference<AiHospitalSearchToolCall> captured = new AtomicReference<>();
 
         AiGatewayConsultationResult result = gateway.consult(
-                new AiAnalysisRequest("강아지가 다리를 절어요", PetSpecies.DOG),
+                new AiAnalysisRequest("강아지가 다리를 절어요", PetSpecies.DOG, "서울", null, null),
                 call -> {
                     captured.set(call);
                     return "{\"hospitals\":[{\"hospitalId\":10,\"name\":\"서울동물병원\"}]}";
