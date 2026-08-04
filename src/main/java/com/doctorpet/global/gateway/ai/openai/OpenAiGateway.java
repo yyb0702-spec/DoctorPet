@@ -6,6 +6,7 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -130,7 +131,7 @@ public class OpenAiGateway implements AiGateway {
         // Responses API의 arguments는 JSON 객체가 아니라 JSON 문자열이므로 OpenAI 전용 DTO로 한 번 파싱한다.
         OpenAiToolArguments arguments = parseToolArguments(toolCallNode.path("arguments").asText());
         // Service가 넘긴 람다가 실제로 실행되는 지점이다. 반환 JSON은 아래 2차 OpenAI 호출의 Tool 결과가 된다.
-        String toolOutput = toolExecutor.searchNearbyVets(arguments.toToolCall(properties));
+        String toolOutput = toolExecutor.searchNearbyVets(toToolCall(arguments));
 
         // 2차 호출: 최초 사용자 입력 + 모델의 function_call + 서버의 function_call_output을 모두 재전송한다.
         JsonNode second = invoke(followUpRequest(
@@ -155,12 +156,23 @@ public class OpenAiGateway implements AiGateway {
             boolean toolCalled
     ) {
         // OpenAI JSON에 있는 분석 5필드와 응답 usage에서 읽은 운영 정보를 제공자 중립 결과로 합친다.
-        AiAnalysisResult analysis = output.analysis().toResult(
-                properties.getModel(),
-                properties.getPromptVersion(),
-                promptTokens,
-                completionTokens
-        );
+        AiAnalysisResult analysis;
+        try {
+            analysis = output.analysis().toResult(
+                    properties.getModel(),
+                    properties.getPromptVersion(),
+                    promptTokens,
+                    completionTokens
+            );
+        } catch (NullPointerException exception) {
+            // JSON 문법이 유효해도 필수 필드가 누락되면 DTO 생성 단계에서 실패할 수 있다.
+            // 외부 응답 계약 위반으로 분류해 상위 서비스의 fallback 경로로 전달한다.
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "OpenAI 최종 구조화 응답의 필수 필드가 누락되었습니다.",
+                    exception
+            );
+        }
         return new AiGatewayConsultationResult(
                 analysis,
                 output.message(),
@@ -369,6 +381,18 @@ public class OpenAiGateway implements AiGateway {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,
                     "OpenAI Tool 인자를 해석할 수 없습니다.",
+                    exception
+            );
+        }
+    }
+
+    private AiHospitalSearchToolCall toToolCall(OpenAiToolArguments arguments) {
+        try {
+            return arguments.toToolCall(properties);
+        } catch (NullPointerException exception) {
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "OpenAI Tool 인자의 필수 필드가 누락되었습니다.",
                     exception
             );
         }
