@@ -51,7 +51,9 @@ public class PaymentWebhookController {
             throw new ServiceException(PaymentErrorCode.WEBHOOK_SIGNATURE_INVALID);
         }
         WebhookEvent event = parse(body);
-        webhookService.handle(event.eventType(), event.merchantPaymentId());
+        // webhook-id를 멱등키로 넘긴다 — 같은 이벤트 재전송은 흡수하고, event_type이 같아도 서로 다른 이벤트는
+        // 각각 처리된다(PR #96 리뷰 반영).
+        webhookService.handle(webhookId, event.eventType(), event.merchantPaymentId());
         return ResponseEntity.ok(ApiResponse.success());
     }
 
