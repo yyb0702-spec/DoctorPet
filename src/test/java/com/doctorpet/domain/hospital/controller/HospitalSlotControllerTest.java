@@ -8,6 +8,7 @@ import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -45,6 +46,9 @@ class HospitalSlotControllerTest {
     // 자체가 실패한다(MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용 — 리뷰 지적 P1 대응).
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     void 날짜를_지정하면_병원_예약_슬롯을_조회한다() throws Exception {

@@ -20,6 +20,7 @@ import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -68,6 +69,9 @@ class PaymentMethodControllerTest {
     // 대응) — 없으면 컨텍스트 로딩이 실패한다.
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     @AfterEach
     void clearSecurityContext() {

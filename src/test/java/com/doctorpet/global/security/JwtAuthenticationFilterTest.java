@@ -29,6 +29,9 @@ class JwtAuthenticationFilterTest {
     @Mock
     private MemberBlacklistPort memberBlacklistPort;
 
+    @Mock
+    private AccessTokenBlacklistPort accessTokenBlacklistPort;
+
     @InjectMocks
     private JwtAuthenticationFilter jwtAuthenticationFilter;
 
@@ -51,11 +54,33 @@ class JwtAuthenticationFilterTest {
         given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
         given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
         given(memberBlacklistPort.isBlacklisted(1L)).willReturn(false);
+        given(jwtTokenProvider.getJti("access-token")).willReturn("jti-1234");
+        given(accessTokenBlacklistPort.isBlacklisted("jti-1234")).willReturn(false);
 
         jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+    }
+
+    @Test
+    @DisplayName("서명·만료·타입은 유효하고 회원 블랙리스트에도 없지만, 로그아웃한 그 토큰(jti)이 블랙리스트에 있으면 SecurityContext를 설정하지 않는다(#124)")
+    void doFilterInternal_blacklistedAccessToken_doesNotAuthenticate() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer access-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN");
+
+        given(jwtTokenProvider.validateToken("access-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
+        given(memberBlacklistPort.isBlacklisted(1L)).willReturn(false);
+        given(jwtTokenProvider.getJti("access-token")).willReturn("jti-1234");
+        given(accessTokenBlacklistPort.isBlacklisted("jti-1234")).willReturn(true);
+
+        jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test

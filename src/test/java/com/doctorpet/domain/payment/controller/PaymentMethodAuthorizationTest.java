@@ -11,6 +11,7 @@ import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -49,6 +50,9 @@ class PaymentMethodAuthorizationTest {
     // authentication()으로 SecurityContext를 직접 주입하므로 실제로 호출되지는 않는다.
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     @DisplayName("보호자(ROLE_GUARDIAN)는 결제수단 조회에 접근할 수 있다(200)")
