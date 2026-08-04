@@ -11,6 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.audit.PaymentChargeAuditLogger;
+import com.doctorpet.domain.payment.config.PaymentChargeProperties;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
@@ -64,7 +65,15 @@ class PaymentApplicationServiceTest {
         // 늘지 않아 데드라인 캡은 발동하지 않는다(캡 자체 검증은 backoffDeadlineCap_* 테스트가 별도로 한다).
         paymentApplicationService = new PaymentApplicationService(
                 paymentChargeService, paymentGateway, billingKeyCryptor,
-                notificationPublisher, chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
+                notificationPublisher, chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY,
+                chargeProperties(RETRY_BACKOFF_DEADLINE_MS));
+    }
+
+    // 데드라인 캡은 이제 @ConfigurationProperties로 주입된다(PR #92 P2). 테스트도 프로퍼티 객체로 값을 넘긴다.
+    private static PaymentChargeProperties chargeProperties(long deadlineMs) {
+        PaymentChargeProperties properties = new PaymentChargeProperties();
+        properties.setRetryBackoffDeadlineMs(deadlineMs);
+        return properties;
     }
 
     private void stubPreRecord(boolean methodActive) {
@@ -211,7 +220,7 @@ class PaymentApplicationServiceTest {
         given(cappedBackoff.pause(anyInt(), anyLong())).willReturn(2000L);
         PaymentApplicationService service = new PaymentApplicationService(
                 paymentChargeService, paymentGateway, billingKeyCryptor,
-                notificationPublisher, chargeAuditLogger, cappedBackoff, MAX_RETRY, 3_500L);
+                notificationPublisher, chargeAuditLogger, cappedBackoff, MAX_RETRY, chargeProperties(3_500L));
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
@@ -371,6 +380,6 @@ class PaymentApplicationServiceTest {
     private PaymentApplicationService serviceWith(PaymentGateway gateway) {
         return new PaymentApplicationService(
                 paymentChargeService, gateway, billingKeyCryptor, notificationPublisher,
-                chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
+                chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY, chargeProperties(RETRY_BACKOFF_DEADLINE_MS));
     }
 }

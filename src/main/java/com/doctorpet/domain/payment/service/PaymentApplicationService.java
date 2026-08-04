@@ -1,6 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
 import com.doctorpet.domain.payment.audit.PaymentChargeAuditLogger;
+import com.doctorpet.domain.payment.config.PaymentChargeProperties;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
@@ -60,7 +61,8 @@ public class PaymentApplicationService {
             RetryBackoff retryBackoff,
             // 재시도 유효 실패의 최대 재시도 횟수(SA §9-4 확정 = 3).
             @Value("${payment.charge.max-retry:3}") int maxRetry,
-            @Value("${payment.charge.retry-backoff-deadline-ms:3500}") long retryBackoffDeadlineMs
+            // 데드라인 캡은 시작 시점 양수 검증을 위해 @ConfigurationProperties로 받는다(PR #92 P2).
+            PaymentChargeProperties chargeProperties
     ) {
         this.paymentChargeService = paymentChargeService;
         this.paymentGateway = paymentGateway;
@@ -69,7 +71,7 @@ public class PaymentApplicationService {
         this.chargeAuditLogger = chargeAuditLogger;
         this.retryBackoff = retryBackoff;
         this.maxRetry = maxRetry;
-        this.retryBackoffDeadlineMs = retryBackoffDeadlineMs;
+        this.retryBackoffDeadlineMs = chargeProperties.getRetryBackoffDeadlineMs();
     }
 
     /**
