@@ -2,6 +2,7 @@ package com.doctorpet.domain.member.repository;
 
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.TokenHasher;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -15,6 +16,14 @@ import org.springframework.stereotype.Repository;
  * Refresh Token을 Redis에 저장한다. 키는 회원당 {@code refresh:{memberId}} 단일 키다(SA §6-1) —
  * 즉 회원당 세션이 하나뿐이며, 저장(덮어쓰기) 자체가 곧 회전(rotate)이다: 같은 키에 새 값을 쓰면
  * 이전 토큰은 더 이상 저장된 값과 일치하지 않으므로 자동으로 무효화된다([[A 도메인]] #6).
+ *
+ * 값은 토큰 원문이 아니라 SHA-256 해시를 저장한다(백로그 #123). Redis 값 자체가 "현재 유효한
+ * 세션"의 증거이자 그대로 재발급에 쓸 수 있는 자격증명이므로, 원문을 저장하면 Redis가 노출되는
+ * 사고(백업 유출, 오설정으로 인한 외부 접근, 관리자 콘솔 오남용 등)만으로 서명 검증 없이 곧바로
+ * 세션을 탈취할 수 있다. 해시를 저장하면 그 사고가 나도 원문을 복원할 방법이 없다. salt/pepper를
+ * 쓰지 않는 이유: 비밀번호와 달리 Refresh Token은 서버가 임의로 생성하는 고엔트로피 값이라
+ * 레인보우테이블·사전 대입 공격 표면이 없고, 애초에 오프라인으로 원문을 추측해 시도할 수 있는
+ * 통로도 없다(재발급은 항상 JWT 서명 검증을 먼저 통과해야 한다).
  *
  * MemberBlacklistPort·AccessTokenBlacklistPort도 함께 구현한다 — 탈퇴 회원(회원 단위)·로그아웃한
  * 특정 토큰(토큰 단위)을 인증 단계(global.security.JwtAuthenticationFilter)에서 걸러내려면 그
@@ -70,24 +79,36 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
 
     private final StringRedisTemplate redisTemplate;
 
+    /** 토큰 원문이 아니라 그 해시를 저장한다(#123 — 클래스 Javadoc 참고). */
     public void save(Long memberId, String refreshToken, Duration ttl) {
-        redisTemplate.opsForValue().set(key(memberId), refreshToken, ttl);
+        redisTemplate.opsForValue().set(key(memberId), TokenHasher.hash(refreshToken), ttl);
     }
 
-    /** 재발급 시 화이트리스트 대조용. 저장된 값이 없으면(만료·로그아웃 등) 빈 값을 반환한다. */
+    /**
+     * 저장된 값(해시)을 그대로 반환한다 — 토큰 원문을 저장하지 않으므로 이 값과 원문을 직접
+     * 비교할 수는 없다. 원문 토큰 하나가 유효한지 확인하려면 {@link #matches(Long, String)}를 쓴다.
+     */
     public Optional<String> findByMemberId(Long memberId) {
         return Optional.ofNullable(redisTemplate.opsForValue().get(key(memberId)));
     }
 
+    /** 제시된 원문 토큰을 해시해, 현재 저장된 값과 일치하는지 확인한다. */
+    public boolean matches(Long memberId, String rawToken) {
+        return findByMemberId(memberId)
+                .map(storedHash -> storedHash.equals(TokenHasher.hash(rawToken)))
+                .orElse(false);
+    }
+
     /**
-     * 현재 저장된 값이 {@code oldToken}과 정확히 일치할 때만 {@code newToken}으로 원자적으로 교체한다.
-     * 일치하지 않으면(이미 회전되어 폐기된 토큰의 재사용, 또는 저장된 값이 아예 없는 경우) false를 반환한다.
+     * 현재 저장된 값(해시)이 {@code oldToken}의 해시와 정확히 일치할 때만 {@code newToken}의
+     * 해시로 원자적으로 교체한다. 일치하지 않으면(이미 회전되어 폐기된 토큰의 재사용, 또는 저장된
+     * 값이 아예 없는 경우) false를 반환한다.
      */
     public boolean rotateIfMatches(Long memberId, String oldToken, String newToken, Duration ttl) {
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
                 List.of(key(memberId)),
-                oldToken, newToken, String.valueOf(ttl.toMillis())
+                TokenHasher.hash(oldToken), TokenHasher.hash(newToken), String.valueOf(ttl.toMillis())
         );
         return result != null && result == 1L;
     }
