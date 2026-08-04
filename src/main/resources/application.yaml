@@ -74,6 +74,23 @@ member:
   email-verified-backfill:
     enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
 
+# 배포 헬스체크(CI/CD MVP). health 외 다른 액추에이터 엔드포인트(env, beans 등)는 민감정보를
+# 노출할 수 있어 명시적으로 켜지 않는 한 웹으로 노출하지 않는다.
+# show-details는 never로 둔다 — /actuator/health가 permitAll이라 인증 없는 호출자에게도
+# DB 종류·Redis 버전·디스크 경로 같은 내부 구성 정보가 노출되는 걸 막는다(리뷰 지적 P2).
+# UP/DOWN 집계 상태와 HTTP 상태 코드만으로도 배포 스크립트가 정상 기동 여부를 판정하는 데는
+# 지장이 없다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
 reservation:
   event-unique-migration:
     enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}

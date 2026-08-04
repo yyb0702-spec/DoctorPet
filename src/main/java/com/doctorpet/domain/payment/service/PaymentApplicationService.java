@@ -1,5 +1,6 @@
 package com.doctorpet.domain.payment.service;
 
+import com.doctorpet.domain.payment.audit.PaymentChargeAuditLogger;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
@@ -42,6 +43,7 @@ public class PaymentApplicationService {
     private final PaymentGateway paymentGateway;
     private final BillingKeyCryptor billingKeyCryptor;
     private final PaymentNotificationPublisher notificationPublisher;
+    private final PaymentChargeAuditLogger chargeAuditLogger;
     private final RetryBackoff retryBackoff;
     private final int maxRetry;
 
@@ -50,6 +52,7 @@ public class PaymentApplicationService {
             PaymentGateway paymentGateway,
             BillingKeyCryptor billingKeyCryptor,
             PaymentNotificationPublisher notificationPublisher,
+            PaymentChargeAuditLogger chargeAuditLogger,
             RetryBackoff retryBackoff,
             // 재시도 유효 실패의 최대 재시도 횟수(SA §9-4 확정 = 3).
             @Value("${payment.charge.max-retry:3}") int maxRetry
@@ -58,6 +61,7 @@ public class PaymentApplicationService {
         this.paymentGateway = paymentGateway;
         this.billingKeyCryptor = billingKeyCryptor;
         this.notificationPublisher = notificationPublisher;
+        this.chargeAuditLogger = chargeAuditLogger;
         this.retryBackoff = retryBackoff;
         this.maxRetry = maxRetry;
     }
@@ -68,6 +72,10 @@ public class PaymentApplicationService {
     public PaymentChargeResponse charge(Long reservationId, Long staffMemberId, int amount) {
         // Tx1 — 검증 + PENDING 선기록(커밋).
         PaymentPreRecord pre = paymentChargeService.preRecord(reservationId, staffMemberId, amount);
+
+        // 청구 접수 감사 기록(#84). Tx1 커밋 직후, 외부 승인 결과와 무관하게 "누가·얼마·어느 예약"을 남긴다 —
+        // 과다청구를 코드로 막지는 않지만(후불 최종액 입력은 설계 의도) 사후 추적이 가능하게 한다.
+        chargeAuditLogger.recordChargeAccepted(staffMemberId, reservationId, pre.paymentId(), pre.amount());
 
         // 외부 승인(트랜잭션 밖). 결제수단이 ACTIVE가 아니면 게이트웨이 호출 없이 즉시 오프라인 확정(SA §9-4·§4-2).
         ChargeOutcome outcome = resolveOutcomeSafely(pre);

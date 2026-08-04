@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.15 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.27, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.28, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
@@ -188,7 +188,9 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `member_id` | BIGINT | 회원 FK |
 | `type` | VARCHAR | 알림 유형 |
 | `content` | VARCHAR | 알림 내용 |
-| `is_read` | BOOLEAN | 읽음 여부 |
+| `resource_type` | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
+| `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |
+| `read_at` | DATETIME NULL | 읽은 시각(NULL=미읽음). `isRead`는 `read_at IS NOT NULL` 파생 |
 | `created_at` | DATETIME | 생성 시각 |
 ## 7. 확장 테이블
 ### `payment_webhooks` `(확장)`

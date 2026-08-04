@@ -46,6 +46,9 @@ application-secret.properties
 .env
 .env.*
 !.env.example
+docker-compose.override.yml
+# 배포 스크립트가 EC2에 남기는 런타임 상태 파일(현재 배포된 이미지 SHA 기록, 롤백용)
+.last_deployed_sha
 *.pem
 *.p12
 *.jks
