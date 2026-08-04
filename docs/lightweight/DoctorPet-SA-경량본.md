@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.25, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.26, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -112,6 +112,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 같은 시점의 활성 예약은 1건만 허용하며, 예약 요청 시 낙관적 락으로 슬롯을 `OPEN → RESERVED` 전환한다.
 - 병원 거절 사유는 직원 부족, 슬롯 등록 오류, 진료 불가, 기타의 4종으로 관리한다.
 - 예약 승인 타임아웃 또는 허용 범위 내 취소·거절 시 슬롯을 반환한다.
+- 승인 마감은 예약 생성 시 `min(요청시각+1시간, 예약시각-2시간)`으로 저장한다. 기존 예약은 일회성 마이그레이션으로 백필한 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다.
 - 체크인은 예약시간부터 예약시간 +10분까지 허용한다.
 - +10분이 지나도록 체크인하지 않으면 자동으로 `NO_SHOW` 처리한다.
 - 노쇼는 예약시각이 지난 건이므로 슬롯을 반환하지 않고 `RESERVED`로 유지한다.
