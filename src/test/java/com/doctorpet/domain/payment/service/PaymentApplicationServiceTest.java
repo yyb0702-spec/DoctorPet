@@ -200,6 +200,10 @@ class PaymentApplicationServiceTest {
         verify(cappedBackoff, times(2)).pause(anyInt(), anyLong());
         // 최종 확정은 안전하게 PENDING 유지(승인 여부 미상 → 오프라인 이중수납 금지, #35가 정산).
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        // 조기 종료 시 retry_count는 무조건 maxRetry가 아니라 실제 수행한 재시도(2회)를 기록한다(#92 P2).
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.retryCount()).isEqualTo(2);
+        assertThat(outcome.failureReason()).isEqualTo("RETRY_EXHAUSTED_UNCONFIRMED");
     }
 
     @Test

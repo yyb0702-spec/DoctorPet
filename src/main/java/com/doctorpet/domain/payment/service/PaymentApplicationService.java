@@ -182,12 +182,16 @@ public class PaymentApplicationService {
         // 백오프 누적 시간 예산(#85 데드라인 캡). 지수 백오프가 HTTP 요청 스레드를 무한정 동기 점유해
         // 스레드풀을 굶기지 않도록, 누적 대기가 예산을 넘으면 더 재시도하지 않고 최종 확정으로 빠진다.
         long backoffUsedMs = 0;
+        // 실제로 수행한 재시도 횟수. 데드라인 예산 소진으로 조기 종료하면 maxRetry보다 작으므로, 최종 확정에
+        // 무조건 maxRetry를 넣지 않고 이 값을 넘겨 payments.retry_count와 정산 임계가 실제와 맞게 한다(PR #92 P2).
+        int performedRetries = 0;
         for (int attempt = 1; attempt <= maxRetry; attempt++) {
             long remainingBudgetMs = retryBackoffDeadlineMs - backoffUsedMs;
             if (remainingBudgetMs <= 0) {
                 // 백오프 예산 소진 — 남은 재시도를 포기하고 최종 단건조회로 안전 확정한다(미확정이면 PENDING 유지, #35가 정산).
                 break;
             }
+            performedRetries = attempt;
             backoffUsedMs += retryBackoff.pause(attempt, remainingBudgetMs);
 
             // 조회 우선 — 앞선 승인이 실제로는 처리됐을 수 있다.
@@ -215,7 +219,7 @@ public class PaymentApplicationService {
         }
         // 소진 직후 곧바로 오프라인으로 보내지 않는다 — 마지막 승인 시도가 UNKNOWN(타임아웃)이었다면 실제로는
         // 승인됐을 수 있다. 최종 단건조회로 성공/실패를 확인하고, 미확정이면 PENDING을 유지한다(§9-4 소진 분기).
-        return resolveAfterExhaustion(pre);
+        return resolveAfterExhaustion(pre, performedRetries);
     }
 
     /**
@@ -223,18 +227,22 @@ public class PaymentApplicationService {
      * PAID면 금액 대조 후 확정(불일치는 confirmPaid가 PENDING 반환), FAILED(성공 아님 확인)면 오프라인,
      * 여전히 미확정(PENDING·조회 실패)이면 PENDING 유지 — 이미 승인됐을 수 있어 오프라인 이중수납을 금지하고
      * 정산 스케줄러(#35)가 확정한다.
+     *
+     * <p>{@code performedRetries}는 루프에서 실제로 수행한 재시도 횟수다. 데드라인 예산 소진으로 조기 종료하면
+     * maxRetry보다 작으므로, 이 값을 그대로 retry_count에 기록해 감사 정보와 정산 임계가 실제와 어긋나지 않게
+     * 한다(PR #92 P2). 루프를 끝까지 돌면 maxRetry와 같다.
      */
-    private ChargeOutcome resolveAfterExhaustion(PaymentPreRecord pre) {
+    private ChargeOutcome resolveAfterExhaustion(PaymentPreRecord pre, int performedRetries) {
         try {
             PaymentQueryResult query = paymentGateway.query(pre.merchantPaymentId());
             return switch (query.status()) {
-                case PAID -> confirmPaid(pre, query.pgPaymentId(), query.paidAmount(), null, maxRetry);
-                case FAILED -> ChargeOutcome.offlineRequired("RETRY_EXHAUSTED", maxRetry);
-                case PENDING -> ChargeOutcome.pending(maxRetry, "RETRY_EXHAUSTED_UNCONFIRMED");
+                case PAID -> confirmPaid(pre, query.pgPaymentId(), query.paidAmount(), null, performedRetries);
+                case FAILED -> ChargeOutcome.offlineRequired("RETRY_EXHAUSTED", performedRetries);
+                case PENDING -> ChargeOutcome.pending(performedRetries, "RETRY_EXHAUSTED_UNCONFIRMED");
             };
         } catch (PaymentGatewayException e) {
             // 최종 조회마저 실패하면 승인 여부를 알 수 없으므로 오프라인 금지, PENDING 유지.
-            return ChargeOutcome.pending(maxRetry, "RETRY_EXHAUSTED_UNCONFIRMED");
+            return ChargeOutcome.pending(performedRetries, "RETRY_EXHAUSTED_UNCONFIRMED");
         }
     }
 
