@@ -64,8 +64,7 @@ class PaymentApplicationServiceTest {
         // 늘지 않아 데드라인 캡은 발동하지 않는다(캡 자체 검증은 backoffDeadlineCap_* 테스트가 별도로 한다).
         paymentApplicationService = new PaymentApplicationService(
                 paymentChargeService, paymentGateway, billingKeyCryptor,
-                notificationPublisher, (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
-                notificationPublisher, chargeAuditLogger, attempt -> { }, MAX_RETRY);
+                notificationPublisher, chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
     }
 
     private void stubPreRecord(boolean methodActive) {
@@ -212,7 +211,7 @@ class PaymentApplicationServiceTest {
         given(cappedBackoff.pause(anyInt(), anyLong())).willReturn(2000L);
         PaymentApplicationService service = new PaymentApplicationService(
                 paymentChargeService, paymentGateway, billingKeyCryptor,
-                notificationPublisher, cappedBackoff, MAX_RETRY, 3_500L);
+                notificationPublisher, chargeAuditLogger, cappedBackoff, MAX_RETRY, 3_500L);
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
@@ -372,7 +371,6 @@ class PaymentApplicationServiceTest {
     private PaymentApplicationService serviceWith(PaymentGateway gateway) {
         return new PaymentApplicationService(
                 paymentChargeService, gateway, billingKeyCryptor, notificationPublisher,
-                (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
-                chargeAuditLogger, attempt -> { }, MAX_RETRY);
+                chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY, RETRY_BACKOFF_DEADLINE_MS);
     }
 }
