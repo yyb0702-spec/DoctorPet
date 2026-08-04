@@ -177,13 +177,24 @@ class PaymentChargeServiceTest {
         }
 
         @Test
-        @DisplayName("선기록이 UNIQUE 위반(23000/1062)이면 사전 체크를 통과한 경쟁으로 보고 DUPLICATE_CHARGE (#83)")
-        void saveUniqueViolation_duplicate() {
-            stubSaveThrows(new SQLException("Duplicate entry", "23000", 1062));
+        @DisplayName("선기록이 reservation_id UNIQUE 위반(23000/1062)이면 사전 체크를 통과한 경쟁으로 보고 DUPLICATE_CHARGE (#83, #90)")
+        void saveReservationIdUniqueViolation_duplicate() {
+            stubSaveThrows(new SQLException(
+                    "Duplicate entry '100' for key 'payments.uk_payments_reservation_id'", "23000", 1062));
 
             assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
+        }
+
+        @Test
+        @DisplayName("선기록이 merchant_payment_id UNIQUE 위반이면 예약엔 결제가 없으므로 DUPLICATE_CHARGE로 오분류하지 않고 원 예외를 전파한다 (#90)")
+        void saveMerchantIdUniqueViolation_propagates() {
+            stubSaveThrows(new SQLException(
+                    "Duplicate entry 'pay_test' for key 'payments.uk_payments_merchant_payment_id'", "23000", 1062));
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+                    .isInstanceOf(DataIntegrityViolationException.class);
         }
 
         @Test
