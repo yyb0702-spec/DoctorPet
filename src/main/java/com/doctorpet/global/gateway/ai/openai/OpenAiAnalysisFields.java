@@ -15,7 +15,7 @@ record OpenAiAnalysisFields(
         List<String> requiredCapabilities,
         UrgencyLevel urgencyLevel,
         List<String> preVisitCheckpoints,
-        boolean recommendVetVisit
+        Boolean recommendVetVisit
 ) {
 
     AiAnalysisResult toResult(
@@ -30,7 +30,7 @@ record OpenAiAnalysisFields(
                 requiredCapabilities,
                 urgencyLevel,
                 preVisitCheckpoints,
-                recommendVetVisit,
+                recommendVetVisit.booleanValue(),
                 model,
                 promptVersion,
                 promptTokens,

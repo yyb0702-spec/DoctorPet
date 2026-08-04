@@ -169,6 +169,12 @@ public class OpenAiGateway implements AiGateway {
                     promptTokens,
                     completionTokens
             );
+            return new AiGatewayConsultationResult(
+                    analysis,
+                    output.locationRequired().booleanValue(),
+                    true, // 이 구현체는 Tool Calling 전체 흐름을 처리했음
+                    toolCalled
+            );
         } catch (NullPointerException exception) {
             // JSON 문법이 유효해도 필수 필드가 누락되면 DTO 생성 단계에서 실패할 수 있다.
             // 외부 응답 계약 위반으로 분류해 상위 서비스의 fallback 경로로 전달한다.
@@ -178,12 +184,6 @@ public class OpenAiGateway implements AiGateway {
                     exception
             );
         }
-        return new AiGatewayConsultationResult(
-                analysis,
-                output.locationRequired(),
-                true, // 이 구현체는 Tool Calling 전체 흐름을 처리했음
-                toolCalled
-        );
     }
 
     private JsonNode invoke(Map<String, Object> body) {

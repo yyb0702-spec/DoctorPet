@@ -16,7 +16,7 @@ record OpenAiToolArguments(
         List<String> requiredCapabilities,
         UrgencyLevel urgencyLevel,
         List<String> preVisitCheckpoints,
-        boolean recommendVetVisit,
+        Boolean recommendVetVisit,
         Boolean emergency,
         Boolean nightCare,
         Boolean openNow,

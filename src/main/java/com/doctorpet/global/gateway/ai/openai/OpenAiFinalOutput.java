@@ -9,8 +9,8 @@ record OpenAiFinalOutput(
         List<String> requiredCapabilities,
         UrgencyLevel urgencyLevel,
         List<String> preVisitCheckpoints,
-        boolean recommendVetVisit,
-        boolean locationRequired
+        Boolean recommendVetVisit,
+        Boolean locationRequired
 ) {
 
     OpenAiAnalysisFields analysis() {
