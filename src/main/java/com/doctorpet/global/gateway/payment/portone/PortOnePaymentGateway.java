@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -54,6 +55,9 @@ public class PortOnePaymentGateway implements PaymentGateway {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
+    // 생성자가 둘이라 스프링이 자동 선택하지 못하므로, 운영 배선에 쓸 이 생성자를 @Autowired로 명시한다
+    // (없으면 gateway=portone일 때 "No default constructor found"로 컨텍스트 로딩 실패 — 실 e2e에서 확인, #57).
+    @Autowired
     public PortOnePaymentGateway(PortOneProperties properties, PortOneErrorCodeMapper errorCodeMapper) {
         this(properties, errorCodeMapper,
                 HttpClient.newBuilder()
