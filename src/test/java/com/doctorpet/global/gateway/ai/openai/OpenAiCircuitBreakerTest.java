@@ -1,6 +1,6 @@
 package com.doctorpet.global.gateway.ai.openai;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.global.gateway.ai.AiGatewayException;
@@ -17,18 +17,49 @@ class OpenAiCircuitBreakerTest {
         OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
 
         circuitBreaker.onFailure();
-        circuitBreaker.beforeCall();
+        assertThat(circuitBreaker.beforeCall()).isFalse();
         circuitBreaker.onFailure();
 
         assertThatThrownBy(circuitBreaker::beforeCall)
                 .isInstanceOf(AiGatewayException.class);
 
         now.set(1_000_000_000L);
-        assertThatCode(circuitBreaker::beforeCall).doesNotThrowAnyException();
+        assertThat(circuitBreaker.beforeCall()).isTrue();
         assertThatThrownBy(circuitBreaker::beforeCall)
                 .isInstanceOf(AiGatewayException.class);
 
         circuitBreaker.onSuccess();
-        assertThatCode(circuitBreaker::beforeCall).doesNotThrowAnyException();
+        assertThat(circuitBreaker.beforeCall()).isFalse();
+    }
+
+    @Test
+    @DisplayName("HALF_OPEN 시험 요청의 비집계 예외를 해제하면 다음 시험 요청을 허용한다")
+    void ignoredFailure_releasesOwnedHalfOpenProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+        circuitBreaker.onFailure();
+        circuitBreaker.onFailure();
+        now.set(1_000_000_000L);
+
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
+        circuitBreaker.onIgnoredFailure(halfOpenProbe);
+
+        assertThat(circuitBreaker.beforeCall()).isTrue();
+    }
+
+    @Test
+    @DisplayName("일반 요청의 비집계 예외는 다른 HALF_OPEN 시험 요청 상태를 해제하지 않는다")
+    void ignoredFailure_fromClosedCall_doesNotReleaseAnotherProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+        circuitBreaker.onFailure();
+        circuitBreaker.onFailure();
+        now.set(1_000_000_000L);
+        assertThat(circuitBreaker.beforeCall()).isTrue();
+
+        circuitBreaker.onIgnoredFailure(false);
+
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
     }
 }

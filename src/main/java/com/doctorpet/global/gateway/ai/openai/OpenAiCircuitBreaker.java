@@ -28,10 +28,10 @@ final class OpenAiCircuitBreaker {
         this.nanoTime = nanoTime;
     }
 
-    synchronized void beforeCall() {
+    synchronized boolean beforeCall() {
         // CLOSED: 아직 연속 실패가 임계값 미만이므로 호출을 그대로 허용한다.
         if (consecutiveFailures < failureThreshold) {
-            return;
+            return false;
         }
         long now = nanoTime.getAsLong();
         // OPEN 또는 이미 HALF_OPEN 시험 호출이 진행 중이면 새 외부 요청을 차단한다.
@@ -43,6 +43,7 @@ final class OpenAiCircuitBreaker {
         }
         // 차단 시간이 지난 첫 요청 하나만 HALF_OPEN 시험 호출로 허용한다.
         halfOpenProbeInProgress = true;
+        return true;
     }
 
     synchronized void onSuccess() {
@@ -58,6 +59,15 @@ final class OpenAiCircuitBreaker {
         halfOpenProbeInProgress = false;
         if (consecutiveFailures >= failureThreshold) {
             openedAt = nanoTime.getAsLong();
+        }
+    }
+
+    synchronized void onIgnoredFailure(boolean halfOpenProbe) {
+        // INVALID_RESPONSE나 Tool 실행 실패는 공급자 가용성 실패로 집계하지 않는다. 다만 현재 요청이
+        // HALF_OPEN 시험 요청이었다면 시험 중 표시를 해제해 다음 복구 요청이 영구 차단되지 않게 한다.
+        // CLOSED 상태에서 시작한 다른 요청이 동시 HALF_OPEN 시험의 표시를 지우지 않도록 소유 여부를 받는다.
+        if (halfOpenProbe) {
+            halfOpenProbeInProgress = false;
         }
     }
 }

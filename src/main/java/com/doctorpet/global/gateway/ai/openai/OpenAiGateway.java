@@ -80,7 +80,7 @@ public class OpenAiGateway implements AiGateway {
     ) {
         // 이미 회로가 열려 있으면 외부 HTTP 요청을 보내지 않는다. 차단 자체는 새 실패로 다시 집계하지 않도록
         // try 밖에서 검사한다.
-        circuitBreaker.beforeCall();
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
         try {
             AiGatewayConsultationResult result = doConsult(request, toolExecutor);
             // 정상 응답에는 Tool 미호출 응답과 Tool 호출 후 최종 응답이 모두 포함된다.
@@ -92,7 +92,13 @@ public class OpenAiGateway implements AiGateway {
             if (exception.getFailureReason() == AiGatewayFailureReason.TIMEOUT
                     || exception.getFailureReason() == AiGatewayFailureReason.TEMPORARY_UNAVAILABLE) {
                 circuitBreaker.onFailure();
+            } else {
+                circuitBreaker.onIgnoredFailure(halfOpenProbe);
             }
+            throw exception;
+        } catch (RuntimeException exception) {
+            // Tool 실행 등 추적 대상이 아닌 런타임 예외도 HALF_OPEN 시험 상태는 반드시 해제해야 한다.
+            circuitBreaker.onIgnoredFailure(halfOpenProbe);
             throw exception;
         }
     }
