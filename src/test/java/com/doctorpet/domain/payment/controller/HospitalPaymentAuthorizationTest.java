@@ -15,6 +15,7 @@ import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -56,6 +57,9 @@ class HospitalPaymentAuthorizationTest {
 
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     @DisplayName("병원 스태프(ROLE_HOSPITAL_STAFF)는 진료비 청구에 접근할 수 있다(201)")
