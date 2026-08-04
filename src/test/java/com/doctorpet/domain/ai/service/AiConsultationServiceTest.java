@@ -356,6 +356,55 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("Tool 호출 단계가 HIGH이면 최종 응답의 긴급도가 낮아져도 응급 안내를 유지한다")
+    void consult_toolCallingHighThenModerate_keepsEmergencyGuidance() {
+        AiAnalysisResult toolAnalysis = new AiAnalysisResult(
+                List.of(), List.of("XRAY"), UrgencyLevel.HIGH, List.of(), true,
+                "gpt-4.1-mini", "doctorpet-ai-v4", 50, 10
+        );
+        AiAnalysisResult finalAnalysis = new AiAnalysisResult(
+                List.of(), List.of("XRAY"), UrgencyLevel.MODERATE, List.of(), true,
+                "gpt-4.1-mini", "doctorpet-ai-v4", 100, 20
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    toolAnalysis,
+                    true,
+                    null,
+                    true,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    finalAnalysis,
+                    false,
+                    true,
+                    true
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, true, false, true, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("상태가 갑자기 나빠졌어요", PetSpecies.DOG, "서울")
+        );
+
+        assertThat(response.structured().urgencyLevel()).isEqualTo(UrgencyLevel.HIGH);
+        assertThat(response.message()).contains("응급 상황");
+        assertThat(response.locationRecommended()).isTrue();
+        assertThat(response.hospitals()).containsExactly(hospital());
+        verify(hospitalService).hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, true, false, true, 1, 20, "name"
+        );
+    }
+
+    @Test
     @DisplayName("Tool Calling Gateway가 Tool 없이 HIGH를 반환하면 서버가 응급 검색을 강제한다")
     void consult_toolCallingHighWithoutTool_forcesEmergencySearch() {
         AiAnalysisResult high = new AiAnalysisResult(

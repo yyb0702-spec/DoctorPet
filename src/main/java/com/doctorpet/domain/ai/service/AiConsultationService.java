@@ -170,7 +170,12 @@ public class AiConsultationService {
             long startedAt
     ) {
         AiAnalysisResult result = gatewayResult.analysis();
-        boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH;
+        // Tool 호출 단계와 최종 응답 단계 중 한 번이라도 응급으로 판단했다면 안전 등급을 낮추지 않는다.
+        boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH
+                || toolState.emergencySearch();
+        if (emergency && result.urgencyLevel() != UrgencyLevel.HIGH) {
+            result = withHighUrgency(result);
+        }
         if (emergency && requiresEmergencyLocation(request)) {
             return emergencyWithoutLocation(memberId, maskedSymptomText, result, startedAt);
         }
@@ -395,6 +400,20 @@ public class AiConsultationService {
                 null,
                 null,
                 null
+        );
+    }
+
+    private AiAnalysisResult withHighUrgency(AiAnalysisResult result) {
+        return new AiAnalysisResult(
+                result.possibleFocusAreas(),
+                result.requiredCapabilities(),
+                UrgencyLevel.HIGH,
+                result.preVisitCheckpoints(),
+                result.recommendVetVisit(),
+                result.model(),
+                result.promptVersion(),
+                result.promptTokens(),
+                result.completionTokens()
         );
     }
 
