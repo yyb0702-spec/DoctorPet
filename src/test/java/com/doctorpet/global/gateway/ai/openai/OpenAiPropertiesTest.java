@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,18 @@ class OpenAiPropertiesTest {
                         "circuitBreakerFailureThreshold",
                         "circuitBreakerOpenMs"
                 );
+    }
+
+    @Test
+    @DisplayName("OpenAI 토큰 단가가 음수이면 유효하지 않다")
+    void negativeTokenPrices_invalid() {
+        OpenAiProperties properties = validProperties();
+        properties.setInputPricePerMillionUsd(new BigDecimal("-0.01"));
+        properties.setOutputPricePerMillionUsd(new BigDecimal("-0.01"));
+
+        assertThat(validator.validate(properties))
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .contains("inputPricePerMillionUsd", "outputPricePerMillionUsd");
     }
 
     @Test

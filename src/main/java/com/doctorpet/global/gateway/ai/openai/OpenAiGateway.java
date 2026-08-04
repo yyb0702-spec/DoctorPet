@@ -1,5 +1,7 @@
 package com.doctorpet.global.gateway.ai.openai;
 
+import com.doctorpet.domain.hospital.entity.CapabilityType;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.global.gateway.ai.AiGateway;
 import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
@@ -9,6 +11,8 @@ import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -17,6 +21,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,13 +44,14 @@ import tools.jackson.databind.ObjectMapper;
  * 최대 한 번만 허용하며, 공급자 응답 저장 상태에 의존하지 않도록 모든 요청에 {@code store=false}를 사용한다.
  */
 @Component
+@Slf4j
 @EnableConfigurationProperties(OpenAiProperties.class)
 @ConditionalOnProperty(name = "ai.gateway", havingValue = "openai")
 public class OpenAiGateway implements AiGateway {
 
     static final String SEARCH_TOOL_NAME = "searchNearbyVets";
     private static final String RESPONSES_PATH = "/responses";
-    private static final String PROMPT_PATH = "prompts/ai-consultation-v1.txt";
+    private static final String PROMPT_PATH = "prompts/ai-consultation-v2.txt";
 
     private final OpenAiProperties properties;
     private final ObjectMapper objectMapper;
@@ -173,6 +179,7 @@ public class OpenAiGateway implements AiGateway {
                     exception
             );
         }
+        logUsage(promptTokens, completionTokens);
         return new AiGatewayConsultationResult(
                 analysis,
                 output.message(),
@@ -316,7 +323,7 @@ public class OpenAiGateway implements AiGateway {
     private Map<String, Object> analysisProperties() {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("possibleFocusAreas", stringArray());
-        fields.put("requiredCapabilities", stringArray());
+        fields.put("requiredCapabilities", capabilityArray());
         fields.put("urgencyLevel", Map.of("type", "string", "enum", List.of("LOW", "MODERATE", "HIGH")));
         fields.put("preVisitCheckpoints", stringArray());
         fields.put("recommendVetVisit", Map.of("type", "boolean"));
@@ -335,6 +342,18 @@ public class OpenAiGateway implements AiGateway {
 
     private Map<String, Object> stringArray() {
         return Map.of("type", "array", "items", Map.of("type", "string"));
+    }
+
+    private Map<String, Object> capabilityArray() {
+        List<String> capabilities = Arrays.stream(CapabilityValue.values())
+                .filter(value -> value.getType() != CapabilityType.SPECIES)
+                .map(CapabilityValue::name)
+                .toList();
+        return Map.of(
+                "type", "array",
+                "items", Map.of("type", "string", "enum", capabilities),
+                "description", "사용자가 요청한 검사·진료·장비와 일치하는 허용 진료역량"
+        );
     }
 
     private Map<String, Object> nullableBoolean(String description) {
@@ -400,6 +419,21 @@ public class OpenAiGateway implements AiGateway {
 
     private int usage(JsonNode response, String field) {
         return response.path("usage").path(field).asInt(0);
+    }
+
+    private void logUsage(int promptTokens, int completionTokens) {
+        BigDecimal estimatedCostUsd = properties.getInputPricePerMillionUsd()
+                .multiply(BigDecimal.valueOf(promptTokens))
+                .add(properties.getOutputPricePerMillionUsd()
+                        .multiply(BigDecimal.valueOf(completionTokens)))
+                .divide(BigDecimal.valueOf(1_000_000), 8, RoundingMode.HALF_UP);
+        log.info(
+                "OpenAI usage model={} promptTokens={} completionTokens={} estimatedCostUsd={}",
+                properties.getModel(),
+                promptTokens,
+                completionTokens,
+                estimatedCostUsd.stripTrailingZeros().toPlainString()
+        );
     }
 
     private AiGatewayException invalidResponse(String message) {

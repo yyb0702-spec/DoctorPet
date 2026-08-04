@@ -329,7 +329,7 @@ class AiConsultationServiceTest {
     void consult_toolCallingHighWithoutTool_forcesEmergencySearch() {
         AiAnalysisResult high = new AiAnalysisResult(
                 List.of(), List.of(), UrgencyLevel.HIGH, List.of(), true,
-                "gpt-4.1-mini", "doctorpet-ai-v1", 100, 20
+                "gpt-4.1-mini", "doctorpet-ai-v2", 100, 20
         );
         doAnswer(invocation -> new AiGatewayConsultationResult(
                 high,
