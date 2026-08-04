@@ -24,7 +24,9 @@ public enum PaymentErrorCode implements ErrorCode {
     // 예약당 이미 결제 레코드가 존재(이중 청구). reservation_id UNIQUE의 사전 체크·경쟁 상태 방어.
     DUPLICATE_CHARGE(HttpStatus.CONFLICT, "PAYMENT_004", "이미 청구된 예약입니다."),
     // 결제 레코드를 찾을 수 없음(후확정 단계 방어선).
-    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_005", "결제 정보를 찾을 수 없습니다.");
+    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_005", "결제 정보를 찾을 수 없습니다."),
+    // 오프라인 정산은 OFFLINE_REQUIRED 상태에서만 가능. PENDING·PAID 등 허용되지 않은 상태에서 시도한 경우(#36).
+    OFFLINE_PRECONDITION_FAILED(HttpStatus.CONFLICT, "PAYMENT_006", "오프라인 정산이 가능한 상태가 아닙니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
