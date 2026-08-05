@@ -235,6 +235,23 @@ class ReservationApprovalTimeoutBatchServiceTest {
         assertThat(result.scanned()).isEqualTo(10);
     }
 
+    @Test
+    @DisplayName("처리 상한이 1이어도 일반 만료 예약을 먼저 처리한다")
+    void processBatch_withSingleScanKeepsNormalQuota() {
+        ReflectionTestUtils.setField(service, "properties", propertiesWith(1));
+        Reservation normal = target(1L);
+        given(reservationRepository.findApprovalTimeoutTargets(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(Pageable.class)
+        )).willReturn(List.of(normal));
+        given(processor.process(eq(1L), any(LocalDateTime.class)))
+                .willReturn(ReservationApprovalTimeoutProcessor.Result.PROCESSED);
+
+        ReservationApprovalTimeoutSummary result = service.processBatch();
+
+        assertThat(result.scanned()).isEqualTo(1);
+        verify(processor).process(eq(1L), any(LocalDateTime.class));
+    }
+
     private ReservationApprovalTimeoutProperties propertiesWith(int maxScanned) {
         ReservationApprovalTimeoutProperties properties =
                 new ReservationApprovalTimeoutProperties();

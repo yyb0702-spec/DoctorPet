@@ -98,7 +98,7 @@ public class ReservationApprovalTimeoutBatchService {
         LocalDateTime now = LocalDateTime.now(clock);
         BatchAccumulator accumulator = new BatchAccumulator();
         int totalLimit = properties.getMaxScannedPerRun();
-        int retryQuota = Math.max(1, totalLimit / 5);
+        int retryQuota = totalLimit > 1 ? Math.max(1, totalLimit / 5) : 0;
         int normalQuota = totalLimit - retryQuota;
         GroupState normal = processGroup(now, normalQuota, false, new GroupState(), accumulator);
         GroupState retry = processGroup(now, retryQuota, true, new GroupState(), accumulator);
