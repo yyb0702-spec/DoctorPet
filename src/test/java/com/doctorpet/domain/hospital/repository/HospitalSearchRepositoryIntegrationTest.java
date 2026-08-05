@@ -129,13 +129,13 @@ class HospitalSearchRepositoryIntegrationTest {
     void 지역_축종_필수역량_시설조건을_모두_만족하는_병원만_조회한다() {
         Hospital matched = saveHospital(
                 "FILTER-MATCHED",
-                "조건 일치 병원",
+                "필터격리검증 조건 일치 병원",
                 BusinessStatus.OPEN,
                 true
         );
         Hospital noSurgery = saveHospital(
                 "FILTER-NO-SURGERY",
-                "수술 불가 병원",
+                "필터격리검증 수술 불가 병원",
                 BusinessStatus.OPEN,
                 true
         );
@@ -168,7 +168,7 @@ class HospitalSearchRepositoryIntegrationTest {
         hospitalDetailRepository.flush();
 
         HospitalSearchCondition condition = new HospitalSearchCondition(
-                null,
+                "필터격리검증",
                 "중구",
                 null,
                 null,
