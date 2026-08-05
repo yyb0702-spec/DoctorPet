@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -186,6 +187,54 @@ class ReservationApprovalTimeoutBatchServiceTest {
         verify(processor).process(eq(1L), any(LocalDateTime.class));
     }
 
+    @Test
+    @DisplayName("재시도 예약이 많아도 일반 만료 예약에 처리 기회를 보장한다")
+    void processBatch_fairlyProcessesNormalAndRetryGroups() {
+        ReflectionTestUtils.setField(service, "properties", propertiesWith(10));
+        List<Reservation> normal = targets(1L, 8);
+        List<Reservation> retry = targets(101L, 2);
+        given(reservationRepository.findApprovalTimeoutTargets(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(Pageable.class)
+        )).willReturn(normal);
+        given(reservationRepository.findApprovalTimeoutRetryTargets(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(Pageable.class)
+        )).willReturn(retry);
+        given(processor.process(any(), any(LocalDateTime.class)))
+                .willReturn(ReservationApprovalTimeoutProcessor.Result.PROCESSED);
+
+        ReservationApprovalTimeoutSummary result = service.processBatch();
+
+        assertThat(result.scanned()).isEqualTo(10);
+        verify(processor).process(eq(1L), any(LocalDateTime.class));
+        verify(processor).process(eq(101L), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("일반 만료 예약이 적으면 남은 처리량을 재시도 예약에 사용한다")
+    void processBatch_usesUnusedQuotaForRetryGroup() {
+        ReflectionTestUtils.setField(service, "properties", propertiesWith(10));
+        List<Reservation> normal = targets(1L, 2);
+        List<Reservation> retry = targets(101L, 8);
+        given(reservationRepository.findApprovalTimeoutTargets(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(Pageable.class)
+        )).willReturn(normal, List.of());
+        given(reservationRepository.findApprovalTimeoutTargetsAfter(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(), any(), any(Pageable.class)
+        )).willReturn(List.of());
+        given(reservationRepository.findApprovalTimeoutRetryTargets(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(Pageable.class)
+        )).willReturn(retry.subList(0, 2));
+        given(reservationRepository.findApprovalTimeoutRetryTargetsAfter(
+                eq(ReservationStatus.REQUESTED), any(LocalDateTime.class), any(), any(), any(Pageable.class)
+        )).willReturn(retry.subList(2, 8));
+        given(processor.process(any(), any(LocalDateTime.class)))
+                .willReturn(ReservationApprovalTimeoutProcessor.Result.PROCESSED);
+
+        ReservationApprovalTimeoutSummary result = service.processBatch();
+
+        assertThat(result.scanned()).isEqualTo(10);
+    }
+
     private ReservationApprovalTimeoutProperties propertiesWith(int maxScanned) {
         ReservationApprovalTimeoutProperties properties =
                 new ReservationApprovalTimeoutProperties();
@@ -210,5 +259,13 @@ class ReservationApprovalTimeoutBatchServiceTest {
         );
         ReflectionTestUtils.setField(reservation, "id", id);
         return reservation;
+    }
+
+    private List<Reservation> targets(long firstId, int count) {
+        List<Reservation> result = new ArrayList<>();
+        for (long id = firstId; id < firstId + count; id++) {
+            result.add(target(id));
+        }
+        return result;
     }
 }

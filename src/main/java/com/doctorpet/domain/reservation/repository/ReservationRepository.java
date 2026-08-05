@@ -253,8 +253,7 @@ public interface ReservationRepository
           from Reservation r
          where r.status = :requestedStatus
            and r.approvalDeadlineAt <= :now
-           and (r.approvalTimeoutNextRetryAt is null
-                or r.approvalTimeoutNextRetryAt <= :now)
+           and r.approvalTimeoutNextRetryAt is null
          order by r.approvalDeadlineAt asc, r.id asc
         """)
     List<Reservation> findApprovalTimeoutTargets(
@@ -269,8 +268,7 @@ public interface ReservationRepository
           from Reservation r
          where r.status = :requestedStatus
            and r.approvalDeadlineAt <= :now
-           and (r.approvalTimeoutNextRetryAt is null
-                or r.approvalTimeoutNextRetryAt <= :now)
+           and r.approvalTimeoutNextRetryAt is null
            and (
                 r.approvalDeadlineAt > :cursorDeadline
                 or (
@@ -281,6 +279,36 @@ public interface ReservationRepository
          order by r.approvalDeadlineAt asc, r.id asc
         """)
     List<Reservation> findApprovalTimeoutTargetsAfter(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            @Param("cursorDeadline") LocalDateTime cursorDeadline,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
+    );
+
+    @Query("""
+        select r from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and r.approvalTimeoutNextRetryAt <= :now
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutRetryTargets(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    @Query("""
+        select r from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and r.approvalTimeoutNextRetryAt <= :now
+           and (r.approvalDeadlineAt > :cursorDeadline
+                or (r.approvalDeadlineAt = :cursorDeadline and r.id > :cursorId))
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutRetryTargetsAfter(
             @Param("requestedStatus") ReservationStatus reservationStatus,
             @Param("now") LocalDateTime now,
             @Param("cursorDeadline") LocalDateTime cursorDeadline,

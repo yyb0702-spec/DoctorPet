@@ -96,109 +96,98 @@ public class ReservationApprovalTimeoutBatchService {
 
     private ReservationApprovalTimeoutSummary processLocked() {
         LocalDateTime now = LocalDateTime.now(clock);
-        int processed = 0;
-        int skipped = 0;
-        int failed = 0;
-        int scanned = 0;
-        long maxDelayMillis = 0L;
-        LocalDateTime cursorDeadline = null;
-        Long cursorId = null;
-
-        while (scanned < properties.getMaxScannedPerRun()) {
-            int pageSize = Math.min(
-                    properties.getBatchSize(),
-                    properties.getMaxScannedPerRun() - scanned
-            );
-            List<Reservation> targets = findNextTargets(
-                    now,
-                    cursorDeadline,
-                    cursorId,
-                    pageSize
-            );
-            if (targets.isEmpty()) {
-                break;
-            }
-
-            for (Reservation target : targets) {
-                scanned++;
-                long delayMillis = Math.max(
-                        0L,
-                        Duration.between(
-                                target.getApprovalDeadlineAt(),
-                                now
-                        ).toMillis()
-                );
-                delaySummary.record(delayMillis);
-                maxDelayMillis = Math.max(maxDelayMillis, delayMillis);
-
-                ReservationApprovalTimeoutProcessor.Result result =
-                        processWithRetry(target.getId(), now);
-                switch (result) {
-                    case PROCESSED -> {
-                        processed++;
-                        processedCounter.increment();
-                    }
-                    case SKIPPED -> {
-                        skipped++;
-                        skippedCounter.increment();
-                    }
-                    case FAILED -> {
-                        try {
-                            processor.deferRetry(
-                                    target.getId(),
-                                    now.plusNanos(
-                                            properties.getFailureRetryDelayMs() * 1_000_000L
-                                    )
-                            );
-                        } catch (RuntimeException deferException) {
-                            log.error(
-                                    "예약 승인 타임아웃 재시도 시각 저장 실패: reservationId={}",
-                                    target.getId(),
-                                    deferException
-                            );
-                        }
-                        failed++;
-                        failedCounter.increment();
-                    }
-                }
-            }
-
-            Reservation lastTarget = targets.get(targets.size() - 1);
-            cursorDeadline = lastTarget.getApprovalDeadlineAt();
-            cursorId = lastTarget.getId();
+        BatchAccumulator accumulator = new BatchAccumulator();
+        int totalLimit = properties.getMaxScannedPerRun();
+        int retryQuota = Math.max(1, totalLimit / 5);
+        int normalQuota = totalLimit - retryQuota;
+        GroupState normal = processGroup(now, normalQuota, false, new GroupState(), accumulator);
+        GroupState retry = processGroup(now, retryQuota, true, new GroupState(), accumulator);
+        if (normal.scanned < normalQuota) {
+            processGroup(now, normalQuota - normal.scanned, true, retry, accumulator);
+        }
+        if (retry.scanned < retryQuota) {
+            processGroup(now, retryQuota - retry.scanned, false, normal, accumulator);
         }
 
         return new ReservationApprovalTimeoutSummary(
                 true,
-                scanned,
-                processed,
-                skipped,
-                failed,
-                maxDelayMillis
+                accumulator.scanned,
+                accumulator.processed,
+                accumulator.skipped,
+                accumulator.failed,
+                accumulator.maxDelayMillis
         );
     }
 
-    private List<Reservation> findNextTargets(
+    private GroupState processGroup(
             LocalDateTime now,
-            LocalDateTime cursorDeadline,
-            Long cursorId,
-            int pageSize
+            int limit,
+            boolean retryGroup,
+            GroupState state,
+            BatchAccumulator accumulator
     ) {
-        PageRequest page = PageRequest.of(0, pageSize);
-        if (cursorDeadline == null) {
-            return reservationRepository.findApprovalTimeoutTargets(
-                    ReservationStatus.REQUESTED,
-                    now,
-                    page
-            );
+        int targetCount = state.scanned + limit;
+        while (state.scanned < targetCount) {
+            int pageSize = Math.min(properties.getBatchSize(), targetCount - state.scanned);
+            List<Reservation> targets = retryGroup
+                    ? findRetryTargets(now, state, pageSize)
+                    : findNormalTargets(now, state, pageSize);
+            if (targets.isEmpty()) break;
+            for (Reservation target : targets) {
+                state.scanned++;
+                accumulator.scanned++;
+                long delayMillis = Math.max(0L, Duration.between(
+                        target.getApprovalDeadlineAt(), now).toMillis());
+                delaySummary.record(delayMillis);
+                accumulator.maxDelayMillis = Math.max(accumulator.maxDelayMillis, delayMillis);
+                ReservationApprovalTimeoutProcessor.Result result = processWithRetry(target.getId(), now);
+                switch (result) {
+                    case PROCESSED -> { accumulator.processed++; processedCounter.increment(); }
+                    case SKIPPED -> { accumulator.skipped++; skippedCounter.increment(); }
+                    case FAILED -> {
+                        try {
+                            processor.deferRetry(target.getId(), now.plusNanos(
+                                    properties.getFailureRetryDelayMs() * 1_000_000L));
+                        } catch (RuntimeException exception) {
+                            log.error("예약 승인 타임아웃 재시도 시각 저장 실패: reservationId={}", target.getId(), exception);
+                        }
+                        accumulator.failed++;
+                        failedCounter.increment();
+                    }
+                }
+                state.cursorDeadline = target.getApprovalDeadlineAt();
+                state.cursorId = target.getId();
+            }
         }
-        return reservationRepository.findApprovalTimeoutTargetsAfter(
-                ReservationStatus.REQUESTED,
-                now,
-                cursorDeadline,
-                cursorId,
-                page
-        );
+        return state;
+    }
+
+    private List<Reservation> findNormalTargets(LocalDateTime now, GroupState state, int size) {
+        PageRequest page = PageRequest.of(0, size);
+        return state.cursorDeadline == null
+                ? reservationRepository.findApprovalTimeoutTargets(ReservationStatus.REQUESTED, now, page)
+                : reservationRepository.findApprovalTimeoutTargetsAfter(ReservationStatus.REQUESTED, now, state.cursorDeadline, state.cursorId, page);
+    }
+
+    private List<Reservation> findRetryTargets(LocalDateTime now, GroupState state, int size) {
+        PageRequest page = PageRequest.of(0, size);
+        return state.cursorDeadline == null
+                ? reservationRepository.findApprovalTimeoutRetryTargets(ReservationStatus.REQUESTED, now, page)
+                : reservationRepository.findApprovalTimeoutRetryTargetsAfter(ReservationStatus.REQUESTED, now, state.cursorDeadline, state.cursorId, page);
+    }
+
+    private static final class GroupState {
+        private int scanned;
+        private LocalDateTime cursorDeadline;
+        private Long cursorId;
+    }
+
+    private static final class BatchAccumulator {
+        private int scanned;
+        private int processed;
+        private int skipped;
+        private int failed;
+        private long maxDelayMillis;
     }
 
     private ReservationApprovalTimeoutProcessor.Result processWithRetry(
