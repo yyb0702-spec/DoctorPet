@@ -143,13 +143,20 @@ public class ReservationApprovalTimeoutBatchService {
                         skippedCounter.increment();
                     }
                     case FAILED -> {
-                        reservationRepository.deferApprovalTimeoutRetry(
-                                target.getId(),
-                                ReservationStatus.REQUESTED,
-                                now.plusNanos(
-                                        properties.getFailureRetryDelayMs() * 1_000_000L
-                                )
-                        );
+                        try {
+                            processor.deferRetry(
+                                    target.getId(),
+                                    now.plusNanos(
+                                            properties.getFailureRetryDelayMs() * 1_000_000L
+                                    )
+                            );
+                        } catch (RuntimeException deferException) {
+                            log.error(
+                                    "예약 승인 타임아웃 재시도 시각 저장 실패: reservationId={}",
+                                    target.getId(),
+                                    deferException
+                            );
+                        }
                         failed++;
                         failedCounter.increment();
                     }

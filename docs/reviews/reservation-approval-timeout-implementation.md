@@ -101,6 +101,12 @@ MySQL `GET_LOCK`으로 한 서버만 배치를 실행하게 했습니다. Redis 
 
 ## 검증 결과
 
+### 배포 전 스키마 체크
+
+- `reservation.approval-deadline-migration.enabled`는 운영 배포에서 `true`로 유지한다.
+- 애플리케이션 기동 로그에서 `reservation_approval_deadline_v1` 마이그레이션 완료를 확인한다.
+- `reservations.approval_deadline_at`의 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 확인한 뒤 스케줄러를 활성화한다.
+
 | 구분 | 결과 | 확인 내용 |
 | --- | --- | --- |
 | Java 컴파일 | PASS | 새 클래스와 의존성 연결 |

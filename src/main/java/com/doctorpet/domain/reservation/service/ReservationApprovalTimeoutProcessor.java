@@ -76,4 +76,14 @@ public class ReservationApprovalTimeoutProcessor {
 
         return Result.PROCESSED;
     }
+
+    /** 실패 예약의 다음 재시도 시각 저장은 별도 짧은 트랜잭션으로 보장한다. */
+    @Transactional
+    public void deferRetry(Long reservationId, LocalDateTime nextRetryAt) {
+        reservationRepository.deferApprovalTimeoutRetry(
+                reservationId,
+                ReservationStatus.REQUESTED,
+                nextRetryAt
+        );
+    }
 }

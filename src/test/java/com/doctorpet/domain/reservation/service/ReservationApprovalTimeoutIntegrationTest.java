@@ -13,6 +13,7 @@ import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutLock;
+import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutSummary;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -53,6 +54,9 @@ class ReservationApprovalTimeoutIntegrationTest {
 
     @Autowired
     private ReservationApprovalTimeoutProcessor processor;
+
+    @Autowired
+    private ReservationApprovalTimeoutBatchService batchService;
 
     @Autowired
     private ReservationApprovalTimeoutLock timeoutLock;
@@ -202,6 +206,33 @@ class ReservationApprovalTimeoutIntegrationTest {
                 data.reservationId(),
                 ReservationEventType.TIMEOUT_REJECTED.name()
         )).isTrue();
+    }
+
+    @Test
+    @DisplayName("실패한 예약은 백오프 후 다음 배치에서 다시 조회된다")
+    void failedReservation_isDeferredAndRetriedNextBatch() {
+        TestReservation data = saveRequestedReservation(true);
+        jdbcTemplate.update(
+                "delete from reservation_slots where id = ?",
+                data.slotId()
+        );
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+
+        ReservationApprovalTimeoutSummary summary = batchService.processBatch();
+
+        assertThat(summary.failed()).isEqualTo(1);
+        assertThat(reservationRepository.findApprovalTimeoutTargets(
+                ReservationStatus.REQUESTED,
+                now,
+                PageRequest.of(0, 100)
+        )).extracting(Reservation::getId)
+                .doesNotContain(data.reservationId());
+        assertThat(reservationRepository.findApprovalTimeoutTargets(
+                ReservationStatus.REQUESTED,
+                now.plusMinutes(2),
+                PageRequest.of(0, 100)
+        )).extracting(Reservation::getId)
+                .contains(data.reservationId());
     }
 
     @Test
