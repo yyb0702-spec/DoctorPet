@@ -174,7 +174,7 @@ class PortOnePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("승인 요청은 merchantPaymentId를 Idempotency-Key 헤더로 실어 재시도 시 이중 승인을 막는다")
+    @DisplayName("승인 요청은 merchantPaymentId를 RFC 8941 형식(쌍따옴표)으로 감싼 Idempotency-Key 헤더로 실어 이중 승인을 막는다")
     void approve_sendsIdempotencyKey() throws Exception {
         PortOnePaymentGateway gateway = gatewayWith(response(200,
                 "{\"payment\":{\"id\":\"pay_1\",\"status\":\"PAID\",\"amount\":{\"total\":50000}}}"));
@@ -188,7 +188,8 @@ class PortOnePaymentGatewayTest {
                 .filter(req -> req.uri().getPath().endsWith("/billing-key"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(approveRequest.headers().firstValue("Idempotency-Key")).contains("pay_1");
+        // PortOne V2가 RFC 8941 String으로 해석하므로 정확히 쌍따옴표로 감싼 값이어야 한다(단순 포함이 아님).
+        assertThat(approveRequest.headers().firstValue("Idempotency-Key")).hasValue("\"pay_1\"");
     }
 
     @Test

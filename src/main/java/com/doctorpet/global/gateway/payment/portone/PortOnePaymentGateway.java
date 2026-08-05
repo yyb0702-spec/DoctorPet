@@ -108,9 +108,9 @@ public class PortOnePaymentGateway implements PaymentGateway {
         HttpResponse<String> response = send(
                 authorized("/payments/" + encodePathSegment(command.merchantPaymentId()) + "/billing-key", token)
                         .header("Content-Type", "application/json")
-                        // PortOne V2 멱등 키(공식 문서 권장). 통신 오류 후 상위가 같은 merchantPaymentId로 승인을
-                        // 재요청해도 PortOne이 기존 요청 결과를 반환해(진행 중이면 409 IDEMPOTENCY_OUTSTANDING_REQUEST)
-                        // 이중 승인을 막는다. 최초·재시도가 반드시 같은 값이어야 하므로 merchantPaymentId를 그대로 쓴다.
+                        // PortOne V2 멱등 키. 통신 오류 후 상위가 같은 merchantPaymentId로 승인을 재요청해도
+                        // PortOne이 기존 요청 결과를 반환해(진행 중이면 409 IDEMPOTENCY_OUTSTANDING_REQUEST) 이중
+                        // 승인을 막는다. 최초·재시도가 반드시 같은 값이어야 하므로 merchantPaymentId를 쓴다.
                         .header("Idempotency-Key", idempotencyKey(command.merchantPaymentId()))
                         .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                         .build(), "approve");
@@ -334,14 +334,19 @@ public class PortOnePaymentGateway implements PaymentGateway {
 
     /**
      * PortOne 멱등 키를 만든다. 최초 승인과 통신 오류 후 재시도가 반드시 같은 값이어야 이중 승인을 막을 수
-     * 있으므로, 결제당 유일한 merchantPaymentId를 그대로 쓴다. HTTP 헤더 값으로 나가므로 공백만 방어한다.
+     * 있으므로, 결제당 유일한 merchantPaymentId를 키로 쓴다.
+     *
+     * <p>PortOne V2는 이 헤더 값을 RFC 8941 Structured Fields의 String으로 해석하므로 반드시 쌍따옴표로 감싼
+     * 형태({@code "<값>"})여야 한다 — raw 값으로 보내면 파싱에 실패해 멱등 처리가 적용되지 않거나 요청이
+     * 거부될 수 있다(PR #95 리뷰 반영). merchantPaymentId는 {@code pay_}+UUID(hex) 36자라 항상 16~256자
+     * ASCII이고 이스케이프가 필요한 문자(따옴표·역슬래시)를 포함하지 않으므로 그대로 감싼다.
      */
     private String idempotencyKey(String merchantPaymentId) {
         if (isBlank(merchantPaymentId)) {
             throw new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null,
                     "PortOne 승인 요청에 merchantPaymentId(멱등 키)가 없습니다.", null);
         }
-        return merchantPaymentId;
+        return "\"" + merchantPaymentId + "\"";
     }
 
     private void requireConfigured() {
