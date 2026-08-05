@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.publicdata.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.global.config.QuerydslConfig;
 import java.util.Optional;
@@ -49,6 +50,21 @@ class AnimalHospitalRefreshLockIntegrationTest {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @Test
+    void 갱신_작업이_실패해도_잠금을_해제한다() {
+        assertThatThrownBy(() ->
+                refreshLock.executeIfAcquired(() -> {
+                    throw new IllegalStateException("갱신 실패");
+                })
+        ).isInstanceOf(IllegalStateException.class)
+                .hasMessage("갱신 실패");
+
+        Optional<Boolean> retried =
+                refreshLock.executeIfAcquired(() -> true);
+
+        assertThat(retried).contains(true);
     }
 
     private void await(CountDownLatch latch) {

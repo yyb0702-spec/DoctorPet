@@ -54,9 +54,21 @@ public class AnimalHospitalRefreshLock {
                 "select release_lock(?)"
         )) {
             statement.setString(1, LOCK_NAME);
-            statement.executeQuery();
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    log.warn("동물병원 공공데이터 갱신 잠금 해제 결과를 받지 못함");
+                    return;
+                }
+
+                int releaseResult = resultSet.getInt(1);
+                if (resultSet.wasNull()) {
+                    log.warn("동물병원 공공데이터 갱신 잠금이 존재하지 않음");
+                } else if (releaseResult != 1) {
+                    log.warn("동물병원 공공데이터 갱신 잠금의 소유권이 없어 해제하지 못함");
+                }
+            }
         } catch (SQLException exception) {
-            log.warn("동물병원 공공데이터 갱신 잠금 해제 실패", exception);
+            log.warn("동물병원 공공데이터 갱신 잠금 해제 중 SQL 오류 발생", exception);
         }
     }
 }
