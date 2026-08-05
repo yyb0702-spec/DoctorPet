@@ -2,13 +2,16 @@ package com.doctorpet.domain.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.audit.PaymentChargeAuditLogger;
+import com.doctorpet.domain.payment.config.PaymentChargeProperties;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
@@ -45,6 +48,7 @@ class PaymentApplicationServiceTest {
     private static final String MERCHANT_ID = "pay_x";
     private static final int AMOUNT = 50_000;
     private static final int MAX_RETRY = 3;
+    private static final long RETRY_BACKOFF_DEADLINE_MS = 3_500;
 
     @Mock private PaymentChargeService paymentChargeService;
     @Mock private BillingKeyCryptor billingKeyCryptor;
@@ -57,10 +61,19 @@ class PaymentApplicationServiceTest {
     @BeforeEach
     void setUp() {
         paymentGateway = new FakePaymentGateway();
-        // 백오프는 no-op으로 대체해 실제 대기 없이 재시도 분기를 검증한다.
+        // 백오프는 no-op(대기 0ms)으로 대체해 실제 대기 없이 재시도 분기를 검증한다. 0을 반환하므로 누적이
+        // 늘지 않아 데드라인 캡은 발동하지 않는다(캡 자체 검증은 backoffDeadlineCap_* 테스트가 별도로 한다).
         paymentApplicationService = new PaymentApplicationService(
                 paymentChargeService, paymentGateway, billingKeyCryptor,
-                notificationPublisher, chargeAuditLogger, attempt -> { }, MAX_RETRY);
+                notificationPublisher, chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY,
+                chargeProperties(RETRY_BACKOFF_DEADLINE_MS));
+    }
+
+    // 데드라인 캡은 이제 @ConfigurationProperties로 주입된다(PR #92 P2). 테스트도 프로퍼티 객체로 값을 넘긴다.
+    private static PaymentChargeProperties chargeProperties(long deadlineMs) {
+        PaymentChargeProperties properties = new PaymentChargeProperties();
+        properties.setRetryBackoffDeadlineMs(deadlineMs);
+        return properties;
     }
 
     private void stubPreRecord(boolean methodActive) {
@@ -196,6 +209,34 @@ class PaymentApplicationServiceTest {
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("RETRY_EXHAUSTED_UNCONFIRMED");
         assertThat(outcome.retryCount()).isEqualTo(MAX_RETRY);
+    }
+
+    @Test
+    @DisplayName("백오프 누적 대기가 데드라인 예산을 넘으면 남은 재시도를 포기하고 최종 확정으로 빠진다(#85 스레드 점유 상한)")
+    void backoffDeadlineCap_stopsRetryingEarly() {
+        // 매 대기가 2000ms를 소비하는 백오프. 예산 3500ms → attempt1(누적 2000)·attempt2(누적 4000) 후 소진되어
+        // attempt3(maxRetry의 마지막 회차)는 시도하지 않는다. 데드라인 캡이 없으면 1 + maxRetry = 4회 승인했을 것.
+        RetryBackoff cappedBackoff = mock(RetryBackoff.class);
+        given(cappedBackoff.pause(anyInt(), anyLong())).willReturn(2000L);
+        PaymentApplicationService service = new PaymentApplicationService(
+                paymentChargeService, paymentGateway, billingKeyCryptor,
+                notificationPublisher, chargeAuditLogger, cappedBackoff, MAX_RETRY, chargeProperties(3_500L));
+        stubPreRecord(true);
+        given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
+        paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
+
+        PaymentChargeResponse response = service.charge(RESERVATION_ID, STAFF_MEMBER_ID, AMOUNT);
+
+        // 최초 1회 + 예산 내 재시도 2회 = 3회만 승인 시도(데드라인 캡이 3회차 재시도를 차단).
+        assertThat(paymentGateway.receivedMerchantPaymentIds()).hasSize(3);
+        // 예산이 남은 2회만 실제로 대기한다(3회차는 remaining<=0이라 pause 자체를 호출하지 않는다).
+        verify(cappedBackoff, times(2)).pause(anyInt(), anyLong());
+        // 최종 확정은 안전하게 PENDING 유지(승인 여부 미상 → 오프라인 이중수납 금지, #35가 정산).
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        // 조기 종료 시 retry_count는 무조건 maxRetry가 아니라 실제 수행한 재시도(2회)를 기록한다(#92 P2).
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.retryCount()).isEqualTo(2);
+        assertThat(outcome.failureReason()).isEqualTo("RETRY_EXHAUSTED_UNCONFIRMED");
     }
 
     @Test
@@ -339,6 +380,6 @@ class PaymentApplicationServiceTest {
     private PaymentApplicationService serviceWith(PaymentGateway gateway) {
         return new PaymentApplicationService(
                 paymentChargeService, gateway, billingKeyCryptor, notificationPublisher,
-                chargeAuditLogger, attempt -> { }, MAX_RETRY);
+                chargeAuditLogger, (attempt, maxWaitMs) -> 0L, MAX_RETRY, chargeProperties(RETRY_BACKOFF_DEADLINE_MS));
     }
 }
