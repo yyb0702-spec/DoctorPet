@@ -47,6 +47,8 @@ public-data:
     source-crs: EPSG:5174
 
 hospital:
+  capability-value-migration:
+    enabled: ${HOSPITAL_CAPABILITY_VALUE_MIGRATION_ENABLED:true}
   search:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
