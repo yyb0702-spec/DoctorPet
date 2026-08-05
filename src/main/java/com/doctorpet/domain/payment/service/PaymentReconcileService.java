@@ -109,6 +109,15 @@ public class PaymentReconcileService {
         }
     }
 
+    /**
+     * 단건 정산(웹훅·수동 트리거 재사용, #48). 배치 락·타임아웃 임계 밖에서 한 건을 재조회→멱등 확정한다.
+     * 웹훅은 "트리거"일 뿐이라 상태는 여기서 재조회(PortOne)로 확정한다 — 웹훅 body의 상태를 신뢰하지 않는다.
+     * finalizeOutcome의 조건부 UPDATE가 청구 후확정·정산 배치와의 경합을 멱등하게 흡수한다(applied일 때만 알림).
+     */
+    public ChargeOutcome.Type reconcilePayment(Payment target) {
+        return reconcileOne(target);
+    }
+
     private ChargeOutcome.Type reconcileOne(Payment target) {
         ChargeOutcome outcome = resolveByQuery(target);
         PaymentChargeService.FinalizeResult result = paymentChargeService.finalizeOutcome(target.getId(), outcome);

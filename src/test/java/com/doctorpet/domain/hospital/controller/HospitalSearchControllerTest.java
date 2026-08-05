@@ -8,6 +8,7 @@ import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -49,6 +50,9 @@ class HospitalSearchControllerTest {
     // 자체가 실패한다(MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용 — 리뷰 지적 P1 대응).
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     void 검색_조건이_없으면_기본_페이지_조건으로_조회한다()

@@ -1,6 +1,8 @@
 package com.doctorpet.domain.member.repository;
 
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.TokenHasher;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -15,17 +17,27 @@ import org.springframework.stereotype.Repository;
  * 즉 회원당 세션이 하나뿐이며, 저장(덮어쓰기) 자체가 곧 회전(rotate)이다: 같은 키에 새 값을 쓰면
  * 이전 토큰은 더 이상 저장된 값과 일치하지 않으므로 자동으로 무효화된다([[A 도메인]] #6).
  *
- * MemberBlacklistPort도 구현한다 — 탈퇴 회원의 남은 Access Token을 인증 단계(global.security.
- * JwtAuthenticationFilter)에서 걸러내려면 그 필터가 이 저장소를 참조해야 하는데, global 패키지가
- * domain을 직접 참조하면 안 되므로 인터페이스는 global.security에 두고 여기서 구현만 제공한다.
+ * 값은 토큰 원문이 아니라 SHA-256 해시를 저장한다(백로그 #123). Redis 값 자체가 "현재 유효한
+ * 세션"의 증거이자 그대로 재발급에 쓸 수 있는 자격증명이므로, 원문을 저장하면 Redis가 노출되는
+ * 사고(백업 유출, 오설정으로 인한 외부 접근, 관리자 콘솔 오남용 등)만으로 서명 검증 없이 곧바로
+ * 세션을 탈취할 수 있다. 해시를 저장하면 그 사고가 나도 원문을 복원할 방법이 없다. salt/pepper를
+ * 쓰지 않는 이유: 비밀번호와 달리 Refresh Token은 서버가 임의로 생성하는 고엔트로피 값이라
+ * 레인보우테이블·사전 대입 공격 표면이 없고, 애초에 오프라인으로 원문을 추측해 시도할 수 있는
+ * 통로도 없다(재발급은 항상 JWT 서명 검증을 먼저 통과해야 한다).
+ *
+ * MemberBlacklistPort·AccessTokenBlacklistPort도 함께 구현한다 — 탈퇴 회원(회원 단위)·로그아웃한
+ * 특정 토큰(토큰 단위)을 인증 단계(global.security.JwtAuthenticationFilter)에서 걸러내려면 그
+ * 필터가 이 저장소를 참조해야 하는데, global 패키지가 domain을 직접 참조하면 안 되므로 인터페이스는
+ * global.security에 두고 여기서 구현만 제공한다.
  */
 @Repository
 @RequiredArgsConstructor
-public class RefreshTokenRepository implements MemberBlacklistPort {
+public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenBlacklistPort {
 
     private static final String KEY_PREFIX = "refresh:";
     private static final String LOCK_KEY_PREFIX = "refresh-lock:";
     private static final String WITHDRAWN_KEY_PREFIX = "withdrawn:";
+    private static final String LOGOUT_BLACKLIST_KEY_PREFIX = "at-blacklist:";
 
     // 회원당 재발급 요청을 직렬화하는 락의 TTL. 크래시 등으로 unlock()이 못 불려도 이 시간 뒤엔
     // 자동으로 풀린다 — 정상 처리(회원 조회 + JWT 2개 생성 + Redis CAS 1회)는 이보다 훨씬 빨리 끝난다.
@@ -42,10 +54,20 @@ public class RefreshTokenRepository implements MemberBlacklistPort {
      * 지금은 AuthService.reissue()가 CAS를 시도하기 전에 tryLock/unlock으로 회원당 재발급을
      * 아예 직렬화한다 — 그러면 두 요청이 "동시에" CAS를 다투는 상황 자체가 생기지 않으므로,
      * CAS 실패는 항상 "이미 다른 요청이 정상 처리한 뒤의 진짜 재사용"으로 취급해도 안전하다.)
+     *
+     * ARGV[1](해시)뿐 아니라 ARGV[2](원문)와도 비교하는 이유(#123 배포 마이그레이션, 리뷰 지적) —
+     * 배포 직전까지는 이 키에 원문 Refresh Token이 그대로 저장돼 있었다. 해시만 비교하면 배포
+     * 전에 로그인해 원문을 들고 있는 모든 사용자의 "첫" 재발급이 무조건 실패하고, reissue()는
+     * 그걸 재사용(탈취 의심)으로 오판해 세션까지 삭제해버려 활성 사용자 전원이 강제 로그아웃된다.
+     * 원문 비교 분기를 임시로 열어 배포 전 세션도 정상적으로 회전시키되, 새로 저장하는 값은
+     * (ARGV[3]) 항상 해시다 — 그래서 한 번 회전을 거치면 그 회원은 자동으로 해시 저장으로
+     * 넘어간다(lazy migration). Refresh Token 최대 TTL(14일)이 지나면 원문 값은 자연 소멸하므로
+     * 배포일로부터 14일 뒤에는 ARGV[2] 비교 분기와 그 인자를 제거해도 안전하다.
      */
     private static final RedisScript<Long> ROTATE_IF_MATCHES_SCRIPT = new DefaultRedisScript<>(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                    + "redis.call('set', KEYS[1], ARGV[2], 'PX', ARGV[3]) "
+            "local stored = redis.call('get', KEYS[1]) "
+                    + "if stored == ARGV[1] or stored == ARGV[2] then "
+                    + "redis.call('set', KEYS[1], ARGV[3], 'PX', ARGV[4]) "
                     + "return 1 "
                     + "else "
                     + "return 0 "
@@ -67,24 +89,36 @@ public class RefreshTokenRepository implements MemberBlacklistPort {
 
     private final StringRedisTemplate redisTemplate;
 
+    /** 토큰 원문이 아니라 그 해시를 저장한다(#123 — 클래스 Javadoc 참고). */
     public void save(Long memberId, String refreshToken, Duration ttl) {
-        redisTemplate.opsForValue().set(key(memberId), refreshToken, ttl);
+        redisTemplate.opsForValue().set(key(memberId), TokenHasher.hash(refreshToken), ttl);
     }
 
-    /** 재발급 시 화이트리스트 대조용. 저장된 값이 없으면(만료·로그아웃 등) 빈 값을 반환한다. */
+    /**
+     * 저장된 값(해시)을 그대로 반환한다 — 토큰 원문을 저장하지 않으므로 이 값과 원문을 직접
+     * 비교할 수는 없다. 원문 토큰 하나가 유효한지 확인하려면 {@link #matches(Long, String)}를 쓴다.
+     */
     public Optional<String> findByMemberId(Long memberId) {
         return Optional.ofNullable(redisTemplate.opsForValue().get(key(memberId)));
     }
 
+    /** 제시된 원문 토큰을 해시해, 현재 저장된 값과 일치하는지 확인한다. */
+    public boolean matches(Long memberId, String rawToken) {
+        return findByMemberId(memberId)
+                .map(storedHash -> storedHash.equals(TokenHasher.hash(rawToken)))
+                .orElse(false);
+    }
+
     /**
-     * 현재 저장된 값이 {@code oldToken}과 정확히 일치할 때만 {@code newToken}으로 원자적으로 교체한다.
-     * 일치하지 않으면(이미 회전되어 폐기된 토큰의 재사용, 또는 저장된 값이 아예 없는 경우) false를 반환한다.
+     * 현재 저장된 값(해시)이 {@code oldToken}의 해시와 정확히 일치할 때만 {@code newToken}의
+     * 해시로 원자적으로 교체한다. 일치하지 않으면(이미 회전되어 폐기된 토큰의 재사용, 또는 저장된
+     * 값이 아예 없는 경우) false를 반환한다.
      */
     public boolean rotateIfMatches(Long memberId, String oldToken, String newToken, Duration ttl) {
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
                 List.of(key(memberId)),
-                oldToken, newToken, String.valueOf(ttl.toMillis())
+                TokenHasher.hash(oldToken), oldToken, TokenHasher.hash(newToken), String.valueOf(ttl.toMillis())
         );
         return result != null && result == 1L;
     }
@@ -131,6 +165,34 @@ public class RefreshTokenRepository implements MemberBlacklistPort {
         return Boolean.TRUE.equals(redisTemplate.hasKey(withdrawnKey(memberId)));
     }
 
+    /*
+     * 로그아웃 시 Access Token 블랙리스트(#124) — JWT는 무상태라 로그아웃 시점에 이미 발급된
+     * Access Token을 서버가 즉시 폐기할 수단이 없다. Refresh Token 삭제(재발급 차단)만으로는
+     * 만료 전까지 남은 Access Token으로 API를 계속 호출하는 것까지는 막지 못한다.
+     *
+     * 탈퇴(blacklistMember)와 달리 회원 단위가 아니라 jti(토큰 고유 ID) 단위로 막는다 — 단일
+     * 세션 정책상 회원 단위로 막으면, 로그아웃 직후 재로그인해서 받은 새 Access Token까지
+     * 같은 memberId라는 이유로 함께 막혀버린다. jti는 토큰마다 유일하므로 "로그아웃한 바로 그
+     * 토큰"만 정확히 걸러낸다.
+     *
+     * TTL은 호출자(AuthService)가 그 토큰의 실제 남은 수명(JwtTokenProvider#getRemainingTtl)을
+     * 넘겨준다 — 그 시점 이후엔 어차피 자연 만료라 블랙리스트 항목도 자동으로 사라진다. ttl이
+     * 0 이하(경쟁 상태로 이미 만료된 토큰)면 Redis에 쓰지 않는다 — 어차피 서명 검증에서 걸러지고,
+     * PX에 0/음수를 넘기면 Redis가 에러를 낸다.
+     */
+    public void blacklistAccessToken(String jti, Duration ttl) {
+        if (ttl.isZero() || ttl.isNegative()) {
+            return;
+        }
+        redisTemplate.opsForValue().set(logoutBlacklistKey(jti), "1", ttl);
+    }
+
+    /** JwtAuthenticationFilter가 Access Token 인증 직전에 호출해, 로그아웃된 토큰인지 확인한다. */
+    @Override
+    public boolean isBlacklisted(String jti) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(logoutBlacklistKey(jti)));
+    }
+
     private String key(Long memberId) {
         return KEY_PREFIX + memberId;
     }
@@ -141,5 +203,9 @@ public class RefreshTokenRepository implements MemberBlacklistPort {
 
     private String withdrawnKey(Long memberId) {
         return WITHDRAWN_KEY_PREFIX + memberId;
+    }
+
+    private String logoutBlacklistKey(String jti) {
+        return LOGOUT_BLACKLIST_KEY_PREFIX + jti;
     }
 }

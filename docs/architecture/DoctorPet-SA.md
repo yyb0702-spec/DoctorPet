@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.30 |
+| 문서 버전 | v1.31 |
 | 작성 기준일 | 2026-08-05 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재. v1.8~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다.
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다.
 
 ---
 
@@ -226,11 +226,15 @@ erDiagram
 | status | VARCHAR | ReservationStatus(§5-1). `PAYMENT_COMPLETED` 없음 — `TREATMENT_COMPLETED`가 종착 |
 | reject_reason | VARCHAR NULL | 거절 사유 |
 | requested_at | DATETIME | |
+| approval_deadline_at | DATETIME NOT NULL | 생성 시 계산한 병원 승인 마감 시각 |
+| approval_timeout_next_retry_at | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | confirmed_at | DATETIME NULL | |
 | canceled_at | DATETIME NULL | |
 | no_show_at | DATETIME NULL | |
 
-인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`.
+인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)`.
+
+기존 예약이 있는 환경에서는 먼저 `approval_deadline_at`을 nullable로 추가하고, 각 `REQUESTED` 예약을 `min(requested_at + 1시간, slot.start_at - 2시간)`으로 백필한다. 검증이 끝난 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다. `ReservationApprovalDeadlineMigrationRunner`는 MySQL `GET_LOCK`으로 다중 인스턴스 실행을 직렬화하고 `schema_migrations`의 `reservation_approval_deadline_v1` 마커로 일회성 실행을 보장한다. 마커와 실제 스키마가 다르면 부팅을 중단한다.
 
 하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션에서 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유를 원자적으로 처리하며, 충돌한 요청은 실패시킨다(§9-3).
 
@@ -335,20 +339,23 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | id | BIGINT PK | |
+| webhook_id | VARCHAR NOT NULL | PortOne이 부여한 이벤트 식별자(Standard Webhooks webhook-id). 멱등키 |
 | payment_id | BIGINT FK | |
-| event_type | VARCHAR | |
-| received_at | DATETIME | |
+| event_type | VARCHAR | 감사·처리 분기용(멱등키는 webhook_id) |
+| received_at | DATETIME | 수신 시각 |
+| processed_at | DATETIME NULL | 재조회까지 끝난 시각. null이면 미처리(재전송 시 재구동 대상) |
+| reconcile_started_at | DATETIME NULL | 재조회 선점 시각. non-null이면 진행 중(동시 재수신은 재조회 생략) |
 
-제약: `UNIQUE(payment_id, event_type)` — 중복 수신 1회만 반영.
+제약: `UNIQUE(webhook_id)` — 같은 이벤트의 재전송만 1회로 흡수한다. 같은 결제에서 같은 `event_type`이 정상적으로 다시 발생해도 서로 다른 이벤트는 `webhook_id`가 달라 각각 처리된다(기존 `UNIQUE(payment_id, event_type)`가 독립 이벤트를 오탐 제거하던 문제 해소). `processed_at`은 재조회까지 끝난 시각으로, 수신만 기록되고 처리 전 실패한 웹훅은 같은 `webhook_id` 재전송 때 재구동해 조정 실패 웹훅이 영구 유실되지 않게 한다. `reconcile_started_at`은 재조회 선점 표시로, "미처리이고 미선점"일 때만 성공하는 조건부 UPDATE로 재조회를 정확히 1회로 막는다 — 첫 수신이 재조회하는 동안 같은 `webhook_id`가 다시 들어와도 중복 재조회(단건조회·retry_count 경쟁)를 하지 않는다. 재조회 실패 시 선점을 풀어 재구동을 허용한다. 지원하지 않는 `event_type`은 감사 기록만 남기고 재조회하지 않는다.
 
 ### schema_migrations (스키마 마이그레이션 마커)
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
-| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`, `reservation_approval_deadline_v1`) |
 | applied_at | DATETIME NOT NULL | 실행 시각 |
 
-Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
+Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가, `approval_deadline_at` 백필과 NOT NULL·인덱스 적용)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
 
 ---
 
@@ -431,7 +438,9 @@ stateDiagram-v2
 
 ## 6-1. JWT
 
-Access Token은 30분~1시간, Refresh Token은 14일이며 Redis에 저장·회전한다. 폐기된 Refresh Token이 재사용되면 해당 사용자 전체 세션을 무효화한다. 미인증 401, 권한 없음 403. 저장 키는 `refresh:{memberId}` 단일(기기 1세션 기준). 회전 시 갱신하고, 재사용 감지를 위해 이전 토큰과 비교한다.
+Access Token은 30분~1시간, Refresh Token은 14일이며 Redis에 저장·회전한다. 폐기된 Refresh Token이 재사용되면 해당 사용자 전체 세션을 무효화한다. 미인증 401, 권한 없음 403. 저장 키는 `refresh:{memberId}` 단일(기기 1세션 기준). 회전 시 갱신하고, 재사용 감지를 위해 이전 토큰과 비교한다. 저장하는 **값**은 토큰 원문이 아니라 SHA-256 해시다(리뷰 지적) — Redis 값 자체가 그대로 재발급에 쓸 수 있는 자격증명이므로, 원문을 저장하면 Redis 노출 사고만으로 서명 검증 없이 세션을 탈취할 수 있다. 비교(CAS)도 제시된 토큰을 해시해서 수행한다.
+
+로그아웃한 Access Token은 `at-blacklist:{jti}` 키로 개별 무효화한다(TTL=그 토큰의 남은 수명) — 탈퇴 무효화(`withdrawn:{memberId}`, 회원 단위)와 달리 로그아웃은 토큰 단위(jti)로만 막아, 로그아웃 직후 재로그인으로 받은 새 Access Token은 영향받지 않는다.
 
 ## 6-2. 역할·인가
 
@@ -447,11 +456,13 @@ Access Token은 30분~1시간, Refresh Token은 14일이며 Redis에 저장·회
 
 이메일 발송이 필요한 두 기능을 같은 인프라(`EmailGateway`)로 묶어 구현했다 — 결제(`PaymentGateway`)와 같은 패턴으로, `mail.provider` 설정에 따라 로컬/테스트는 `FakeEmailGateway`(발송 없이 로그만), 운영은 `SmtpEmailGateway`(`JavaMailSender`)가 등록된다. 미설정 시 어떤 발송기도 등록되지 않는다(fail-safe).
 
-**이메일 인증(가입 시 필수)**: 가입 직후 `email_verified=false`로 생성되고 인증 메일이 발송된다. 인증 전에는 이메일·비밀번호가 맞아도 로그인이 403으로 차단된다(계정 존재 확인 이후에 체크하므로 계정 존재 여부를 추가로 노출하지 않는다). 인증 토큰은 Redis에 24시간 TTL로 저장되고(`email-verify:{token}` → memberId), 소비 시 원자적으로 삭제돼 1회용이다 — 만료와 "이미 사용됨"을 서버가 구분하지 않고 같은 오류로 응답한다. 메일을 못 받았으면 재발송 API로 새 토큰을 받을 수 있다. 메일 발송 자체가 실패해도(SMTP 장애 등) 회원가입은 실패하지 않는다.
+**이메일 인증(가입 시 필수)**: 가입 직후 `email_verified=false`로 생성되고 인증 메일이 발송된다. 인증 전에는 이메일·비밀번호가 맞아도 로그인이 403으로 차단된다(계정 존재 확인 이후에 체크하므로 계정 존재 여부를 추가로 노출하지 않는다). 인증 토큰은 Redis에 24시간 TTL로 저장되고(`email-verify:{hash(token)}` → memberId), 소비 시 원자적으로 삭제돼 1회용이다 — 만료와 "이미 사용됨"을 서버가 구분하지 않고 같은 오류로 응답한다. 메일을 못 받았으면 재발송 API로 새 토큰을 받을 수 있다. 메일 발송 자체가 실패해도(SMTP 장애 등) 회원가입은 실패하지 않는다. 키는 토큰 원문이 아니라 SHA-256 해시다(리뷰 지적) — 이 토큰은 그 자체로 "인증 완료" 권한을 행사할 수 있는 자격증명이라, Redis 노출 사고만으로 이메일 수신 없이 계정을 탈취할 수 있기 때문이다.
 
-**비밀번호 재설정**: 로그인 상태가 아니어도(비밀번호를 잊었으므로 애초에 로그인 불가) 이메일 소유 확인만으로 재설정한다. 토큰은 Redis에 1시간 TTL로 저장되고(`pwd-reset:{token}` → memberId) 마찬가지로 1회용이다. 재설정 성공 시 새 비밀번호로 교체함과 동시에 로그인 실패 기록·계정 잠금도 초기화된다(§4 members 테이블 설명과 동일 정책). 재설정 요청 API는 가입 여부와 무관하게 항상 200을 반환해 계정 존재 여부를 노출하지 않는다.
+**비밀번호 재설정**: 로그인 상태가 아니어도(비밀번호를 잊었으므로 애초에 로그인 불가) 이메일 소유 확인만으로 재설정한다. 토큰은 Redis에 1시간 TTL로 저장되고(`pwd-reset:{hash(token)}` → memberId) 마찬가지로 1회용이며, 키가 해시인 이유는 이메일 인증 토큰과 같다. 재설정 성공 시 새 비밀번호로 교체함과 동시에 로그인 실패 기록·계정 잠금도 초기화된다(§4 members 테이블 설명과 동일 정책). 재설정 요청 API는 가입 여부와 무관하게 항상 200을 반환해 계정 존재 여부를 노출하지 않는다.
 
 프론트엔드가 아직 없어 인증·재설정 메일의 링크는 임시 URL을 가리킨다(`global/gateway/mail/README.md` 참고) — 프론트 라우트가 확정되면 갱신이 필요하다.
+
+**해시 전환 배포 마이그레이션(임시, 리뷰 지적)**: 원문 키·값을 해시로 바꾸는 배포 직전까지 발급된 Refresh Token·인증/재설정 토큰은 Redis에 원문으로 남아있다. `RefreshTokenRepository.rotateIfMatches()`와 `MemberTokenRepository`의 소비 메서드들은 해시로 못 찾으면 원문 키·값도 한 번 더 비교/조회하는 임시 호환 분기를 갖고 있다(성공하면 항상 해시로 재저장). Refresh Token은 최대 TTL 14일, 이메일 인증은 24시간, 비밀번호 재설정은 1시간이 지나면 원문 항목이 자연 소멸하므로, 배포 후 그 기간이 지나면 각 호환 분기는 제거해도 안전하다.
 
 ## 6-5. SNS 로그인 (확장 검토, 미착수) `[결정 필요]`
 
@@ -895,7 +906,7 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 결정은 각 본문 절을 정본으로 따른다. 이번 버전에서 진료역량 화이트리스트는 19개, AI 입력 축종은 8개, 공공데이터는 전국 주 1회 갱신으로 확정했다. 기존 핵심 결정인 낙관적 락, Redis 검색 캐시, MVP 폴링, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책은 변경하지 않는다.
+확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, MVP 폴링, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
 
 남은 것:
 
@@ -926,17 +937,18 @@ Redis에서 사라진 뒤라 사용자는 같은 링크로 재시도할 수 없�
 단순 순서 교체로는 둘 다 가질 수 없다.
 
 **제안 설계 — 3단계 상태(claim 패턴).**
-토큰의 실제 데이터(`pwd-reset:{token}` 등)는 그대로 두고, 별도의 짧은 TTL을 가진 "처리 중" 표시(claim)만
-추가한다.
+토큰의 실제 데이터(`pwd-reset:{hash(token)}` 등, 키는 §6-4에 따라 원문이 아니라 SHA-256 해시)는 그대로
+두고, 별도의 짧은 TTL을 가진 "처리 중" 표시(claim)만 추가한다.
 
-1. **Claim 시도**: `SET pwd-reset-claim:{token} 1 NX PX <짧은 TTL, 예: 10~30초>`로 클레임 키를 원자적으로
-   선점한다. 실패하면(이미 다른 요청이 처리 중) 기존과 같은 `INVALID_OR_EXPIRED_TOKEN`으로 응답한다 — 동시
-   재사용은 이 단계에서 막힌다(원래 GET+DEL이 하던 역할을 claim이 대신함).
+1. **Claim 시도**: `SET pwd-reset-claim:{hash(token)} 1 NX PX <짧은 TTL, 예: 10~30초>`로 클레임 키를
+   원자적으로 선점한다(클레임 키도 실제 토큰 키와 같은 이유로 해시 기준). 실패하면(이미 다른 요청이 처리
+   중) 기존과 같은 `INVALID_OR_EXPIRED_TOKEN`으로 응답한다 — 동시 재사용은 이 단계에서 막힌다(원래 GET+DEL이
+   하던 역할을 claim이 대신함).
 2. **DB 처리**: 클레임에 성공한 요청만 토큰 값(memberId)을 조회(GET, 아직 DEL 안 함)해 회원을 찾고, 도메인
    상태를 변경한 뒤 트랜잭션을 커밋한다.
 3. **최종 확정**:
-   - DB 처리가 **성공**하면 그때 비로소 실제 토큰 키(`pwd-reset:{token}`)와 클레임 키를 함께 삭제한다 —
-     이 시점에야 "진짜 소비 완료"가 된다.
+   - DB 처리가 **성공**하면 그때 비로소 실제 토큰 키(`pwd-reset:{hash(token)}`)와 클레임 키를 함께
+     삭제한다 — 이 시점에야 "진짜 소비 완료"가 된다.
    - DB 처리가 **실패**하면 실제 토큰 키는 그대로 둔 채 클레임 키만 즉시 삭제(또는 그냥 두고 TTL 만료를
      기다림)해, 사용자가 같은 링크로 재시도할 수 있게 한다.
 

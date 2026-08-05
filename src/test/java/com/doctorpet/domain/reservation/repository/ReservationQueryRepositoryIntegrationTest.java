@@ -99,12 +99,12 @@ class ReservationQueryRepositoryIntegrationTest {
     @Test
     @DisplayName("병원 운영 상태 전이는 소속 병원과 기대 상태를 조건으로 원자적으로 변경한다")
     void hospitalTransitions_requireHospitalAndExpectedStatus() {
+        LocalDateTime now = LocalDateTime.now();
         Reservation reservation = saveReservation(
                 1L,
-                LocalDateTime.of(2026, 7, 25, 14, 0),
+                now.plusDays(1),
                 false
         );
-        LocalDateTime now = LocalDateTime.now();
 
         assertThat(reservationRepository.approveIfRequested(
                 reservation.getId(),

@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.17 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.30, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.31, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -11,6 +11,8 @@ DoctorPet은 보호자용 API, 병원 직원용 API, 외부 연동 및 배치 �
 - JPA 감사 시각과 시간 기반 배치는 JVM 기본 시간대가 아니라 공통 `Asia/Seoul` Clock을 사용한다.
 - 보호자: 회원·반려동물 관리, AI 증상 상담, 병원 검색, 예약, 결제, 알림
 - 병원 직원: 예약 승인·거절, 체크인, 진료 상태 변경, 진료비 청구, 오프라인 정산
+- 승인 타임아웃은 예약 생성 시 저장한 `approval_deadline_at`을 기준으로 처리하며, 기존 예약은 공식에 따라 백필하는 일회성 마이그레이션을 적용한다.
+- 처리 실패 건은 `approval_timeout_next_retry_at` 이후에만 다시 조회해 실행 상한에 걸린 뒤에도 정상 예약이 계속 처리되도록 한다.
 - 외부 연동: AI, 결제대행사, 공공데이터, 알림 전송
 - 배치: 승인 타임아웃, 자동 노쇼, 결제 상태 정산
 ## 2. 기술 스택

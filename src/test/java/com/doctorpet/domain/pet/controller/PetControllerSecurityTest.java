@@ -21,6 +21,7 @@ import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
 import java.math.BigDecimal;
@@ -62,6 +63,9 @@ class PetControllerSecurityTest {
     // 대응) — 없으면 컨텍스트 로딩이 실패한다.
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     @DisplayName("Authorization 헤더 없이 요청하면 401을 반환한다 — /api/pets가 실수로 permitAll이 되면 이 테스트가 잡는다")
