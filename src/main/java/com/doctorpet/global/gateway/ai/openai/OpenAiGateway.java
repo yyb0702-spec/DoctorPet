@@ -289,11 +289,11 @@ public class OpenAiGateway implements AiGateway {
 
     private Map<String, Object> searchToolSchema() {
         // Tool 호출 시점의 분석과 최종 응답의 분석을 비교할 수 있도록 공통 분석 5필드도 Tool 인자에 포함한다.
-        Map<String, Object> properties = new LinkedHashMap<>(analysisProperties());
-        properties.put("emergency", nullableBoolean("응급 병원 검색 의도"));
-        properties.put("nightCare", nullableBoolean("명시적인 야간 진료 또는 24시간 병원 의도"));
-        properties.put("openNow", nullableBoolean("현재 방문 가능한 병원 검색 의도"));
-        properties.put("sort", Map.of(
+        Map<String, Object> schemaProperties = new LinkedHashMap<>(analysisProperties());
+        schemaProperties.put("emergency", nullableBoolean("응급 병원 검색 의도"));
+        schemaProperties.put("nightCare", nullableBoolean("명시적인 야간 진료 또는 24시간 병원 의도"));
+        schemaProperties.put("openNow", nullableBoolean("현재 방문 가능한 병원 검색 의도"));
+        schemaProperties.put("sort", Map.of(
                 "type", List.of("string", "null"),
                 "enum", Arrays.asList("NAME", "DISTANCE", null),
                 "description", "거리 요청이고 사용자 좌표가 제공된 경우에만 DISTANCE"
@@ -302,19 +302,19 @@ public class OpenAiGateway implements AiGateway {
                 "type", "function",
                 "name", SEARCH_TOOL_NAME,
                 "description", "DoctorPet 데이터베이스에서 조건에 맞는 실제 동물병원을 검색합니다.",
-                "parameters", objectSchema(properties),
+                "parameters", objectSchema(schemaProperties),
                 "strict", true
         );
     }
 
     private Map<String, Object> finalOutputFormat() {
-        Map<String, Object> properties = new LinkedHashMap<>(analysisProperties());
-        properties.put("locationRequired", Map.of("type", "boolean"));
+        Map<String, Object> schemaProperties = new LinkedHashMap<>(analysisProperties());
+        schemaProperties.put("locationRequired", Map.of("type", "boolean"));
         return Map.of(
                 "type", "json_schema",
                 "name", "doctorpet_ai_consultation",
                 "strict", true,
-                "schema", objectSchema(properties)
+                "schema", objectSchema(schemaProperties)
         );
     }
 
@@ -334,12 +334,12 @@ public class OpenAiGateway implements AiGateway {
         return fields;
     }
 
-    private Map<String, Object> objectSchema(Map<String, Object> properties) {
+    private Map<String, Object> objectSchema(Map<String, Object> schemaProperties) {
         // OpenAI strict schema 규칙에 맞춰 nullable 필드도 이름 자체는 항상 존재하게 하고 임의 필드는 금지한다.
         return Map.of(
                 "type", "object",
-                "properties", properties,
-                "required", new ArrayList<>(properties.keySet()),
+                "properties", schemaProperties,
+                "required", new ArrayList<>(schemaProperties.keySet()),
                 "additionalProperties", false
         );
     }

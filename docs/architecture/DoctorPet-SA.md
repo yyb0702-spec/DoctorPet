@@ -757,7 +757,7 @@ MVP에서는 축종·진료역량·응급·야간·현재 영업·거리 의도�
 
 `possibleFocusAreas`는 질환명이 아닌 증상 관찰 범위 enum, `preVisitCheckpoints`는 약물·처치 지시가 아닌 보호자 관찰 항목 enum으로 제한한다. OpenAI JSON Schema와 서버 후검증에서 허용값 밖의 문자열을 차단하고, API 응답·상담 저장 시 서버가 정한 한국어 문구로 변환한다. 최종 `message`는 모델 자유 문자열을 사용하지 않고 검색 결과 건수와 위치·응급 분기로 서버가 생성한다.
 
-장애 격리는 timeout·5xx·Rate Limit·검색 Tool 실패 시 LLM 재호출 없이 Circuit Breaker와 서버 고정 fallback으로 사용자 직접 검색을 유도하고 예약·결제에 영향을 주지 않는다. 기본 장애 차단·복구는 MVP에 포함하지만 세밀한 임계값 튜닝, 운영 대시보드, 고도화된 모니터링은 확장 범위다. `FakeAiGateway` 단계에서는 timeout·fallback 계약을 테스트하고 실제 Circuit Breaker 차단·복구 통합 검증은 외부 호출 Gateway 추가 시 수행한다.
+장애 격리는 timeout·5xx·Rate Limit·검색 Tool 실패 시 LLM 재호출 없이 Circuit Breaker와 서버 고정 fallback으로 사용자 직접 검색을 유도하고 예약·결제에 영향을 주지 않는다. MVP Circuit Breaker의 상태는 애플리케이션 인스턴스 메모리에만 보관하며, 다중 인스턴스 배포에서는 노드별로 실패를 독립 집계하고 차단·복구한다. 클러스터 전역 차단과 Redis 같은 공유 저장소 기반 회로 상태는 운영상 필요성이 확인된 뒤 별도 아키텍처 변경으로 검토한다. 기본 장애 차단·복구는 MVP에 포함하지만 세밀한 임계값 튜닝, 운영 대시보드, 고도화된 모니터링은 확장 범위다. `FakeAiGateway` 단계에서는 timeout·fallback 계약을 테스트하고 실제 Circuit Breaker 차단·복구 통합 검증은 외부 호출 Gateway 추가 시 수행한다.
 
 운영·비용 측정은 매 상담을 `ai_consultations`에 model·프롬프트 버전·토큰·지연·status·errorType·fallback·toolCall·스키마 파싱 성공으로 기록한다. `errorType`은 `AiGatewayFailureReason`과 같은 `TIMEOUT`·`TEMPORARY_UNAVAILABLE`·`INVALID_RESPONSE`를 저장하고, 성공하거나 LLM을 호출하지 않은 경우에는 NULL로 둔다. 요청 검증 직후 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹하고, 이후 응급 키워드·검색 의도 판정, 외부 `AiGateway` 전달, DB 저장에는 모두 마스킹된 증상 텍스트만 사용한다. 30일 경과 시 저장된 증상 텍스트를 삭제하는 배치를 실행한다(§4).
 
