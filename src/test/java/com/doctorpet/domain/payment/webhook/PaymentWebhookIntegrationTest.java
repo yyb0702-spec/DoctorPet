@@ -2,6 +2,7 @@ package com.doctorpet.domain.payment.webhook;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -159,6 +160,46 @@ class PaymentWebhookIntegrationTest {
         webhookService.handle(webhookId, EVENT_TYPE, payment.getMerchantPaymentId());
 
         verify(reconcileService, times(1)).reconcilePayment(any());
+        PaymentWebhook stored = webhookRepository.findByWebhookId(webhookId).orElseThrow();
+        assertThat(stored.isProcessed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("첫 수신이 재조회 중일 때 같은 webhook_id가 다시 들어와도 재조회는 정확히 1회만 실행된다")
+    void concurrentReceiptWhileReconciling_reconcilesExactlyOnce() throws InterruptedException {
+        Payment payment = persistPayment();
+        String webhookId = uniqueWebhookId();
+
+        // 첫 수신의 reconcile을 게이트에서 붙잡아 '재조회 진행 중' 상태를 만든다. 그 사이 두 번째 수신을 보낸다.
+        CountDownLatch reconcileEntered = new CountDownLatch(1);
+        CountDownLatch releaseReconcile = new CountDownLatch(1);
+        AtomicInteger reconcileCalls = new AtomicInteger();
+        willAnswer(invocation -> {
+            reconcileCalls.incrementAndGet();
+            reconcileEntered.countDown();
+            releaseReconcile.await();
+            return null;
+        }).given(reconcileService).reconcilePayment(any());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        pool.submit(() -> {
+            webhookService.handle(webhookId, EVENT_TYPE, payment.getMerchantPaymentId());
+            return null;
+        });
+        // 첫 수신이 선점 후 reconcile에 진입할 때까지 기다린 뒤 두 번째 수신을 보낸다.
+        assertThat(reconcileEntered.await(10, TimeUnit.SECONDS)).isTrue();
+        pool.submit(() -> {
+            webhookService.handle(webhookId, EVENT_TYPE, payment.getMerchantPaymentId());
+            return null;
+        });
+        // 두 번째 수신은 선점 실패로 즉시 끝난다(선점은 성공 시 해제되지 않으므로 타이밍과 무관). 게이트를
+        // 풀어 첫 수신도 완료시킨다.
+        releaseReconcile.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+        // 진행 중 재수신은 선점(claimForReconcile)에 실패하므로 재조회는 정확히 1회.
+        assertThat(reconcileCalls.get()).isEqualTo(1);
         PaymentWebhook stored = webhookRepository.findByWebhookId(webhookId).orElseThrow();
         assertThat(stored.isProcessed()).isTrue();
     }

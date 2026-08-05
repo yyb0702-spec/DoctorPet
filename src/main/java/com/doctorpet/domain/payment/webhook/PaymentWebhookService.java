@@ -106,21 +106,37 @@ public class PaymentWebhookService {
 
     /**
      * 수신 기록을 실제로 구동한다: 지원 이벤트면 재조회로 상태를 확정하고, 그 외는 감사 기록만 남긴다. 어느
-     * 경우든 완료되면 processed_at을 찍어 이후 같은 webhook_id 재전송이 무시되게 한다. 재조회가 예외로 실패하면
-     * processed_at을 찍지 않아 재전송 때 재구동된다.
+     * 경우든 완료되면 processed_at을 찍어 이후 같은 webhook_id 재전송이 무시되게 한다.
+     *
+     * <p>재조회는 {@code claimForReconcile} 조건부 UPDATE로 선점한 한 스레드만 실행한다 — 첫 수신이 재조회하는
+     * 동안 같은 webhook_id가 다시 들어와도(진행 중) 선점에 실패해 재조회를 건너뛴다(중복 단건조회·retry_count
+     * 경쟁 방지, PR #96 리뷰 P2). 재조회가 예외로 실패하면 선점을 풀어(release) processed_at을 찍지 않으므로,
+     * 재전송 때 다시 선점·재구동된다(조정 실패 웹훅 영구 유실 방지).
      */
     private void drive(PaymentWebhook webhook, Payment payment) {
-        if (RECONCILABLE_EVENT_TYPES.contains(webhook.getEventType())) {
-            // 웹훅은 트리거일 뿐 — 실제 상태는 재조회로 확정(멱등). 이미 확정된 결제면 조건부 UPDATE 0건으로 no-op.
-            reconcileService.reconcilePayment(payment);
-        } else {
-            // 지원하지 않는 이벤트는 감사 기록만 남기고 상태를 바꾸지 않는다 — 결제와 무관한 이벤트가 상태 전이를
-            // 유발하지 못하게 한다.
+        String webhookId = webhook.getWebhookId();
+        if (!RECONCILABLE_EVENT_TYPES.contains(webhook.getEventType())) {
+            // 지원하지 않는 이벤트는 감사 기록만 남기고 상태를 바꾸지 않는다 — 재조회가 없으니 선점도 불필요하다.
             log.info("지원하지 않는 결제 웹훅 이벤트 — 기록만 남기고 재조회 생략: paymentId={}, eventType={}",
                     payment.getId(), webhook.getEventType());
+            webhookRepository.markProcessed(webhookId, LocalDateTime.now(clock));
+            return;
         }
-        webhook.markProcessed(LocalDateTime.now(clock));
-        webhookRepository.saveAndFlush(webhook);
+        // 미처리·미선점일 때만 1건이 선점한다. 0이면 다른 수신이 재조회 중이거나 이미 처리됨 → 건너뛴다.
+        if (webhookRepository.claimForReconcile(webhookId, LocalDateTime.now(clock)) == 0) {
+            log.info("이미 처리 중이거나 처리된 결제 웹훅 — 재조회 생략: webhookId={}, paymentId={}",
+                    webhookId, payment.getId());
+            return;
+        }
+        try {
+            // 웹훅은 트리거일 뿐 — 실제 상태는 재조회로 확정(멱등). 이미 확정된 결제면 조건부 UPDATE 0건으로 no-op.
+            reconcileService.reconcilePayment(payment);
+        } catch (RuntimeException e) {
+            // 재조회 실패 → 선점을 풀어 재전송 때 재구동되게 한다.
+            webhookRepository.releaseReconcileClaim(webhookId);
+            throw e;
+        }
+        webhookRepository.markProcessed(webhookId, LocalDateTime.now(clock));
     }
 
     /**

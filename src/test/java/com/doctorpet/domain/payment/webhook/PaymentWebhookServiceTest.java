@@ -2,10 +2,11 @@ package com.doctorpet.domain.payment.webhook;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.entity.Payment;
@@ -31,8 +32,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 /**
  * Level 1 — 결제 웹훅 처리 단위 검증(#48, PR #96 리뷰 반영). 멱등키는 webhook_id다(같은 이벤트 재전송 흡수,
  * event_type이 같아도 서로 다른 이벤트는 각각 처리). 상태는 웹훅 body가 아니라 재조회(reconcilePayment)로
- * 확정하고, 재조회가 끝나면 processed_at을 찍는다 — 처리 전 실패한 웹훅은 재전송 때 재구동한다. 알 수 없는 결제·
- * 식별 불가·미지원 이벤트 처리와, 중복키만 흡수하고 그 외 무결성 오류는 전파하는지 확인한다.
+ * 확정하고, 재조회는 claimForReconcile 선점에 성공한 한 스레드만 실행한다 — 처리 전 실패는 선점 해제로 재구동,
+ * 진행 중 재수신은 선점 실패로 재조회를 건너뛴다. 알 수 없는 결제·식별 불가·미지원 이벤트 처리와, 중복키만
+ * 흡수하고 그 외 무결성 오류는 전파하는지 확인한다.
  */
 @ExtendWith(MockitoExtension.class)
 class PaymentWebhookServiceTest {
@@ -66,21 +68,22 @@ class PaymentWebhookServiceTest {
     }
 
     @Test
-    @DisplayName("알려진 결제의 새 이벤트는 수신 기록 후 재조회로 상태를 확정하고 처리 완료를 찍는다")
+    @DisplayName("알려진 결제의 새 이벤트는 수신 기록 후 선점·재조회로 상태를 확정하고 처리 완료를 찍는다")
     void knownPayment_recordsAndReconciles() {
         Payment payment = payment();
         given(paymentRepository.findByMerchantPaymentId(MERCHANT_ID)).willReturn(Optional.of(payment));
         given(webhookRepository.findByWebhookId(WEBHOOK_ID)).willReturn(Optional.empty());
+        given(webhookRepository.claimForReconcile(eq(WEBHOOK_ID), any())).willReturn(1);
 
         webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID);
 
+        verify(webhookRepository).saveAndFlush(any()); // 수신 기록(insert) 1회
         verify(reconcileService).reconcilePayment(payment);
-        // 수신 기록(insert) + 처리 완료(processed_at update)로 2회 저장한다.
-        verify(webhookRepository, times(2)).saveAndFlush(any());
+        verify(webhookRepository).markProcessed(eq(WEBHOOK_ID), any());
     }
 
     @Test
-    @DisplayName("이미 처리된 이벤트(같은 webhook_id 재수신)는 재조회하지 않는다(멱등)")
+    @DisplayName("이미 처리된 이벤트(같은 webhook_id 재수신)는 선점·재조회하지 않는다(멱등)")
     void alreadyProcessed_skips() {
         Payment payment = payment();
         PaymentWebhook processed = webhook(EVENT_TYPE);
@@ -90,22 +93,57 @@ class PaymentWebhookServiceTest {
 
         webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID);
 
-        verify(webhookRepository, never()).saveAndFlush(any());
+        verify(webhookRepository, never()).claimForReconcile(any(), any());
         verify(reconcileService, never()).reconcilePayment(any());
     }
 
     @Test
-    @DisplayName("처리 전 실패로 남은 미처리 웹훅은 재전송 시 재구동해 재조회하고 완료를 찍는다")
+    @DisplayName("처리 전 실패로 남은 미처리 웹훅은 재전송 시 선점·재구동해 재조회하고 완료를 찍는다")
     void unprocessedRedelivery_redrives() {
         Payment payment = payment();
         PaymentWebhook unprocessed = webhook(EVENT_TYPE); // processed_at = null
         given(paymentRepository.findByMerchantPaymentId(MERCHANT_ID)).willReturn(Optional.of(payment));
         given(webhookRepository.findByWebhookId(WEBHOOK_ID)).willReturn(Optional.of(unprocessed));
+        given(webhookRepository.claimForReconcile(eq(WEBHOOK_ID), any())).willReturn(1);
 
         webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID);
 
         verify(reconcileService).reconcilePayment(payment);
-        verify(webhookRepository).saveAndFlush(unprocessed); // processed_at 확정
+        verify(webhookRepository).markProcessed(eq(WEBHOOK_ID), any());
+        verify(webhookRepository, never()).saveAndFlush(any()); // 재구동은 재삽입하지 않는다
+    }
+
+    @Test
+    @DisplayName("첫 수신이 재조회 중일 때 같은 webhook_id가 다시 오면 선점에 실패해 재조회를 건너뛴다")
+    void concurrentInProgress_claimFails_skipsReconcile() {
+        Payment payment = payment();
+        PaymentWebhook unprocessed = webhook(EVENT_TYPE);
+        given(paymentRepository.findByMerchantPaymentId(MERCHANT_ID)).willReturn(Optional.of(payment));
+        given(webhookRepository.findByWebhookId(WEBHOOK_ID)).willReturn(Optional.of(unprocessed));
+        // 다른 스레드가 이미 선점 중(또는 그 사이 처리 완료) → 선점 조건부 UPDATE 0건.
+        given(webhookRepository.claimForReconcile(eq(WEBHOOK_ID), any())).willReturn(0);
+
+        webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID);
+
+        verify(reconcileService, never()).reconcilePayment(any());
+        verify(webhookRepository, never()).markProcessed(any(), any());
+        verify(webhookRepository, never()).releaseReconcileClaim(any());
+    }
+
+    @Test
+    @DisplayName("재조회가 실패하면 선점을 해제하고 처리 완료를 찍지 않아 재전송 때 재구동된다")
+    void reconcileFails_releasesClaimAndDoesNotMarkProcessed() {
+        Payment payment = payment();
+        given(paymentRepository.findByMerchantPaymentId(MERCHANT_ID)).willReturn(Optional.of(payment));
+        given(webhookRepository.findByWebhookId(WEBHOOK_ID)).willReturn(Optional.empty());
+        given(webhookRepository.claimForReconcile(eq(WEBHOOK_ID), any())).willReturn(1);
+        willThrow(new RuntimeException("reconcile 실패")).given(reconcileService).reconcilePayment(payment);
+
+        assertThatThrownBy(() -> webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID))
+                .isInstanceOf(RuntimeException.class);
+
+        verify(webhookRepository).releaseReconcileClaim(WEBHOOK_ID);
+        verify(webhookRepository, never()).markProcessed(any(), any());
     }
 
     @Test
@@ -120,6 +158,7 @@ class PaymentWebhookServiceTest {
 
         webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID);
 
+        verify(webhookRepository, never()).claimForReconcile(any(), any());
         verify(reconcileService, never()).reconcilePayment(any());
     }
 
@@ -139,7 +178,7 @@ class PaymentWebhookServiceTest {
     }
 
     @Test
-    @DisplayName("지원하지 않는 이벤트는 감사 기록만 남기고 재조회하지 않는다")
+    @DisplayName("지원하지 않는 이벤트는 감사 기록만 남기고 선점·재조회하지 않는다")
     void unsupportedEvent_recordsButSkipsReconcile() {
         Payment payment = payment();
         given(paymentRepository.findByMerchantPaymentId(MERCHANT_ID)).willReturn(Optional.of(payment));
@@ -148,8 +187,9 @@ class PaymentWebhookServiceTest {
         webhookService.handle(WEBHOOK_ID, "BillingKey.Updated", MERCHANT_ID);
 
         verify(reconcileService, never()).reconcilePayment(any());
-        // 감사 기록(insert) + 처리 완료(update)는 남긴다.
-        verify(webhookRepository, times(2)).saveAndFlush(any());
+        verify(webhookRepository, never()).claimForReconcile(any(), any());
+        verify(webhookRepository).saveAndFlush(any()); // 감사 기록(insert)
+        verify(webhookRepository).markProcessed(eq(WEBHOOK_ID), any()); // 처리 완료
     }
 
     @Test

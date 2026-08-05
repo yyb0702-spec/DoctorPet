@@ -22,6 +22,11 @@ import lombok.NoArgsConstructor;
   processed_at은 재조회까지 끝난 시각이다. 수신 기록만 되고 처리 전 실패하면 null로 남아, 재전송 때 재구동한다
   (조정 실패한 웹훅이 재시도에서 영구 유실되던 문제 해소, PR #96 리뷰 반영). 상태 전이 자체는 이 테이블이 아니라
   재조회 후 finalizeOutcome(조건부 UPDATE)이 멱등하게 처리한다(웹훅=트리거).
+
+  reconcile_started_at은 재조회 선점 표시다. 첫 수신이 재조회하는 동안(processed_at 확정 전) 같은 webhook_id가
+  다시 들어와도, "미처리이고 미선점"일 때만 선점에 성공하는 조건부 UPDATE로 재조회를 정확히 1회로 막는다 —
+  진행 중(선점됨)과 이전 실패(선점 해제됨)를 구분한다(PR #96 리뷰 P2). 재조회가 실패하면 선점을 다시 null로
+  풀어 재전송 때 재구동한다. 앱 크래시로 선점이 남는 극단적 경우는 #35 정산 스케줄러가 결제를 백업 확정한다.
  */
 @Getter
 @Entity
@@ -56,6 +61,11 @@ public class PaymentWebhook {
     // 재조회까지 끝난 시각. null이면 아직 처리 전(재전송 시 재구동 대상).
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
+
+    // 재조회 선점 시각. non-null이면 다른 수신이 재조회 중 → 동시 재수신은 재조회를 건너뛴다. 실패 시 다시
+    // null로 풀어 재전송 때 재구동되게 한다(PR #96 리뷰 P2 — 동시 double-reconcile 방지).
+    @Column(name = "reconcile_started_at")
+    private LocalDateTime reconcileStartedAt;
 
     private PaymentWebhook(String webhookId, Long paymentId, String eventType, LocalDateTime receivedAt) {
         this.webhookId = webhookId;
