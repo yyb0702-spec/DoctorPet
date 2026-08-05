@@ -101,9 +101,19 @@ public class JwtTokenProvider {
      *
      * {@link #parseClaimsTolerateExpiry(String)}를 쓰는 이유는 {@link #getRemainingTtl(String)}
      * 문서를 참고.
+     *
+     * jti 클레임이 없는 토큰이면(리뷰 지적) 원문 토큰 자체의 SHA-256 해시로 대체한다. jti가
+     * 없다는 이유로 null을 그대로 반환하면, 호출부가 그걸 그대로 블랙리스트 키에 이어붙여
+     * "at-blacklist:null"이라는 하나의 키로 저장한다 — jti 없는 토큰을 가진 아무 사용자나
+     * 로그아웃하면, jti 없는 다른 모든 사용자의 아직 유효한 토큰까지 같은 키로 충돌해 함께
+     * 차단돼버린다. 토큰 원문 해시는 (해시 충돌을 무시하면) 토큰마다 사실상 고유하고 원문을
+     * 복원할 수 없어 안전한 대체 식별자다. (이 프로젝트에서 jti는 최초 배포보다 훨씬 앞서
+     * 도입돼 있어 실제로 jti 없는 Access Token이 운영에 존재할 가능성은 사실상 없지만, 비용이
+     * 거의 없는 방어적 처리라 남겨둔다.)
      */
     public String getJti(String token) {
-        return parseClaimsTolerateExpiry(token).getId();
+        String jti = parseClaimsTolerateExpiry(token).getId();
+        return jti != null ? jti : TokenHasher.hash(token);
     }
 
     /**
