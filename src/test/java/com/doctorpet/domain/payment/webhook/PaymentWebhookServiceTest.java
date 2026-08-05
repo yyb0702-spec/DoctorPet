@@ -147,6 +147,23 @@ class PaymentWebhookServiceTest {
     }
 
     @Test
+    @DisplayName("재조회는 성공했으나 완료 마킹이 실패하면 선점을 해제해 재전송 때 재구동되게 한다")
+    void markProcessedFails_releasesClaim() {
+        Payment payment = payment();
+        given(paymentRepository.findByMerchantPaymentId(MERCHANT_ID)).willReturn(Optional.of(payment));
+        given(webhookRepository.findByWebhookId(WEBHOOK_ID)).willReturn(Optional.empty());
+        given(webhookRepository.claimForReconcile(eq(WEBHOOK_ID), any())).willReturn(1);
+        willThrow(new RuntimeException("markProcessed 실패"))
+                .given(webhookRepository).markProcessed(eq(WEBHOOK_ID), any());
+
+        assertThatThrownBy(() -> webhookService.handle(WEBHOOK_ID, EVENT_TYPE, MERCHANT_ID))
+                .isInstanceOf(RuntimeException.class);
+
+        verify(reconcileService).reconcilePayment(payment); // 재조회 자체는 성공
+        verify(webhookRepository).releaseReconcileClaim(WEBHOOK_ID); // 선점 해제로 재구동 가능
+    }
+
+    @Test
     @DisplayName("동시 중복 수신이 UNIQUE(webhook_id) 위반이면 1회만 반영하고 재조회하지 않는다")
     void concurrentDuplicate_uniqueViolation_skips() {
         Payment payment = payment();

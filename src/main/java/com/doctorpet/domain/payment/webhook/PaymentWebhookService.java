@@ -110,8 +110,9 @@ public class PaymentWebhookService {
      *
      * <p>재조회는 {@code claimForReconcile} 조건부 UPDATE로 선점한 한 스레드만 실행한다 — 첫 수신이 재조회하는
      * 동안 같은 webhook_id가 다시 들어와도(진행 중) 선점에 실패해 재조회를 건너뛴다(중복 단건조회·retry_count
-     * 경쟁 방지, PR #96 리뷰 P2). 재조회가 예외로 실패하면 선점을 풀어(release) processed_at을 찍지 않으므로,
-     * 재전송 때 다시 선점·재구동된다(조정 실패 웹훅 영구 유실 방지).
+     * 경쟁 방지, PR #96 리뷰 P2). 재조회 또는 완료 마킹(markProcessed)이 예외로 실패하면 선점을 풀어(release)
+     * processed_at을 찍지 않으므로, 재전송 때 다시 선점·재구동된다 — 특히 markProcessed가 실패한 채 선점이 남으면
+     * 이후 claimForReconcile이 0을 반환해 재조회가 영구 스킵되기 때문이다(조정 실패 웹훅 영구 유실 방지).
      */
     private void drive(PaymentWebhook webhook, Payment payment) {
         String webhookId = webhook.getWebhookId();
@@ -131,12 +132,15 @@ public class PaymentWebhookService {
         try {
             // 웹훅은 트리거일 뿐 — 실제 상태는 재조회로 확정(멱등). 이미 확정된 결제면 조건부 UPDATE 0건으로 no-op.
             reconcileService.reconcilePayment(payment);
+            // 완료 마킹까지 성공해야 선점이 processed_at으로 확정된다. 같은 try 안에 둬서, markProcessed가
+            // 일시 오류로 실패해도 아래 catch가 선점을 풀게 한다(안 풀면 재전송 때 재조회가 영구 스킵된다).
+            webhookRepository.markProcessed(webhookId, LocalDateTime.now(clock));
         } catch (RuntimeException e) {
-            // 재조회 실패 → 선점을 풀어 재전송 때 재구동되게 한다.
+            // 재조회 또는 완료 마킹 실패 → 선점을 풀어 재전송 때 재구동되게 한다(재조회·마킹 모두 멱등이라
+            // 재구동 안전, PR #96 리뷰 반영).
             webhookRepository.releaseReconcileClaim(webhookId);
             throw e;
         }
-        webhookRepository.markProcessed(webhookId, LocalDateTime.now(clock));
     }
 
     /**
