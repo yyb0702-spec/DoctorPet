@@ -33,12 +33,17 @@ public interface PaymentWebhookRepository extends JpaRepository<PaymentWebhook, 
             """)
     int claimForReconcile(@Param("webhookId") String webhookId, @Param("now") LocalDateTime now);
 
-    /** 재조회 완료를 확정한다. 이후 같은 webhook_id 재전송은 무시된다. */
+    /**
+     * 재조회 완료를 확정한다. 이후 같은 webhook_id 재전송은 무시된다. 완료와 동시에 선점 표시
+     * (reconcile_started_at)도 비워, 처리 완료 건이 "진행 중"으로 남지 않게 한다(SA §4 정의 정합,
+     * PR #96 리뷰 반영). 미지원 이벤트 경로는 선점을 잡지 않아 이미 null이므로 영향이 없다.
+     */
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update PaymentWebhook w
-               set w.processedAt = :now
+               set w.processedAt = :now,
+                   w.reconcileStartedAt = null
              where w.webhookId = :webhookId
                and w.processedAt is null
             """)

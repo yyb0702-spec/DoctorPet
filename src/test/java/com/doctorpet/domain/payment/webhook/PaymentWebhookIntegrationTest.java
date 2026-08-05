@@ -146,6 +146,8 @@ class PaymentWebhookIntegrationTest {
         verify(reconcileService, times(1)).reconcilePayment(any());
         PaymentWebhook stored = webhookRepository.findByWebhookId(webhookId).orElseThrow();
         assertThat(stored.isProcessed()).isTrue();
+        // 처리 완료 건은 선점 표시가 남지 않아야 한다("진행 중" 오판 방지, PR #96 리뷰 반영).
+        assertThat(stored.getReconcileStartedAt()).isNull();
     }
 
     @Test

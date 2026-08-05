@@ -26,7 +26,9 @@ import lombok.NoArgsConstructor;
   reconcile_started_at은 재조회 선점 표시다. 첫 수신이 재조회하는 동안(processed_at 확정 전) 같은 webhook_id가
   다시 들어와도, "미처리이고 미선점"일 때만 선점에 성공하는 조건부 UPDATE로 재조회를 정확히 1회로 막는다 —
   진행 중(선점됨)과 이전 실패(선점 해제됨)를 구분한다(PR #96 리뷰 P2). 재조회가 실패하면 선점을 다시 null로
-  풀어 재전송 때 재구동한다. 앱 크래시로 선점이 남는 극단적 경우는 #35 정산 스케줄러가 결제를 백업 확정한다.
+  풀어 재전송 때 재구동하고, 재조회가 완료되면 markProcessed가 processed_at과 함께 선점을 비워 완료 건이
+  "진행 중"으로 남지 않게 한다(PR #96 리뷰 반영). 앱 크래시로 선점이 남는 극단적 경우는 #35 정산 스케줄러가
+  결제를 백업 확정한다.
  */
 @Getter
 @Entity
@@ -80,9 +82,13 @@ public class PaymentWebhook {
         return new PaymentWebhook(webhookId, paymentId, eventType, receivedAt);
     }
 
-    /** 재조회까지 끝났음을 표시한다. 이후 같은 webhook_id 재전송은 무시된다. */
+    /**
+     * 재조회까지 끝났음을 표시한다. 이후 같은 webhook_id 재전송은 무시된다. 완료와 동시에 선점 표시
+     * (reconcileStartedAt)도 비워 처리 완료 건이 "진행 중"으로 남지 않게 한다(PR #96 리뷰 반영).
+     */
     public void markProcessed(LocalDateTime processedAt) {
         this.processedAt = processedAt;
+        this.reconcileStartedAt = null;
     }
 
     /** 아직 재조회가 끝나지 않았는지(재구동 대상). */
