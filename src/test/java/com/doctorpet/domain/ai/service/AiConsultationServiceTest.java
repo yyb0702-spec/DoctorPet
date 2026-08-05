@@ -309,6 +309,29 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("조류 축종은 일반 진료역량과 분리해 병원 검색 조건으로 전달한다")
+    void consult_birdSpecies_passesSpeciesSeparatelyFromCapabilities() {
+        AiAnalysisResult result = result(List.of("BLOOD_TEST"));
+        given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("BLOOD_TEST"), List.of("BIRD"),
+                null, null, null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
+
+        service.consult(
+                1L,
+                request("앵무새를 진료할 수 있는 병원을 찾아줘", PetSpecies.BIRD, "서울")
+        );
+
+        verify(hospitalService).hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("BLOOD_TEST"), List.of("BIRD"),
+                null, null, null, null, false, false, 1, 20, "name"
+        );
+    }
+
+    @Test
     @DisplayName("Tool Calling Gateway가 선택한 조건으로 병원을 검색하고 서버 안내를 반환한다")
     void consult_toolCallingGateway_executesModelSelectedSearch() {
         AiAnalysisResult result = result(List.of("XRAY"));
