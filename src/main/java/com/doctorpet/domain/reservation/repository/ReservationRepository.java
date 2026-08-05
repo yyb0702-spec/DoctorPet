@@ -151,7 +151,8 @@ public interface ReservationRepository
     @Query("""
         update Reservation r
            set r.status = :rejectedStatus,
-               r.updatedAt = :now
+               r.updatedAt = :now,
+               r.approvalTimeoutNextRetryAt = null
          where r.id = :reservationId
            and r.status = :requestedStatus
            and r.approvalDeadlineAt <= :now
@@ -161,6 +162,19 @@ public interface ReservationRepository
             @Param("requestedStatus") ReservationStatus requestedStatus,
             @Param("rejectedStatus") ReservationStatus rejectedStatus,
             @Param("now") LocalDateTime now
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.approvalTimeoutNextRetryAt = :nextRetryAt
+             where r.id = :reservationId
+               and r.status = :requestedStatus
+            """)
+    int deferApprovalTimeoutRetry(
+            @Param("reservationId") Long reservationId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("nextRetryAt") LocalDateTime nextRetryAt
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
@@ -239,6 +253,8 @@ public interface ReservationRepository
           from Reservation r
          where r.status = :requestedStatus
            and r.approvalDeadlineAt <= :now
+           and (r.approvalTimeoutNextRetryAt is null
+                or r.approvalTimeoutNextRetryAt <= :now)
          order by r.approvalDeadlineAt asc, r.id asc
         """)
     List<Reservation> findApprovalTimeoutTargets(
@@ -253,6 +269,8 @@ public interface ReservationRepository
           from Reservation r
          where r.status = :requestedStatus
            and r.approvalDeadlineAt <= :now
+           and (r.approvalTimeoutNextRetryAt is null
+                or r.approvalTimeoutNextRetryAt <= :now)
            and (
                 r.approvalDeadlineAt > :cursorDeadline
                 or (

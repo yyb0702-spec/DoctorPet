@@ -113,6 +113,7 @@ members 1 ── 0..N notifications
 | `reject_reason` | VARCHAR | 거절 사유, `NULL` 가능 |
 | `requested_at` | DATETIME | 요청 시각 |
 | `approval_deadline_at` | DATETIME NOT NULL | 생성 시 계산한 승인 마감 시각 |
+| `approval_timeout_next_retry_at` | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | `confirmed_at` | DATETIME | 승인 시각, `NULL` 가능 |
 | `canceled_at` | DATETIME | 취소 시각, `NULL` 가능 |
 | `no_show_at` | DATETIME | 노쇼 판정 시각, `NULL` 가능 |

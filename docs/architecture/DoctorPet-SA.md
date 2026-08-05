@@ -227,6 +227,7 @@ erDiagram
 | reject_reason | VARCHAR NULL | 거절 사유 |
 | requested_at | DATETIME | |
 | approval_deadline_at | DATETIME NOT NULL | 생성 시 계산한 병원 승인 마감 시각 |
+| approval_timeout_next_retry_at | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | confirmed_at | DATETIME NULL | |
 | canceled_at | DATETIME NULL | |
 | no_show_at | DATETIME NULL | |

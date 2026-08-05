@@ -33,6 +33,10 @@ public class ReservationApprovalTimeoutProperties {
     @Positive
     private int maxAttempts = 2;
 
+    /** 단건 최종 실패 후 다음 재시도까지의 지연(ms). */
+    @PositiveOrZero
+    private long failureRetryDelayMs = 60_000L;
+
     /** 다른 인스턴스가 실행 중이면 기다리지 않고 다음 주기로 넘기는 것이 기본값이다. */
     @PositiveOrZero
     private int lockWaitSeconds = 0;

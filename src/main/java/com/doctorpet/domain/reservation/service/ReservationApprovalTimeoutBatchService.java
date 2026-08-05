@@ -143,6 +143,13 @@ public class ReservationApprovalTimeoutBatchService {
                         skippedCounter.increment();
                     }
                     case FAILED -> {
+                        reservationRepository.deferApprovalTimeoutRetry(
+                                target.getId(),
+                                ReservationStatus.REQUESTED,
+                                now.plusNanos(
+                                        properties.getFailureRetryDelayMs() * 1_000_000L
+                                )
+                        );
                         failed++;
                         failedCounter.increment();
                     }

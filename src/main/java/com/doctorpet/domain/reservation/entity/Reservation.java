@@ -71,6 +71,10 @@ public class Reservation extends BaseEntity {
     @Column(name = "approval_deadline_at")
     private LocalDateTime approvalDeadlineAt;
 
+    /** 타임아웃 처리 실패 시 다음 재시도 전까지 조회를 미루는 시각. */
+    @Column(name = "approval_timeout_next_retry_at")
+    private LocalDateTime approvalTimeoutNextRetryAt;
+
     @Column(name = "no_show_at")
     private LocalDateTime noShowAt;
 
