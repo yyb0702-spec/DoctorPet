@@ -95,3 +95,15 @@ management:
 reservation:
   event-unique-migration:
     enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}
+  # 기존 예약을 승인 마감 공식으로 백필한 뒤 NOT NULL·조회 인덱스를 적용한다.
+  # schema_migrations 마커와 DB 잠금으로 최초 배포에서 한 번만 실행한다.
+  approval-deadline-migration:
+    enabled: ${RESERVATION_APPROVAL_DEADLINE_MIGRATION_ENABLED:true}
+  approval-timeout:
+    interval-ms: ${RESERVATION_APPROVAL_TIMEOUT_INTERVAL_MS:60000}
+    initial-delay-ms: ${RESERVATION_APPROVAL_TIMEOUT_INITIAL_DELAY_MS:60000}
+    batch-size: ${RESERVATION_APPROVAL_TIMEOUT_BATCH_SIZE:100}
+    max-scanned-per-run: ${RESERVATION_APPROVAL_TIMEOUT_MAX_SCANNED_PER_RUN:1000}
+    max-attempts: ${RESERVATION_APPROVAL_TIMEOUT_MAX_ATTEMPTS:2}
+    failure-retry-delay-ms: ${RESERVATION_APPROVAL_TIMEOUT_FAILURE_RETRY_DELAY_MS:60000}
+    lock-wait-seconds: ${RESERVATION_APPROVAL_TIMEOUT_LOCK_WAIT_SECONDS:0}

@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.29 |
-| 작성 기준일 | 2026-08-04 |
+| 문서 버전 | v1.30 |
+| 작성 기준일 | 2026-08-05 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 병원 검색 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 해당 첫 페이지에만 Redis 원격 캐시를 적용하며, 검색용 인덱스 고도화는 전국 데이터 확장 단계의 성능 분석 후 적용하도록 범위를 조정. v1.14: 최초 진입 요청에서 `partnerOnly` 필터를 사용하지 않고 제휴 우선 정렬 후 비제휴 병원으로 남은 슬롯을 채우도록 확정. v1.15: 병원 검색의 범위 밖 페이지는 성공 응답과 빈 목록을 반환하도록 확정. v1.16: 병원 슬롯의 단일 날짜 조회와 14일 날짜 활성 정보, 조회용 예약 가능 상태 계약을 확정. v1.17: AI 착수 합의에 따라 Gateway·프롬프트 단계, 입력·Rate Limit, 검색 Tool 실패 fallback, 응급 처리, 운영 MVP 범위를 확정. v1.18: 회원 이메일 인증·비밀번호 재설정·탈퇴 보류·Access Token 블랙리스트·기존 회원 백필 설계를 반영하고, AI와 회원 변경이 겹친 부록 A를 실제 미확정 항목 기준으로 통합. v1.19: 리뷰에서 확인된 `members.email_verified`와 `ai_consultations.error_type` 누락을 복원하고 Gateway 실패 원인 저장 계약을 명확화. v1.20: AI 상담의 선택 좌표와 제한된 검색 Tool 조건, 자연어 시간·거리 의도 매핑, 서버 판정 책임과 확장 경계를 확정. v1.21: 응급 시 좌표 기반 거리순 자동 적용, 좌표 미제공 시 비차단 위치 권장 신호와 검색 fallback을 확정. v1.22: 외부 AI Gateway에는 개인정보 패턴을 마스킹한 증상 텍스트만 전달하도록 경계를 확정. v1.23: JPA 감사 시각과 시간 기반 배치가 JVM 기본 시간대와 무관하게 공통 서울 Clock을 사용하도록 확정. v1.24: 결제 실패 분기의 오프라인 전환 안전 조건을 명확화 — PG가 `PAID`를 반환했으나 금액 불일치·`pgPaymentId` 누락인 정합성 오류와, 재시도 소진 시 마지막 결과가 미확정(UNKNOWN)인 경우는 `OFFLINE_REQUIRED`(현장 수납)가 아니라 사유를 기록한 `PENDING`으로 두어 이중결제를 막고 정산 스케줄러가 확정하도록 정의(§5-2·§9-4·§9-7, PR #77 2차 리뷰 반영). v1.25: `notifications` 스키마를 저장형 알림 구현(#39)에 맞춰 확정 — 읽음 상태를 `is_read` 대신 `read_at`(NULL=미읽음, `isRead`는 파생) 정본으로 두고 최초 1회만 기록해 멱등화하며, 연결 리소스를 `resource_type`+`resource_id` generic 참조로 추가하고, 삭제·접근 불가 리소스는 목록 조회 시 서버가 확장하지 않음을 명시(§4 notifications·§8-8·§9-8). v1.26: 실제 LLM 제공자를 OpenAI, 모델을 `gpt-4.1-mini`로 확정. v1.27: 실제 OpenAI 연동부터 검색 Tool 선택을 모델에 맡기는 제한적 Tool Calling으로 전환하고, 위치 요청·서버 검증·도메인 책임 경계를 확정했으며 예약 Tool은 명시적 사용자 확인을 전제로 한 후속 확장으로 분리. v1.28: 일반 위치 필수 신호와 응급 위치 권장 신호를 API 응답에서 구분하도록 `locationRequired`를 추가. v1.29: 관찰 범위·방문 전 확인 항목을 enum으로 제한하고 최종 사용자 안내를 서버가 생성하도록 안전 출력을 강화.
+> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 검색용 인덱스 고도화는 전국 데이터 확장 단계의 실측 후 적용하도록 조정. v1.14~v1.22: 병원 검색·슬롯 조회·AI 상담·개인정보 경계를 확정. v1.23: 공통 서울 Clock 사용을 확정. v1.24: 결제 실패·재시도 정합성 계약을 명확화. v1.25: 저장형 알림 스키마와 멱등 계약을 확정. v1.26: 실제 LLM 제공자를 OpenAI `gpt-4.1-mini`로 확정. v1.27~v1.29: OpenAI Tool Calling, 위치 신호, 안전 출력 계약을 확정. v1.30: `reservations.approval_deadline_at`과 `(status, approval_deadline_at)` 인덱스를 정본 스키마에 추가하고, 기존 예약을 백필한 뒤 `NOT NULL`과 인덱스를 적용하는 일회성 마이그레이션을 확정(PR #94 리뷰 반영).
 
 ---
 
@@ -226,11 +226,15 @@ erDiagram
 | status | VARCHAR | ReservationStatus(§5-1). `PAYMENT_COMPLETED` 없음 — `TREATMENT_COMPLETED`가 종착 |
 | reject_reason | VARCHAR NULL | 거절 사유 |
 | requested_at | DATETIME | |
+| approval_deadline_at | DATETIME NOT NULL | 생성 시 계산한 병원 승인 마감 시각 |
+| approval_timeout_next_retry_at | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | confirmed_at | DATETIME NULL | |
 | canceled_at | DATETIME NULL | |
 | no_show_at | DATETIME NULL | |
 
-인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`.
+인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)`.
+
+기존 예약이 있는 환경에서는 먼저 `approval_deadline_at`을 nullable로 추가하고, 각 `REQUESTED` 예약을 `min(requested_at + 1시간, slot.start_at - 2시간)`으로 백필한다. 검증이 끝난 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다. `ReservationApprovalDeadlineMigrationRunner`는 MySQL `GET_LOCK`으로 다중 인스턴스 실행을 직렬화하고 `schema_migrations`의 `reservation_approval_deadline_v1` 마커로 일회성 실행을 보장한다. 마커와 실제 스키마가 다르면 부팅을 중단한다.
 
 하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션에서 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유를 원자적으로 처리하며, 충돌한 요청은 실패시킨다(§9-3).
 
@@ -348,10 +352,10 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
-| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`, `reservation_approval_deadline_v1`) |
 | applied_at | DATETIME NOT NULL | 실행 시각 |
 
-Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
+Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가, `approval_deadline_at` 백필과 NOT NULL·인덱스 적용)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
 
 ---
 

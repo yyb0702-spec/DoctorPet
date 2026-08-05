@@ -4,6 +4,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.global.entity.BaseEntity;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.LocalDateTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,7 +13,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -64,6 +64,17 @@ public class Reservation extends BaseEntity {
     @Column(name = "canceled_at")
     private LocalDateTime canceledAt;
 
+    /*
+     * 기존 행 백필 전에 Hibernate가 nullable 컬럼을 먼저 추가해야 한다. DB의 NOT NULL과
+     * 조회 인덱스는 ReservationApprovalDeadlineMigrationRunner가 백필 후 적용·검증한다.
+     */
+    @Column(name = "approval_deadline_at")
+    private LocalDateTime approvalDeadlineAt;
+
+    /** 타임아웃 처리 실패 시 다음 재시도 전까지 조회를 미루는 시각. */
+    @Column(name = "approval_timeout_next_retry_at")
+    private LocalDateTime approvalTimeoutNextRetryAt;
+
     @Column(name = "no_show_at")
     private LocalDateTime noShowAt;
 
@@ -75,7 +86,8 @@ public class Reservation extends BaseEntity {
             Long paymentMethodId,
             String petNameSnapshot,
             String petSpeciesSnapshot,
-            LocalDateTime requestedAt
+            LocalDateTime requestedAt,
+            LocalDateTime approvalDeadlineAt
     ) {
         this.memberId = memberId;
         this.petId = petId;
@@ -86,8 +98,15 @@ public class Reservation extends BaseEntity {
         this.petSpeciesSnapshot = petSpeciesSnapshot;
         this.status = ReservationStatus.REQUESTED;
         this.requestedAt = requestedAt;
+        this.approvalDeadlineAt = approvalDeadlineAt;
     }
 
+    /**
+     * 레거시 테스트·마이그레이션 호환용 팩토리다. 실제 예약 생성은 슬롯 시작 시각을 받는
+     * {@link #request(Long, Long, Long, Long, Long, String, String, LocalDateTime, LocalDateTime)}
+     * 를 사용한다.
+     */
+    @Deprecated(forRemoval = false)
     public static Reservation request(
             Long memberId,
             Long petId,
@@ -98,6 +117,41 @@ public class Reservation extends BaseEntity {
             String petSpeciesSnapshot,
             LocalDateTime requestedAt
     ) {
+        // 슬롯 시작 시각을 알 수 없는 호환 경로도 동일한 min(requested+1h, slot-2h) 공식을 사용한다.
+        return request(
+                memberId,
+                petId,
+                hospitalId,
+                slotId,
+                paymentMethodId,
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                requestedAt,
+                requestedAt.plusHours(3)
+        );
+    }
+
+    /**
+     * 승인 마감 시각을 예약 생성 시 확정한다.
+     * 마감은 요청 후 1시간과 예약 시작 2시간 전 중 더 이른 시각이다.
+     */
+    public static Reservation request(
+            Long memberId,
+            Long petId,
+            Long hospitalId,
+            Long slotId,
+            Long paymentMethodId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot,
+            LocalDateTime requestedAt,
+            LocalDateTime slotStartAt
+    ) {
+        LocalDateTime requestDeadline = requestedAt.plusHours(1);
+        LocalDateTime slotDeadline = slotStartAt.minusHours(2);
+        LocalDateTime approvalDeadlineAt = requestDeadline.isBefore(slotDeadline)
+                ? requestDeadline
+                : slotDeadline;
+
         return new Reservation(
                 memberId,
                 petId,
@@ -106,7 +160,8 @@ public class Reservation extends BaseEntity {
                 paymentMethodId,
                 petNameSnapshot,
                 petSpeciesSnapshot,
-                requestedAt
+                requestedAt,
+                approvalDeadlineAt
         );
     }
 

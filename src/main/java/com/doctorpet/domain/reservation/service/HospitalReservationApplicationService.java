@@ -57,7 +57,7 @@ public class HospitalReservationApplicationService {
         ReservationSlot slot = findSlot(reservation.getSlotId());
         validateApprovableSlot(slot, hospitalId);
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
-        validateApprovalDeadline(reservation, slot, now);
+        validateApprovalDeadline(reservation, now);
         int updated = reservationRepository.approveIfRequested(
                 reservationId,
                 hospitalId,
@@ -377,16 +377,9 @@ public class HospitalReservationApplicationService {
 
     private void validateApprovalDeadline(
             Reservation reservation,
-            ReservationSlot slot,
             LocalDateTime now
     ) {
-        LocalDateTime requestDeadline = reservation.getRequestedAt().plusHours(1);
-        LocalDateTime slotDeadline = slot.getStartAt().minusHours(2);
-        LocalDateTime approvalDeadline = requestDeadline.isBefore(slotDeadline)
-                ? requestDeadline
-                : slotDeadline;
-
-        if (now.isAfter(approvalDeadline)) {
+        if (!now.isBefore(reservation.getApprovalDeadlineAt())) {
             throw new ServiceException(
                     ReservationErrorCode.APPROVAL_DEADLINE_PASSED
             );

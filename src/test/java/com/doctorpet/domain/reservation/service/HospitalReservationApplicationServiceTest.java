@@ -364,8 +364,21 @@ class HospitalReservationApplicationServiceTest {
     @Test
     @DisplayName("예약 시각 2시간 전이 지나면 요청 후 1시간 이내여도 승인할 수 없다")
     void approve_afterSlotDeadline_throwsDeadlinePassed() {
-        Reservation reservation = reservation(HOSPITAL_ID);
-        ReservationSlot slot = slot(LocalDateTime.now().plusHours(1));
+        LocalDateTime requestedAt = LocalDateTime.now(SEOUL_ZONE_ID);
+        LocalDateTime slotStartAt = requestedAt.plusHours(1);
+        Reservation reservation = Reservation.request(
+                1L,
+                2L,
+                HOSPITAL_ID,
+                SLOT_ID,
+                3L,
+                "초코",
+                "DOG",
+                requestedAt,
+                slotStartAt
+        );
+        ReflectionTestUtils.setField(reservation, "id", RESERVATION_ID);
+        ReservationSlot slot = slot(slotStartAt);
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation));
         given(reservationSlotRepository.findById(SLOT_ID))
