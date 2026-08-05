@@ -86,4 +86,33 @@ class RefreshTokenRepositoryIntegrationTest {
         assertThat(refreshTokenRepository.matches(MEMBER_ID, newToken)).isTrue();
         assertThat(refreshTokenRepository.matches(MEMBER_ID, oldToken)).isFalse();
     }
+
+    /*
+     * 배포 마이그레이션 회귀 검증(리뷰 지적) — 배포 전 Redis에는 원문 Refresh Token이 저장돼
+     * 있었다. save()를 거치지 않고 redisTemplate로 직접 원문을 써서 그 상태를 재현한다.
+     */
+    @Test
+    void rotateIfMatches는_배포_전_원문으로_저장된_토큰도_회전에_성공하고_이후엔_해시로_저장된다() {
+        String legacyRawToken = "legacy-raw-refresh-token";
+        String newToken = "new-refresh-token-after-migration";
+        redisTemplate.opsForValue().set("refresh:" + MEMBER_ID, legacyRawToken, Duration.ofMinutes(1));
+
+        boolean rotated = refreshTokenRepository.rotateIfMatches(MEMBER_ID, legacyRawToken, newToken, Duration.ofMinutes(1));
+
+        assertThat(rotated).isTrue();
+        String stored = redisTemplate.opsForValue().get("refresh:" + MEMBER_ID);
+        assertThat(stored).isNotEqualTo(newToken); // 새 값은 원문이 아니라 해시로 저장된다
+        assertThat(refreshTokenRepository.matches(MEMBER_ID, newToken)).isTrue();
+    }
+
+    @Test
+    void rotateIfMatches는_원문도_해시도_일치하지_않으면_실패한다() {
+        redisTemplate.opsForValue().set("refresh:" + MEMBER_ID, "legacy-raw-refresh-token", Duration.ofMinutes(1));
+
+        boolean rotated = refreshTokenRepository.rotateIfMatches(
+                MEMBER_ID, "completely-different-token", "new-refresh-token", Duration.ofMinutes(1)
+        );
+
+        assertThat(rotated).isFalse();
+    }
 }

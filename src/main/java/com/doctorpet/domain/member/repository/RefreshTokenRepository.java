@@ -54,10 +54,20 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
      * 지금은 AuthService.reissue()가 CAS를 시도하기 전에 tryLock/unlock으로 회원당 재발급을
      * 아예 직렬화한다 — 그러면 두 요청이 "동시에" CAS를 다투는 상황 자체가 생기지 않으므로,
      * CAS 실패는 항상 "이미 다른 요청이 정상 처리한 뒤의 진짜 재사용"으로 취급해도 안전하다.)
+     *
+     * ARGV[1](해시)뿐 아니라 ARGV[2](원문)와도 비교하는 이유(#123 배포 마이그레이션, 리뷰 지적) —
+     * 배포 직전까지는 이 키에 원문 Refresh Token이 그대로 저장돼 있었다. 해시만 비교하면 배포
+     * 전에 로그인해 원문을 들고 있는 모든 사용자의 "첫" 재발급이 무조건 실패하고, reissue()는
+     * 그걸 재사용(탈취 의심)으로 오판해 세션까지 삭제해버려 활성 사용자 전원이 강제 로그아웃된다.
+     * 원문 비교 분기를 임시로 열어 배포 전 세션도 정상적으로 회전시키되, 새로 저장하는 값은
+     * (ARGV[3]) 항상 해시다 — 그래서 한 번 회전을 거치면 그 회원은 자동으로 해시 저장으로
+     * 넘어간다(lazy migration). Refresh Token 최대 TTL(14일)이 지나면 원문 값은 자연 소멸하므로
+     * 배포일로부터 14일 뒤에는 ARGV[2] 비교 분기와 그 인자를 제거해도 안전하다.
      */
     private static final RedisScript<Long> ROTATE_IF_MATCHES_SCRIPT = new DefaultRedisScript<>(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                    + "redis.call('set', KEYS[1], ARGV[2], 'PX', ARGV[3]) "
+            "local stored = redis.call('get', KEYS[1]) "
+                    + "if stored == ARGV[1] or stored == ARGV[2] then "
+                    + "redis.call('set', KEYS[1], ARGV[3], 'PX', ARGV[4]) "
                     + "return 1 "
                     + "else "
                     + "return 0 "
@@ -108,7 +118,7 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
                 List.of(key(memberId)),
-                TokenHasher.hash(oldToken), TokenHasher.hash(newToken), String.valueOf(ttl.toMillis())
+                TokenHasher.hash(oldToken), oldToken, TokenHasher.hash(newToken), String.valueOf(ttl.toMillis())
         );
         return result != null && result == 1L;
     }
