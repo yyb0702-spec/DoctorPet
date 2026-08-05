@@ -3,6 +3,9 @@ package com.doctorpet.domain.ai.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -26,7 +29,11 @@ import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
+import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
+import com.doctorpet.domain.hospital.model.HospitalSearchSort;
+import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
+import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +43,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class AiConsultationServiceTest {
@@ -56,13 +64,15 @@ class AiConsultationServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(aiGateway.consult(any(), any())).thenCallRealMethod();
         service = new AiConsultationService(
                 aiGateway,
                 repository,
                 new SymptomTextMasker(),
                 hospitalService,
                 new AiHospitalSearchIntentExtractor(),
-                emergencyKeywordDetector
+                emergencyKeywordDetector,
+                new ObjectMapper()
         );
     }
 
@@ -165,6 +175,38 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("Tool Calling 응답의 자유 질환명과 처치 지시는 INVALID_RESPONSE로 차단한다")
+    void consult_unsafeStructuredStrings_returnsFallback() {
+        AiAnalysisResult unsafe = new AiAnalysisResult(
+                List.of("골절"),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of("진통제를 먹이세요"),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v4",
+                10,
+                5
+        );
+        doReturn(new AiGatewayConsultationResult(
+                unsafe, false, true, false))
+                .when(aiGateway).consult(any(), any());
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("다리를 절어요", PetSpecies.DOG, "서울")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        assertThat(response.fallback()).isTrue();
+        assertThat(response.structured()).isNull();
+        assertThat(response.message()).doesNotContain("골절", "진통제");
+        assertThat(captor.getValue().getErrorType())
+                .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE);
+    }
+
+    @Test
     @DisplayName("병원 검색 실패는 구조화 결과를 노출하지 않고 fallback과 Tool 실패를 저장한다")
     void consult_hospitalSearchFailure_returnsFallback() {
         AiAnalysisResult result = result(List.of("XRAY"));
@@ -194,6 +236,51 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("OpenAI Tool 검색 실패 시 이미 사용한 1차 호출 토큰을 실패 상담에 저장한다")
+    void consult_openAiToolSearchFailure_preservesFirstCallUsage() {
+        AiAnalysisResult firstAnalysis = new AiAnalysisResult(
+                List.of("GENERAL"),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of("ONSET_TIME"),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v4",
+                100,
+                20
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    firstAnalysis,
+                    null,
+                    null,
+                    true,
+                    HospitalSearchSort.NAME
+            ));
+            throw new AssertionError("검색 실패 후 Gateway가 정상 결과를 반환하면 안 됩니다.");
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(Boolean.class), any(Boolean.class),
+                any(Integer.class), any(Integer.class), any()
+        )).willThrow(new IllegalStateException("search failed"));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("다리를 절어요", PetSpecies.DOG, "인천")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        AiConsultation saved = captor.getValue();
+        assertThat(response.fallback()).isTrue();
+        assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.FAILED);
+        assertThat(saved.getPromptTokens()).isEqualTo(100);
+        assertThat(saved.getCompletionTokens()).isEqualTo(20);
+    }
+
+    @Test
     @DisplayName("위치와 현재·야간·거리 의도를 병원 검색 조건으로 전달한다")
     void consult_searchIntent_passesAllowedConditions() {
         AiAnalysisResult result = result(List.of("BLOOD_TEST"));
@@ -218,6 +305,206 @@ class AiConsultationServiceTest {
                 null, null, latitude, longitude, null,
                 List.of("BLOOD_TEST"), List.of("DOG"),
                 null, null, true, null, false, true, 1, 20, "distance"
+        );
+    }
+
+    @Test
+    @DisplayName("Tool Calling Gateway가 선택한 조건으로 병원을 검색하고 서버 안내를 반환한다")
+    void consult_toolCallingGateway_executesModelSelectedSearch() {
+        AiAnalysisResult result = result(List.of("XRAY"));
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    result,
+                    null,
+                    true,
+                    true,
+                    HospitalSearchSort.DISTANCE
+            ));
+            return new AiGatewayConsultationResult(
+                    result,
+                    false,
+                    true,
+                    true
+            );
+        }).when(aiGateway).consult(any(), any());
+        BigDecimal latitude = new BigDecimal("37.5665");
+        BigDecimal longitude = new BigDecimal("126.9780");
+        given(hospitalService.hospitalSearch(
+                null, null, latitude, longitude, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                true, null, false, true, 1, 20, "distance"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                new AiConsultationRequest(
+                        "검사를 받을 수 있는 가까운 야간 병원을 알려줘",
+                        PetSpecies.DOG,
+                        null,
+                        latitude,
+                        longitude
+                )
+        );
+
+        assertThat(response.hospitals()).containsExactly(hospital());
+        assertThat(response.message()).isEqualTo("조건에 맞는 동물병원 1곳을 찾았습니다.");
+        verify(hospitalService).hospitalSearch(
+                null, null, latitude, longitude, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                true, null, false, true, 1, 20, "distance"
+        );
+    }
+
+    @Test
+    @DisplayName("Tool 호출과 최종 응답의 진료역량 순서가 달라도 같은 조건으로 처리한다")
+    void consult_toolCallingCapabilitiesInDifferentOrder_succeeds() {
+        AiAnalysisResult toolAnalysis = result(List.of("XRAY", "ULTRASOUND"));
+        AiAnalysisResult finalAnalysis = result(List.of("ULTRASOUND", "XRAY"));
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    toolAnalysis,
+                    null,
+                    null,
+                    null,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    finalAnalysis,
+                    false,
+                    true,
+                    true
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"), null, null,
+                null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                new AiConsultationRequest(
+                        "검사 가능한 병원을 알려줘",
+                        PetSpecies.DOG,
+                        "서울",
+                        null,
+                        null
+                )
+        );
+
+        assertThat(response.fallback()).isFalse();
+        assertThat(response.hospitals()).containsExactly(hospital());
+        assertThat(response.structured().requiredCapabilities())
+                .containsExactly("ULTRASOUND", "XRAY");
+    }
+
+    @Test
+    @DisplayName("Tool 호출 단계가 HIGH이면 최종 응답의 긴급도가 낮아져도 응급 안내를 유지한다")
+    void consult_toolCallingHighThenModerate_keepsEmergencyGuidance() {
+        AiAnalysisResult toolAnalysis = new AiAnalysisResult(
+                List.of(), List.of("XRAY"), UrgencyLevel.HIGH, List.of(), true,
+                "gpt-4.1-mini", "doctorpet-ai-v4", 50, 10
+        );
+        AiAnalysisResult finalAnalysis = new AiAnalysisResult(
+                List.of(), List.of("XRAY"), UrgencyLevel.MODERATE, List.of(), true,
+                "gpt-4.1-mini", "doctorpet-ai-v4", 100, 20
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    toolAnalysis,
+                    true,
+                    null,
+                    true,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    finalAnalysis,
+                    false,
+                    true,
+                    true
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, true, false, true, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("상태가 갑자기 나빠졌어요", PetSpecies.DOG, "서울")
+        );
+
+        assertThat(response.structured().urgencyLevel()).isEqualTo(UrgencyLevel.HIGH);
+        assertThat(response.message()).contains("응급 상황");
+        assertThat(response.locationRecommended()).isTrue();
+        assertThat(response.hospitals()).containsExactly(hospital());
+        verify(hospitalService).hospitalSearch(
+                null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, true, false, true, 1, 20, "name"
+        );
+    }
+
+    @Test
+    @DisplayName("Tool Calling Gateway가 Tool 없이 HIGH를 반환하면 서버가 응급 검색을 강제한다")
+    void consult_toolCallingHighWithoutTool_forcesEmergencySearch() {
+        AiAnalysisResult high = new AiAnalysisResult(
+                List.of(), List.of(), UrgencyLevel.HIGH, List.of(), true,
+                "gpt-4.1-mini", "doctorpet-ai-v4", 100, 20
+        );
+        doAnswer(invocation -> new AiGatewayConsultationResult(
+                high,
+                false,
+                true,
+                false
+        )).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                null, "서울", null, null, null,
+                List.of(), List.of("DOG"), null, null,
+                null, true, false, true, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("상태가 갑자기 나빠졌어요", PetSpecies.DOG, "서울")
+        );
+
+        assertThat(response.message()).contains("응급 상황");
+        assertThat(response.hospitals()).containsExactly(hospital());
+        verify(hospitalService).hospitalSearch(
+                null, "서울", null, null, null,
+                List.of(), List.of("DOG"), null, null,
+                null, true, false, true, 1, 20, "name"
+        );
+    }
+
+    @Test
+    @DisplayName("모델의 일반 위치 필요 신호를 응급 위치 권장과 구분해 반환한다")
+    void consult_toolCallingLocationRequired_returnsRequiredSignal() {
+        AiAnalysisResult result = result(List.of());
+        doAnswer(invocation -> new AiGatewayConsultationResult(
+                result,
+                true,
+                true,
+                false
+        )).when(aiGateway).consult(any(), any());
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("가장 가까운 병원을 찾아줘", PetSpecies.DOG, null)
+        );
+
+        assertThat(response.locationRequired()).isTrue();
+        assertThat(response.locationRecommended()).isFalse();
+        assertThat(response.message()).contains("위치");
+        verify(hospitalService, never()).hospitalSearch(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(Boolean.class), any(Boolean.class),
+                any(Integer.class), any(Integer.class), any()
         );
     }
 
@@ -462,7 +749,7 @@ class AiConsultationServiceTest {
                 List.of("GENERAL"),
                 capabilities,
                 UrgencyLevel.MODERATE,
-                List.of("증상 시작 시점을 확인해 주세요."),
+                List.of("ONSET_TIME"),
                 true,
                 null,
                 null,

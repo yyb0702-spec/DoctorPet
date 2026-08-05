@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.25, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.16 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.29, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -79,10 +79,10 @@ domain/
 - 구조화 출력은 다음 5개 필드로 고정한다.
 | 필드 | 설명 |
 | --- | --- |
-| `possibleFocusAreas` | 의심되는 진료 집중 영역 |
+| `possibleFocusAreas` | 질환명이 아닌 허용된 증상 관찰 범위 enum을 서버 문구로 변환한 값 |
 | `requiredCapabilities` | 병원 검색에 필요한 진료역량 |
 | `urgencyLevel` | 긴급도 |
-| `preVisitCheckpoints` | 내원 전 확인 사항 |
+| `preVisitCheckpoints` | 허용된 보호자 관찰 항목 enum을 서버 문구로 변환한 값 |
 | `recommendVetVisit` | 병원 방문 권고 여부 |
 - 응급 키워드가 감지되면 LLM 호출을 생략하고 고정 응답을 반환하며, LLM 결과가 `urgencyLevel=HIGH`인 경우에도 즉시 병원 안내로 강제 분기한다.
 - 화이트리스트 밖의 카테고리에는 `정확한 답변이 어렵습니다`를 반환한다.
@@ -96,7 +96,7 @@ domain/
 - Rate Limit은 로그인 회원당 1분 5회, 비로그인 IP당 1분 3회·서울 날짜당 30회이며 설정값으로 관리한다.
 - 전화번호·이메일·주민번호 등 개인정보 패턴을 마스킹한 증상 텍스트만 외부 AI Gateway에 전달하고 DB에 30일간 보존한 뒤 삭제한다.
 - 구조화 출력 5필드 전체를 `structured_result` JSON으로 저장한다. `required_capabilities`와 `urgency_level`은 검색·조회·집계를 위해 별도 컬럼에 중복 저장하고 같은 트랜잭션에서 일관되게 기록한다. AI Gateway 실패 시 `error_type`에 `TIMEOUT`, `TEMPORARY_UNAVAILABLE`, `INVALID_RESPONSE`를 저장하고, `tool_call_status`, `schema_parse_success` 등도 저장해 품질 지표를 측정한다.
-- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 제공자·모델은 평가 후 선택한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
+- 공통 기능은 `FakeAiGateway`로 먼저 구현하고 실제 연동은 OpenAI `gpt-4.1-mini`의 Structured Outputs를 사용한다. Fake 단계에는 프롬프트 파일을 만들지 않는다.
 - timeout·fallback·기본 Circuit Breaker는 MVP에 포함하고 세밀한 튜닝·대시보드는 확장으로 둔다.
 ## 7. 예약과 상태 전이
 ### 예약 흐름
@@ -154,7 +154,6 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 외부 시스템 요청·응답에는 민감정보를 그대로 기록하지 않는다.
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
-- 실제 LLM 제공자·모델
 - 실시간 push 방식(SSE 또는 WebSocket+STOMP)
 - 미인증 계정의 장기 미완료 처리
 - SNS 로그인 도입 범위와 기존 계정 연동 정책
