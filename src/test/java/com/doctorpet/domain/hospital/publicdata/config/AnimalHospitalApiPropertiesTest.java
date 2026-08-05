@@ -3,7 +3,6 @@ package com.doctorpet.domain.hospital.publicdata.config;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -16,7 +15,6 @@ class AnimalHospitalApiPropertiesTest {
                         null,
                         null,
                         0,
-                        List.of(),
                         null,
                         null,
                         null

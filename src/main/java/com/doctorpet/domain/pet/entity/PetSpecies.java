@@ -6,5 +6,11 @@ package com.doctorpet.domain.pet.entity;
  */
 public enum PetSpecies {
     DOG,
-    CAT
+    CAT,
+    BIRD,
+    RABBIT,
+    HAMSTER,
+    GUINEA_PIG,
+    FERRET,
+    REPTILE
 }

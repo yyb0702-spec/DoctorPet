@@ -18,7 +18,8 @@
       "emergency": false
     },
     "capabilities": [
-      "DOG", "CAT", "BLOOD_TEST", "XRAY", "ULTRASOUND",
+      "DOG", "CAT", "BIRD", "RABBIT", "HAMSTER", "GUINEA_PIG",
+      "FERRET", "REPTILE", "BLOOD_TEST", "XRAY", "ULTRASOUND",
       "ORTHOPEDIC_CARE", "CT"
     ]
   },

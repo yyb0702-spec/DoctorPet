@@ -182,12 +182,12 @@ class AiConsultationControllerTest {
     }
 
     @Test
-    @DisplayName("DOG/CAT 밖의 축종은 400으로 거부한다")
+    @DisplayName("축종 화이트리스트 밖의 값은 400으로 거부한다")
     void consult_invalidSpecies_rejected() throws Exception {
         mockMvc.perform(post("/api/ai/consultations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"symptomText":"아파요","species":"BIRD"}
+                                {"symptomText":"아파요","species":"HORSE"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));

@@ -41,8 +41,6 @@ public-data:
     connect-timeout: 3s
     read-timeout: 10s
     source-crs: EPSG:5174
-    local-government-codes:
-      - "3130000"
 
 hospital:
   search:

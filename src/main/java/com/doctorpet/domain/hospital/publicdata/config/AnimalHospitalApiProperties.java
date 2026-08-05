@@ -3,7 +3,6 @@ package com.doctorpet.domain.hospital.publicdata.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
-import java.util.List;
 
 /**
  * application-local.yml의 동물병원 OpenAPI 설정값을 매핑합니다.
@@ -13,7 +12,6 @@ public record AnimalHospitalApiProperties(
         String baseUrl,
         String serviceKey,
         int pageSize,
-        List<String> localGovernmentCodes,
         Duration connectTimeout,
         Duration readTimeout,
         String sourceCrs

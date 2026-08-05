@@ -131,11 +131,11 @@ class PetControllerTest {
     }
 
     @Test
-    @DisplayName("species가 화이트리스트(DOG/CAT) 밖의 값이면 400과 COMMON_001을 반환한다")
+    @DisplayName("species가 화이트리스트 밖의 값이면 400과 COMMON_001을 반환한다")
     void register_invalidSpecies() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
         String body = """
-                {"name":"초코","species":"BIRD","age":3,"weight":5.4,"neutered":true}
+                {"name":"초코","species":"HORSE","age":3,"weight":5.4,"neutered":true}
                 """;
 
         mockMvc.perform(post("/api/pets")
@@ -280,7 +280,7 @@ class PetControllerTest {
     void update_invalidSpecies() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
         String body = """
-                {"name":"초코","species":"BIRD","age":4,"weight":6.0,"neutered":false}
+                {"name":"초코","species":"HORSE","age":4,"weight":6.0,"neutered":false}
                 """;
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)

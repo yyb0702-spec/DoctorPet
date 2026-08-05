@@ -23,6 +23,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,8 +54,8 @@ class HospitalSearchCacheRepositoryTest {
                 "cacheTtl",
                 Duration.ofMinutes(10)
         );
-        given(redisTemplate.opsForValue())
-                .willReturn(valueOperations);
+        lenient().when(redisTemplate.opsForValue())
+                .thenReturn(valueOperations);
     }
 
     @Test
@@ -174,6 +175,22 @@ class HospitalSearchCacheRepositoryTest {
                 "{\"content\":[],\"totalElements\":0}",
                 Duration.ofMinutes(10)
         );
+    }
+
+    @Test
+    void 공공데이터_갱신_후_첫_페이지_캐시를_삭제한다() {
+        cacheRepository.evictInitialPage();
+
+        verify(redisTemplate).delete(CACHE_KEY);
+    }
+
+    @Test
+    void 캐시_삭제에_실패해도_예외를_전파하지_않는다() {
+        given(redisTemplate.delete(CACHE_KEY))
+                .willThrow(new RuntimeException("Redis unavailable"));
+
+        assertThatCode(cacheRepository::evictInitialPage)
+                .doesNotThrowAnyException();
     }
 
     private HospitalSearchCandidate validCandidate() {

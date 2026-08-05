@@ -55,7 +55,6 @@ class AnimalHospitalDataNormalizerTest {
                 null,
                 null,
                 100,
-                List.of("3130000"),
                 Duration.ofSeconds(3),
                 Duration.ofSeconds(10),
                 "EPSG:5174"
