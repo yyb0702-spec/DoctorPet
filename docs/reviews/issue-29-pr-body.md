@@ -93,12 +93,11 @@
 | Level 2 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.ReservationNoShowBatchServiceTest" --no-daemon` | PASS | 재시도·실패 격리·다음 페이지 진행 | 실제 DB 경합 |
 | Level 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalNoShowIntegrationTest" --no-daemon` | PASS | 실제 MySQL 경계·경합·멱등·이력·알림·잠금 | 외부 알림 전송 채널 |
 | Harness | `python scripts/harness_check.py` 및 `git diff --check` | PASS | 문서 링크·섹션 및 공백 오류 | 없음 |
-| 전체 회귀 | `./gradlew build --no-daemon` | FAIL | 742개 중 54개 실패 | 공통 테스트 컨텍스트에 `AiGateway` 빈이 없어 AI·Redis·결제·예약 통합 테스트가 연쇄 실패 |
+| 전체 회귀 | CI와 동일한 환경 변수·빈 MySQL·Redis에서 `./gradlew clean build --no-daemon` | PASS | 전체 742개 테스트와 패키징 | 없음 |
 
 **미검증 항목**
 
 - MVP 알림은 저장형 폴링 방식이므로 외부 push 채널은 범위에 포함하지 않았습니다.
-- 전체 빌드는 자동 노쇼 관련 실패가 아니라 현재 브랜치 공통 테스트 컨텍스트의 `AiGateway` 빈 누락으로 FAIL입니다. 자동 노쇼 단위·실제 MySQL 통합 테스트는 별도 실행해 PASS를 확인했습니다.
 
 ## 테스트
 
@@ -131,4 +130,3 @@ Closes #29
 
 - 리뷰 시 자동 노쇼와 체크인·수동 확정의 경합 결과, SYSTEM 이력과 알림의 원자성을 중점적으로 확인 부탁드립니다.
 - 예약 슬롯은 이미 지난 시간이므로 자동 노쇼 처리 후에도 `RESERVED`를 유지합니다.
-- 전체 빌드의 `AiGateway` 테스트 빈 누락은 이번 예약 스케줄러 범위를 벗어나므로 별도 정리가 필요합니다.
