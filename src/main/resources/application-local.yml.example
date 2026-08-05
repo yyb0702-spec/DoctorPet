@@ -40,9 +40,12 @@ payment:
     backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
 
 # AI Gateway 구현체 선택
-#   fake: 외부 LLM을 호출하지 않는 로컬/테스트용 구현체
+#   fake  : 외부 LLM을 호출하지 않는 로컬/테스트용 구현체
+#   openai: OpenAI Responses API + searchNearbyVets Tool Calling
 ai:
   gateway: fake
+  openai:
+    api-key: ${OPENAI_API_KEY:}
 
 # 이메일 발송 - 이메일 인증(회원가입)·비밀번호 재설정(백로그 P2)
 # payment.gateway와 동일한 fail-safe 패턴: mail.provider를 명시해야 발송기 빈이 등록됩니다

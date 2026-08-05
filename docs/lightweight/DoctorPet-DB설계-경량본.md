@@ -2,8 +2,8 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.13 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.26, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.16 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.30, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
@@ -112,12 +112,13 @@ members 1 ── 0..N notifications
 | `status` | VARCHAR | 예약 상태 |
 | `reject_reason` | VARCHAR | 거절 사유, `NULL` 가능 |
 | `requested_at` | DATETIME | 요청 시각 |
-| `approval_deadline_at` | DATETIME | 승인 마감 시각, `NOT NULL` |
+| `approval_deadline_at` | DATETIME NOT NULL | 생성 시 계산한 승인 마감 시각 |
 | `confirmed_at` | DATETIME | 승인 시각, `NULL` 가능 |
 | `canceled_at` | DATETIME | 취소 시각, `NULL` 가능 |
 | `no_show_at` | DATETIME | 노쇼 판정 시각, `NULL` 가능 |
-인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)` — 슬롯·회원·병원별 조회와 승인 타임아웃 대상 조회에 사용한다.
-기존 예약은 `min(requested_at + 1시간, reservation_slots.start_at - 2시간)`으로 승인 마감을 백필한 뒤 `NOT NULL`과 조회 인덱스를 적용한다. `reservation_approval_deadline_v1` 마커와 MySQL DB 잠금으로 최초 배포에서 한 번만 실행한다.
+인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)` — 슬롯·회원·병원별 예약 조회와 승인 타임아웃 배치에 사용한다.
+
+기존 예약이 있는 환경은 nullable 컬럼 추가 → `min(requested_at + 1시간, slot.start_at - 2시간)` 백필 → 검증 후 `NOT NULL`·인덱스 적용 순서로 일회성 마이그레이션한다. `reservation_approval_deadline_v1` 마커와 MySQL `GET_LOCK`으로 중복 실행을 막는다.
 슬롯은 반환 후 다시 사용될 수 있어 예약 이력과 1:N 관계다. 같은 시점의 활성 예약 1건은 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유를 원자적으로 처리해 보장한다.
 ### `reservation_events`
 | 필드 | 타입 | 제약·설명 |

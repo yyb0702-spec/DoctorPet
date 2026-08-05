@@ -1,6 +1,8 @@
 package com.doctorpet.domain.ai.model;
 
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
+import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
+import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import java.util.List;
 
@@ -21,10 +23,14 @@ public record AiStructuredResult(
 
     public static AiStructuredResult from(AiAnalysisResult result) {
         return new AiStructuredResult(
-                result.possibleFocusAreas(),
+                result.possibleFocusAreas().stream()
+                        .map(AiFocusArea::displayNameOf)
+                        .toList(),
                 result.requiredCapabilities(),
                 result.urgencyLevel(),
-                result.preVisitCheckpoints(),
+                result.preVisitCheckpoints().stream()
+                        .map(AiPreVisitCheckpoint::guidanceOf)
+                        .toList(),
                 result.recommendVetVisit()
         );
     }

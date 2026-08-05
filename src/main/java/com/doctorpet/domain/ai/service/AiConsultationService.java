@@ -11,15 +11,21 @@ import com.doctorpet.domain.ai.support.EmergencyKeywordDetector;
 import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
+import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.global.gateway.ai.AiGateway;
 import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
+import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
+import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
+import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.springframework.util.StringUtils;
@@ -27,6 +33,8 @@ import org.springframework.util.StringUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /** AI 외부 호출은 트랜잭션 밖에서 수행하고 결과 로그만 별도 저장한다. */
 @Slf4j
@@ -36,8 +44,6 @@ public class AiConsultationService {
 
     private static final int HOSPITAL_SEARCH_PAGE = 1;
     private static final int HOSPITAL_SEARCH_SIZE = 20;
-    private static final String NAME_SORT = "name";
-    private static final String DISTANCE_SORT = "distance";
     private static final String DISCLAIMER =
             "AI 분석은 참고용이며 진단이나 처방을 대신하지 않습니다. 정확한 판단은 동물병원에서 받아 주세요.";
     private static final String SUCCESS_MESSAGE = "증상을 바탕으로 필요한 진료역량을 정리했습니다.";
@@ -64,6 +70,7 @@ public class AiConsultationService {
     private final HospitalService hospitalService;
     private final AiHospitalSearchIntentExtractor searchIntentExtractor;
     private final EmergencyKeywordDetector emergencyKeywordDetector;
+    private final ObjectMapper objectMapper;
 
     public AiConsultationResponse consult(Long memberId, AiConsultationRequest request) {
         String maskedSymptomText = symptomTextMasker.mask(request.symptomText());
@@ -74,9 +81,32 @@ public class AiConsultationService {
         }
 
         try {
-            AiAnalysisResult result = aiGateway.analyze(
-                    new AiAnalysisRequest(maskedSymptomText, request.species()));
+            AiToolExecutionState toolState = new AiToolExecutionState();
+            AiGatewayConsultationResult gatewayResult = aiGateway.consult(
+                    new AiAnalysisRequest(
+                            maskedSymptomText,
+                            request.species(),
+                            request.region(),
+                            request.latitude(),
+                            request.longitude()
+                    ),
+                    call -> executeSearchTool(request, call, toolState)
+            );
+            AiAnalysisResult result = gatewayResult.analysis();
             validateRequiredCapabilities(result.requiredCapabilities());
+            if (gatewayResult.toolCallingHandled()) {
+                validateSafeStructuredFields(result);
+            }
+            if (gatewayResult.toolCallingHandled()) {
+                return completeToolCallingConsultation(
+                        memberId,
+                        request,
+                        maskedSymptomText,
+                        gatewayResult,
+                        toolState,
+                        startedAt
+                );
+            }
             AiHospitalSearchIntent searchIntent = searchIntentExtractor.extract(maskedSymptomText);
             boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH;
             if (emergency) {
@@ -119,7 +149,171 @@ public class AiConsultationService {
             );
         } catch (AiGatewayException exception) {
             return fallback(memberId, maskedSymptomText, exception.getFailureReason(), startedAt);
+        } catch (AiToolSearchExecutionException exception) {
+            log.error("병원 검색 Tool 호출에 실패했습니다.", exception.getCause());
+            return toolFallback(
+                    memberId,
+                    maskedSymptomText,
+                    exception.analysis(),
+                    startedAt,
+                    exception.locationRecommended()
+            );
         }
+    }
+
+    private AiConsultationResponse completeToolCallingConsultation(
+            Long memberId,
+            AiConsultationRequest request,
+            String maskedSymptomText,
+            AiGatewayConsultationResult gatewayResult,
+            AiToolExecutionState toolState,
+            long startedAt
+    ) {
+        AiAnalysisResult result = gatewayResult.analysis();
+        // Tool 호출 단계와 최종 응답 단계 중 한 번이라도 응급으로 판단했다면 안전 등급을 낮추지 않는다.
+        boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH
+                || toolState.emergencySearch();
+        if (emergency && result.urgencyLevel() != UrgencyLevel.HIGH) {
+            result = withHighUrgency(result);
+        }
+        if (emergency && requiresEmergencyLocation(request)) {
+            return emergencyWithoutLocation(memberId, maskedSymptomText, result, startedAt);
+        }
+        if (emergency && (!gatewayResult.toolCalled() || !toolState.emergencySearch())) {
+            return searchEmergencyAfterModel(
+                    memberId,
+                    request,
+                    maskedSymptomText,
+                    result,
+                    startedAt
+            );
+        }
+        if (gatewayResult.toolCalled()
+                && toolState.analysis() != null
+                && !Set.copyOf(toolState.analysis().requiredCapabilities())
+                        .equals(Set.copyOf(result.requiredCapabilities()))) {
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "Tool 호출과 최종 응답의 필수 진료역량이 일치하지 않습니다."
+            );
+        }
+        if (!gatewayResult.toolCalled()) {
+            aiConsultationRepository.save(AiConsultation.successWithoutTool(
+                    memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
+            return new AiConsultationResponse(
+                    AiStructuredResult.from(result),
+                    List.of(),
+                    DISCLAIMER,
+                    gatewayResult.locationRequired()
+                            ? LOCATION_REQUIRED_MESSAGE
+                            : SUCCESS_MESSAGE,
+                    false,
+                    gatewayResult.locationRequired(),
+                    false
+            );
+        }
+
+        List<HospitalSearchResponse> hospitals = toolState.hospitals();
+        aiConsultationRepository.save(AiConsultation.success(
+                memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
+        return new AiConsultationResponse(
+                AiStructuredResult.from(result),
+                hospitals,
+                DISCLAIMER,
+                emergency ? emergencyMessage(request, hospitals) : hospitalSearchMessage(hospitals),
+                false,
+                emergency && !hasLocation(request)
+        );
+    }
+
+    private AiConsultationResponse searchEmergencyAfterModel(
+            Long memberId,
+            AiConsultationRequest request,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            long startedAt
+    ) {
+        List<HospitalSearchResponse> hospitals;
+        try {
+            hospitals = searchHospitals(
+                    request,
+                    result,
+                    new AiHospitalSearchIntent(true, false, hasLocation(request)),
+                    true
+            );
+        } catch (RuntimeException exception) {
+            log.error("모델 HIGH 판정 후 응급 병원 검색에 실패했습니다.", exception);
+            return toolFallback(
+                    memberId,
+                    maskedSymptomText,
+                    result,
+                    startedAt,
+                    !hasLocation(request)
+            );
+        }
+        aiConsultationRepository.save(AiConsultation.success(
+                memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
+        return new AiConsultationResponse(
+                AiStructuredResult.from(result),
+                hospitals,
+                DISCLAIMER,
+                emergencyMessage(request, hospitals),
+                false,
+                !hasLocation(request)
+        );
+    }
+
+    private String executeSearchTool(
+            AiConsultationRequest request,
+            AiHospitalSearchToolCall call,
+            AiToolExecutionState state
+    ) {
+        validateRequiredCapabilities(call.analysis().requiredCapabilities());
+        validateSafeStructuredFields(call.analysis());
+        boolean emergency = Boolean.TRUE.equals(call.emergency())
+                || call.analysis().urgencyLevel() == UrgencyLevel.HIGH;
+        state.updateAnalysis(call.analysis(), emergency);
+        if (emergency && requiresEmergencyLocation(request)) {
+            state.updateHospitals(List.of());
+            return "{\"hospitals\":[],\"locationRequired\":true}";
+        }
+        if (call.sort() == HospitalSearchSort.DISTANCE
+                && !hasLocation(request)
+                && !StringUtils.hasText(request.region())) {
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "좌표와 지역이 없는데 거리순 병원 검색 Tool을 호출했습니다."
+            );
+        }
+
+        AiHospitalSearchIntent intent = new AiHospitalSearchIntent(
+                Boolean.TRUE.equals(call.openNow()),
+                Boolean.TRUE.equals(call.nightCare()),
+                call.sort() == HospitalSearchSort.DISTANCE
+        );
+        try {
+            state.updateHospitals(searchHospitals(request, call.analysis(), intent, emergency));
+            return objectMapper.writeValueAsString(Map.of("hospitals", state.hospitals()));
+        } catch (JacksonException exception) {
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "병원 검색 Tool 결과를 JSON으로 변환할 수 없습니다.",
+                    exception
+            );
+        } catch (RuntimeException exception) {
+            throw new AiToolSearchExecutionException(
+                    call.analysis(),
+                    emergency && !hasLocation(request),
+                    exception
+            );
+        }
+    }
+
+    private String hospitalSearchMessage(List<HospitalSearchResponse> hospitals) {
+        if (hospitals.isEmpty()) {
+            return "조건에 맞는 동물병원을 찾지 못했습니다.";
+        }
+        return "조건에 맞는 동물병원 %d곳을 찾았습니다.".formatted(hospitals.size());
     }
 
     private List<HospitalSearchResponse> searchHospitals(
@@ -146,7 +340,7 @@ public class AiConsultationService {
                 intent.openNow(),
                 HOSPITAL_SEARCH_PAGE,
                 HOSPITAL_SEARCH_SIZE,
-                distanceSort ? DISTANCE_SORT : NAME_SORT
+                (distanceSort ? HospitalSearchSort.DISTANCE : HospitalSearchSort.NAME).requestValue()
         ).content();
     }
 
@@ -206,6 +400,20 @@ public class AiConsultationService {
                 null,
                 null,
                 null
+        );
+    }
+
+    private AiAnalysisResult withHighUrgency(AiAnalysisResult result) {
+        return new AiAnalysisResult(
+                result.possibleFocusAreas(),
+                result.requiredCapabilities(),
+                UrgencyLevel.HIGH,
+                result.preVisitCheckpoints(),
+                result.recommendVetVisit(),
+                result.model(),
+                result.promptVersion(),
+                result.promptTokens(),
+                result.completionTokens()
         );
     }
 
@@ -271,6 +479,7 @@ public class AiConsultationService {
                 DISCLAIMER,
                 LOCATION_REQUIRED_MESSAGE,
                 false,
+                true,
                 false
         );
     }
@@ -281,6 +490,19 @@ public class AiConsultationService {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,
                     "AI 응답에 허용되지 않은 진료역량이 포함되어 있습니다."
+            );
+        }
+    }
+
+    private void validateSafeStructuredFields(AiAnalysisResult result) {
+        boolean validFocusAreas = result.possibleFocusAreas().stream()
+                .allMatch(AiFocusArea.names()::contains);
+        boolean validCheckpoints = result.preVisitCheckpoints().stream()
+                .allMatch(AiPreVisitCheckpoint.names()::contains);
+        if (!validFocusAreas || !validCheckpoints) {
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.INVALID_RESPONSE,
+                    "AI 응답에 허용되지 않은 관찰 항목이 포함되어 있습니다."
             );
         }
     }
