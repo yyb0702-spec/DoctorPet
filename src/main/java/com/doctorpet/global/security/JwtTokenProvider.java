@@ -1,6 +1,7 @@
 package com.doctorpet.global.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -97,18 +98,33 @@ public class JwtTokenProvider {
      * 위해 쓴다(회원 단위 블랙리스트는 탈퇴처럼 "이 회원의 모든 토큰을 영구히 막아야 하는"
      * 경우에만 맞다 — 로그아웃 직후 재로그인하면 새 토큰은 즉시 다시 유효해야 하므로, 회원
      * 단위로 막으면 그 새 토큰까지 같이 막혀버린다).
+     *
+     * {@link #parseClaimsTolerateExpiry(String)}를 쓰는 이유는 {@link #getRemainingTtl(String)}
+     * 문서를 참고.
      */
     public String getJti(String token) {
-        return parseClaims(token).getId();
+        return parseClaimsTolerateExpiry(token).getId();
     }
 
     /**
      * 토큰이 자연 만료될 때까지 남은 시간을 반환한다. 이미 만료됐다면(호출 시점 경쟁 등)
      * {@link Duration#ZERO}를 반환한다 — 음수 Duration을 Redis TTL로 그대로 넘기면 에러가 나고,
      * 어차피 만료된 토큰은 블랙리스트에 넣을 필요가 없다(서명 검증에서 이미 걸러진다).
+     *
+     * {@code parseClaims}(엄격 파싱, jjwt가 만료 시 {@link ExpiredJwtException}을 던짐) 대신
+     * {@link #parseClaimsTolerateExpiry(String)}를 쓴다(리뷰 지적) — 이 메서드와 {@link #getJti}는
+     * 로그아웃 흐름에서, 즉 {@link JwtAuthenticationFilter}가 {@link #validateToken(String)}으로
+     * 서명·만료를 이미 확인해 인증까지 마친 "그 토큰"에 대해서만 호출된다. 필터 통과 시점과 이
+     * 메서드가 실행되는 시점 사이에는 짧지만 실제로 존재하는 간격이 있어, 그 사이 만료 경계를
+     * 넘으면 엄격 파싱은 예외를 던져 로그아웃이 500으로 끝나고, 그 시점엔 이미
+     * {@code refreshTokenRepository.deleteByMemberId()}가 먼저 실행된 뒤라 부분 성공 상태만 남는다.
+     * 여기서는 서명이 이미 검증된 토큰의 만료 여부만 관대하게 봐주는 것이므로 보안 저하가 아니다
+     * (인증 판단에 쓰이는 {@link #getTokenType(String)}·{@link #getMemberPrincipal(String)}는
+     * 여전히 엄격한 {@link #parseClaims(String)}를 쓴다 — 거기서 관대해지면 이미 만료된 토큰으로
+     * 인증이 통과하는 실제 보안 저하가 된다).
      */
     public Duration getRemainingTtl(String token) {
-        Date expiration = parseClaims(token).getExpiration();
+        Date expiration = parseClaimsTolerateExpiry(token).getExpiration();
         long remainingMillis = expiration.getTime() - System.currentTimeMillis();
         return remainingMillis > 0 ? Duration.ofMillis(remainingMillis) : Duration.ZERO;
     }
@@ -127,5 +143,19 @@ public class JwtTokenProvider {
         return Jwts.parser().verifyWith(key).build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    /**
+     * {@link #parseClaims(String)}과 동일하게 서명은 검증하지만, 만료(exp)만큼은 예외를 던지지
+     * 않고 만료된 클레임을 그대로 반환한다. {@link ExpiredJwtException}도 원본 클레임을 담고
+     * 있으므로({@code getClaims()}) 서명 검증 자체는 그대로 통과한 뒤의 결과다 — 즉 위조된
+     * 토큰은 여전히 걸러지고, "방금 막 만료됐다"는 사실만 허용한다.
+     */
+    private Claims parseClaimsTolerateExpiry(String token) {
+        try {
+            return parseClaims(token);
+        } catch (ExpiredJwtException e) {
+            return e.getClaims();
+        }
     }
 }
