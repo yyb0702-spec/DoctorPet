@@ -172,4 +172,47 @@ class RefreshTokenRepositoryIntegrationTest {
         assertThat(refreshTokenRepository.matches(MEMBER_ID, winnerNewToken)).isTrue();
         assertThat(refreshTokenRepository.matches(MEMBER_ID, staleNewToken)).isFalse();
     }
+
+    /*
+     * 2차 리뷰 지적 회귀 검증 — 더 최신 락(tryLock)이 이미 발급됐지만 그 소유자가 아직
+     * rotateIfMatches를 실행하지 못한 사이, 락 TTL 만료로 뒤늦게 살아난 예전 락 소유자가 먼저
+     * rotateIfMatches를 시도하는 순서다. 이때 refresh:{memberId}에는 아직 아무도 회전을 성공시키지
+     * 않아 펜싱 토큰이 기록돼 있지 않으므로(콜론 없음 → storedFence=0), 저장된 값만 보면 예전
+     * 요청의 펜싱 토큰이 더 커 보여 통과해버린다. refresh-fence 카운터의 현재 값까지 함께 봐야
+     * 이 시점에도 정확히 걸러낼 수 있다.
+     */
+    @Test
+    void rotateIfMatches는_더_최신_락이_발급됐지만_아직_회전하지_않은_예전_락_소유자의_시도를_STALE로_거부한다() {
+        String presentedToken = "shared-old-refresh-token";
+        String staleAttemptToken = "stale-attempt-new-token";
+        refreshTokenRepository.save(MEMBER_ID, presentedToken, Duration.ofMinutes(1));
+
+        // A가 락을 얻는다(펜싱 토큰 1) — 이후 처리 지연으로 락 TTL이 만료됐다고 가정하고,
+        // 실제로 기다리는 대신 락 키만 지워 TTL 만료를 재현한다.
+        Optional<Long> fenceA = refreshTokenRepository.tryLock(MEMBER_ID, "lock-token-a");
+        redisTemplate.delete("refresh-lock:" + MEMBER_ID);
+
+        // B가 락을 새로 얻는다(펜싱 토큰 2, refresh-fence 카운터도 2로 증가) — 아직 회전은
+        // 실행하지 않은 상태다.
+        Optional<Long> fenceB = refreshTokenRepository.tryLock(MEMBER_ID, "lock-token-b");
+        assertThat(fenceA).isPresent();
+        assertThat(fenceB).isPresent();
+        assertThat(fenceB.get()).isGreaterThan(fenceA.get());
+
+        // B가 회전을 실행하기 전에, 뒤늦게 살아난 A가 먼저 rotateIfMatches를 시도한다.
+        RotateResult staleAttemptResult = refreshTokenRepository.rotateIfMatches(
+                MEMBER_ID, fenceA.get(), presentedToken, staleAttemptToken, Duration.ofMinutes(1));
+
+        assertThat(staleAttemptResult).isEqualTo(RotateResult.STALE);
+        // 핵심 회귀 검증: A의 시도가 세션을 건드리지 않아, 원래 토큰이 여전히 유효해야 한다.
+        assertThat(refreshTokenRepository.matches(MEMBER_ID, presentedToken)).isTrue();
+        assertThat(refreshTokenRepository.matches(MEMBER_ID, staleAttemptToken)).isFalse();
+
+        // B는 정상적으로 회전에 성공할 수 있어야 한다.
+        String winnerNewToken = "winner-new-token";
+        RotateResult winnerResult = refreshTokenRepository.rotateIfMatches(
+                MEMBER_ID, fenceB.get(), presentedToken, winnerNewToken, Duration.ofMinutes(1));
+        assertThat(winnerResult).isEqualTo(RotateResult.SUCCESS);
+        assertThat(refreshTokenRepository.matches(MEMBER_ID, winnerNewToken)).isTrue();
+    }
 }

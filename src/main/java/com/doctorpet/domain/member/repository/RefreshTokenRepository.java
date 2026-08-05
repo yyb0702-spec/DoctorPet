@@ -79,12 +79,19 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
      * 그다음엔 AuthService.reissue()가 CAS를 시도하기 전에 tryLock/unlock으로 회원당 재발급을
      * 아예 직렬화해, 두 요청이 "동시에" CAS를 다투는 상황 자체를 없앴다 — 하지만 락 TTL(3초)이
      * 만료되면 세 번째 요청이 락을 새로 얻을 수 있어 그 전제가 깨진다. 지금은 ARGV[1]의 펜싱
-     * 토큰으로 "내가 이 세션에 대해 가장 최신 락 소유자인가"까지 함께 확인한다: 저장된 값에 기록된
-     * 마지막 회전의 펜싱 토큰보다 내 펜싱 토큰이 작으면(STALE, -1 반환) — 이미 더 최신 요청이
-     * 락을 새로 얻어 나보다 먼저 회전을 끝냈다는 뜻이므로, 값을 비교하거나 건드리지 않고 그대로
-     * 물러난다. 이 검사를 통과한 뒤에야(내가 최신이거나 아직 아무도 회전하지 않은 상태) 값
-     * 비교로 넘어가고, 거기서도 일치하지 않으면 그건 시간 경쟁이 아니라 진짜 재사용이므로
-     * 세션을 삭제한다(REUSED, 0 반환).
+     * 토큰으로 "내가 이 세션에 대해 가장 최신 락 소유자인가"까지 함께 확인한다.
+     *
+     * 이 비교는 두 값 중 더 큰 쪽(KEYS[2]=refresh-fence:{memberId}의 현재 값과, 저장된 값에
+     * 기록된 마지막 성공 회전의 펜싱 토큰) 기준으로 해야 한다(2차 리뷰 지적) — 저장된 값의
+     * 펜싱 토큰만 보면, "더 최신 락은 이미 발급됐지만(tryLock으로 refresh-fence 카운터는
+     * 증가했지만) 그 락 소유자가 아직 회전을 실행하지 못한" 사이 시점에 뒤늦게 도착한 예전
+     * 락 소유자의 회전이 통과해버린다 — 예전 락 소유자의 펜싱 토큰이 "아직 아무도 회전하지
+     * 않은" 옛 저장값의 펜싱 토큰보다는 크기 때문이다. refresh-fence 카운터(지금까지 발급된
+     * 가장 최신 펜싱 토큰)까지 함께 봐야 그 순간에도 정확히 걸러낼 수 있다. 내 펜싱 토큰이 이
+     * 최댓값보다 작으면(STALE, -1 반환) — 이미 더 최신 요청이 락을 새로 얻었거나 회전까지
+     * 끝냈다는 뜻이므로, 값을 비교하거나 건드리지 않고 그대로 물러난다. 이 검사를 통과한
+     * 뒤에야(내가 최신이거나 아직 아무도 회전하지 않은 상태) 값 비교로 넘어가고, 거기서도
+     * 일치하지 않으면 그건 시간 경쟁이 아니라 진짜 재사용이므로 세션을 삭제한다(REUSED, 0 반환).
      *
      * ARGV[2](해시)뿐 아니라 ARGV[3](원문)과도 비교하는 이유(#123 배포 마이그레이션, 리뷰 지적) —
      * 배포 직전까지는 이 키에 원문 Refresh Token이 그대로 저장돼 있었다. 해시만 비교하면 배포
@@ -112,7 +119,12 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
                     + "storedValue = string.sub(stored, sep + 1) "
                     + "end "
                     + "end "
-                    + "if tonumber(ARGV[1]) < storedFence then "
+                    + "local currentFence = tonumber(redis.call('get', KEYS[2])) or 0 "
+                    + "local maxFence = storedFence "
+                    + "if currentFence > maxFence then "
+                    + "maxFence = currentFence "
+                    + "end "
+                    + "if tonumber(ARGV[1]) < maxFence then "
                     + "return -1 "
                     + "end "
                     + "if storedValue == ARGV[2] or storedValue == ARGV[3] then "
@@ -164,14 +176,17 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
      * 현재 저장된 값(해시)이 {@code oldToken}의 해시와 정확히 일치할 때만 {@code newToken}의
      * 해시로 원자적으로 교체한다. {@code fencingToken}은 {@link #tryLock(Long, String)}이
      * 발급한 값을 그대로 넘겨야 한다 — 락 TTL이 만료돼 더 최신 펜싱 토큰을 가진 요청이 이미
-     * 회전에 성공했다면, 값을 비교·수정하지 않고 {@link RotateResult#STALE}을 반환한다(이슈 #100).
-     * 펜싱 검사를 통과했는데도 값이 일치하지 않으면 진짜 재사용이므로 세션을 삭제하고
-     * {@link RotateResult#REUSED}를 반환한다.
+     * 락을 얻었거나 회전에 성공했다면, 값을 비교·수정하지 않고 {@link RotateResult#STALE}을
+     * 반환한다(이슈 #100). "이미 회전까지 끝났는지"(저장된 값의 펜싱 토큰)뿐 아니라 "더 최신
+     * 락이 이미 발급됐는지"(refresh-fence 카운터의 현재 값)까지 함께 확인한다 — 후자만 놓치면,
+     * 더 최신 락 소유자가 아직 회전을 실행하지 못한 사이 뒤늦게 도착한 예전 락 소유자의 회전이
+     * 통과해버리는 레이스가 남는다(2차 리뷰 지적). 펜싱 검사를 통과했는데도 값이 일치하지
+     * 않으면 진짜 재사용이므로 세션을 삭제하고 {@link RotateResult#REUSED}를 반환한다.
      */
     public RotateResult rotateIfMatches(Long memberId, long fencingToken, String oldToken, String newToken, Duration ttl) {
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
-                List.of(key(memberId)),
+                List.of(key(memberId), fenceKey(memberId)),
                 String.valueOf(fencingToken), TokenHasher.hash(oldToken), oldToken, TokenHasher.hash(newToken),
                 String.valueOf(ttl.toMillis())
         );
