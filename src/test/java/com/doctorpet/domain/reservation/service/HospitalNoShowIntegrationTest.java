@@ -113,10 +113,10 @@ class HospitalNoShowIntegrationTest {
     }
 
     @Test
-    @DisplayName("예약 시각 +10분 경계부터 CONFIRMED 예약만 자동 노쇼 대상이다")
+    @DisplayName("예약 시각 +10분까지는 유예하고 이후 CONFIRMED 예약만 자동 노쇼 대상이다")
     void autoNoShowBoundary_selectsOnlyEligibleConfirmedReservation() {
         LocalDateTime cutoff = LocalDateTime.of(2030, 1, 1, 10, 0);
-        TestReservation data = saveConfirmedReservation(cutoff.plusMinutes(1));
+        TestReservation data = saveConfirmedReservation(cutoff);
 
         assertThat(reservationRepository.findAutoNoShowTargets(
                 ReservationStatus.CONFIRMED,
@@ -126,8 +126,8 @@ class HospitalNoShowIntegrationTest {
                 .doesNotContain(data.reservationId());
 
         ReservationSlot slot = reservationSlotRepository.findById(data.slotId()).orElseThrow();
-        ReflectionTestUtils.setField(slot, "startAt", cutoff);
-        ReflectionTestUtils.setField(slot, "endAt", cutoff.plusMinutes(30));
+        ReflectionTestUtils.setField(slot, "startAt", cutoff.minusMinutes(1));
+        ReflectionTestUtils.setField(slot, "endAt", cutoff.plusMinutes(29));
         reservationSlotRepository.saveAndFlush(slot);
         assertThat(reservationRepository.findAutoNoShowTargets(
                 ReservationStatus.CONFIRMED,
