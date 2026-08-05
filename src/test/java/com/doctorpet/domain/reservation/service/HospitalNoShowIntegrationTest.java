@@ -114,26 +114,22 @@ class HospitalNoShowIntegrationTest {
     @Test
     @DisplayName("예약 시각 +10분 경계부터 CONFIRMED 예약만 자동 노쇼 대상이다")
     void autoNoShowBoundary_selectsOnlyEligibleConfirmedReservation() {
-        TestReservation data = saveConfirmedReservation();
-        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID).withNano(0);
-        jdbcTemplate.update(
-                "update reservation_slots set start_at = ?, end_at = ? where id = ?",
-                now.minusMinutes(9), now.plusMinutes(21), data.slotId()
-        );
+        LocalDateTime cutoff = LocalDateTime.of(2030, 1, 1, 10, 0);
+        TestReservation data = saveConfirmedReservation(cutoff.plusMinutes(1));
 
         assertThat(reservationRepository.findAutoNoShowTargets(
                 ReservationStatus.CONFIRMED,
-                now.minusMinutes(10),
+                cutoff,
                 PageRequest.of(0, 100)
         )).extracting(Reservation::getId).doesNotContain(data.reservationId());
 
-        jdbcTemplate.update(
-                "update reservation_slots set start_at = ?, end_at = ? where id = ?",
-                now.minusMinutes(10), now.plusMinutes(20), data.slotId()
-        );
+        ReservationSlot slot = reservationSlotRepository.findById(data.slotId()).orElseThrow();
+        ReflectionTestUtils.setField(slot, "startAt", cutoff);
+        ReflectionTestUtils.setField(slot, "endAt", cutoff.plusMinutes(30));
+        reservationSlotRepository.saveAndFlush(slot);
         assertThat(reservationRepository.findAutoNoShowTargets(
                 ReservationStatus.CONFIRMED,
-                now.minusMinutes(10),
+                cutoff,
                 PageRequest.of(0, 100)
         )).extracting(Reservation::getId).contains(data.reservationId());
     }
@@ -454,14 +450,19 @@ class HospitalNoShowIntegrationTest {
     }
 
     private TestReservation saveConfirmedReservation() {
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID).withNano(0);
+        return saveConfirmedReservation(now.minusMinutes(11));
+    }
+
+    private TestReservation saveConfirmedReservation(LocalDateTime slotStartAt) {
         long hospitalId = System.nanoTime();
         long guardianMemberId = hospitalId + 1;
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID).withNano(0);
 
         ReservationSlot slot = ReservationSlot.create(
                 hospitalId,
-                now.minusMinutes(11),
-                now.plusMinutes(19)
+                slotStartAt,
+                slotStartAt.plusMinutes(30)
         );
         slot.reserve();
         slot = reservationSlotRepository.saveAndFlush(slot);
