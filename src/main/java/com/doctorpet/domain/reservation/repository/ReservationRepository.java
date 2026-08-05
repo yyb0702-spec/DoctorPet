@@ -246,4 +246,27 @@ public interface ReservationRepository
             @Param("now") LocalDateTime now,
             Pageable pageable
     );
+
+    /** 마감 시각·ID 커서 뒤의 다음 페이지를 조회해 실패 예약의 starvation을 막는다. */
+    @Query("""
+        select r
+          from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and (
+                r.approvalDeadlineAt > :cursorDeadline
+                or (
+                    r.approvalDeadlineAt = :cursorDeadline
+                    and r.id > :cursorId
+                )
+           )
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutTargetsAfter(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            @Param("cursorDeadline") LocalDateTime cursorDeadline,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
+    );
 }

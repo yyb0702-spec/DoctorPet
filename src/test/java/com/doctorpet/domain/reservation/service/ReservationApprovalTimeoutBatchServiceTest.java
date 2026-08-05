@@ -106,6 +106,39 @@ class ReservationApprovalTimeoutBatchServiceTest {
         verify(processor).process(eq(2L), any(LocalDateTime.class));
     }
 
+    @Test
+    @DisplayName("앞 페이지가 반복 실패해도 다음 페이지의 만료 예약을 처리한다")
+    void repeatedFailures_doNotStarveLaterTargets() {
+        Reservation failedFirst = target(1L);
+        Reservation failedSecond = target(2L);
+        Reservation laterTarget = target(3L);
+        given(reservationRepository.findApprovalTimeoutTargets(
+                eq(ReservationStatus.REQUESTED),
+                any(LocalDateTime.class),
+                any(Pageable.class)
+        )).willReturn(List.of(failedFirst, failedSecond));
+        given(reservationRepository.findApprovalTimeoutTargetsAfter(
+                eq(ReservationStatus.REQUESTED),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                any(),
+                any(Pageable.class)
+        )).willReturn(List.of(laterTarget), List.of());
+        given(processor.process(eq(1L), any(LocalDateTime.class)))
+                .willThrow(new IllegalStateException("영구 실패"));
+        given(processor.process(eq(2L), any(LocalDateTime.class)))
+                .willThrow(new IllegalStateException("영구 실패"));
+        given(processor.process(eq(3L), any(LocalDateTime.class)))
+                .willReturn(ReservationApprovalTimeoutProcessor.Result.PROCESSED);
+
+        ReservationApprovalTimeoutSummary result = service.processBatch();
+
+        assertThat(result.scanned()).isEqualTo(3);
+        assertThat(result.failed()).isEqualTo(2);
+        assertThat(result.processed()).isEqualTo(1);
+        verify(processor).process(eq(3L), any(LocalDateTime.class));
+    }
+
     private Reservation target(Long id) {
         LocalDateTime requestedAt = LocalDateTime.now(FIXED_CLOCK)
                 .minusHours(2);

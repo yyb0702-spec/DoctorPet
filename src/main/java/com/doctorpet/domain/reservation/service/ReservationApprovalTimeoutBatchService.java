@@ -93,54 +93,88 @@ public class ReservationApprovalTimeoutBatchService {
 
     private ReservationApprovalTimeoutSummary processLocked() {
         LocalDateTime now = LocalDateTime.now(clock);
-        List<Reservation> targets =
-                reservationRepository.findApprovalTimeoutTargets(
-                        ReservationStatus.REQUESTED,
-                        now,
-                        PageRequest.of(0, properties.getBatchSize())
-                );
-
         int processed = 0;
         int skipped = 0;
         int failed = 0;
+        int scanned = 0;
         long maxDelayMillis = 0L;
+        LocalDateTime cursorDeadline = null;
+        Long cursorId = null;
 
-        for (Reservation target : targets) {
-            long delayMillis = Math.max(
-                    0L,
-                    Duration.between(
-                            target.getApprovalDeadlineAt(),
-                            now
-                    ).toMillis()
+        while (true) {
+            List<Reservation> targets = findNextTargets(
+                    now,
+                    cursorDeadline,
+                    cursorId
             );
-            delaySummary.record(delayMillis);
-            maxDelayMillis = Math.max(maxDelayMillis, delayMillis);
+            if (targets.isEmpty()) {
+                break;
+            }
 
-            ReservationApprovalTimeoutProcessor.Result result =
-                    processWithRetry(target.getId(), now);
-            switch (result) {
-                case PROCESSED -> {
-                    processed++;
-                    processedCounter.increment();
-                }
-                case SKIPPED -> {
-                    skipped++;
-                    skippedCounter.increment();
-                }
-                case FAILED -> {
-                    failed++;
-                    failedCounter.increment();
+            for (Reservation target : targets) {
+                scanned++;
+                long delayMillis = Math.max(
+                        0L,
+                        Duration.between(
+                                target.getApprovalDeadlineAt(),
+                                now
+                        ).toMillis()
+                );
+                delaySummary.record(delayMillis);
+                maxDelayMillis = Math.max(maxDelayMillis, delayMillis);
+
+                ReservationApprovalTimeoutProcessor.Result result =
+                        processWithRetry(target.getId(), now);
+                switch (result) {
+                    case PROCESSED -> {
+                        processed++;
+                        processedCounter.increment();
+                    }
+                    case SKIPPED -> {
+                        skipped++;
+                        skippedCounter.increment();
+                    }
+                    case FAILED -> {
+                        failed++;
+                        failedCounter.increment();
+                    }
                 }
             }
+
+            Reservation lastTarget = targets.get(targets.size() - 1);
+            cursorDeadline = lastTarget.getApprovalDeadlineAt();
+            cursorId = lastTarget.getId();
         }
 
         return new ReservationApprovalTimeoutSummary(
                 true,
-                targets.size(),
+                scanned,
                 processed,
                 skipped,
                 failed,
                 maxDelayMillis
+        );
+    }
+
+    private List<Reservation> findNextTargets(
+            LocalDateTime now,
+            LocalDateTime cursorDeadline,
+            Long cursorId
+    ) {
+        PageRequest page = PageRequest.of(0, properties.getBatchSize());
+        if (cursorDeadline == null) {
+            return reservationRepository.findApprovalTimeoutTargets(
+                    ReservationStatus.REQUESTED,
+                    now,
+                    page
+            );
+        }
+        return reservationRepository.findApprovalTimeoutTargetsAfter(
+                ReservationStatus.REQUESTED,
+                now,
+                cursorDeadline,
+                cursorId,
+                page
         );
     }
 

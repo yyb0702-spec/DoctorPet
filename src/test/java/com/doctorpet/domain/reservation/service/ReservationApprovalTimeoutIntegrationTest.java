@@ -15,6 +15,7 @@ import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutLock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -133,6 +134,47 @@ class ReservationApprovalTimeoutIntegrationTest {
         );
         assertThat(timeoutEventCount(data.reservationId())).isZero();
         assertThat(rejectedNotificationCount(data.reservationId())).isZero();
+    }
+
+    @Test
+    @DisplayName("첫 페이지가 가득 차도 커서로 다음 만료 예약을 이어서 조회한다")
+    void timeoutTargets_cursorContinuesPastFirstPage() {
+        TestReservation first = saveRequestedReservation(true);
+        TestReservation second = saveRequestedReservation(true);
+        TestReservation third = saveRequestedReservation(true);
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        List<TestReservation> expectedOrder = List.of(first, second, third)
+                .stream()
+                .sorted(Comparator
+                        .comparing((TestReservation data) -> approvalDeadline(data.reservationId()))
+                        .thenComparing(TestReservation::reservationId))
+                .toList();
+
+        List<Reservation> firstPage = reservationRepository
+                .findApprovalTimeoutTargets(
+                        ReservationStatus.REQUESTED,
+                        now,
+                        PageRequest.of(0, 2)
+                );
+        Reservation last = firstPage.get(firstPage.size() - 1);
+        List<Reservation> secondPage = reservationRepository
+                .findApprovalTimeoutTargetsAfter(
+                        ReservationStatus.REQUESTED,
+                        now,
+                        last.getApprovalDeadlineAt(),
+                        last.getId(),
+                        PageRequest.of(0, 2)
+                );
+
+        assertThat(firstPage)
+                .extracting(Reservation::getId)
+                .containsExactly(
+                        expectedOrder.get(0).reservationId(),
+                        expectedOrder.get(1).reservationId()
+                );
+        assertThat(secondPage)
+                .extracting(Reservation::getId)
+                .containsExactly(expectedOrder.get(2).reservationId());
     }
 
     @Test
@@ -444,6 +486,12 @@ class ReservationApprovalTimeoutIntegrationTest {
                 reservationId,
                 NotificationType.RESERVATION_REJECTED.name()
         );
+    }
+
+    private LocalDateTime approvalDeadline(Long reservationId) {
+        return reservationRepository.findById(reservationId)
+                .orElseThrow()
+                .getApprovalDeadlineAt();
     }
 
     private void await(CountDownLatch latch) {
