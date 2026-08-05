@@ -3,6 +3,7 @@ package com.doctorpet.domain.member.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * save/matches/rotateIfMatches(#123 해시 저장 전환)도 여기서 함께 검증한다 — 실제 Redis에
  * 저장된 값이 원문이 아니라 해시인지, 원문 없이는(matches) CAS가 통과하지 않는지는 Mockito
  * 슬라이스로는 확인할 수 없는 저장소 자체의 계약이다.
+ *
+ * tryLock의 펜싱 토큰 발급·단조 증가, rotateIfMatches의 STALE/REUSED 구분(이슈 #100, 재발급 락
+ * TTL 레이스)도 여기서 검증한다 — 두 번의 Lua 스크립트 호출이 실제로 원자적으로 상호작용하는지는
+ * Mockito 슬라이스로는 확인할 수 없다.
  */
 @SpringBootTest(properties = {
         "payment.gateway=fake",
@@ -40,6 +45,8 @@ class RefreshTokenRepositoryIntegrationTest {
     void tearDown() {
         redisTemplate.delete("withdrawn:" + MEMBER_ID);
         redisTemplate.delete("refresh:" + MEMBER_ID);
+        redisTemplate.delete("refresh-lock:" + MEMBER_ID);
+        redisTemplate.delete("refresh-fence:" + MEMBER_ID);
     }
 
     @Test
@@ -75,14 +82,36 @@ class RefreshTokenRepositoryIntegrationTest {
     }
 
     @Test
+    void tryLock은_성공하면_1_이상의_펜싱_토큰을_반환하고_같은_회원에_대한_재시도는_실패한다() {
+        Optional<Long> first = refreshTokenRepository.tryLock(MEMBER_ID, "lock-token-a");
+        Optional<Long> second = refreshTokenRepository.tryLock(MEMBER_ID, "lock-token-b");
+
+        assertThat(first).isPresent();
+        assertThat(first.get()).isGreaterThanOrEqualTo(1L);
+        assertThat(second).isEmpty();
+    }
+
+    @Test
+    void unlock으로_락을_풀면_다음_tryLock은_더_큰_펜싱_토큰을_발급한다() {
+        Optional<Long> first = refreshTokenRepository.tryLock(MEMBER_ID, "lock-token-a");
+        refreshTokenRepository.unlock(MEMBER_ID, "lock-token-a");
+
+        Optional<Long> second = refreshTokenRepository.tryLock(MEMBER_ID, "lock-token-b");
+
+        assertThat(first).isPresent();
+        assertThat(second).isPresent();
+        assertThat(second.get()).isGreaterThan(first.get());
+    }
+
+    @Test
     void rotateIfMatches는_저장된_해시와_일치하는_원문을_제시했을_때만_회전에_성공한다() {
         String oldToken = "old-refresh-token";
         String newToken = "new-refresh-token";
         refreshTokenRepository.save(MEMBER_ID, oldToken, Duration.ofMinutes(1));
 
-        boolean rotated = refreshTokenRepository.rotateIfMatches(MEMBER_ID, oldToken, newToken, Duration.ofMinutes(1));
+        RotateResult result = refreshTokenRepository.rotateIfMatches(MEMBER_ID, 1L, oldToken, newToken, Duration.ofMinutes(1));
 
-        assertThat(rotated).isTrue();
+        assertThat(result).isEqualTo(RotateResult.SUCCESS);
         assertThat(refreshTokenRepository.matches(MEMBER_ID, newToken)).isTrue();
         assertThat(refreshTokenRepository.matches(MEMBER_ID, oldToken)).isFalse();
     }
@@ -97,22 +126,50 @@ class RefreshTokenRepositoryIntegrationTest {
         String newToken = "new-refresh-token-after-migration";
         redisTemplate.opsForValue().set("refresh:" + MEMBER_ID, legacyRawToken, Duration.ofMinutes(1));
 
-        boolean rotated = refreshTokenRepository.rotateIfMatches(MEMBER_ID, legacyRawToken, newToken, Duration.ofMinutes(1));
+        RotateResult result = refreshTokenRepository.rotateIfMatches(MEMBER_ID, 1L, legacyRawToken, newToken, Duration.ofMinutes(1));
 
-        assertThat(rotated).isTrue();
+        assertThat(result).isEqualTo(RotateResult.SUCCESS);
         String stored = redisTemplate.opsForValue().get("refresh:" + MEMBER_ID);
-        assertThat(stored).isNotEqualTo(newToken); // 새 값은 원문이 아니라 해시로 저장된다
+        assertThat(stored).isNotEqualTo(newToken); // 새 값은 원문이 아니라 해시로(펜싱 토큰 접두사와 함께) 저장된다
         assertThat(refreshTokenRepository.matches(MEMBER_ID, newToken)).isTrue();
     }
 
     @Test
-    void rotateIfMatches는_원문도_해시도_일치하지_않으면_실패한다() {
+    void rotateIfMatches는_원문도_해시도_일치하지_않으면_재사용으로_판정하고_세션을_삭제한다() {
         redisTemplate.opsForValue().set("refresh:" + MEMBER_ID, "legacy-raw-refresh-token", Duration.ofMinutes(1));
 
-        boolean rotated = refreshTokenRepository.rotateIfMatches(
-                MEMBER_ID, "completely-different-token", "new-refresh-token", Duration.ofMinutes(1)
+        RotateResult result = refreshTokenRepository.rotateIfMatches(
+                MEMBER_ID, 1L, "completely-different-token", "new-refresh-token", Duration.ofMinutes(1)
         );
 
-        assertThat(rotated).isFalse();
+        assertThat(result).isEqualTo(RotateResult.REUSED);
+        assertThat(redisTemplate.hasKey("refresh:" + MEMBER_ID)).isFalse();
+    }
+
+    /*
+     * 이슈 #100(재발급 락 TTL 레이스) 회귀 검증 — 락 TTL이 만료돼 더 최신 요청이 새 락(더 큰
+     * 펜싱 토큰)을 얻어 먼저 회전에 성공한 뒤, 원래 요청이 뒤늦게 도착시키는 회전 시도는 STALE로
+     * 판정돼야 하고, 그 시도가 방금 성공한 회전의 세션을 지워서는 안 된다.
+     */
+    @Test
+    void rotateIfMatches는_더_최신_펜싱_토큰이_이미_회전에_성공했으면_세션을_건드리지_않고_STALE을_반환한다() {
+        String presentedToken = "shared-old-refresh-token";
+        String winnerNewToken = "winner-new-refresh-token";
+        String staleNewToken = "stale-new-refresh-token";
+        refreshTokenRepository.save(MEMBER_ID, presentedToken, Duration.ofMinutes(1));
+
+        // 더 최신(큰) 펜싱 토큰(2)을 가진 요청이 먼저 회전에 성공한다.
+        RotateResult winnerResult =
+                refreshTokenRepository.rotateIfMatches(MEMBER_ID, 2L, presentedToken, winnerNewToken, Duration.ofMinutes(1));
+        assertThat(winnerResult).isEqualTo(RotateResult.SUCCESS);
+
+        // 락 TTL 만료로 뒤늦게 도착한, 더 오래된(작은) 펜싱 토큰(1)의 시도는 STALE이어야 한다.
+        RotateResult staleResult =
+                refreshTokenRepository.rotateIfMatches(MEMBER_ID, 1L, presentedToken, staleNewToken, Duration.ofMinutes(1));
+        assertThat(staleResult).isEqualTo(RotateResult.STALE);
+
+        // 핵심 회귀 검증: 승자의 새 세션이 그대로 살아있어야 한다.
+        assertThat(refreshTokenRepository.matches(MEMBER_ID, winnerNewToken)).isTrue();
+        assertThat(refreshTokenRepository.matches(MEMBER_ID, staleNewToken)).isFalse();
     }
 }
