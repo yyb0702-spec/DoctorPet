@@ -97,6 +97,12 @@ public class Reservation extends BaseEntity {
         this.approvalDeadlineAt = approvalDeadlineAt;
     }
 
+    /**
+     * 레거시 테스트·마이그레이션 호환용 팩토리다. 실제 예약 생성은 슬롯 시작 시각을 받는
+     * {@link #request(Long, Long, Long, Long, Long, String, String, LocalDateTime, LocalDateTime)}
+     * 를 사용한다.
+     */
+    @Deprecated(forRemoval = false)
     public static Reservation request(
             Long memberId,
             Long petId,
@@ -107,7 +113,8 @@ public class Reservation extends BaseEntity {
             String petSpeciesSnapshot,
             LocalDateTime requestedAt
     ) {
-        return new Reservation(
+        // 슬롯 시작 시각을 알 수 없는 호환 경로도 동일한 min(requested+1h, slot-2h) 공식을 사용한다.
+        return request(
                 memberId,
                 petId,
                 hospitalId,
@@ -116,7 +123,7 @@ public class Reservation extends BaseEntity {
                 petNameSnapshot,
                 petSpeciesSnapshot,
                 requestedAt,
-                requestedAt.plusHours(1)
+                requestedAt.plusHours(3)
         );
     }
 

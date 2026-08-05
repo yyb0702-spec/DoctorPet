@@ -15,10 +15,8 @@ public class ReservationApprovalTimeoutScheduler {
     private final ReservationApprovalTimeoutBatchService batchService;
 
     @Scheduled(
-            fixedDelayString =
-                    "${reservation.approval-timeout.interval-ms:60000}",
-            initialDelayString =
-                    "${reservation.approval-timeout.initial-delay-ms:60000}"
+            fixedDelayString = "#{@reservationApprovalTimeoutProperties.intervalMs}",
+            initialDelayString = "#{@reservationApprovalTimeoutProperties.initialDelayMs}"
     )
     public void run() {
         ReservationApprovalTimeoutSummary summary =

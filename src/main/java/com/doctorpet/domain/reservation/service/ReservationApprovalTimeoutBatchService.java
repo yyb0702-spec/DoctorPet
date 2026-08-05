@@ -3,9 +3,12 @@ package com.doctorpet.domain.reservation.service;
 import com.doctorpet.domain.reservation.config.ReservationApprovalTimeoutProperties;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutLock;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutSummary;
+import com.doctorpet.global.exception.ServiceException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -192,6 +195,14 @@ public class ReservationApprovalTimeoutBatchService {
             try {
                 return processor.process(reservationId, now);
             } catch (RuntimeException exception) {
+                if (isNonRetryable(exception)) {
+                    log.warn(
+                            "예약 승인 타임아웃 처리 불가: reservationId={}, reason={}",
+                            reservationId,
+                            exception.getMessage()
+                    );
+                    return ReservationApprovalTimeoutProcessor.Result.FAILED;
+                }
                 if (attempt == properties.getMaxAttempts()) {
                     log.warn(
                             "예약 승인 타임아웃 처리 실패: reservationId={}, attempts={}",
@@ -210,5 +221,13 @@ public class ReservationApprovalTimeoutBatchService {
             }
         }
         return ReservationApprovalTimeoutProcessor.Result.FAILED;
+    }
+
+    private boolean isNonRetryable(RuntimeException exception) {
+        if (!(exception instanceof ServiceException serviceException)) {
+            return false;
+        }
+        return serviceException.getErrorCode() == ReservationErrorCode.RESERVATION_NOT_FOUND
+                || serviceException.getErrorCode() == SlotErrorCode.SLOT_NOT_FOUND;
     }
 }

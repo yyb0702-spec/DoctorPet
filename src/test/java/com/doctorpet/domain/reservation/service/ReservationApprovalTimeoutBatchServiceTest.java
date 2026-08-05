@@ -11,9 +11,11 @@ import static org.mockito.Mockito.when;
 import com.doctorpet.domain.reservation.config.ReservationApprovalTimeoutProperties;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutLock;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutSummary;
+import com.doctorpet.global.exception.ServiceException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
@@ -164,6 +166,24 @@ class ReservationApprovalTimeoutBatchServiceTest {
         verify(processor).process(eq(1L), any(LocalDateTime.class));
         verify(processor).process(eq(2L), any(LocalDateTime.class));
         org.mockito.Mockito.verifyNoMoreInteractions(processor);
+    }
+
+    @Test
+    @DisplayName("재시도할 수 없는 예약 없음 오류는 즉시 실패 처리한다")
+    void processBatch_doesNotRetryNonRetryableError() {
+        Reservation target = target(1L);
+        given(reservationRepository.findApprovalTimeoutTargets(
+                eq(ReservationStatus.REQUESTED),
+                any(LocalDateTime.class),
+                any(Pageable.class)
+        )).willReturn(List.of(target));
+        given(processor.process(eq(1L), any(LocalDateTime.class)))
+                .willThrow(new ServiceException(ReservationErrorCode.RESERVATION_NOT_FOUND));
+
+        ReservationApprovalTimeoutSummary result = service.processBatch();
+
+        assertThat(result.failed()).isEqualTo(1);
+        verify(processor).process(eq(1L), any(LocalDateTime.class));
     }
 
     private ReservationApprovalTimeoutProperties propertiesWith(int maxScanned) {
