@@ -17,7 +17,6 @@
 | --- | ---: | --- |
 | `RESERVATION_NO_SHOW_INTERVAL_MS` | 60000 | 실행 주기 |
 | `RESERVATION_NO_SHOW_INITIAL_DELAY_MS` | 60000 | 최초 실행 지연 |
-| `RESERVATION_NO_SHOW_ZONE_ID` | Asia/Seoul | 기준 타임존 |
 | `RESERVATION_NO_SHOW_GRACE_MINUTES` | 10 | 체크인 유예 시간 |
 | `RESERVATION_NO_SHOW_BATCH_SIZE` | 100 | 페이지 크기 |
 | `RESERVATION_NO_SHOW_MAX_SCANNED_PER_RUN` | 1000 | 실행당 최대 조회 건수 |
@@ -25,7 +24,7 @@
 | `RESERVATION_NO_SHOW_LOCK_WAIT_SECONDS` | 0 | 다중 인스턴스 DB 잠금 대기 |
 | `RESERVATION_NO_SHOW_INDEX_MIGRATION_ENABLED` | true | 기존 DB 조회 인덱스 일회성 적용 여부 |
 
-관측 지표는 `reservation.no.show.processed`, `skipped`, `failed`, `lock.skipped`, `delay`, `batch.duration`을 사용한다. 조회는 `(status, slot_id)` 인덱스와 슬롯 PK 조인을 사용한다. 인덱스는 마이그레이션 이력과 MySQL 잠금으로 다중 인스턴스에서도 한 번만 적용하며, 적용 이력과 실제 스키마가 다르면 시작 시 실패시킨다.
+관측 지표는 `reservation.no.show.processed`, `skipped`, `failed`, `lock.skipped`, `delay`, `batch.duration`을 사용한다. 시각은 프로젝트 공용 서울 기준 `Clock`을 사용한다. 조회는 `(status, slot_id)` 인덱스와 슬롯 조인 projection으로 예약 ID와 슬롯 시작 시각을 한 번에 가져온다. 인덱스는 마이그레이션 이력과 MySQL 잠금으로 다중 인스턴스에서도 한 번만 적용하며, 적용 이력과 실제 스키마가 다르면 시작 시 실패시킨다.
 
 ## 검증
 

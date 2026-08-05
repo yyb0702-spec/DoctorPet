@@ -96,7 +96,6 @@ reservation:
   no-show:
     interval-ms: ${RESERVATION_NO_SHOW_INTERVAL_MS:60000}
     initial-delay-ms: ${RESERVATION_NO_SHOW_INITIAL_DELAY_MS:60000}
-    zone-id: ${RESERVATION_NO_SHOW_ZONE_ID:Asia/Seoul}
     grace-minutes: ${RESERVATION_NO_SHOW_GRACE_MINUTES:10}
     batch-size: ${RESERVATION_NO_SHOW_BATCH_SIZE:100}
     max-scanned-per-run: ${RESERVATION_NO_SHOW_MAX_SCANNED_PER_RUN:1000}

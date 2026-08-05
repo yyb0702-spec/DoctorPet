@@ -1,11 +1,9 @@
 package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.config.ReservationNoShowProperties;
-import com.doctorpet.domain.reservation.entity.Reservation;
-import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.repository.ReservationNoShowTarget;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
-import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationNoShowLock;
 import com.doctorpet.domain.reservation.scheduler.ReservationNoShowSummary;
 import io.micrometer.core.instrument.Counter;
@@ -26,7 +24,6 @@ import org.springframework.stereotype.Service;
 public class ReservationNoShowBatchService {
 
     private final ReservationRepository reservationRepository;
-    private final ReservationSlotRepository slotRepository;
     private final ReservationNoShowProcessor processor;
     private final ReservationNoShowLock lock;
     private final ReservationNoShowProperties properties;
@@ -41,7 +38,6 @@ public class ReservationNoShowBatchService {
 
     public ReservationNoShowBatchService(
             ReservationRepository reservationRepository,
-            ReservationSlotRepository slotRepository,
             ReservationNoShowProcessor processor,
             ReservationNoShowLock lock,
             ReservationNoShowProperties properties,
@@ -49,7 +45,6 @@ public class ReservationNoShowBatchService {
             MeterRegistry meterRegistry
     ) {
         this.reservationRepository = reservationRepository;
-        this.slotRepository = slotRepository;
         this.processor = processor;
         this.lock = lock;
         this.properties = properties;
@@ -80,7 +75,7 @@ public class ReservationNoShowBatchService {
     }
 
     private ReservationNoShowSummary processLocked() {
-        LocalDateTime now = LocalDateTime.now(clock.withZone(properties.getZoneId()));
+        LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime cutoff = now.minusMinutes(properties.getGraceMinutes());
         int scanned = 0;
         int processed = 0;
@@ -93,7 +88,7 @@ public class ReservationNoShowBatchService {
         while (scanned < properties.getMaxScannedPerRun()) {
             int pageSize = Math.min(properties.getBatchSize(),
                     properties.getMaxScannedPerRun() - scanned);
-            List<Reservation> targets = cursorStartAt == null
+            List<ReservationNoShowTarget> targets = cursorStartAt == null
                     ? reservationRepository.findAutoNoShowTargets(
                     ReservationStatus.CONFIRMED, cutoff, PageRequest.of(0, pageSize))
                     : reservationRepository.findAutoNoShowTargetsAfter(
@@ -101,17 +96,21 @@ public class ReservationNoShowBatchService {
                     cursorId, PageRequest.of(0, pageSize));
             if (targets.isEmpty()) break;
 
-            for (Reservation target : targets) {
+            for (ReservationNoShowTarget target : targets) {
                 scanned++;
+                cursorStartAt = target.getSlotStartAt();
+                cursorId = target.getReservationId();
                 try {
-                    ReservationSlot slot = slotRepository.findById(target.getSlotId()).orElseThrow();
-                    cursorStartAt = slot.getStartAt();
-                    cursorId = target.getId();
                     long delay = Math.max(0L, Duration.between(
-                            slot.getStartAt().plusMinutes(properties.getGraceMinutes()), now).toMillis());
+                            target.getSlotStartAt().plusMinutes(properties.getGraceMinutes()),
+                            now
+                    ).toMillis());
                     delaySummary.record(delay);
                     maxDelay = Math.max(maxDelay, delay);
-                    ReservationNoShowProcessor.Result result = processWithRetry(target.getId(), now);
+                    ReservationNoShowProcessor.Result result = processWithRetry(
+                            target.getReservationId(),
+                            now
+                    );
                     if (result == ReservationNoShowProcessor.Result.PROCESSED) {
                         processed++;
                         processedCounter.increment();
@@ -122,7 +121,8 @@ public class ReservationNoShowBatchService {
                 } catch (RuntimeException exception) {
                     failed++;
                     failedCounter.increment();
-                    log.warn("예약 자동 노쇼 단건 처리 실패: reservationId={}", target.getId(), exception);
+                    log.warn("예약 자동 노쇼 단건 처리 실패: reservationId={}",
+                            target.getReservationId(), exception);
                 }
             }
         }

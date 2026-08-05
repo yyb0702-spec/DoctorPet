@@ -37,7 +37,7 @@ public class ReservationNoShowProcessor {
         reservationEventRepository.appendIfAbsent(
                 reservationId,
                 ReservationEventType.AUTO_NO_SHOW.name(),
-                "예약 시각 +10분 경과 후 미체크인",
+                "예약 시각 이후 체크인 미확인으로 자동 판정",
                 null,
                 now
         );

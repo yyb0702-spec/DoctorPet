@@ -248,21 +248,23 @@ public interface ReservationRepository
     );
 
     @Query("""
-            select r
+            select r.id as reservationId,
+                   s.startAt as slotStartAt
               from Reservation r, ReservationSlot s
              where s.id = r.slotId
                and r.status = :confirmedStatus
                and s.startAt <= :cutoff
              order by s.startAt asc, r.id asc
             """)
-    List<Reservation> findAutoNoShowTargets(
+    List<ReservationNoShowTarget> findAutoNoShowTargets(
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
             @Param("cutoff") LocalDateTime cutoff,
             Pageable pageable
     );
 
     @Query("""
-            select r
+            select r.id as reservationId,
+                   s.startAt as slotStartAt
               from Reservation r, ReservationSlot s
              where s.id = r.slotId
                and r.status = :confirmedStatus
@@ -271,7 +273,7 @@ public interface ReservationRepository
                     or (s.startAt = :cursorStartAt and r.id > :cursorId))
              order by s.startAt asc, r.id asc
             """)
-    List<Reservation> findAutoNoShowTargetsAfter(
+    List<ReservationNoShowTarget> findAutoNoShowTargetsAfter(
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
             @Param("cutoff") LocalDateTime cutoff,
             @Param("cursorStartAt") LocalDateTime cursorStartAt,

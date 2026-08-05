@@ -14,6 +14,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
+import com.doctorpet.domain.reservation.repository.ReservationNoShowTarget;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationNoShowLock;
@@ -121,7 +122,8 @@ class HospitalNoShowIntegrationTest {
                 ReservationStatus.CONFIRMED,
                 cutoff,
                 PageRequest.of(0, 100)
-        )).extracting(Reservation::getId).doesNotContain(data.reservationId());
+        )).extracting(ReservationNoShowTarget::getReservationId)
+                .doesNotContain(data.reservationId());
 
         ReservationSlot slot = reservationSlotRepository.findById(data.slotId()).orElseThrow();
         ReflectionTestUtils.setField(slot, "startAt", cutoff);
@@ -131,7 +133,8 @@ class HospitalNoShowIntegrationTest {
                 ReservationStatus.CONFIRMED,
                 cutoff,
                 PageRequest.of(0, 100)
-        )).extracting(Reservation::getId).contains(data.reservationId());
+        )).extracting(ReservationNoShowTarget::getReservationId)
+                .contains(data.reservationId());
     }
 
     @Test
@@ -152,6 +155,10 @@ class HospitalNoShowIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from reservation_events where reservation_id = ? and event_type = 'AUTO_NO_SHOW' and processed_by is null",
                 Long.class, data.reservationId())).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "select memo from reservation_events where reservation_id = ? and event_type = 'AUTO_NO_SHOW'",
+                String.class, data.reservationId()))
+                .isEqualTo("예약 시각 이후 체크인 미확인으로 자동 판정");
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from notifications where resource_type = 'RESERVATION' and resource_id = ? and type = 'NO_SHOW'",
                 Long.class, data.reservationId())).isEqualTo(1L);
