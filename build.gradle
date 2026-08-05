@@ -36,7 +36,7 @@ ext {
     querydslVersion = '5.1.0'
     jjwtVersion = '0.12.6'
     proj4jVersion = '1.4.2'
-    // Spring Boot 4(Jackson 3) 호환 확인된 최신 버전(이슈 #125). springdoc이 아직 내부적으로
+    // Spring Boot 4(Jackson 3) 호환 확인된 최신 버전(이슈 #105). springdoc이 아직 내부적으로
     // Jackson 2에 의존하는 이슈가 알려져 있어(springdoc-openapi#3200), 로컬 빌드에서 문제가
     // 보이면 이 버전부터 의심할 것.
     springdocOpenapiVersion = '3.1.0'
@@ -50,11 +50,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     // 배포 헬스체크(CI/CD MVP)·운영 지표 노출용. /actuator/health를 배포 스크립트가 확인한다.
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    // 관측성 지표(이슈 #125) — /actuator/prometheus가 Prometheus 텍스트 포맷으로 지표를 노출하게
+    // 관측성 지표(이슈 #105) — /actuator/prometheus가 Prometheus 텍스트 포맷으로 지표를 노출하게
     // 해주는 Micrometer 레지스트리. 이 의존성이 없으면 /actuator/metrics(JSON)까지만 되고
     // Prometheus가 스크레이프할 수 있는 형식은 나오지 않는다.
     implementation 'io.micrometer:micrometer-registry-prometheus'
-    // API 문서화(이슈 #125). local 프로파일에서만 활성화한다(SecurityConfig·application.yaml
+    // API 문서화(이슈 #105). local 프로파일에서만 활성화한다(SecurityConfig·application.yaml
     // 참고) — docker/prod로 배포된 서버는 인터넷에 노출돼 있어, 기본값으로 켜두면 병원 스태프
     // 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
     implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocOpenapiVersion}"

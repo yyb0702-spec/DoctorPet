@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * Level 2 — 이슈 #125 완료 조건("액추에이터·Swagger 경로가 실제 SecurityConfig에서 인증 없이
+ * Level 2 — 이슈 #105 완료 조건("액추에이터·Swagger 경로가 실제 SecurityConfig에서 인증 없이
  * 통과하는지")을 검증한다.
  *
  * management.server.port로 액추에이터를 앱 포트와 분리했지만, 그것만으로 Spring Security가
@@ -57,7 +57,7 @@ class ObservabilityAndDocsSecurityTest {
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
 
     @Test
-    @DisplayName("/actuator/** 경로는 인증 헤더 없이도 401/403을 받지 않는다(전용 SecurityFilterChain, 이슈 #125)")
+    @DisplayName("/actuator/** 경로는 인증 헤더 없이도 401/403을 받지 않는다(전용 SecurityFilterChain, 이슈 #105)")
     void actuatorPaths_areNotBlockedByAuthentication() throws Exception {
         MvcResult result = mockMvc.perform(get("/actuator/health")).andReturn();
 
@@ -65,7 +65,7 @@ class ObservabilityAndDocsSecurityTest {
     }
 
     @Test
-    @DisplayName("Swagger/OpenAPI 문서 경로는 인증 헤더 없이도 401/403을 받지 않는다(이슈 #125)")
+    @DisplayName("Swagger/OpenAPI 문서 경로는 인증 헤더 없이도 401/403을 받지 않는다(이슈 #105)")
     void swaggerPaths_areNotBlockedByAuthentication() throws Exception {
         MvcResult result = mockMvc.perform(get("/v3/api-docs")).andReturn();
 

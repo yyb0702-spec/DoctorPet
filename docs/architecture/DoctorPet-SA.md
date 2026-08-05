@@ -897,10 +897,10 @@ sequenceDiagram
 - AWS EC2(앱), RDS(MySQL), ElastiCache(Redis).
 - GitHub Actions로 빌드·테스트 자동 실행, 이미지 빌드·배포.
 - k6로 검색·예약 처리량·응답시간을 비교한다. 검색 캐시는 최초 진입 기본 첫 페이지의 적용 전후만 비교한다.
-- 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #125). Grafana 등 시각화는 여력에 따라 확장.
+- 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #105). Grafana 등 시각화는 여력에 따라 확장.
 - 실시간 메시징(§9-8)은 채팅 도입 여부에 따라 추후 재논의.
 
-**관측성 지표·API 문서 노출 범위(이슈 #125)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
+**관측성 지표·API 문서 노출 범위(이슈 #105)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
 
 성능 목표는 검색 응답시간 P95 300ms 이하, 처리량 100 RPS, 오류율 1% 이하(PRD §9 성과지표와 동일 수치). 도전 과제는 MVP 완성 이후 진행하며, 미완 시 문서·부분 구성으로 대체한다.
 

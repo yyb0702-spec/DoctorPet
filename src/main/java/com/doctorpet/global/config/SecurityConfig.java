@@ -30,7 +30,7 @@ public class SecurityConfig {
     }
 
     /*
-     * 액추에이터 전용 체인(이슈 #125) — health/prometheus는 management.server.port(8081, 앱
+     * 액추에이터 전용 체인(이슈 #105) — health/prometheus는 management.server.port(8081, 앱
      * 포트와 분리)로 옮겼지만, 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지
      * 않는다(Boot 문서·이슈 트래커에 실제로 자주 나오는 함정). securityMatcher로 이 체인을
      * "/actuator/**"에만 적용해 명시적으로 permitAll한다 — 그렇지 않으면 Dockerfile의
@@ -60,7 +60,7 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Swagger UI/OpenAPI 문서(이슈 #125) - local 프로파일에서만 springdoc이
+                        // Swagger UI/OpenAPI 문서(이슈 #105) - local 프로파일에서만 springdoc이
                         // 실제로 등록되고(application.yaml), 그 외에는 springdoc.api-docs/
                         // swagger-ui.enabled=false라 경로 자체가 없어 여기서 permitAll을 열어둬도
                         // 404만 날 뿐 정보가 노출되지 않는다.
