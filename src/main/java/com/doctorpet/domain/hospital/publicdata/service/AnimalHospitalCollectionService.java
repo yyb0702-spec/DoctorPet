@@ -6,11 +6,13 @@ import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalBody;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
 import com.doctorpet.global.gateway.publicdata.PublicDataGateway;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /** 전국 동물병원 공공데이터의 모든 페이지를 수집해 적재합니다. */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class AnimalHospitalCollectionService {
 
@@ -31,20 +33,32 @@ public class AnimalHospitalCollectionService {
         int importedHospitalCount = 0;
 
         while (true) {
-            // 외부 API 호출은 DB 저장 트랜잭션 밖에서 수행합니다.
-            AnimalHospitalApiResponse response = publicDataGateway.fetch(
-                    pageNo,
-                    properties.pageSize()
-            );
-            AnimalHospitalBody body = requireSuccessfulBody(response);
+            try {
+                // 외부 API 호출은 DB 저장 트랜잭션 밖에서 수행합니다.
+                AnimalHospitalApiResponse response = publicDataGateway.fetch(
+                        pageNo,
+                        properties.pageSize()
+                );
+                AnimalHospitalBody body = requireSuccessfulBody(response);
 
-            importedHospitalCount += pageImportService.importPage(response);
-            importedPageCount++;
+                importedHospitalCount += pageImportService.importPage(response);
+                importedPageCount++;
 
-            if (pageNo * properties.pageSize() >= body.totalCount()) {
-                break;
+                if (pageNo * properties.pageSize() >= body.totalCount()) {
+                    break;
+                }
+                pageNo++;
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "전국 동물병원 공공데이터 수집 실패: failedPage={}, "
+                                + "importedPages={}, importedHospitals={}",
+                        pageNo,
+                        importedPageCount,
+                        importedHospitalCount,
+                        exception
+                );
+                throw exception;
             }
-            pageNo++;
         }
 
         return new AnimalHospitalCollectionResult(

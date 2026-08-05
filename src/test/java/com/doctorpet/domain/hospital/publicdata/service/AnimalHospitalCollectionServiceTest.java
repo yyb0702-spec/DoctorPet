@@ -13,15 +13,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class AnimalHospitalCollectionServiceTest {
 
     @Mock
@@ -73,6 +76,26 @@ class AnimalHospitalCollectionServiceTest {
         then(publicDataGateway).should().fetch(1, 2);
         then(publicDataGateway).should().fetch(2, 2);
         then(publicDataGateway).should().fetch(3, 2);
+    }
+
+    @Test
+    void 수집에_실패하면_실패_페이지와_부분_반영_건수를_기록한다(
+            CapturedOutput output
+    ) {
+        AnimalHospitalApiResponse firstPage = createResponse(1, 5);
+        given(publicDataGateway.fetch(1, 2)).willReturn(firstPage);
+        given(pageImportService.importPage(firstPage)).willReturn(2);
+        given(publicDataGateway.fetch(2, 2))
+                .willThrow(new IllegalStateException("temporary failure"));
+
+        assertThatThrownBy(collectionService::collectNationwide)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("temporary failure");
+
+        assertThat(output)
+                .contains("failedPage=2")
+                .contains("importedPages=1")
+                .contains("importedHospitals=2");
     }
 
     private AnimalHospitalApiResponse createResponse(
