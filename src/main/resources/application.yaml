@@ -93,6 +93,17 @@ management:
         enabled: true
 
 reservation:
+  no-show:
+    interval-ms: ${RESERVATION_NO_SHOW_INTERVAL_MS:60000}
+    initial-delay-ms: ${RESERVATION_NO_SHOW_INITIAL_DELAY_MS:60000}
+    zone-id: ${RESERVATION_NO_SHOW_ZONE_ID:Asia/Seoul}
+    grace-minutes: ${RESERVATION_NO_SHOW_GRACE_MINUTES:10}
+    batch-size: ${RESERVATION_NO_SHOW_BATCH_SIZE:100}
+    max-scanned-per-run: ${RESERVATION_NO_SHOW_MAX_SCANNED_PER_RUN:1000}
+    max-attempts: ${RESERVATION_NO_SHOW_MAX_ATTEMPTS:2}
+    lock-wait-seconds: ${RESERVATION_NO_SHOW_LOCK_WAIT_SECONDS:0}
+  no-show-index-migration:
+    enabled: ${RESERVATION_NO_SHOW_INDEX_MIGRATION_ENABLED:true}
   event-unique-migration:
     enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}
   # 기존 예약을 승인 마감 공식으로 백필한 뒤 NOT NULL·조회 인덱스를 적용한다.

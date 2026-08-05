@@ -16,6 +16,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.scheduler.ReservationNoShowLock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -32,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -50,6 +52,12 @@ class HospitalNoShowIntegrationTest {
 
     @Autowired
     private HospitalReservationApplicationService hospitalReservationService;
+
+    @Autowired
+    private ReservationNoShowProcessor noShowProcessor;
+
+    @Autowired
+    private ReservationNoShowLock noShowLock;
 
     @Autowired
     private ReservationRepository reservationRepository;
@@ -77,6 +85,10 @@ class HospitalNoShowIntegrationTest {
     void cleanUp() {
         if (reservationId != null) {
             jdbcTemplate.update(
+                    "delete from notifications where resource_type = 'RESERVATION' and resource_id = ?",
+                    reservationId
+            );
+            jdbcTemplate.update(
                     "delete from reservation_events where reservation_id = ?",
                     reservationId
             );
@@ -96,6 +108,79 @@ class HospitalNoShowIntegrationTest {
                     "delete from members where id = ?",
                     staffMemberId
             );
+        }
+    }
+
+    @Test
+    @DisplayName("예약 시각 +10분 경계부터 CONFIRMED 예약만 자동 노쇼 대상이다")
+    void autoNoShowBoundary_selectsOnlyEligibleConfirmedReservation() {
+        TestReservation data = saveConfirmedReservation();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID).withNano(0);
+        jdbcTemplate.update(
+                "update reservation_slots set start_at = ?, end_at = ? where id = ?",
+                now.minusMinutes(9), now.plusMinutes(21), data.slotId()
+        );
+
+        assertThat(reservationRepository.findAutoNoShowTargets(
+                ReservationStatus.CONFIRMED,
+                now.minusMinutes(10),
+                PageRequest.of(0, 100)
+        )).extracting(Reservation::getId).doesNotContain(data.reservationId());
+
+        jdbcTemplate.update(
+                "update reservation_slots set start_at = ?, end_at = ? where id = ?",
+                now.minusMinutes(10), now.plusMinutes(20), data.slotId()
+        );
+        assertThat(reservationRepository.findAutoNoShowTargets(
+                ReservationStatus.CONFIRMED,
+                now.minusMinutes(10),
+                PageRequest.of(0, 100)
+        )).extracting(Reservation::getId).contains(data.reservationId());
+    }
+
+    @Test
+    @DisplayName("자동 노쇼 처리는 상태·SYSTEM 이력·알림을 한 번만 생성한다")
+    void autoNoShow_isAtomicAndIdempotent() {
+        TestReservation data = saveConfirmedReservation();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+
+        ReservationNoShowProcessor.Result first = noShowProcessor.process(data.reservationId(), now);
+        ReservationNoShowProcessor.Result second = noShowProcessor.process(data.reservationId(), now);
+
+        assertThat(first).isEqualTo(ReservationNoShowProcessor.Result.PROCESSED);
+        assertThat(second).isEqualTo(ReservationNoShowProcessor.Result.SKIPPED);
+        assertThat(reservationRepository.findById(data.reservationId()).orElseThrow().getStatus())
+                .isEqualTo(ReservationStatus.NO_SHOW);
+        assertThat(reservationEventRepository.countByReservation_IdAndEventType(
+                data.reservationId(), ReservationEventType.AUTO_NO_SHOW)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from reservation_events where reservation_id = ? and event_type = 'AUTO_NO_SHOW' and processed_by is null",
+                Long.class, data.reservationId())).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from notifications where resource_type = 'RESERVATION' and resource_id = ? and type = 'NO_SHOW'",
+                Long.class, data.reservationId())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("다른 인스턴스가 자동 노쇼 잠금을 보유하면 두 번째 실행은 스킵한다")
+    void autoNoShowLock_allowsOnlyOneInstance() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch acquired = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            var first = executor.submit(() -> noShowLock.executeIfAcquired(0, () -> {
+                acquired.countDown();
+                await(release);
+                return true;
+            }));
+            assertThat(acquired.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(noShowLock.executeIfAcquired(0, () -> true)).isEmpty();
+            release.countDown();
+            assertThat(first.get(10, TimeUnit.SECONDS)).contains(true);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
     }
 
@@ -162,20 +247,10 @@ class HospitalNoShowIntegrationTest {
         CountDownLatch done = new CountDownLatch(2);
         List<Throwable> errors = new CopyOnWriteArrayList<>();
 
-        Runnable automatic = () -> {
-            int updated = jdbcTemplate.update("""
-                    update reservations
-                       set status = 'NO_SHOW', no_show_at = now(), updated_at = now()
-                     where id = ? and status = 'CONFIRMED'
-                    """, data.reservationId());
-            if (updated == 1) {
-                jdbcTemplate.update("""
-                        insert ignore into reservation_events
-                            (reservation_id, event_type, memo, processed_by, occurred_at)
-                        values (?, 'AUTO_NO_SHOW', null, null, now())
-                        """, data.reservationId());
-            }
-        };
+        Runnable automatic = () -> noShowProcessor.process(
+                data.reservationId(),
+                LocalDateTime.now(SEOUL_ZONE_ID)
+        );
         Runnable manual = () -> hospitalReservationService.confirmNoShow(
                 data.staffMemberId(),
                 data.reservationId(),
@@ -215,6 +290,47 @@ class HospitalNoShowIntegrationTest {
         )).isBetween(0L, 1L);
         assertThat(reservationSlotRepository.findById(data.slotId()).orElseThrow()
                 .getStatus()).isEqualTo(ReservationSlotStatus.RESERVED);
+    }
+
+    @Test
+    @DisplayName("체크인과 자동 노쇼가 경합하면 정확히 하나의 상태 전이만 성립한다")
+    void checkInAndAutomaticRace_onlyOneTransitionSucceeds() throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        Reservation reservation = reservationRepository.findById(data.reservationId()).orElseThrow();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        List<Throwable> errors = new CopyOnWriteArrayList<>();
+
+        Runnable checkIn = () -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            await(start);
+            reservationRepository.checkInIfConfirmed(
+                    data.reservationId(), reservation.getHospitalId(),
+                    ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN,
+                    LocalDateTime.now(SEOUL_ZONE_ID)
+            );
+        });
+        Runnable automatic = () -> {
+            await(start);
+            noShowProcessor.process(data.reservationId(), LocalDateTime.now(SEOUL_ZONE_ID));
+        };
+
+        for (Runnable task : List.of(checkIn, automatic)) {
+            executor.submit(() -> {
+                try { task.run(); } catch (Throwable throwable) { errors.add(throwable); }
+                finally { done.countDown(); }
+            });
+        }
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(errors).isEmpty();
+        assertThat(reservationRepository.findById(data.reservationId()).orElseThrow().getStatus())
+                .isIn(ReservationStatus.CHECKED_IN, ReservationStatus.NO_SHOW);
+        assertThat(reservationEventRepository.countByReservation_IdAndEventType(
+                data.reservationId(), ReservationEventType.AUTO_NO_SHOW)).isBetween(0L, 1L);
     }
 
     @Test
