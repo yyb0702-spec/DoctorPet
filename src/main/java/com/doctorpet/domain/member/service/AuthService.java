@@ -188,13 +188,24 @@ public class AuthService {
     }
 
     /*
-     * 로그아웃. SA §8-1 + A 도메인 결정 #3(단일 세션 유지).
-     * 세션이 회원당 하나뿐이므로, 저장된 Refresh Token(refresh:{memberId})만 삭제하면
-     * 재발급(reissue)이 더 이상 불가능해져 로그아웃이 완성된다. Access Token은 만료까지
-     * 유효하게 남지만(무상태 JWT라 서버 측 즉시 폐기 수단이 없음), 이는 SA에서 이미 감수한 트레이드오프다.
+     * 로그아웃. SA §8-1 + A 도메인 결정 #3(단일 세션 유지) + 백로그 #124.
+     * 세션이 회원당 하나뿐이므로, 저장된 Refresh Token(refresh:{memberId})을 삭제하면
+     * 재발급(reissue)이 더 이상 불가능해진다. 그것만으로는 만료 전까지 남은 Access Token으로
+     * 계속 API를 호출할 수 있었는데(#124 이전), 이제는 지금 로그아웃에 쓰인 그 Access Token도
+     * jti 단위로 블랙리스트에 넣어 즉시 무효화한다.
+     *
+     * accessToken이 null일 수 있다(예: Authorization 헤더 없이 호출 — 이 엔드포인트는 인증이
+     * 필요해 정상적으로는 발생하지 않지만, 방어적으로 처리) — 그 경우 Refresh Token 삭제까지만
+     * 수행하고 블랙리스트는 건너뛴다.
      */
-    public void logout(Long memberId) {
+    public void logout(Long memberId, String accessToken) {
         refreshTokenRepository.deleteByMemberId(memberId);
+
+        if (accessToken != null) {
+            String jti = jwtTokenProvider.getJti(accessToken);
+            Duration remainingTtl = jwtTokenProvider.getRemainingTtl(accessToken);
+            refreshTokenRepository.blacklistAccessToken(jti, remainingTtl);
+        }
     }
 
     /** Access/Refresh Token을 새로 발급하고, Refresh Token은 Redis에 덮어써 회전시킨다. */

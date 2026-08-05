@@ -12,11 +12,13 @@ import com.doctorpet.domain.member.service.EmailVerificationService;
 import com.doctorpet.domain.member.service.PasswordResetService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,6 +34,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
+
+    // JwtAuthenticationFilter의 같은 이름 상수와 중복이다 — 필터는 global.security, 이쪽은
+    // domain.member라 계층이 달라 상수를 공유하지 않는다(2줄짜리 헤더 파싱을 위해 새 공용
+    // 유틸리티 클래스를 만들 정도는 아니라고 판단).
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
@@ -56,10 +64,24 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    // #124: 로그아웃한 그 Access Token 한 장을 블랙리스트에 넣으려면 원문 토큰 문자열이 필요하다.
+    // JwtAuthenticationFilter가 이미 서명·만료·tokenType을 검증한 뒤에야 이 엔드포인트까지
+    // 도달하므로(permitAll이 아님), 여기서 Authorization 헤더를 다시 읽어도 재검증할 필요는 없다.
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout(@AuthenticationPrincipal MemberPrincipal principal) {
-        authService.logout(principal.memberId());
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            HttpServletRequest request
+    ) {
+        authService.logout(principal.memberId(), resolveAccessToken(request));
         return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    private String resolveAccessToken(HttpServletRequest request) {
+        String header = request.getHeader(AUTHORIZATION_HEADER);
+        if (StringUtils.hasText(header) && header.startsWith(BEARER_PREFIX)) {
+            return header.substring(BEARER_PREFIX.length());
+        }
+        return null;
     }
 
     // 프론트가 아직 없어 이메일 링크가 이 백엔드 엔드포인트를 직접 가리킨다(임시). 프론트가

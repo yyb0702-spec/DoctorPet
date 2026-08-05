@@ -24,6 +24,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final MemberBlacklistPort memberBlacklistPort;
+    private final AccessTokenBlacklistPort accessTokenBlacklistPort;
 
     @Override
     protected void doFilterInternal(
@@ -46,6 +47,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // 필터로 넘기면, 인증이 필요한 API는 Spring Security가 401로 거부한다(permitAll
             // 엔드포인트는 원래도 인증 없이 통과하므로 영향 없다).
             if (memberBlacklistPort.isBlacklisted(principal.memberId())) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // 로그아웃된 토큰 블랙리스트(#124) — 탈퇴처럼 회원 전체를 막는 게 아니라, 로그아웃한
+            // 그 토큰(jti) 한 장만 걸러낸다. 그래야 로그아웃 직후 재로그인으로 받은 새 토큰은
+            // 같은 memberId라도 영향을 받지 않는다(AccessTokenBlacklistPort 참고).
+            if (accessTokenBlacklistPort.isBlacklisted(jwtTokenProvider.getJti(token))) {
                 filterChain.doFilter(request, response);
                 return;
             }

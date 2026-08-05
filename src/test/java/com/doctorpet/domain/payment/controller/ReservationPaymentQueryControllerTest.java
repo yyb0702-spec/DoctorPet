@@ -20,6 +20,7 @@ import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,6 +57,9 @@ class ReservationPaymentQueryControllerTest {
 
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
     private PaymentHistoryResponse paid() {
         return new PaymentHistoryResponse(1L, 100L, PaymentStatus.PAID, PaymentChannel.BILLING_KEY,

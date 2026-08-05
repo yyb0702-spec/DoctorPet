@@ -25,6 +25,7 @@ import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
+import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -78,14 +79,17 @@ class AuthControllerTest {
 
     // addFilters=false는 MockMvc가 필터를 "실행"하지 않게 할 뿐, @WebMvcTest는 Filter 타입 빈을
     // 기본 포함 대상으로 슬라이스 컨텍스트에 여전히 생성한다. JwtAuthenticationFilter가 생성자에서
-    // JwtTokenProvider·MemberBlacklistPort를 요구하므로, 이 빈들이 없으면 컨텍스트 로딩 자체가
-    // 실패한다(실제 호출은 없다). MemberBlacklistPort는 탈퇴 회원 Access Token 블랙리스트 체크용
-    // (리뷰 지적 P1 대응).
+    // JwtTokenProvider·MemberBlacklistPort·AccessTokenBlacklistPort를 요구하므로, 이 빈들이 없으면
+    // 컨텍스트 로딩 자체가 실패한다(실제 호출은 없다). MemberBlacklistPort는 탈퇴 회원(리뷰 지적
+    // P1 대응), AccessTokenBlacklistPort는 로그아웃한 토큰(#124) Access Token 블랙리스트 체크용.
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
 
     @MockitoBean
     private MemberBlacklistPort memberBlacklistPort;
+
+    @MockitoBean
+    private AccessTokenBlacklistPort accessTokenBlacklistPort;
 
     @AfterEach
     void clearSecurityContext() {
@@ -337,8 +341,23 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("로그아웃하면 200과 SUCCESS를 반환하고, 인증된 회원 id로 서비스를 호출한다")
+    @DisplayName("로그아웃하면 200과 SUCCESS를 반환하고, 인증된 회원 id와 Authorization 헤더의 Access Token으로 서비스를 호출한다(#124)")
     void logout_success() throws Exception {
+
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(authService).logout(1L, "access-token");
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더 없이 로그아웃해도(방어적 케이스) 200을 반환하고, accessToken은 null로 서비스를 호출한다")
+    void logout_withoutAuthorizationHeader() throws Exception {
 
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
 
@@ -347,7 +366,7 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
-        verify(authService).logout(1L);
+        verify(authService).logout(1L, null);
     }
 
     @Test

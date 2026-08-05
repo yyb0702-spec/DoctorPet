@@ -356,11 +356,24 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("로그아웃하면 해당 회원의 Redis Refresh Token을 삭제한다")
+    @DisplayName("로그아웃하면 해당 회원의 Redis Refresh Token을 삭제하고, 지금 쓴 Access Token을 jti 단위로 블랙리스트에 넣는다(#124)")
     void logout_success() {
-        authService.logout(1L);
+        given(jwtTokenProvider.getJti("access-token")).willReturn("jti-1234");
+        given(jwtTokenProvider.getRemainingTtl("access-token")).willReturn(Duration.ofMinutes(30));
+
+        authService.logout(1L, "access-token");
 
         verify(refreshTokenRepository).deleteByMemberId(1L);
+        verify(refreshTokenRepository).blacklistAccessToken("jti-1234", Duration.ofMinutes(30));
+    }
+
+    @Test
+    @DisplayName("Access Token 없이 로그아웃해도(방어적 케이스) Refresh Token 삭제는 수행하고, 블랙리스트 등록은 건너뛴다")
+    void logout_withoutAccessToken_skipsBlacklist() {
+        authService.logout(1L, null);
+
+        verify(refreshTokenRepository).deleteByMemberId(1L);
+        verify(refreshTokenRepository, never()).blacklistAccessToken(anyString(), any(Duration.class));
     }
 
     private void setId(Member member, Long id) {
