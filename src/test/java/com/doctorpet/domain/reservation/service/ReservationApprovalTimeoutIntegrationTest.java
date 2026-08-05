@@ -227,7 +227,7 @@ class ReservationApprovalTimeoutIntegrationTest {
                 PageRequest.of(0, 100)
         )).extracting(Reservation::getId)
                 .doesNotContain(data.reservationId());
-        assertThat(reservationRepository.findApprovalTimeoutTargets(
+        assertThat(reservationRepository.findApprovalTimeoutRetryTargets(
                 ReservationStatus.REQUESTED,
                 now.plusMinutes(2),
                 PageRequest.of(0, 100)
