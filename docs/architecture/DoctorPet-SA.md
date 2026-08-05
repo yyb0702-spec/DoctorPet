@@ -335,11 +335,13 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | id | BIGINT PK | |
+| webhook_id | VARCHAR NOT NULL | PortOne이 부여한 이벤트 식별자(Standard Webhooks webhook-id). 멱등키 |
 | payment_id | BIGINT FK | |
-| event_type | VARCHAR | |
-| received_at | DATETIME | |
+| event_type | VARCHAR | 감사·처리 분기용(멱등키는 webhook_id) |
+| received_at | DATETIME | 수신 시각 |
+| processed_at | DATETIME NULL | 재조회까지 끝난 시각. null이면 미처리(재전송 시 재구동 대상) |
 
-제약: `UNIQUE(payment_id, event_type)` — 중복 수신 1회만 반영.
+제약: `UNIQUE(webhook_id)` — 같은 이벤트의 재전송만 1회로 흡수한다. 같은 결제에서 같은 `event_type`이 정상적으로 다시 발생해도 서로 다른 이벤트는 `webhook_id`가 달라 각각 처리된다(기존 `UNIQUE(payment_id, event_type)`가 독립 이벤트를 오탐 제거하던 문제 해소). `processed_at`은 재조회까지 끝난 시각으로, 수신만 기록되고 처리 전 실패한 웹훅은 같은 `webhook_id` 재전송 때 재구동해 조정 실패 웹훅이 영구 유실되지 않게 한다. 지원하지 않는 `event_type`은 감사 기록만 남기고 재조회하지 않는다.
 
 ### schema_migrations (스키마 마이그레이션 마커)
 
