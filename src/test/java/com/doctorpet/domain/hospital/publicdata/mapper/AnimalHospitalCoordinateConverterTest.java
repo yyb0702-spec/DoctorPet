@@ -49,7 +49,9 @@ class AnimalHospitalCoordinateConverterTest {
                 100,
                 Duration.ofSeconds(3),
                 Duration.ofSeconds(10),
-                "EPSG:5174"
+                "EPSG:5174",
+                3,
+                Duration.ofMinutes(5)
         );
     }
 }
