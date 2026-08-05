@@ -8,6 +8,14 @@ public interface RetryBackoff {
 
     /**
      * {@code attempt}번째 재시도 직전 대기한다. attempt는 1부터 시작한다.
+     *
+     * <p>대기 시간이 {@code maxWaitMs}를 넘으면 {@code maxWaitMs}까지만 대기한다(#85 데드라인 캡). 이는 지수
+     * 백오프가 HTTP 요청 스레드를 과도하게 동기 점유해 스레드풀이 고갈되는 것을 막기 위한 상한이다. 호출부는
+     * 반환된 실제 대기 시간을 누적해 남은 예산을 다음 호출의 {@code maxWaitMs}로 넘긴다.
+     *
+     * @param attempt   1부터 시작하는 재시도 회차
+     * @param maxWaitMs 이번 대기의 상한(ms). 0 이하면 대기하지 않는다.
+     * @return 실제로 대기한 시간(ms)
      */
-    void pause(int attempt);
+    long pause(int attempt, long maxWaitMs);
 }
