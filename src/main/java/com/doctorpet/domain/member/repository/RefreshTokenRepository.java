@@ -36,12 +36,37 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
 
     private static final String KEY_PREFIX = "refresh:";
     private static final String LOCK_KEY_PREFIX = "refresh-lock:";
+    private static final String FENCE_KEY_PREFIX = "refresh-fence:";
     private static final String WITHDRAWN_KEY_PREFIX = "withdrawn:";
     private static final String LOGOUT_BLACKLIST_KEY_PREFIX = "at-blacklist:";
 
     // 회원당 재발급 요청을 직렬화하는 락의 TTL. 크래시 등으로 unlock()이 못 불려도 이 시간 뒤엔
     // 자동으로 풀린다 — 정상 처리(회원 조회 + JWT 2개 생성 + Redis CAS 1회)는 이보다 훨씬 빨리 끝난다.
+    //
+    // 이 TTL을 넘겨 락이 자동으로 풀리면(GC 정지, 스레드 기아 등으로 원래 요청이 3초 안에 못
+    // 끝내는 드문 경우), 뒤이은 동시 요청이 새 락을 얻어 먼저 회전을 끝낼 수 있다. 그 뒤 뒤늦게
+    // 도착한 원래 요청의 CAS 시도가 "저장된 값과 다르다"는 이유만으로 무조건 재사용(탈취)으로
+    // 판단해 세션을 삭제해버리면, 방금 성공한 요청의 새 세션까지 함께 지워진다(리뷰 지적,
+    // 이슈 #100 P1). ROTATE_IF_MATCHES_SCRIPT의 펜싱 토큰 검사가 이 상황을 구분한다.
     private static final Duration LOCK_TTL = Duration.ofSeconds(3);
+
+    /*
+     * 락을 얻을 때마다(tryLock) 단조 증가하는 정수 하나를 새로 발급해 "펜싱 토큰"으로 쓴다
+     * (KEYS[2] 카운터를 INCR). 락 TTL이 만료돼 다른 요청이 새 락 + 더 큰 펜싱 토큰을 얻으면,
+     * 그 요청이 곧 "이 순간 가장 최신인 재발급 시도"가 된다 — 락은 한 번에 한 요청만 쥘 수
+     * 있으므로(SET NX), 더 큰 펜싱 토큰을 가진 요청은 항상 더 이전 요청의 락 TTL이 만료된
+     * 뒤에야 락을 얻을 수 있기 때문이다. ROTATE_IF_MATCHES_SCRIPT가 이 토큰으로 "지금 회전을
+     * 시도하는 내가, 이 세션에 마지막으로 성공한 회전보다 최신인가"를 판단한다.
+     */
+    private static final RedisScript<Long> TRY_LOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('exists', KEYS[1]) == 1 then "
+                    + "return -1 "
+                    + "end "
+                    + "local fence = redis.call('incr', KEYS[2]) "
+                    + "redis.call('set', KEYS[1], ARGV[1], 'PX', ARGV[2]) "
+                    + "return fence",
+            Long.class
+    );
 
     /*
      * 현재 저장된 값이 oldToken과 일치할 때만 newToken으로 교체한다(compare-and-set).
@@ -51,27 +76,51 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
      *
      * (이전에는 CAS 실패 시 "동시 중복 요청"과 "진짜 재사용"을 5초 유예 창으로 구분했는데, 그
      * 창 안에서는 실제 탈취 토큰 재사용도 눈감아주는 셈이라 리뷰에서 보안 약화로 지적됐다.
-     * 지금은 AuthService.reissue()가 CAS를 시도하기 전에 tryLock/unlock으로 회원당 재발급을
-     * 아예 직렬화한다 — 그러면 두 요청이 "동시에" CAS를 다투는 상황 자체가 생기지 않으므로,
-     * CAS 실패는 항상 "이미 다른 요청이 정상 처리한 뒤의 진짜 재사용"으로 취급해도 안전하다.)
+     * 그다음엔 AuthService.reissue()가 CAS를 시도하기 전에 tryLock/unlock으로 회원당 재발급을
+     * 아예 직렬화해, 두 요청이 "동시에" CAS를 다투는 상황 자체를 없앴다 — 하지만 락 TTL(3초)이
+     * 만료되면 세 번째 요청이 락을 새로 얻을 수 있어 그 전제가 깨진다. 지금은 ARGV[1]의 펜싱
+     * 토큰으로 "내가 이 세션에 대해 가장 최신 락 소유자인가"까지 함께 확인한다: 저장된 값에 기록된
+     * 마지막 회전의 펜싱 토큰보다 내 펜싱 토큰이 작으면(STALE, -1 반환) — 이미 더 최신 요청이
+     * 락을 새로 얻어 나보다 먼저 회전을 끝냈다는 뜻이므로, 값을 비교하거나 건드리지 않고 그대로
+     * 물러난다. 이 검사를 통과한 뒤에야(내가 최신이거나 아직 아무도 회전하지 않은 상태) 값
+     * 비교로 넘어가고, 거기서도 일치하지 않으면 그건 시간 경쟁이 아니라 진짜 재사용이므로
+     * 세션을 삭제한다(REUSED, 0 반환).
      *
-     * ARGV[1](해시)뿐 아니라 ARGV[2](원문)와도 비교하는 이유(#123 배포 마이그레이션, 리뷰 지적) —
+     * ARGV[2](해시)뿐 아니라 ARGV[3](원문)과도 비교하는 이유(#123 배포 마이그레이션, 리뷰 지적) —
      * 배포 직전까지는 이 키에 원문 Refresh Token이 그대로 저장돼 있었다. 해시만 비교하면 배포
      * 전에 로그인해 원문을 들고 있는 모든 사용자의 "첫" 재발급이 무조건 실패하고, reissue()는
      * 그걸 재사용(탈취 의심)으로 오판해 세션까지 삭제해버려 활성 사용자 전원이 강제 로그아웃된다.
      * 원문 비교 분기를 임시로 열어 배포 전 세션도 정상적으로 회전시키되, 새로 저장하는 값은
-     * (ARGV[3]) 항상 해시다 — 그래서 한 번 회전을 거치면 그 회원은 자동으로 해시 저장으로
+     * (ARGV[4]) 항상 해시다 — 그래서 한 번 회전을 거치면 그 회원은 자동으로 해시 저장으로
      * 넘어간다(lazy migration). Refresh Token 최대 TTL(14일)이 지나면 원문 값은 자연 소멸하므로
-     * 배포일로부터 14일 뒤에는 ARGV[2] 비교 분기와 그 인자를 제거해도 안전하다.
+     * 배포일로부터 14일 뒤에는 ARGV[3] 비교 분기와 그 인자를 제거해도 안전하다.
+     *
+     * 저장 값의 형식은 "{펜싱 토큰}:{해시}"다. 콜론이 없는 값(펜싱 토큰이 아직 한 번도 기록되지
+     * 않은 로그인 직후 save(), 또는 #123 배포 전 원문/해시)은 펜싱 토큰을 0으로 간주한다 — 어떤
+     * 펜싱 토큰(항상 1 이상)이 와도 그보다 크므로 정상적으로 다음 단계(값 비교)로 넘어간다.
+     * 해시(64자리 hex)와 원문(UUID, 하이픈만 사용)은 원래도 콜론을 포함하지 않으므로 형식 판별에
+     * 모호함이 없다.
      */
     private static final RedisScript<Long> ROTATE_IF_MATCHES_SCRIPT = new DefaultRedisScript<>(
             "local stored = redis.call('get', KEYS[1]) "
-                    + "if stored == ARGV[1] or stored == ARGV[2] then "
-                    + "redis.call('set', KEYS[1], ARGV[3], 'PX', ARGV[4]) "
+                    + "local storedFence = 0 "
+                    + "local storedValue = stored "
+                    + "if stored then "
+                    + "local sep = string.find(stored, ':', 1, true) "
+                    + "if sep then "
+                    + "storedFence = tonumber(string.sub(stored, 1, sep - 1)) "
+                    + "storedValue = string.sub(stored, sep + 1) "
+                    + "end "
+                    + "end "
+                    + "if tonumber(ARGV[1]) < storedFence then "
+                    + "return -1 "
+                    + "end "
+                    + "if storedValue == ARGV[2] or storedValue == ARGV[3] then "
+                    + "redis.call('set', KEYS[1], ARGV[1] .. ':' .. ARGV[4], 'PX', ARGV[5]) "
                     + "return 1 "
-                    + "else "
-                    + "return 0 "
-                    + "end",
+                    + "end "
+                    + "redis.call('del', KEYS[1]) "
+                    + "return 0",
             Long.class
     );
 
@@ -95,11 +144,13 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
     }
 
     /**
-     * 저장된 값(해시)을 그대로 반환한다 — 토큰 원문을 저장하지 않으므로 이 값과 원문을 직접
-     * 비교할 수는 없다. 원문 토큰 하나가 유효한지 확인하려면 {@link #matches(Long, String)}를 쓴다.
+     * 저장된 값에서 펜싱 토큰 접두사(있다면)를 뗀 순수 해시를 반환한다 — 토큰 원문을 저장하지
+     * 않으므로 이 값과 원문을 직접 비교할 수는 없다. 원문 토큰 하나가 유효한지 확인하려면
+     * {@link #matches(Long, String)}를 쓴다.
      */
     public Optional<String> findByMemberId(Long memberId) {
-        return Optional.ofNullable(redisTemplate.opsForValue().get(key(memberId)));
+        return Optional.ofNullable(redisTemplate.opsForValue().get(key(memberId)))
+                .map(RefreshTokenRepository::stripFencingPrefix);
     }
 
     /** 제시된 원문 토큰을 해시해, 현재 저장된 값과 일치하는지 확인한다. */
@@ -111,16 +162,26 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
 
     /**
      * 현재 저장된 값(해시)이 {@code oldToken}의 해시와 정확히 일치할 때만 {@code newToken}의
-     * 해시로 원자적으로 교체한다. 일치하지 않으면(이미 회전되어 폐기된 토큰의 재사용, 또는 저장된
-     * 값이 아예 없는 경우) false를 반환한다.
+     * 해시로 원자적으로 교체한다. {@code fencingToken}은 {@link #tryLock(Long, String)}이
+     * 발급한 값을 그대로 넘겨야 한다 — 락 TTL이 만료돼 더 최신 펜싱 토큰을 가진 요청이 이미
+     * 회전에 성공했다면, 값을 비교·수정하지 않고 {@link RotateResult#STALE}을 반환한다(이슈 #100).
+     * 펜싱 검사를 통과했는데도 값이 일치하지 않으면 진짜 재사용이므로 세션을 삭제하고
+     * {@link RotateResult#REUSED}를 반환한다.
      */
-    public boolean rotateIfMatches(Long memberId, String oldToken, String newToken, Duration ttl) {
+    public RotateResult rotateIfMatches(Long memberId, long fencingToken, String oldToken, String newToken, Duration ttl) {
         Long result = redisTemplate.execute(
                 ROTATE_IF_MATCHES_SCRIPT,
                 List.of(key(memberId)),
-                TokenHasher.hash(oldToken), oldToken, TokenHasher.hash(newToken), String.valueOf(ttl.toMillis())
+                String.valueOf(fencingToken), TokenHasher.hash(oldToken), oldToken, TokenHasher.hash(newToken),
+                String.valueOf(ttl.toMillis())
         );
-        return result != null && result == 1L;
+        if (result == null) {
+            return RotateResult.STALE;
+        }
+        if (result == 1L) {
+            return RotateResult.SUCCESS;
+        }
+        return result == -1L ? RotateResult.STALE : RotateResult.REUSED;
     }
 
     /** 재사용 감지 시, 또는 로그아웃 시 세션을 완전히 무효화하기 위해 호출한다. */
@@ -134,10 +195,18 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
      * 같은 토큰으로 동시에 들어온 요청들이 서로 CAS를 다투는 상황 자체가 생기지 않는다.
      * {@code lockToken}은 호출자를 식별하는 임의의 값(예: UUID)으로, unlock 시 본인 락인지
      * 확인하는 데 쓴다.
+     *
+     * 락을 얻으면 그 획득에 대응하는 펜싱 토큰(단조 증가, 1 이상)을 함께 발급한다 —
+     * {@link #rotateIfMatches(Long, long, String, String, Duration)} 호출 시 반드시 이 값을
+     * 그대로 넘겨야 한다(이슈 #100). 락을 얻지 못하면 빈 값을 반환한다.
      */
-    public boolean tryLock(Long memberId, String lockToken) {
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey(memberId), lockToken, LOCK_TTL);
-        return Boolean.TRUE.equals(acquired);
+    public Optional<Long> tryLock(Long memberId, String lockToken) {
+        Long fencingToken = redisTemplate.execute(
+                TRY_LOCK_SCRIPT,
+                List.of(lockKey(memberId), fenceKey(memberId)),
+                lockToken, String.valueOf(LOCK_TTL.toMillis())
+        );
+        return (fencingToken != null && fencingToken > 0) ? Optional.of(fencingToken) : Optional.empty();
     }
 
     /** tryLock으로 얻은 락을 해제한다. lockToken이 일치할 때만(즉 내가 쥔 락일 때만) 지운다. */
@@ -193,12 +262,28 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
         return Boolean.TRUE.equals(redisTemplate.hasKey(logoutBlacklistKey(jti)));
     }
 
+    /**
+     * 저장된 값(예: {@code "5:a3f5..."})에서 콜론 앞 펜싱 토큰을 떼고 순수 해시만 반환한다.
+     * 콜론이 없으면(펜싱 토큰이 아직 한 번도 기록되지 않음 — 로그인 직후 save(), 또는 #123
+     * 배포 전 원문/해시) 값 전체를 그대로 반환한다.
+     */
+    private static String stripFencingPrefix(String stored) {
+        int sep = stored.indexOf(':');
+        return sep >= 0 ? stored.substring(sep + 1) : stored;
+    }
+
     private String key(Long memberId) {
         return KEY_PREFIX + memberId;
     }
 
     private String lockKey(Long memberId) {
         return LOCK_KEY_PREFIX + memberId;
+    }
+
+    /** tryLock이 펜싱 토큰을 발급하는 데 쓰는 단조 증가 카운터(INCR). TTL을 두지 않는다 — 회원당
+     * 정수 하나뿐이라 크기 부담이 없고, 값이 끊김 없이 계속 증가해야 펜싱 검사가 성립한다. */
+    private String fenceKey(Long memberId) {
+        return FENCE_KEY_PREFIX + memberId;
     }
 
     private String withdrawnKey(Long memberId) {

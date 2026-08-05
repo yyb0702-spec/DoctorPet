@@ -10,6 +10,7 @@ import com.doctorpet.domain.member.event.MemberSignedUpEvent;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
+import com.doctorpet.domain.member.repository.RotateResult;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -139,16 +140,21 @@ public class AuthService {
      * 1) JWT 자체의 서명·만료와 tokenType(REFRESH)을 검증한다 — Access Token으로는 재발급할 수 없다.
      * 2) 회원당 재발급 요청을 락으로 직렬화한다(tryLock/unlock) — 같은 토큰으로 동시에 들어온
      *    재발급 요청들이 서로 CAS를 다투는 상황 자체를 없앤다. 락을 못 얻으면 다른 요청이 이미
-     *    처리 중이라는 뜻이므로 REISSUE_IN_PROGRESS(409)로 응답한다.
+     *    처리 중이라는 뜻이므로 REISSUE_IN_PROGRESS(409)로 응답한다. 락 획득에 성공하면 함께
+     *    발급되는 펜싱 토큰(fencingToken)을 4)에 그대로 전달한다.
      * 3) 회원이 여전히 존재하는지 확인한다.
      * 4) Redis에 저장된 "현재 유효한" Refresh Token과 제시된 토큰을 비교(compare)하고 새 토큰으로
      *    교체(swap)하는 것을 하나의 원자 연산(Lua)으로 처리한다.
      *
      *    (이전 리뷰 대응에서는 CAS 실패 시 "동시 중복 요청"과 "진짜 재사용"을 5초 유예 창으로
      *    구분했는데, 그 창 안에서는 실제 탈취 토큰 재사용도 눈감아주는 셈이라 보안 약화로 다시
-     *    지적됐다. 지금은 2)의 락이 "동시에 CAS를 다투는 상황" 자체를 원천 차단하므로, 락을 쥔
-     *    상태에서의 CAS 실패는 시간 기반 휴리스틱 없이 항상 "진짜 재사용(탈취 의심)"으로 보고
-     *    세션 전체를 무효화해도 안전하다.)
+     *    지적됐다. 그다음엔 2)의 락이 "동시에 CAS를 다투는 상황" 자체를 원천 차단한다고 봤지만,
+     *    락 TTL(3초)이 만료되면 세 번째 요청이 새 락을 얻어 그 전제가 깨질 수 있다는 지적을 다시
+     *    받았다(이슈 #100 P1) — 락 TTL을 넘겨 뒤늦게 도착한 CAS 시도가 "저장된 값과 다르다"는
+     *    이유만으로 무조건 재사용으로 판단하면, 그사이 새 락으로 먼저 성공한 요청의 새 세션까지
+     *    지워버린다. 지금은 rotateIfMatches가 펜싱 토큰으로 "내가 이 세션에 대해 가장 최신
+     *    락 소유자인가"까지 함께 확인해 STALE(시간 경쟁에서 진 것뿐, 세션 안 건드림)과
+     *    REUSED(진짜 재사용, 세션 무효화)를 구분한다.)
      */
     @Transactional(readOnly = true)
     public LoginResponse reissue(ReissueRequest request) {
@@ -163,9 +169,8 @@ public class AuthService {
         Long memberId = principal.memberId();
 
         String lockToken = UUID.randomUUID().toString();
-        if (!refreshTokenRepository.tryLock(memberId, lockToken)) {
-            throw new ServiceException(MemberErrorCode.REISSUE_IN_PROGRESS);
-        }
+        long fencingToken = refreshTokenRepository.tryLock(memberId, lockToken)
+                .orElseThrow(() -> new ServiceException(MemberErrorCode.REISSUE_IN_PROGRESS));
 
         try {
             Member member = memberRepository.findById(memberId)
@@ -175,13 +180,16 @@ public class AuthService {
             String newRefreshToken = jwtTokenProvider.generateRefreshToken(memberId, member.getEmail(), member.getRole().name());
             Duration ttl = Duration.ofMillis(jwtProperties.getRefreshTokenExpiration());
 
-            boolean rotated = refreshTokenRepository.rotateIfMatches(memberId, presentedRefreshToken, newRefreshToken, ttl);
-            if (!rotated) {
-                refreshTokenRepository.deleteByMemberId(memberId);
-                throw new ServiceException(MemberErrorCode.REFRESH_TOKEN_REUSED);
-            }
+            RotateResult result = refreshTokenRepository.rotateIfMatches(
+                    memberId, fencingToken, presentedRefreshToken, newRefreshToken, ttl);
 
-            return LoginResponse.of(newAccessToken, newRefreshToken);
+            return switch (result) {
+                case SUCCESS -> LoginResponse.of(newAccessToken, newRefreshToken);
+                // 락 TTL 만료로 더 최신 요청에게 추월당했을 뿐 — 세션은 그 요청이 이미 정상
+                // 회전시켰으므로 건드리지 않는다. 이 요청 자신은 "다시 시도" 신호로 응답한다.
+                case STALE -> throw new ServiceException(MemberErrorCode.REISSUE_IN_PROGRESS);
+                case REUSED -> throw new ServiceException(MemberErrorCode.REFRESH_TOKEN_REUSED);
+            };
         } finally {
             refreshTokenRepository.unlock(memberId, lockToken);
         }
