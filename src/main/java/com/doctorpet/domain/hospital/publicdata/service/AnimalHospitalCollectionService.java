@@ -3,8 +3,8 @@ package com.doctorpet.domain.hospital.publicdata.service;
 import com.doctorpet.domain.hospital.publicdata.config.AnimalHospitalApiProperties;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalApiResponse;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalBody;
-import com.doctorpet.domain.hospital.publicdata.infrastructure.AnimalHospitalPublicDataClient;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
+import com.doctorpet.global.gateway.publicdata.PublicDataGateway;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -15,7 +15,7 @@ import org.springframework.util.StringUtils;
 public class AnimalHospitalCollectionService {
 
     private final AnimalHospitalApiProperties properties;
-    private final AnimalHospitalPublicDataClient client;
+    private final PublicDataGateway publicDataGateway;
     private final AnimalHospitalPageImportService pageImportService;
 
     /** 지역 조건 없이 전국 동물병원 공공데이터를 수집합니다. */
@@ -32,7 +32,7 @@ public class AnimalHospitalCollectionService {
 
         while (true) {
             // 외부 API 호출은 DB 저장 트랜잭션 밖에서 수행합니다.
-            AnimalHospitalApiResponse response = client.fetch(
+            AnimalHospitalApiResponse response = publicDataGateway.fetch(
                     pageNo,
                     properties.pageSize()
             );

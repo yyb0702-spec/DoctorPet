@@ -2,6 +2,7 @@ package com.doctorpet.domain.hospital.publicdata.infrastructure;
 
 import com.doctorpet.domain.hospital.publicdata.config.AnimalHospitalApiProperties;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalApiResponse;
+import com.doctorpet.global.gateway.publicdata.PublicDataGateway;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -17,7 +18,7 @@ import java.net.http.HttpClient;
  */
 @Component
 @Slf4j
-public class AnimalHospitalPublicDataClient {
+public class AnimalHospitalPublicDataClient implements PublicDataGateway {
 
     private final AnimalHospitalApiProperties properties;
     private final RestClient restClient;
@@ -43,6 +44,7 @@ public class AnimalHospitalPublicDataClient {
     }
 
     /** 전국 동물병원 데이터를 지역 조건 없이 페이지 단위로 조회합니다. */
+    @Override
     public AnimalHospitalApiResponse fetch(
             int pageNo,
             int numOfRows

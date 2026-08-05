@@ -6,8 +6,8 @@ import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalBody;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalHeader;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalItems;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalResponse;
-import com.doctorpet.domain.hospital.publicdata.infrastructure.AnimalHospitalPublicDataClient;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
+import com.doctorpet.global.gateway.publicdata.PublicDataGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,7 +25,7 @@ import static org.mockito.BDDMockito.then;
 class AnimalHospitalCollectionServiceTest {
 
     @Mock
-    private AnimalHospitalPublicDataClient client;
+    private PublicDataGateway publicDataGateway;
 
     @Mock
     private AnimalHospitalPageImportService pageImportService;
@@ -45,7 +45,7 @@ class AnimalHospitalCollectionServiceTest {
                 );
         collectionService = new AnimalHospitalCollectionService(
                 properties,
-                client,
+                publicDataGateway,
                 pageImportService
         );
     }
@@ -55,9 +55,9 @@ class AnimalHospitalCollectionServiceTest {
         AnimalHospitalApiResponse firstPage = createResponse(1, 5);
         AnimalHospitalApiResponse secondPage = createResponse(2, 5);
         AnimalHospitalApiResponse thirdPage = createResponse(3, 5);
-        given(client.fetch(1, 2)).willReturn(firstPage);
-        given(client.fetch(2, 2)).willReturn(secondPage);
-        given(client.fetch(3, 2)).willReturn(thirdPage);
+        given(publicDataGateway.fetch(1, 2)).willReturn(firstPage);
+        given(publicDataGateway.fetch(2, 2)).willReturn(secondPage);
+        given(publicDataGateway.fetch(3, 2)).willReturn(thirdPage);
         given(pageImportService.importPage(firstPage)).willReturn(2);
         given(pageImportService.importPage(secondPage)).willReturn(2);
         given(pageImportService.importPage(thirdPage)).willReturn(1);
@@ -68,9 +68,9 @@ class AnimalHospitalCollectionServiceTest {
         // totalCount와 페이지 크기로 계산한 마지막 페이지까지만 호출하는지 확인합니다.
         assertThat(result.importedPageCount()).isEqualTo(3);
         assertThat(result.importedHospitalCount()).isEqualTo(5);
-        then(client).should().fetch(1, 2);
-        then(client).should().fetch(2, 2);
-        then(client).should().fetch(3, 2);
+        then(publicDataGateway).should().fetch(1, 2);
+        then(publicDataGateway).should().fetch(2, 2);
+        then(publicDataGateway).should().fetch(3, 2);
     }
 
     private AnimalHospitalApiResponse createResponse(
