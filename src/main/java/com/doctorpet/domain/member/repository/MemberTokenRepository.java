@@ -36,9 +36,23 @@ public class MemberTokenRepository {
     private static final String PASSWORD_RESET_KEY_PREFIX = "pwd-reset:";
     private static final String PASSWORD_RESET_ACTIVE_KEY_PREFIX = "pwd-reset-active:";
 
+    /*
+      KEYS[1](해시 키)을 먼저 조회하고, 없으면 KEYS[2](배포 전 원문 키)로 한 번 더 조회한다
+      (#123 배포 마이그레이션, 리뷰 지적) — 배포 직전 24시간 안에 발송된 이메일 인증 링크는
+      TTL이 남아있어도 원문 키(email-verify:{rawToken})로 저장돼 있어, 해시 키만 조회하면
+      "만료·이미 사용됨"으로 오판해 즉시 무효 처리된다. 특히 미인증 가입자는 재발송 전까지
+      로그인 자체가 막힌다. 이메일 인증(24시간)·비밀번호 재설정(1시간) 모두 Refresh Token보다
+      TTL이 훨씬 짧으므로, 배포 후 24시간이 지나면 원문 키는 자연 소멸해 이 폴백 분기(KEYS[2])는
+      제거해도 안전하다.
+     */
     private static final RedisScript<String> GET_AND_DELETE_SCRIPT = new DefaultRedisScript<>(
             "local v = redis.call('get', KEYS[1]) "
-                    + "if v then redis.call('del', KEYS[1]) end "
+                    + "if v then "
+                    + "redis.call('del', KEYS[1]) "
+                    + "return v "
+                    + "end "
+                    + "v = redis.call('get', KEYS[2]) "
+                    + "if v then redis.call('del', KEYS[2]) end "
                     + "return v",
             String.class
     );
@@ -65,11 +79,23 @@ public class MemberTokenRepository {
       비밀번호 재설정 토큰 소비 — 토큰 키(pwd-reset:{hash(token)})뿐 아니라 활성 포인터
       (pwd-reset-active:{memberId})도 함께 지워, 소비 직후에는 "이 회원의 활성 토큰 없음" 상태가
       정확히 반영되게 한다(다음 발급 시 존재하지 않는 옛 포인터를 잘못 지우는 일이 없게).
+
+      GET_AND_DELETE_SCRIPT와 같은 이유로 KEYS[1](해시 키)이 비어 있으면 KEYS[2](배포 전 원문
+      키)로 폴백한다(#123 배포 마이그레이션, 리뷰 지적) — 활성 포인터 정리(ARGV[1] .. v)는 v가
+      항상 memberId이므로 어느 키에서 값을 찾았든 동일하게 동작한다. 비밀번호 재설정 TTL(1시간)이
+      지나면 원문 키는 자연 소멸하므로, 배포 후 1시간이 지나면 이 폴백 분기(KEYS[2])는 제거해도
+      안전하다.
      */
     private static final RedisScript<String> GET_AND_DELETE_WITH_ACTIVE_CLEANUP_SCRIPT = new DefaultRedisScript<>(
             "local v = redis.call('get', KEYS[1]) "
                     + "if v then "
                     + "redis.call('del', KEYS[1]) "
+                    + "redis.call('del', ARGV[1] .. v) "
+                    + "return v "
+                    + "end "
+                    + "v = redis.call('get', KEYS[2]) "
+                    + "if v then "
+                    + "redis.call('del', KEYS[2]) "
                     + "redis.call('del', ARGV[1] .. v) "
                     + "end "
                     + "return v",
@@ -111,7 +137,7 @@ public class MemberTokenRepository {
     public Optional<Long> consumePasswordResetToken(String token) {
         String value = redisTemplate.execute(
                 GET_AND_DELETE_WITH_ACTIVE_CLEANUP_SCRIPT,
-                List.of(PASSWORD_RESET_KEY_PREFIX + TokenHasher.hash(token)),
+                List.of(PASSWORD_RESET_KEY_PREFIX + TokenHasher.hash(token), PASSWORD_RESET_KEY_PREFIX + token),
                 PASSWORD_RESET_ACTIVE_KEY_PREFIX
         );
         return Optional.ofNullable(value).map(Long::valueOf);
@@ -123,8 +149,12 @@ public class MemberTokenRepository {
         return token;
     }
 
+    /** KEYS[1]=해시 키(현재 형식), KEYS[2]=배포 전 원문 키(임시 호환) 순서로 조회한다. */
     private Optional<Long> consume(String keyPrefix, String token) {
-        String value = redisTemplate.execute(GET_AND_DELETE_SCRIPT, List.of(keyPrefix + TokenHasher.hash(token)));
+        String value = redisTemplate.execute(
+                GET_AND_DELETE_SCRIPT,
+                List.of(keyPrefix + TokenHasher.hash(token), keyPrefix + token)
+        );
         return Optional.ofNullable(value).map(Long::valueOf);
     }
 }
