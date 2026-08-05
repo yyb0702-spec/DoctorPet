@@ -10,10 +10,30 @@ public record AiConsultationResponse(
         String disclaimer,
         String message,
         boolean fallback,
+        boolean locationRequired,
         boolean locationRecommended
 ) {
 
     public AiConsultationResponse {
         hospitals = List.copyOf(hospitals);
+    }
+
+    public AiConsultationResponse(
+            AiStructuredResult structured,
+            List<HospitalSearchResponse> hospitals,
+            String disclaimer,
+            String message,
+            boolean fallback,
+            boolean locationRecommended
+    ) {
+        this(
+                structured,
+                hospitals,
+                disclaimer,
+                message,
+                fallback,
+                false,
+                locationRecommended
+        );
     }
 }

@@ -16,6 +16,7 @@ import com.doctorpet.domain.hospital.entity.HospitalDetail;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
+import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
@@ -135,8 +136,8 @@ public class HospitalService {
         // 위치 조건은 위도·경도가 함께 있어야 하며, 반경은 좌표가 있을 때만 사용할 수 있습니다.
         validateLocationCondition(latitude, longitude, radiusKm);
 
-        // 정렬값을 소문자로 통일하고 name·distance 이외의 값은 거부합니다.
-        String normalizedSort = normalizeSort(sort, latitude, longitude);
+        // 외부 문자열을 병원 검색 공통 정렬 타입으로 변환하고 지원하지 않는 값은 거부합니다.
+        HospitalSearchSort normalizedSort = normalizeSort(sort, latitude, longitude);
 
         // Service에서 검증·변환한 검색 조건만 Repository에 전달합니다.
         HospitalSearchCondition condition = new HospitalSearchCondition(
@@ -156,7 +157,7 @@ public class HospitalService {
 
         boolean requiresPostProcessing = radiusKm != null
                 || openNowOnly
-                || normalizedSort.equals("distance");
+                || normalizedSort == HospitalSearchSort.DISTANCE;
         boolean initialListing = isInitialListing(
                 condition,
                 openNowOnly,
@@ -334,7 +335,7 @@ public class HospitalService {
             HospitalSearchCondition condition,
             boolean openNowOnly,
             int size,
-            String sort
+            HospitalSearchSort sort
     ) {
         return condition.keyword() == null
                 && condition.region() == null
@@ -350,7 +351,7 @@ public class HospitalService {
                 && !condition.partnerOnly()
                 && !openNowOnly
                 && size == 20
-                && sort.equals("name");
+                && sort == HospitalSearchSort.NAME;
     }
 
     private HospitalSearchPageResponse searchWithPostProcessing(
@@ -361,7 +362,7 @@ public class HospitalService {
             boolean openNowOnly,
             int page,
             int size,
-            String sort
+            HospitalSearchSort sort
     ) {
         List<HospitalSearchResponse> searchedHospitals =
                 hospitalRepository.searchAll(condition).stream()
@@ -538,25 +539,22 @@ public class HospitalService {
         }
     }
 
-    private String normalizeSort(
+    private HospitalSearchSort normalizeSort(
             String sort,
             BigDecimal latitude,
             BigDecimal longitude
     ) {
-        String normalizedSort = sort == null
-                ? "name"
-                : sort.trim().toLowerCase(Locale.ROOT);
-
-        // 검색 API가 지원하는 정렬 기준만 허용합니다.
-        if (!normalizedSort.equals("name")
-                && !normalizedSort.equals("distance")) {
+        HospitalSearchSort normalizedSort;
+        try {
+            normalizedSort = HospitalSearchSort.from(sort);
+        } catch (IllegalArgumentException exception) {
             throw new ServiceException(
                     CommonErrorCode.VALIDATION_FAILED
             );
         }
 
         // 거리순 정렬은 사용자 위치가 있어야 병원별 거리를 계산할 수 있습니다.
-        if (normalizedSort.equals("distance")
+        if (normalizedSort == HospitalSearchSort.DISTANCE
                 && (latitude == null || longitude == null)) {
             throw new ServiceException(
                     CommonErrorCode.VALIDATION_FAILED
@@ -581,7 +579,7 @@ public class HospitalService {
     }
 
     private Comparator<HospitalSearchResult> resolveSearchResultComparator(
-            String sort
+            HospitalSearchSort sort
     ) {
         // 같은 이름의 병원도 항상 일정한 순서로 나오도록 hospitalId를 보조 정렬 기준으로 사용합니다.
         Comparator<HospitalSearchResult> nameComparator =
@@ -596,7 +594,7 @@ public class HospitalService {
                                 result -> result.candidate().hospitalId()
                         );
 
-        if (sort.equals("distance")) {
+        if (sort == HospitalSearchSort.DISTANCE) {
             // 반올림 전 거리가 같으면 이름과 ID 순서로 결과를 고정합니다.
             return Comparator.comparing(
                             HospitalSearchResult::preciseDistanceKm,
