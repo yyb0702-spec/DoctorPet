@@ -91,6 +91,7 @@ class AiConsultationControllerTest {
                 .andExpect(jsonPath("$.data.hospitals").isArray())
                 .andExpect(jsonPath("$.data.disclaimer").isNotEmpty())
                 .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.locationRequired").value(false))
                 .andExpect(jsonPath("$.data.locationRecommended").value(false));
 
         verify(service).consult(eq(7L), any(AiConsultationRequest.class));

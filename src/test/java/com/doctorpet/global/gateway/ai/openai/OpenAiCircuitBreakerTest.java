@@ -1,0 +1,108 @@
+package com.doctorpet.global.gateway.ai.openai;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.doctorpet.global.gateway.ai.AiGatewayException;
+import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+class OpenAiCircuitBreakerTest {
+
+    @Test
+    @DisplayName("연속 실패 임계에 도달하면 호출을 차단하고 제한 시간 뒤 한 번의 복구 호출을 허용한다")
+    void circuitBreaker_opensAndAllowsHalfOpenProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+
+        circuitBreaker.onFailure(false);
+        assertThat(circuitBreaker.beforeCall()).isFalse();
+        circuitBreaker.onFailure(false);
+
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+
+        now.set(1_000_000_000L);
+        assertThat(circuitBreaker.beforeCall()).isTrue();
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+
+        circuitBreaker.onSuccess(true);
+        assertThat(circuitBreaker.beforeCall()).isFalse();
+    }
+
+    @Test
+    @DisplayName("HALF_OPEN 시험 요청의 비집계 예외를 해제하면 다음 시험 요청을 허용한다")
+    void ignoredFailure_releasesOwnedHalfOpenProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
+        now.set(1_000_000_000L);
+
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
+        circuitBreaker.onIgnoredFailure(halfOpenProbe);
+
+        assertThat(circuitBreaker.beforeCall()).isTrue();
+    }
+
+    @Test
+    @DisplayName("일반 요청의 비집계 예외는 다른 HALF_OPEN 시험 요청 상태를 해제하지 않는다")
+    void ignoredFailure_fromClosedCall_doesNotReleaseAnotherProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
+        now.set(1_000_000_000L);
+        assertThat(circuitBreaker.beforeCall()).isTrue();
+
+        circuitBreaker.onIgnoredFailure(false);
+
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+    }
+
+    @Test
+    @DisplayName("HALF_OPEN 중 기존 요청 성공은 시험 요청을 대신해 회로를 닫지 않는다")
+    void successFromEarlierRequest_doesNotCloseHalfOpenProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+
+        boolean earlierRequest = circuitBreaker.beforeCall();
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
+        now.set(1_000_000_000L);
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
+
+        circuitBreaker.onSuccess(earlierRequest);
+
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+
+        circuitBreaker.onSuccess(halfOpenProbe);
+        assertThat(circuitBreaker.beforeCall()).isFalse();
+    }
+
+    @Test
+    @DisplayName("HALF_OPEN 중 기존 요청 실패는 시험 요청 소유권과 차단 시간을 바꾸지 않는다")
+    void failureFromEarlierRequest_doesNotReleaseHalfOpenProbe() {
+        AtomicLong now = new AtomicLong();
+        OpenAiCircuitBreaker circuitBreaker = new OpenAiCircuitBreaker(2, 1000, now::get);
+
+        boolean earlierRequest = circuitBreaker.beforeCall();
+        circuitBreaker.onFailure(false);
+        circuitBreaker.onFailure(false);
+        now.set(1_000_000_000L);
+        boolean halfOpenProbe = circuitBreaker.beforeCall();
+
+        circuitBreaker.onFailure(earlierRequest);
+
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+
+        circuitBreaker.onFailure(halfOpenProbe);
+        assertThatThrownBy(circuitBreaker::beforeCall)
+                .isInstanceOf(AiGatewayException.class);
+    }
+}
