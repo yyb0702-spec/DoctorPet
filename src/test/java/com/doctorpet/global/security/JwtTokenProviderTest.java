@@ -4,7 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Date;
+import javax.crypto.SecretKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,8 +23,16 @@ import org.junit.jupiter.api.Test;
  * validateToken()으로 서명·만료를 확인한 직후와, 그 토큰이 getJti()/getRemainingTtl()로
  * 다시 파싱되는 시점 사이에 만료 경계를 넘으면, jjwt 기본 동작(parseSignedClaims가 만료 시
  * ExpiredJwtException을 던짐) 때문에 로그아웃이 500으로 끝나는 문제가 있었다.
+ *
+ * jti 클레임이 없는(구버전) 토큰에 대한 getJti() 대체 식별자 회귀 테스트(3차 리뷰 지적)도
+ * 함께 둔다 — 이 프로젝트의 jti 도입 자체가 최초 배포보다 훨씬 앞서 있어(git 이력상
+ * b3aabbd) 실제로 운영에 jti 없는 Access Token이 존재할 가능성은 거의 없지만, null을
+ * 그대로 블랙리스트 키에 이어붙이면 jti 없는 모든 토큰이 "at-blacklist:null"이라는 같은
+ * 키로 충돌하는 위험은 코드만 보면 실재하므로 방어적으로 처리하고 그 동작을 고정한다.
  */
 class JwtTokenProviderTest {
+
+    private static final String SECRET = "test-secret-key-for-jwt-must-be-long-enough-0123456789";
 
     private JwtTokenProvider jwtTokenProvider;
     private JwtProperties jwtProperties;
@@ -27,12 +40,27 @@ class JwtTokenProviderTest {
     @BeforeEach
     void setUp() {
         jwtProperties = new JwtProperties();
-        jwtProperties.setSecret("test-secret-key-for-jwt-must-be-long-enough-0123456789");
+        jwtProperties.setSecret(SECRET);
         jwtProperties.setAccessTokenExpiration(3_600_000L);
         jwtProperties.setRefreshTokenExpiration(1_209_600_000L);
 
         jwtTokenProvider = new JwtTokenProvider(jwtProperties);
         jwtTokenProvider.init();
+    }
+
+    /** jti 클레임을 아예 넣지 않은 토큰을 만든다 — jti 도입 이전 구버전 토큰 상황을 재현한다. */
+    private String buildTokenWithoutJti(String subject) {
+        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        Date now = new Date();
+        return Jwts.builder()
+                .subject(subject)
+                .claim("email", "guardian@example.com")
+                .claim("role", "GUARDIAN")
+                .claim("tokenType", "ACCESS")
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + 3_600_000L))
+                .signWith(key)
+                .compact();
     }
 
     @Test
@@ -109,5 +137,25 @@ class JwtTokenProviderTest {
         String expiredToken = jwtTokenProvider.generateAccessToken(1L, "guardian@example.com", "GUARDIAN");
 
         assertThat(jwtTokenProvider.validateToken(expiredToken)).isFalse();
+    }
+
+    @Test
+    @DisplayName("jti 클레임이 없는 토큰이면 getJti는 원문 토큰의 SHA-256 해시로 대체한다(3차 리뷰 지적)")
+    void getJti_tokenWithoutJtiClaim_fallsBackToHashOfRawToken() {
+        String tokenWithoutJti = buildTokenWithoutJti("1");
+
+        String jti = jwtTokenProvider.getJti(tokenWithoutJti);
+
+        assertThat(jti).isEqualTo(TokenHasher.hash(tokenWithoutJti));
+        assertThat(jti).hasSize(64); // SHA-256 hex 인코딩은 항상 64자
+    }
+
+    @Test
+    @DisplayName("jti가 없는 서로 다른 두 토큰은 대체 식별자도 서로 달라 블랙리스트 키가 충돌하지 않는다")
+    void getJti_differentTokensWithoutJtiClaim_produceDifferentFallbackIds() {
+        String tokenA = buildTokenWithoutJti("1");
+        String tokenB = buildTokenWithoutJti("2");
+
+        assertThat(jwtTokenProvider.getJti(tokenA)).isNotEqualTo(jwtTokenProvider.getJti(tokenB));
     }
 }
