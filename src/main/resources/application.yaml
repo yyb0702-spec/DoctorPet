@@ -75,22 +75,41 @@ member:
   email-verified-backfill:
     enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
 
-# 배포 헬스체크(CI/CD MVP). health 외 다른 액추에이터 엔드포인트(env, beans 등)는 민감정보를
-# 노출할 수 있어 명시적으로 켜지 않는 한 웹으로 노출하지 않는다.
-# show-details는 never로 둔다 — /actuator/health가 permitAll이라 인증 없는 호출자에게도
-# DB 종류·Redis 버전·디스크 경로 같은 내부 구성 정보가 노출되는 걸 막는다(리뷰 지적 P2).
-# UP/DOWN 집계 상태와 HTTP 상태 코드만으로도 배포 스크립트가 정상 기동 여부를 판정하는 데는
-# 지장이 없다.
+# 배포 헬스체크(CI/CD MVP) + 관측성 지표(이슈 #125). health 외에 prometheus만 추가로 노출한다 —
+# env, beans 등 나머지 엔드포인트는 민감정보를 노출할 수 있어 명시적으로 켜지 않는 한 노출하지
+# 않는다. show-details는 never로 둔다 — DB 종류·Redis 버전·디스크 경로 같은 내부 구성 정보가
+# 노출되는 걸 막는다(리뷰 지적 P2). UP/DOWN 집계 상태와 HTTP 상태 코드만으로도 배포 스크립트가
+# 정상 기동 여부를 판정하는 데는 지장이 없다.
+#
+# management.server.port를 앱 포트(8080)와 분리한다(이슈 #125) — mysql·redis와 같은 방식으로,
+# docker-compose가 이 포트를 호스트에 게시하지 않아 컨테이너 내부(또는 같은 compose 네트워크)
+# 에서만 접근 가능하다. 별도 인증 없이도 인터넷에서 지표·헬스체크가 직접 보이지 않는다.
+# Dockerfile의 HEALTHCHECK도 이 포트를 쓰도록 함께 바꿨다(컨테이너 "내부" 호출이라 호스트
+# 게시 여부와 무관하게 그대로 동작한다).
 management:
+  server:
+    port: 8081
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
       probes:
         enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# API 문서화(이슈 #125). 기본값은 꺼둔다(fail-safe) — docker/prod로 배포된 서버는 인터넷에
+# 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나
+# 공개된다. local 프로파일에서만 파일 맨 끝의 프로파일 전용 블록으로 다시 켠다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 
 reservation:
   event-unique-migration:
@@ -107,3 +126,18 @@ reservation:
     max-attempts: ${RESERVATION_APPROVAL_TIMEOUT_MAX_ATTEMPTS:2}
     failure-retry-delay-ms: ${RESERVATION_APPROVAL_TIMEOUT_FAILURE_RETRY_DELAY_MS:60000}
     lock-wait-seconds: ${RESERVATION_APPROVAL_TIMEOUT_LOCK_WAIT_SECONDS:0}
+
+# local 프로파일에서만 Swagger UI/OpenAPI 문서를 켠다(이슈 #125) — 위 공통 블록의 기본값(꺼짐)을
+# 이 프로파일에서만 덮어쓴다. spring.profiles.active 기본값이 local이므로(파일 맨 위), 별도
+# SPRING_PROFILES_ACTIVE 지정 없이 로컬에서 뜨면 이 블록이 자동으로 적용된다.
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
