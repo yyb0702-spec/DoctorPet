@@ -25,6 +25,10 @@ public class ReservationApprovalTimeoutProperties {
     @Positive
     private int batchSize = 100;
 
+    /** 한 번의 스케줄러 실행에서 조회·처리할 수 있는 최대 건수. */
+    @Positive
+    private int maxScannedPerRun = 1_000;
+
     /** 최초 시도를 포함한 건별 최대 시도 횟수. */
     @Positive
     private int maxAttempts = 2;

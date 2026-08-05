@@ -56,6 +56,7 @@ class ReservationApprovalTimeoutBatchServiceTest {
         ReservationApprovalTimeoutProperties properties =
                 new ReservationApprovalTimeoutProperties();
         properties.setBatchSize(100);
+        properties.setMaxScannedPerRun(1_000);
         properties.setMaxAttempts(2);
 
         service = new ReservationApprovalTimeoutBatchService(
@@ -137,6 +138,41 @@ class ReservationApprovalTimeoutBatchServiceTest {
         assertThat(result.failed()).isEqualTo(2);
         assertThat(result.processed()).isEqualTo(1);
         verify(processor).process(eq(3L), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("한 번의 실행은 설정된 최대 스캔 건수를 넘지 않는다")
+    void processBatch_respectsMaxScannedPerRun() {
+        Reservation first = target(1L);
+        Reservation second = target(2L);
+        ReflectionTestUtils.setField(
+                service,
+                "properties",
+                propertiesWith(2)
+        );
+        given(reservationRepository.findApprovalTimeoutTargets(
+                eq(ReservationStatus.REQUESTED),
+                any(LocalDateTime.class),
+                any(Pageable.class)
+        )).willReturn(List.of(first, second));
+        given(processor.process(any(), any(LocalDateTime.class)))
+                .willReturn(ReservationApprovalTimeoutProcessor.Result.PROCESSED);
+
+        ReservationApprovalTimeoutSummary result = service.processBatch();
+
+        assertThat(result.scanned()).isEqualTo(2);
+        verify(processor).process(eq(1L), any(LocalDateTime.class));
+        verify(processor).process(eq(2L), any(LocalDateTime.class));
+        org.mockito.Mockito.verifyNoMoreInteractions(processor);
+    }
+
+    private ReservationApprovalTimeoutProperties propertiesWith(int maxScanned) {
+        ReservationApprovalTimeoutProperties properties =
+                new ReservationApprovalTimeoutProperties();
+        properties.setBatchSize(100);
+        properties.setMaxScannedPerRun(maxScanned);
+        properties.setMaxAttempts(2);
+        return properties;
     }
 
     private Reservation target(Long id) {

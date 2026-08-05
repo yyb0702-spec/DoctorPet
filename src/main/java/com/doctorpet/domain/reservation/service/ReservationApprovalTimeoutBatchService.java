@@ -101,11 +101,16 @@ public class ReservationApprovalTimeoutBatchService {
         LocalDateTime cursorDeadline = null;
         Long cursorId = null;
 
-        while (true) {
+        while (scanned < properties.getMaxScannedPerRun()) {
+            int pageSize = Math.min(
+                    properties.getBatchSize(),
+                    properties.getMaxScannedPerRun() - scanned
+            );
             List<Reservation> targets = findNextTargets(
                     now,
                     cursorDeadline,
-                    cursorId
+                    cursorId,
+                    pageSize
             );
             if (targets.isEmpty()) {
                 break;
@@ -159,9 +164,10 @@ public class ReservationApprovalTimeoutBatchService {
     private List<Reservation> findNextTargets(
             LocalDateTime now,
             LocalDateTime cursorDeadline,
-            Long cursorId
+            Long cursorId,
+            int pageSize
     ) {
-        PageRequest page = PageRequest.of(0, properties.getBatchSize());
+        PageRequest page = PageRequest.of(0, pageSize);
         if (cursorDeadline == null) {
             return reservationRepository.findApprovalTimeoutTargets(
                     ReservationStatus.REQUESTED,
