@@ -32,7 +32,7 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
 
     static final String CAPABILITY_VALUE_MIGRATION_KEY =
             "hospital_capability_value_varchar_v1";
-    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v4";
+    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v5";
     static final String NAME_ORDER_INDEX =
             "idx_hospitals_name_id_business_status";
     static final String PARTNERSHIP_NAME_ORDER_INDEX =
@@ -42,9 +42,13 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
             "idx_hospitals_business_status";
     static final String DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX =
             "idx_hospitals_partnership_name_id";
-    static final String COORDINATE_INDEX = "idx_hospitals_coord_x_y";
-    static final String CAPABILITY_INDEX =
+    static final String DEPRECATED_COORDINATE_INDEX =
+            "idx_hospitals_coord_y_x";
+    static final String DEPRECATED_CAPABILITY_INDEX =
             "idx_hospital_capabilities_type_value_hospital";
+    static final String DEPRECATED_CAPABILITY_VALUE_INDEX =
+            "idx_hospital_capabilities_value_hospital";
+    static final String COORDINATE_INDEX = "idx_hospitals_coord_x_y";
 
     private static final String LOCK_NAME = "doctorpet:hospital_schema_migrations";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
@@ -72,14 +76,6 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                     "coord_x,coord_y",
                     "create index idx_hospitals_coord_x_y "
                             + "on hospitals (coord_x, coord_y)"
-            ),
-            new IndexDefinition(
-                    "hospital_capabilities",
-                    CAPABILITY_INDEX,
-                    "capability_type,capability_value,hospital_id",
-                    "create index idx_hospital_capabilities_type_value_hospital "
-                            + "on hospital_capabilities "
-                            + "(capability_type, capability_value, hospital_id)"
             )
     );
 
@@ -142,6 +138,21 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 "hospitals",
                 DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX
         );
+        dropIndexIfExists(
+                connection,
+                "hospitals",
+                DEPRECATED_COORDINATE_INDEX
+        );
+        dropIndexIfExists(
+                connection,
+                "hospital_capabilities",
+                DEPRECATED_CAPABILITY_INDEX
+        );
+        dropIndexIfExists(
+                connection,
+                "hospital_capabilities",
+                DEPRECATED_CAPABILITY_VALUE_INDEX
+        );
         for (IndexDefinition index : SEARCH_INDEXES) {
             if (!indexExists(connection, index)) {
                 try (Statement statement = connection.createStatement()) {
@@ -153,11 +164,10 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
         assertSearchIndexes(connection);
         assertDeprecatedIndexRemoved(connection);
         recordMigration(connection, SEARCH_INDEX_MIGRATION_KEY);
-        log.info("병원 검색 인덱스 마이그레이션 완료: {}, {}, {}, {}",
+        log.info("병원 검색 인덱스 마이그레이션 완료: {}, {}, {}",
                 NAME_ORDER_INDEX,
                 PARTNERSHIP_NAME_ORDER_INDEX,
-                COORDINATE_INDEX,
-                CAPABILITY_INDEX);
+                COORDINATE_INDEX);
     }
 
     private void assertExistingCapabilityValuesFit(Connection connection)
@@ -228,6 +238,18 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 connection,
                 "hospitals",
                 DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX
+        ) || indexNameExists(
+                connection,
+                "hospitals",
+                DEPRECATED_COORDINATE_INDEX
+        ) || indexNameExists(
+                connection,
+                "hospital_capabilities",
+                DEPRECATED_CAPABILITY_INDEX
+        ) || indexNameExists(
+                connection,
+                "hospital_capabilities",
+                DEPRECATED_CAPABILITY_VALUE_INDEX
         )) {
             throw new IllegalStateException(
                     "제거 대상 병원 검색 인덱스가 남아 있습니다"

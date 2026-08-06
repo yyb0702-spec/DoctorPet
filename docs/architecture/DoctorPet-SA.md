@@ -185,7 +185,7 @@ erDiagram
 | capability_type | VARCHAR | SPECIES / EXAM / TREATMENT / EQUIPMENT |
 | capability_value | VARCHAR | 아래 확정 화이트리스트 값 |
 
-역량 AND 매칭용 `(capability_type, capability_value, hospital_id)` 인덱스를 적용한다.
+역량 AND 매칭 쿼리는 `capability_value IN (...)`으로 후보를 고른 뒤 `hospital_id`로 그룹화한다. 전국 데이터 기준 OFF/ON 비교에서 `(capability_value, hospital_id)` 후보의 전체 쿼리 개선이 중앙값 0.775ms, P95 0.661ms에 그쳐 검색 전용 인덱스는 적용하지 않는다. 현재 규모에서는 기존 UNIQUE 인덱스 스캔을 사용하고, 진료 역량 데이터 규모나 검색 부하가 증가하면 같은 조건으로 다시 검증한다.
 
 진료역량 화이트리스트는 병원 시드 작성 시 아래 19개 값으로 확정했다.
 

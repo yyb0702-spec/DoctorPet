@@ -43,11 +43,6 @@ class HospitalSearchIndexMigrationIntegrationTest {
                     "hospitals",
                     HospitalSchemaMigrationRunner.COORDINATE_INDEX,
                     "coord_x,coord_y"
-            ),
-            new IndexSpec(
-                    "hospital_capabilities",
-                    HospitalSchemaMigrationRunner.CAPABILITY_INDEX,
-                    "capability_type,capability_value,hospital_id"
             )
     );
 
@@ -61,6 +56,9 @@ class HospitalSearchIndexMigrationIntegrationTest {
         createDeprecatedBusinessStatusIndex();
         createDeprecatedNameOrderIndex();
         createDeprecatedPartnershipNameOrderIndex();
+        createDeprecatedCoordinateIndex();
+        createDeprecatedCapabilityIndex();
+        createDeprecatedCapabilityValueIndex();
     }
 
     @AfterEach
@@ -68,6 +66,9 @@ class HospitalSearchIndexMigrationIntegrationTest {
         dropDeprecatedBusinessStatusIndex();
         dropDeprecatedNameOrderIndex();
         dropDeprecatedPartnershipNameOrderIndex();
+        dropDeprecatedCoordinateIndex();
+        dropDeprecatedCapabilityIndex();
+        dropDeprecatedCapabilityValueIndex();
         INDEXES.forEach(this::createIndex);
         deleteMarker();
     }
@@ -85,6 +86,9 @@ class HospitalSearchIndexMigrationIntegrationTest {
         assertThat(deprecatedBusinessStatusIndexExists()).isFalse();
         assertThat(deprecatedNameOrderIndexExists()).isFalse();
         assertThat(deprecatedPartnershipNameOrderIndexExists()).isFalse();
+        assertThat(deprecatedCoordinateIndexExists()).isFalse();
+        assertThat(deprecatedCapabilityIndexExists()).isFalse();
+        assertThat(deprecatedCapabilityValueIndexExists()).isFalse();
         assertThat(markerCount()).isEqualTo(1);
     }
 
@@ -249,6 +253,104 @@ class HospitalSearchIndexMigrationIntegrationTest {
                    and index_name = ?
                 """, Integer.class, HospitalSchemaMigrationRunner
                 .DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX);
+        return count != null && count > 0;
+    }
+
+    private void createDeprecatedCoordinateIndex() {
+        createDeprecatedIndex(
+                "hospitals",
+                HospitalSchemaMigrationRunner.DEPRECATED_COORDINATE_INDEX,
+                "coord_y, coord_x"
+        );
+    }
+
+    private void dropDeprecatedCoordinateIndex() {
+        dropDeprecatedIndex(
+                "hospitals",
+                HospitalSchemaMigrationRunner.DEPRECATED_COORDINATE_INDEX
+        );
+    }
+
+    private boolean deprecatedCoordinateIndexExists() {
+        return deprecatedIndexExists(
+                "hospitals",
+                HospitalSchemaMigrationRunner.DEPRECATED_COORDINATE_INDEX
+        );
+    }
+
+    private void createDeprecatedCapabilityIndex() {
+        createDeprecatedIndex(
+                "hospital_capabilities",
+                HospitalSchemaMigrationRunner.DEPRECATED_CAPABILITY_INDEX,
+                "capability_type, capability_value, hospital_id"
+        );
+    }
+
+    private void dropDeprecatedCapabilityIndex() {
+        dropDeprecatedIndex(
+                "hospital_capabilities",
+                HospitalSchemaMigrationRunner.DEPRECATED_CAPABILITY_INDEX
+        );
+    }
+
+    private boolean deprecatedCapabilityIndexExists() {
+        return deprecatedIndexExists(
+                "hospital_capabilities",
+                HospitalSchemaMigrationRunner.DEPRECATED_CAPABILITY_INDEX
+        );
+    }
+
+    private void createDeprecatedCapabilityValueIndex() {
+        createDeprecatedIndex(
+                "hospital_capabilities",
+                HospitalSchemaMigrationRunner.DEPRECATED_CAPABILITY_VALUE_INDEX,
+                "capability_value, hospital_id"
+        );
+    }
+
+    private void dropDeprecatedCapabilityValueIndex() {
+        dropDeprecatedIndex(
+                "hospital_capabilities",
+                HospitalSchemaMigrationRunner.DEPRECATED_CAPABILITY_VALUE_INDEX
+        );
+    }
+
+    private boolean deprecatedCapabilityValueIndexExists() {
+        return deprecatedIndexExists(
+                "hospital_capabilities",
+                HospitalSchemaMigrationRunner.DEPRECATED_CAPABILITY_VALUE_INDEX
+        );
+    }
+
+    private void createDeprecatedIndex(
+            String table,
+            String indexName,
+            String columns
+    ) {
+        if (!deprecatedIndexExists(table, indexName)) {
+            jdbcTemplate.execute(
+                    "create index " + indexName + " on " + table
+                            + " (" + columns + ")"
+            );
+        }
+    }
+
+    private void dropDeprecatedIndex(String table, String indexName) {
+        if (deprecatedIndexExists(table, indexName)) {
+            jdbcTemplate.execute(
+                    "alter table " + table + " drop index " + indexName
+            );
+        }
+    }
+
+    private boolean deprecatedIndexExists(String table, String indexName) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = ?
+                   and index_name = ?
+                """, Integer.class, table, indexName);
         return count != null && count > 0;
     }
 

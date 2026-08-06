@@ -110,7 +110,7 @@ MVP의 단일 지자체 데이터에서는 인덱스 없이도 목표 성능을 
 | --- | --- | --- |
 | 기본 이름순 목록 | `hospitals(name, id, business_status)` | 이름순 페이지 조회와 스캔 중 폐업 상태 확인 지원 |
 | 좌표 바운딩박스 | `hospitals(coord_x, coord_y)` | 설계된 경도·위도 복합 범위 검색 지원 |
-| 역량 AND 매칭 | `hospital_capabilities(capability_type, capability_value, hospital_id)` | 역량 분류·값 필터와 병원 조인 지원 |
+| 역량 AND 매칭 | 적용하지 않음 | 후보의 전체 쿼리 개선이 1ms 미만이라 유지 비용 대비 효과가 부족함 |
 
 인덱스 적용 전 데이터 규모 비교와 도입 결정은 완료했다. 아래 항목을 모두 기록해야 전체 검증을 완료할 수 있다.
 
@@ -305,3 +305,75 @@ MVP의 단일 지자체 데이터에서는 인덱스 없이도 목표 성능을 
 | 오류 | 0건 |
 
 count와 페이지 쿼리의 통제 비교에서 모두 개선됐고 전체 검색도 P95 300ms 이하와 처리량 100 RPS 이상을 충족했다. 따라서 제휴 병원 이름순 인덱스 효과와 해당 검색 경로의 성능 목표 판정은 **PASS**다. 좌표·진료역량 인덱스 효과와 공공데이터 적재 쓰기 비용은 아직 별도 검증이 필요하므로 전체 인덱스 작업 판정은 **PARTIAL**로 유지한다.
+
+## 15. 좌표 바운딩박스 인덱스 검증
+
+- 측정일: 2026-08-06
+- 데이터: 로컬 MySQL 8.4.8 `smartcare`, 병원 10,591건
+- 검색 조건: 서울 중심 반경 5km에 해당하는 경도·위도 바운딩박스
+- 비교 대상: 좌표 인덱스 OFF, `(coord_x, coord_y)`, `(coord_y, coord_x)`
+- 통제 방법: 동일 DB 연결과 데이터에서 두 좌표 인덱스의 가시성만 바꾸고, 각 조건을 워밍업한 뒤 반복 측정
+- 정확성 통제: 세 조건 모두 같은 병원 ID 159건을 반환하는지 검증
+
+비교 SQL의 핵심 조건은 다음과 같다. 제품 검색과 동일하게 경도와 위도에 각각 `BETWEEN` 범위 조건을 적용했다.
+
+```sql
+select h.id
+from hospitals h
+where h.coord_x between :minLongitude and :maxLongitude
+  and h.coord_y between :minLatitude and :maxLatitude;
+```
+
+| 후보 | 확인한 인덱스 행 | 중앙값 | P95 |
+| --- | ---: | ---: | ---: |
+| 인덱스 OFF | 10,591행 테이블 스캔 | 11.192ms | 12.297ms |
+| `(coord_x, coord_y)` | 296행 범위 스캔 | 1.923ms | 2.390ms |
+| `(coord_y, coord_x)` | 296행 범위 스캔 | 1.900ms | 2.402ms |
+
+인덱스 OFF에서는 병원 10,591건을 모두 확인했다. 두 후보는 선두 좌표의 범위로 296행까지 줄인 뒤 나머지 좌표 조건을 검사했다. `(coord_x, coord_y)`의 중앙값은 OFF보다 82.8%, P95는 80.6% 감소했다. 역순 후보와의 차이는 중앙값 0.023ms, P95 0.012ms로 측정 오차 범위에 가깝다.
+
+두 컬럼 모두 범위 조건이라 선두 컬럼 이후 조건으로 탐색 범위를 더 좁히는 데에는 한계가 있다. 어느 순서를 사용해도 결과와 접근 행 수가 같고 성능도 사실상 동률이므로, 기존 SA 설계와 검색 요청의 경도·위도 순서를 따르는 `(coord_x, coord_y)`를 유지한다. 같은 검색을 위한 `idx_hospitals_coord_y_x`를 함께 두면 조회 이득 없이 적재·갱신 때 두 인덱스를 모두 관리해야 하므로 v5 마이그레이션에서 제거한다.
+
+스캔 행 수와 중앙값·P95가 모두 큰 폭으로 감소했고 결과 집합도 동일하므로 좌표 인덱스 효과 판정은 **PASS**다.
+
+## 16. 진료 역량 AND 매칭 인덱스 검증
+
+- 측정일: 2026-08-06
+- 데이터: 로컬 MySQL 8.4.8 `smartcare`, 병원 10,591건, 진료 역량 696건
+- 조건: `DOG`, `XRAY`를 모두 보유한 병원 검색, 일치 100건
+- 비교: 관련 보조 인덱스 OFF, 기존 `(capability_type, capability_value, hospital_id)`, 후보 `(capability_value, hospital_id)`
+- 통제 방법: 동일 DB 연결과 데이터에서 비교 대상 인덱스의 가시성만 전환
+- 반복 방법: 조건별 워밍업 30회 후 100회 실행한 평균을 한 표본으로 삼아 총 10표본 측정
+- 정확성 통제: 세 조건 모두 같은 병원 ID 100건을 반환하는지 검증
+
+비교한 제품 SQL 형태는 다음과 같다. `HospitalRepositoryCustomImpl.capabilityMatches()`와 같이 `capability_type` 조건 없이 값으로 필터링하고, 요청한 두 값을 모두 보유한 병원만 `HAVING`으로 남긴다.
+
+```sql
+select h.id, h.name, h.business_status, hd.open_hours
+from hospitals h
+left join hospital_details hd on hd.hospital_id = h.id
+where h.business_status <> 'CLOSED'
+  and h.id in (
+      select hc.hospital_id
+      from hospital_capabilities hc
+      where hc.capability_value in ('DOG', 'XRAY')
+      group by hc.hospital_id
+      having count(distinct hc.capability_value) = 2
+  );
+```
+
+첫 측정은 로컬 DB에 과거 실험에서 생성된 `idx_hospital_capabilities_value_hospital`이 남아 있어 OFF 조건에서도 후보 인덱스를 사용하는 오염을 발견했다. 이 결과는 판정에서 제외했다. 잔존 후보와 기존 검색 인덱스를 모두 `INVISIBLE`로 통제한 뒤 아래 결과를 다시 측정했고, 테스트 종료 시 원래 가시성을 복구했다.
+
+| 후보 | 진료 역량 접근 방식 | 중앙값 | P95 |
+| --- | --- | ---: | ---: |
+| 인덱스 OFF | UNIQUE 인덱스 696행 전체 스캔 | 14.996ms | 15.695ms |
+| 기존 설계 | UNIQUE 인덱스 696행 전체 스캔 | 14.385ms | 15.306ms |
+| `(capability_value, hospital_id)` | 조건 일치 200행 범위 스캔 | 14.221ms | 15.034ms |
+
+OFF 실행 계획은 UNIQUE 인덱스 `uk_hospital_capabilities_hospital_type_value`의 696행을 covering scan했다. 기존 검색용 인덱스는 선두 `capability_type`을 쿼리에서 고정하지 않아 선택되지 않았고 실행 계획도 OFF와 같았다. 후보만 `capability_value='DOG' OR 'XRAY'` 범위에서 200행을 읽었다.
+
+후보의 실행 계획은 의도대로 바뀌었지만 전체 쿼리 중앙값은 0.775ms, P95는 0.661ms만 감소했다. 비율로는 각각 5.2%, 4.2%지만 절대 개선 폭은 모두 1ms보다 작다. 역량 서브쿼리 밖에서 `hospitals` 10,591행을 검사하는 비용이 전체 시간을 지배하고, 현재 역량 데이터 696건은 기존 covering scan으로도 처리 비용이 작기 때문이다.
+
+검색 전용 인덱스를 추가하면 모든 역량 INSERT·UPDATE·DELETE에서 인덱스를 함께 관리하고 저장 공간과 마이그레이션 대상을 늘려야 한다. 현재 측정에서는 그 비용을 감수할 만큼 제품 쿼리가 개선되지 않았다. 따라서 신규 `(capability_value, hospital_id)` 후보를 **기각**하고, 실제 쿼리에서 사용되지 않은 기존 `(capability_type, capability_value, hospital_id)` 검색 인덱스도 최종 적용 대상에서 제외한다. 무결성 보장을 위한 `uk_hospital_capabilities_hospital_type_value`는 유지한다.
+
+재검토 시점은 진료 역량 행 수나 역량 검색 트래픽이 현재보다 유의미하게 증가했을 때다. 그때도 동일한 검색 조건으로 결과 동일성, 실행 계획, 전체 쿼리 절대 지연시간, 공공데이터 적재 비용을 함께 비교한다. 진료 역량 후보 검증 자체는 **PASS**, 도입 결정은 **기각**이다. 좌표 후보까지 판정을 마쳤지만 공공데이터 적재·갱신 쓰기 비용이 남아 있으므로 전체 인덱스 작업은 **PARTIAL**이다.
