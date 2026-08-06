@@ -36,6 +36,11 @@ class HospitalSearchIndexMigrationIntegrationTest {
             ),
             new IndexSpec(
                     "hospitals",
+                    HospitalSchemaMigrationRunner.PARTNERSHIP_NAME_ORDER_INDEX,
+                    "partnership_status,name,id,business_status"
+            ),
+            new IndexSpec(
+                    "hospitals",
                     HospitalSchemaMigrationRunner.COORDINATE_INDEX,
                     "coord_x,coord_y"
             ),
@@ -55,12 +60,14 @@ class HospitalSearchIndexMigrationIntegrationTest {
         INDEXES.forEach(this::dropIndex);
         createDeprecatedBusinessStatusIndex();
         createDeprecatedNameOrderIndex();
+        createDeprecatedPartnershipNameOrderIndex();
     }
 
     @AfterEach
     void restoreSchema() {
         dropDeprecatedBusinessStatusIndex();
         dropDeprecatedNameOrderIndex();
+        dropDeprecatedPartnershipNameOrderIndex();
         INDEXES.forEach(this::createIndex);
         deleteMarker();
     }
@@ -77,6 +84,7 @@ class HospitalSearchIndexMigrationIntegrationTest {
         assertThat(INDEXES).allMatch(this::indexExists);
         assertThat(deprecatedBusinessStatusIndexExists()).isFalse();
         assertThat(deprecatedNameOrderIndexExists()).isFalse();
+        assertThat(deprecatedPartnershipNameOrderIndexExists()).isFalse();
         assertThat(markerCount()).isEqualTo(1);
     }
 
@@ -208,6 +216,39 @@ class HospitalSearchIndexMigrationIntegrationTest {
                    and index_name = ?
                 """, Integer.class, HospitalSchemaMigrationRunner
                 .DEPRECATED_NAME_ORDER_INDEX);
+        return count != null && count > 0;
+    }
+
+    private void createDeprecatedPartnershipNameOrderIndex() {
+        if (!deprecatedPartnershipNameOrderIndexExists()) {
+            jdbcTemplate.execute(
+                    "create index "
+                            + HospitalSchemaMigrationRunner
+                            .DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX
+                            + " on hospitals (partnership_status, name, id)"
+            );
+        }
+    }
+
+    private void dropDeprecatedPartnershipNameOrderIndex() {
+        if (deprecatedPartnershipNameOrderIndexExists()) {
+            jdbcTemplate.execute(
+                    "alter table hospitals drop index "
+                            + HospitalSchemaMigrationRunner
+                            .DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX
+            );
+        }
+    }
+
+    private boolean deprecatedPartnershipNameOrderIndexExists() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'hospitals'
+                   and index_name = ?
+                """, Integer.class, HospitalSchemaMigrationRunner
+                .DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX);
         return count != null && count > 0;
     }
 

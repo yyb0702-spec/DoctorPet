@@ -18,6 +18,10 @@ import java.time.LocalDateTime;
                         columnList = "name, id, business_status"
                 ),
                 @Index(
+                        name = "idx_hospitals_partnership_name_id_business_status",
+                        columnList = "partnership_status, name, id, business_status"
+                ),
+                @Index(
                         name = "idx_hospitals_coord_x_y",
                         columnList = "coord_x, coord_y"
                 )

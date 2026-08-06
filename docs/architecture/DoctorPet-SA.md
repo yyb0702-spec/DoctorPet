@@ -161,7 +161,7 @@ erDiagram
 | source_modified_at | DATETIME | 공공데이터 최종 수정일 |
 | partnership_status | VARCHAR | PARTNER / NON_PARTNER |
 
-전국 데이터 검색 성능 측정 후 기본 이름순 목록에 `(name, id, business_status)`, 좌표 바운딩박스에 `(coord_x, coord_y)` 인덱스를 적용한다. `(business_status)` 단일 인덱스는 낮은 선택도와 `name, id` 정렬 미지원으로 제외하고, 이름순 스캔 중 영업상태를 확인할 수 있는 복합 인덱스로 교체한다.
+전국 데이터 검색 성능 측정 후 기본 이름순 목록에 `(name, id, business_status)`, 제휴 병원 이름순 목록에 `(partnership_status, name, id, business_status)`, 좌표 바운딩박스에 `(coord_x, coord_y)` 인덱스를 적용한다. `(business_status)` 단일 인덱스는 낮은 선택도와 `name, id` 정렬 미지원으로 제외하고, 이름순 스캔 중 영업상태를 확인할 수 있는 복합 인덱스로 교체한다.
 제약: `UNIQUE(local_gov_code, mgmt_no)` — 지자체 범위의 관리번호를 공공데이터·제휴 데이터 복합 매핑 키로 사용한다.
 
 ### hospital_details (제휴 병원만, 자체 보강)
