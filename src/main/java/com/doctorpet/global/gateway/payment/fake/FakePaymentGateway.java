@@ -7,6 +7,8 @@ import com.doctorpet.global.gateway.payment.PaymentGatewayException;
 import com.doctorpet.global.gateway.payment.dto.BillingKeyIssueResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelCommand;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -16,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 로컬·테스트용 결제 게이트웨이. 실제 PortOne 호출 없이 성공/실패/미확정 시나리오를 주입해
@@ -43,6 +46,18 @@ public class FakePaymentGateway implements PaymentGateway {
 
     /** 명시 주입된 단건 조회 결과 — 승인 응답 유실 후 조회로 재확정하는 시나리오용(approve 결과보다 우선). */
     private final Map<String, PaymentQueryResult> queryResults = new ConcurrentHashMap<>();
+
+    /** 전달받은 취소 멱등키 기록 — 재시도가 같은 키를 재사용하는지 검증용(#37). */
+    private final List<String> receivedMerchantRefundIds = new CopyOnWriteArrayList<>();
+
+    /** 취소 결과를 멱등키별로 보관 — 같은 키 재요청이 첫 취소 결과를 그대로 반환하도록(실제 PG 멱등 모사). */
+    private final Map<String, PaymentCancelResult> cancelledResults = new ConcurrentHashMap<>();
+
+    /** cancel 도달 횟수. 멱등 흡수와 무관하게 실제 호출 수를 세, 동시 환불에서 PG 1회 호출을 검증한다. */
+    private final AtomicInteger cancelCalls = new AtomicInteger();
+
+    /** 설정 시 cancel이 이 예외를 던진다(취소 실패 시나리오 주입). */
+    private volatile PaymentGatewayException cancelFailure;
 
     @Override
     public BillingKeyIssueResult verifyBillingKey(String billingKey) {
@@ -84,7 +99,52 @@ public class FakePaymentGateway implements PaymentGateway {
         return new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0);
     }
 
+    /**
+     * 전액 취소(#37). 실제 PG처럼 멱등키(merchantRefundId)별로 결과를 보관해, 같은 키 재요청은 첫 취소 결과를
+     * 그대로 반환한다 — 상위 환불 재시도가 이중 취소를 일으키지 않는지 검증할 수 있게 한다.
+     * 호출 횟수는 {@link #cancelCallCount()}로 확인한다(동시 환불에서 PG가 1번만 호출됐는지 검증용).
+     */
+    @Override
+    public PaymentCancelResult cancel(PaymentCancelCommand command) {
+        cancelCalls.incrementAndGet();
+        receivedMerchantRefundIds.add(command.merchantRefundId());
+        if (cancelFailure != null) {
+            throw cancelFailure;
+        }
+        return cancelledResults.computeIfAbsent(command.merchantRefundId(), key ->
+                new PaymentCancelResult("FAKE-CANCEL-" + key, command.amount(), LocalDateTime.now()));
+    }
+
     // --- 테스트 시나리오 주입 API ---
+
+    /** cancel이 실패하도록 설정한다. */
+    public void stubCancelFailure(GatewayFailureReason reason, String providerErrorCode, String message) {
+        this.cancelFailure = new PaymentGatewayException(reason, providerErrorCode, message);
+    }
+
+    /** cancel 실패 주입을 해제한다. */
+    public void clearCancelFailure() {
+        this.cancelFailure = null;
+    }
+
+    /**
+     * cancel이 실제 취소 금액을 다르게 반환하도록 설정한다 — 상위의 취소 금액 대조 분기 검증용.
+     * 같은 멱등키로 미리 결과를 심어두면 이후 cancel 호출이 이 값을 그대로 돌려준다.
+     */
+    public void stubCancelAmount(String merchantRefundId, int cancelledAmount) {
+        cancelledResults.put(merchantRefundId,
+                new PaymentCancelResult("FAKE-CANCEL-" + merchantRefundId, cancelledAmount, LocalDateTime.now()));
+    }
+
+    /** 총 cancel 호출 횟수(동시 환불에서 PG 호출이 1회인지 검증용). 멱등 흡수와 무관하게 도달 횟수를 센다. */
+    public int cancelCallCount() {
+        return cancelCalls.get();
+    }
+
+    /** 전달받은 취소 멱등키 목록(재시도가 같은 키를 재사용하는지 검증용). */
+    public List<String> receivedMerchantRefundIds() {
+        return List.copyOf(receivedMerchantRefundIds);
+    }
 
     /** approve가 실패하도록 설정한다. */
     public void stubApproveFailure(GatewayFailureReason reason, String providerErrorCode, String message) {
@@ -126,5 +186,9 @@ public class FakePaymentGateway implements PaymentGateway {
         queryResults.clear();
         approveFailure = null;
         approveStatus = GatewayPaymentStatus.PAID;
+        receivedMerchantRefundIds.clear();
+        cancelledResults.clear();
+        cancelCalls.set(0);
+        cancelFailure = null;
     }
 }

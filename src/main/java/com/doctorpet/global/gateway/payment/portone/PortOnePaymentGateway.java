@@ -7,6 +7,8 @@ import com.doctorpet.global.gateway.payment.PaymentGatewayException;
 import com.doctorpet.global.gateway.payment.dto.BillingKeyIssueResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelCommand;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import com.doctorpet.global.gateway.payment.support.SensitiveDataMasker;
 import com.doctorpet.global.time.TimePolicy;
@@ -140,6 +142,82 @@ public class PortOnePaymentGateway implements PaymentGateway {
         return new PaymentQueryResult(status, text(payment, "pgTxId", "transactionId", "id"), paidAmount);
     }
 
+    /**
+     * 결제를 전액 취소한다(#37). {@code POST /payments/{paymentId}/cancel}, 멱등키는 {@code merchantRefundId}다.
+     *
+     * <p>이미 전액 취소된 결제에 재요청하면 PortOne이 취소 불가 오류를 주는데, 이를 실패로 올리면 상위의
+     * 재시도·복구 경로가 영구히 실패한다. 그래서 {@link PortOneErrorCodeMapper#isAlreadyCancelled}로 판별해
+     * 단건조회로 실제 취소 상태를 확인한 뒤 성공(기존 취소 결과)으로 흡수한다 — 계약이 약속한 재요청 동작이다.
+     */
+    @Override
+    public PaymentCancelResult cancel(PaymentCancelCommand command) {
+        log.info("PortOne cancel 요청 merchantPaymentId={} merchantRefundId={} amount={}",
+                command.merchantPaymentId(), command.merchantRefundId(), command.amount());
+        String token = issueAccessToken();
+        String body = writeJson(buildCancelBody(command));
+        HttpResponse<String> response = send(
+                authorized("/payments/" + encodePathSegment(command.merchantPaymentId()) + "/cancel", token)
+                        .header("Content-Type", "application/json")
+                        // 결제 승인과 다른 별도 멱등키. 통신 오류 후 같은 merchantRefundId로 재요청하면
+                        // PortOne이 기존 취소 결과를 반환해 이중 취소를 막는다.
+                        .header("Idempotency-Key", idempotencyKey(command.merchantRefundId()))
+                        .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                        .build(), "cancel");
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            JsonNode error = readTree(response.body());
+            String providerCode = text(error, "type", "code");
+            if (errorCodeMapper.isAlreadyCancelled(providerCode)) {
+                // 이미 취소됨 → 단건조회로 확인한 뒤 성공으로 흡수한다(재시도 안전성).
+                log.info("PortOne cancel — 이미 취소된 결제로 응답, 조회로 확인 후 성공 처리: merchantPaymentId={} providerCode={}",
+                        command.merchantPaymentId(), providerCode);
+                return confirmCancelledByQuery(command, token);
+            }
+            throw translate(providerCode, response.statusCode(),
+                    "PortOne cancel 실패 status=" + response.statusCode()
+                            + " merchantPaymentId=" + command.merchantPaymentId(), null);
+        }
+
+        JsonNode root = readTree(response.body());
+        JsonNode cancellation = firstCancellation(root);
+        if (cancellation == null) {
+            // 2xx인데 취소 내역이 없다 — 취소 성립 여부가 불확실하므로 단정하지 않고 UNKNOWN으로 올려
+            // 상위가 같은 멱등키 재시도로 확정하게 한다(성공으로 오판하면 환불 안 된 건이 REFUNDED가 된다).
+            throw new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null,
+                    "PortOne cancel 응답에 취소 내역이 없습니다. merchantPaymentId=" + command.merchantPaymentId(), null);
+        }
+        return toCancelResult(cancellation);
+    }
+
+    /**
+     * "이미 취소됨" 응답을 단건조회로 확인해 취소 결과로 환산한다. 조회 상태가 취소(FAILED로 매핑)가 아니라면
+     * 취소가 성립했다고 볼 수 없으므로 UNKNOWN으로 올려 상위가 재시도·운영 확인으로 넘기게 한다.
+     */
+    private PaymentCancelResult confirmCancelledByQuery(PaymentCancelCommand command, String token) {
+        HttpResponse<String> response = send(
+                authorized("/payments/" + encodePathSegment(command.merchantPaymentId()), token).GET().build(),
+                "cancel-confirm");
+        JsonNode payment = ensureSuccess(response, command.merchantPaymentId(), "cancel-confirm");
+        JsonNode cancellation = firstCancellation(payment);
+        if (cancellation != null) {
+            return toCancelResult(cancellation);
+        }
+        if (mapStatus(text(payment, "status")) == GatewayPaymentStatus.FAILED) {
+            // 취소·실패로는 확인되나 취소 내역 상세가 없다 — 금액은 요청 금액으로 간주하고 식별자는 비운다.
+            return new PaymentCancelResult(null, command.amount(), null);
+        }
+        throw new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null,
+                "PortOne cancel 재요청이 이미 취소됨으로 응답했으나 조회에서 취소가 확인되지 않았습니다. "
+                        + "merchantPaymentId=" + command.merchantPaymentId(), null);
+    }
+
+    private PaymentCancelResult toCancelResult(JsonNode cancellation) {
+        return new PaymentCancelResult(
+                text(cancellation, "pgCancellationId", "id"),
+                cancelledAmount(cancellation),
+                parseDateTime(text(cancellation, "cancelledAt")));
+    }
+
     // --- 요청/응답 헬퍼 ---
 
     /**
@@ -173,6 +251,40 @@ public class PortOnePaymentGateway implements PaymentGateway {
         body.put("currency", CURRENCY_KRW);
         body.putObject("amount").put("total", command.amount());
         return body;
+    }
+
+    private ObjectNode buildCancelBody(PaymentCancelCommand command) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("storeId", properties.getStoreId());
+        // 전액 취소지만 금액을 명시한다 — 서버가 의도한 금액과 다른 취소가 성립하면 상위 금액 대조에서 걸린다.
+        body.put("amount", command.amount());
+        body.put("reason", command.reason());
+        return body;
+    }
+
+    /** 취소 응답에서 취소 내역을 찾는다(cancellation → cancellations[0] 순). 부분 취소 확장 시 재검토 지점이다. */
+    private JsonNode firstCancellation(JsonNode root) {
+        if (root == null) {
+            return null;
+        }
+        JsonNode single = root.get("cancellation");
+        if (single != null && !single.isNull()) {
+            return single;
+        }
+        JsonNode list = root.get("cancellations");
+        if (list != null && list.isArray() && !list.isEmpty()) {
+            return list.get(0);
+        }
+        return null;
+    }
+
+    /** 취소 내역의 취소 금액. totalAmount와 달리 PortOne 취소 내역은 amount가 평면 숫자로 온다. */
+    private int cancelledAmount(JsonNode cancellation) {
+        JsonNode amount = cancellation.get("totalAmount");
+        if (amount != null && amount.isNumber()) {
+            return amount.intValue();
+        }
+        return totalAmount(cancellation);
     }
 
     private HttpRequest.Builder authorized(String path, String token) {
@@ -338,15 +450,16 @@ public class PortOnePaymentGateway implements PaymentGateway {
      *
      * <p>PortOne V2는 이 헤더 값을 RFC 8941 Structured Fields의 String으로 해석하므로 반드시 쌍따옴표로 감싼
      * 형태({@code "<값>"})여야 한다 — raw 값으로 보내면 파싱에 실패해 멱등 처리가 적용되지 않거나 요청이
-     * 거부될 수 있다(PR #95 리뷰 반영). merchantPaymentId는 {@code pay_}+UUID(hex) 36자라 항상 16~256자
-     * ASCII이고 이스케이프가 필요한 문자(따옴표·역슬래시)를 포함하지 않으므로 그대로 감싼다.
+     * 거부될 수 있다(PR #95 리뷰 반영). 승인은 merchantPaymentId({@code pay_}+UUID hex 36자), 취소는
+     * merchantRefundId({@code rfd_}+UUID hex 36자)라 항상 16~256자 ASCII이고 이스케이프가 필요한
+     * 문자(따옴표·역슬래시)를 포함하지 않으므로 그대로 감싼다.
      */
-    private String idempotencyKey(String merchantPaymentId) {
-        if (isBlank(merchantPaymentId)) {
+    private String idempotencyKey(String key) {
+        if (isBlank(key)) {
             throw new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null,
-                    "PortOne 승인 요청에 merchantPaymentId(멱등 키)가 없습니다.", null);
+                    "PortOne 요청에 멱등 키가 없습니다.", null);
         }
-        return "\"" + merchantPaymentId + "\"";
+        return "\"" + key + "\"";
     }
 
     private void requireConfigured() {

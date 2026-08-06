@@ -137,4 +137,27 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             @Param("settledAt") LocalDateTime settledAt,
             @Param("staffMemberId") Long staffMemberId
     );
+
+    /*
+      전액 환불(#37). PAID → REFUNDED 전이를 조건부 UPDATE로 원자화한다(SA §5 상태 전이 보호 규칙).
+      WHERE status = PAID이므로, 환불 선점(payment_refunds)을 통과한 요청이라도 그 사이 결제 상태가 바뀌었다면
+      갱신 0건이 되어 상태를 덮어쓰지 못한다.
+
+      payment_channel은 그대로 둔다 — 어떤 수단으로 결제된 건을 되돌렸는지가 이력으로 남아야 한다.
+      JPQL bulk UPDATE는 @LastModifiedDate(updatedAt)를 우회하므로 refundedAt과 같은 서울 기준 Clock 값으로
+      updatedAt을 명시 갱신한다(markPaidIfPending·settleOfflineIfRequired와 같은 함정).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+               set p.status = com.doctorpet.domain.payment.entity.PaymentStatus.REFUNDED,
+                   p.refundedAt = :refundedAt,
+                   p.updatedAt = :refundedAt
+             where p.id = :paymentId
+               and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.PAID
+            """)
+    int markRefundedIfPaid(
+            @Param("paymentId") Long paymentId,
+            @Param("refundedAt") LocalDateTime refundedAt
+    );
 }
