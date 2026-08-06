@@ -290,6 +290,13 @@ public class HospitalReservationApplicationService {
 
         reservationEventRepository.appendIfAbsent(
                 reservationId,
+                ReservationEventType.CHECKED_IN.name(),
+                "노쇼 정정 후 직원 도착 확인",
+                staffMemberId,
+                now
+        );
+        reservationEventRepository.appendIfAbsent(
+                reservationId,
                 ReservationEventType.NO_SHOW_CORRECTED.name(),
                 reason,
                 staffMemberId,
@@ -454,14 +461,17 @@ public class HospitalReservationApplicationService {
             Long staffMemberId,
             LocalDateTime now
     ) {
-        reservationEventRepository.appendIfAbsent(
-                reservation.getId(),
-                ReservationEventType.CHECKED_IN.name(),
-                "병원 직원 도착 확인",
-                staffMemberId,
-                reservation.getUpdatedAt() == null ? now : reservation.getUpdatedAt()
-        );
-        return findCheckInResponse(reservation.getId());
+        return reservationEventRepository
+                .findFirstByReservation_IdAndEventTypeOrderByOccurredAtAsc(
+                        reservation.getId(),
+                        ReservationEventType.CHECKED_IN
+                )
+                .map(event -> ReservationCheckInResponse.from(
+                        reservation.getId(), event.getOccurredAt()))
+                .orElseGet(() -> ReservationCheckInResponse.from(
+                        reservation.getId(),
+                        reservation.getUpdatedAt() == null ? now : reservation.getUpdatedAt()
+                ));
     }
 
     private ReservationCheckInResponse findCheckInResponse(Long reservationId) {
@@ -470,8 +480,8 @@ public class HospitalReservationApplicationService {
                         reservationId,
                         ReservationEventType.CHECKED_IN
                 )
-                .orElseThrow(() -> new IllegalStateException(
-                        "체크인 이력을 저장하지 못했습니다."
+                .orElseThrow(() -> new ServiceException(
+                        ReservationErrorCode.CHECK_IN_HISTORY_NOT_FOUND
                 ));
         return ReservationCheckInResponse.from(
                 reservationId,

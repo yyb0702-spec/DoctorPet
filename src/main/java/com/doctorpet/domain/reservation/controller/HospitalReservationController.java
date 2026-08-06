@@ -80,11 +80,7 @@ public class HospitalReservationController {
                 principal.memberId(),
                 reservationId
         );
-        return new ApiResponse<>(
-                "SUCCESS",
-                "예약 도착이 확인되었습니다.",
-                response
-        );
+        return ApiResponse.success(response);
     }
 
     @PatchMapping("/{reservationId}/start")

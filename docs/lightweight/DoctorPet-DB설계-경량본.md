@@ -117,6 +117,7 @@ members 1 ── 0..N notifications
 | `confirmed_at` | DATETIME | 승인 시각, `NULL` 가능 |
 | `canceled_at` | DATETIME | 취소 시각, `NULL` 가능 |
 | `no_show_at` | DATETIME | 노쇼 판정 시각, `NULL` 가능 |
+| `no_show_pending_at` | DATETIME(6) NULL | 자동 노쇼 추가 유예 진입 시각 |
 인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)` — 슬롯·회원·병원별 예약 조회와 승인 타임아웃 배치에 사용한다.
 
 기존 예약이 있는 환경은 nullable 컬럼 추가 → `min(requested_at + 1시간, slot.start_at - 2시간)` 백필 → 검증 후 `NOT NULL`·인덱스 적용 순서로 일회성 마이그레이션한다. `reservation_approval_deadline_v1` 마커와 MySQL `GET_LOCK`으로 중복 실행을 막는다.
@@ -126,13 +127,13 @@ members 1 ── 0..N notifications
 | --- | --- | --- |
 | `id` | BIGINT | PK |
 | `reservation_id` | BIGINT | 예약 FK |
-| `event_type` | VARCHAR | `AUTO_NO_SHOW`, `MANUAL_NO_SHOW`, `NO_SHOW_CORRECTED`, `TIMEOUT_REJECTED` |
+| `event_type` | VARCHAR | `CHECKED_IN`, `AUTO_NO_SHOW_PENDING`, `AUTO_NO_SHOW`, `MANUAL_NO_SHOW`, `NO_SHOW_CORRECTED`, `TIMEOUT_REJECTED` |
 | `memo` | VARCHAR | 메모, `NULL` 가능 |
 | `processed_by` | BIGINT | 수동 처리자 회원 ID, 자동 처리면 `NULL` |
 | `occurred_at` | DATETIME | 발생 시각 |
 UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 한 번만 기록한다.
 
-`reservation_events`는 append-only 방식 B를 사용한다. 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하고, 노쇼 자동·수동 판정, 노쇼 정정, 승인 타임아웃처럼 상태만으로 흔적이 사라지는 예외·비가역 사건만 기록한다. 수동 사건은 사유와 인증된 처리자 ID를 함께 남긴다. 기존 중복은 `reservation_event_unique_v1` 일회성 마이그레이션에서 최초 이력만 보존해 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다.
+`reservation_events`는 append-only 방식 B를 사용한다. 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하되, 직원 체크인과 노쇼 대기·자동/수동 판정·정정·승인 타임아웃처럼 상태만으로 처리 시각이나 사건 흔적을 잃는 경우는 기록한다. 수동 사건은 사유와 인증된 처리자 ID를 함께 남기고, 자동 사건의 처리 주체는 `SYSTEM` 정책으로 구분한다. 기존 중복은 `reservation_event_unique_v1` 일회성 마이그레이션에서 최초 이력만 보존해 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다.
 ## 5. 결제
 ### `payment_methods`
 | 필드 | 타입 | 제약·설명 |

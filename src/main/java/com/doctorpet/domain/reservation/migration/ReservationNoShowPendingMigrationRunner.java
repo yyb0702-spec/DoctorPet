@@ -74,7 +74,7 @@ public class ReservationNoShowPendingMigrationRunner implements ApplicationRunne
 
     private boolean columnExists(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
-                select count(*)
+                select data_type, datetime_precision, is_nullable
                   from information_schema.columns
                  where table_schema = database()
                    and table_name = 'reservations'
@@ -82,7 +82,12 @@ public class ReservationNoShowPendingMigrationRunner implements ApplicationRunne
                 """)) {
             statement.setString(1, COLUMN_NAME);
             try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() && resultSet.getInt(1) == 1;
+                if (!resultSet.next()) {
+                    return false;
+                }
+                return "datetime".equalsIgnoreCase(resultSet.getString("data_type"))
+                        && resultSet.getInt("datetime_precision") == 6
+                        && "YES".equalsIgnoreCase(resultSet.getString("is_nullable"));
             }
         }
     }
@@ -128,7 +133,11 @@ public class ReservationNoShowPendingMigrationRunner implements ApplicationRunne
     private void releaseLock(Connection connection) {
         try (PreparedStatement statement = connection.prepareStatement("select release_lock(?)")) {
             statement.setString(1, LOCK_NAME);
-            statement.executeQuery();
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next() && resultSet.getInt(1) != 1) {
+                    log.warn("자동 노쇼 추가 유예 마이그레이션 DB 잠금이 현재 연결에서 해제되지 않았습니다.");
+                }
+            }
         } catch (SQLException exception) {
             log.warn("자동 노쇼 추가 유예 마이그레이션 DB 잠금 해제에 실패했습니다.", exception);
         }

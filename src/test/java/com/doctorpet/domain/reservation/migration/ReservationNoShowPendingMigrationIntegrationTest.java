@@ -31,6 +31,8 @@ class ReservationNoShowPendingMigrationIntegrationTest {
                  where table_schema = database()
                    and table_name = 'reservations'
                    and column_name = 'no_show_pending_at'
+                   and data_type = 'datetime'
+                   and datetime_precision = 6
                    and is_nullable = 'YES'
                 """, Integer.class);
         Integer markerCount = jdbcTemplate.queryForObject("""

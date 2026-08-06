@@ -16,7 +16,7 @@
 | Level | 실행한 명령 | 결과 | 확인한 것 | 아직 모르는 것 |
 | --- | --- | --- | --- | --- |
 | 1·2·3 | `./gradlew test --tests "...HospitalReservationControllerTest" --tests "...HospitalReservationAuthorizationTest" --tests "...HospitalReservationApplicationServiceTest" --tests "...HospitalNoShowIntegrationTest" --tests "...ReservationNoShowBatchServiceTest" --tests "...ReservationNoShowPendingMigrationIntegrationTest" --tests "...ReservationQueryRepositoryIntegrationTest" --tests "...ReservationProgressStatusTest"` | PASS | API 응답, 직원 인가, +10/+15분 전이, 중복 멱등, 체크인·자동 노쇼 경합, 실제 MySQL 컬럼·마커 | 실제 다중 서버 환경 |
-| 1 | `./gradlew test` | FAIL | 777개 중 59개 실패를 확인하고, 이 중 이 기능의 중복 응답 정밀도 오류 1건을 수정한 뒤 관련 전체 테스트 PASS | 나머지 58개는 공용 테스트 설정의 `AiGateway` 빈 부재와 로컬 Redis 부재로 연쇄 실패 |
+| 1 | `./gradlew test` | BLOCKED | 전체 테스트를 실행했으나 로컬 공용 테스트 환경이 없어 완료 판정 불가 | `AiGateway` 빈 부재와 로컬 Redis 부재로 연쇄 실패. 기능 관련 테스트와 CI는 PASS |
 | 5 | 실행 JAR을 `--server.port=18080`과 Fake Gateway 설정으로 기동 후 `/actuator/health` 호출 | PARTIAL | Tomcat·MySQL·JPA·신규 enum/컬럼까지 기동되고 실제 HTTP 요청을 수신 | 로컬 Redis/Docker가 꺼져 있어 전체 헬스는 `DOWN` |
 | 6 | `PATCH http://localhost:18080/api/hospital/reservations/1/check-in` | PARTIAL | 비인증 요청이 실제 서버에서 `401 COMMON_002`로 거부됨 | Redis 부재로 로그인 토큰 발급과 인증된 성공 요청은 미검증 |
 

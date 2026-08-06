@@ -86,7 +86,7 @@
 | Level | 실행한 명령 | 결과 | 확인한 것 | 아직 모르는 것 |
 | --- | --- | --- | --- | --- |
 | 1·2·3 | `./gradlew test --tests "...HospitalReservationControllerTest" --tests "...HospitalReservationAuthorizationTest" --tests "...HospitalReservationApplicationServiceTest" --tests "...HospitalNoShowIntegrationTest" --tests "...ReservationNoShowBatchServiceTest" --tests "...ReservationNoShowPendingMigrationIntegrationTest" --tests "...ReservationQueryRepositoryIntegrationTest" --tests "...ReservationProgressStatusTest"` | PASS | API 계약·인가·경계·멱등·실제 MySQL 전이·경합·마이그레이션 | 실제 다중 서버 환경 |
-| 1 | `./gradlew test` | FAIL | 777개 중 59개 실패 확인. 이번 기능의 중복 응답 정밀도 오류 1건은 수정 후 관련 테스트 PASS | 나머지 58개는 공용 `AiGateway` 빈 부재와 로컬 Redis 부재로 발생한 연쇄 실패 |
+| 1 | `./gradlew test` | BLOCKED | 전체 테스트를 실행했으나 로컬 공용 테스트 환경이 없어 완료 판정 불가 | `AiGateway` 빈 부재와 로컬 Redis 부재로 연쇄 실패. 기능 관련 테스트와 CI는 PASS |
 | 5 | 실행 JAR을 18080 포트로 기동 후 `/actuator/health` 호출 | PARTIAL | Tomcat·MySQL·JPA·신규 enum/컬럼 기동 및 HTTP 수신 | 로컬 Redis/Docker 미기동으로 health `DOWN` |
 | 6 | `PATCH http://localhost:18080/api/hospital/reservations/1/check-in` | PARTIAL | 비인증 요청이 `401 COMMON_002`로 거부됨 | Redis 부재로 인증된 직원 성공 요청 미검증 |
 
@@ -121,5 +121,5 @@ Closes #109
 
 ## 비고
 
-- `RESERVATION_NO_SHOW_PENDING_GRACE_MINUTES` 기본값은 5이며 `1~5` 범위로 검증합니다.
+- `RESERVATION_NO_SHOW_PENDING_GRACE_MINUTES` 기본값은 5이며 양의 정수로 검증합니다.
 - 로컬 Redis 또는 Docker를 기동한 뒤 Level 5·6의 남은 항목을 추가 확인해야 합니다.

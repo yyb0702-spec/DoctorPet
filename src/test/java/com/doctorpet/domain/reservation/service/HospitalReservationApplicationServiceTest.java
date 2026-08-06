@@ -703,6 +703,13 @@ class HospitalReservationApplicationServiceTest {
 
         verify(reservationEventRepository).appendIfAbsent(
                 org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
+                org.mockito.ArgumentMatchers.eq(ReservationEventType.CHECKED_IN.name()),
+                org.mockito.ArgumentMatchers.eq("노쇼 정정 후 직원 도착 확인"),
+                org.mockito.ArgumentMatchers.eq(STAFF_ID),
+                any(LocalDateTime.class)
+        );
+        verify(reservationEventRepository).appendIfAbsent(
+                org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
                 org.mockito.ArgumentMatchers.eq(ReservationEventType.NO_SHOW_CORRECTED.name()),
                 org.mockito.ArgumentMatchers.eq("늦게 도착해 접수 완료"),
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),

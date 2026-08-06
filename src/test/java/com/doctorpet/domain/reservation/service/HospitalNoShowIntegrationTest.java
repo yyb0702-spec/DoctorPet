@@ -13,6 +13,7 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationNoShowTarget;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
@@ -297,6 +298,11 @@ class HospitalNoShowIntegrationTest {
                 "늦게 도착해 현장 접수"
         );
 
+        ReservationCheckInResponse repeatedCheckIn = hospitalReservationService.checkIn(
+                data.staffMemberId(),
+                data.reservationId()
+        );
+
         Reservation restored = reservationRepository.findById(data.reservationId())
                 .orElseThrow();
         assertThat(restored.getStatus()).isEqualTo(ReservationStatus.CHECKED_IN);
@@ -304,19 +310,28 @@ class HospitalNoShowIntegrationTest {
 
         List<ReservationEvent> events = reservationEventRepository
                 .findAllByReservation_IdOrderByOccurredAtAsc(data.reservationId());
-        assertThat(events).hasSize(2);
+        assertThat(events).hasSize(3);
         assertThat(events)
                 .extracting(ReservationEvent::getEventType)
-                .containsExactly(
+                .containsExactlyInAnyOrder(
                         ReservationEventType.MANUAL_NO_SHOW,
+                        ReservationEventType.CHECKED_IN,
                         ReservationEventType.NO_SHOW_CORRECTED
                 );
         assertThat(events)
                 .extracting(ReservationEvent::getMemo)
-                .containsExactly("예약 시간 미방문", "늦게 도착해 현장 접수");
+                .contains("예약 시간 미방문", "늦게 도착해 현장 접수", "노쇼 정정 후 직원 도착 확인");
         assertThat(events)
                 .extracting(ReservationEvent::getProcessedBy)
                 .containsOnly(data.staffMemberId());
+        assertThat(events.stream()
+                .filter(event -> event.getEventType() == ReservationEventType.CHECKED_IN)
+                .count()).isEqualTo(1);
+        assertThat(repeatedCheckIn.checkedInAt().toLocalDateTime()).isEqualTo(events.stream()
+                .filter(event -> event.getEventType() == ReservationEventType.CHECKED_IN)
+                .findFirst()
+                .orElseThrow()
+                .getOccurredAt());
     }
 
     @Test
