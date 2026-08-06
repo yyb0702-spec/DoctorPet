@@ -86,6 +86,12 @@ member:
 # 에서만 접근 가능하다. 별도 인증 없이도 인터넷에서 지표·헬스체크가 직접 보이지 않는다.
 # Dockerfile의 HEALTHCHECK도 이 포트를 쓰도록 함께 바꿨다(컨테이너 "내부" 호출이라 호스트
 # 게시 여부와 무관하게 그대로 동작한다).
+#
+# 다만 관리 포트만 확인하면 "관리 컨텍스트는 살아있지만 정작 8080이 새 연결을 못 받는" 상태를
+# 놓칠 수 있다(2차 리뷰 지적, Spring Boot 공식 문서도 별도 관리 포트의 이 위험을 명시한다).
+# readiness 헬스 그룹(기본 자동 활성화)을 additional-path로 메인 서버 포트(8080)의 /healthz에도
+# 노출해, Dockerfile HEALTHCHECK가 관리 포트뿐 아니라 앱 포트 자체의 응답 가능 여부도 함께 검사할
+# 수 있게 한다. /healthz는 SecurityConfig 메인 체인에서 permitAll로 열어둔다.
 management:
   server:
     port: 8081
@@ -98,6 +104,9 @@ management:
       show-details: never
       probes:
         enabled: true
+      group:
+        readiness:
+          additional-path: server:/healthz
   metrics:
     tags:
       application: ${spring.application.name}
