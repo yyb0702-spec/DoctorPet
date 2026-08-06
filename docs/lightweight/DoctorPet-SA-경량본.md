@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.17 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.34, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.35, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 시스템 구성
@@ -60,7 +60,8 @@ domain/
 - Access Token 수명은 30분\~1시간이다.
 - Refresh Token 수명은 14일이다.
 - Refresh Token은 서버에 저장하고 회전한다.
-- 폐기된 Refresh Token의 재사용이 탐지되면 해당 사용자의 전체 세션을 로그아웃한다.
+- 같은 회원의 재발급 요청은 `refresh-lock:{memberId}` 락(TTL 3초)으로 직렬화한다. 락을 얻을 때마다 단조 증가하는 펜싱 토큰(`refresh-fence:{memberId}`)을 함께 발급해, 락 TTL 만료로 더 최신 요청이 새 락을 먼저 얻은 뒤에도 뒤늦게 도착한 예전 요청의 회전 시도가 방금 성공한 세션을 지우지 않도록 막는다(이슈 #100).
+- 재발급 회전은 펜싱 토큰이 최신인지 먼저 확인해, 더 최신 락이 이미 발급됐거나 회전까지 끝났으면 값을 건드리지 않고 `STALE`로 물러난다. 이 검사를 통과했는데도 저장된 값과 일치하지 않으면 진짜 재사용(`REUSED`)으로 판단해 해당 사용자의 전체 세션을 로그아웃한다.
 - 로그인 5회 연속 실패 시 30분간 계정을 잠그며(`members.failed_login_attempts`, `locked_until`), 시간 경과 또는 비밀번호 재설정 성공 시 즉시 해제된다.
 - 회원 탈퇴 시 이메일을 `withdrawn_{memberId}@deleted.doctorpet` 형식으로 익명화하고 Soft Delete한다.
 ## 5. 병원·검색·공공데이터
