@@ -138,4 +138,19 @@ class SseEmitterRegistryTest {
         assertThatCode(() -> registry.send(MEMBER_A, "notification", "payload"))
                 .doesNotThrowAnyException();
     }
+
+    @Test
+    @DisplayName("같은 회원의 여러 연결에 전송해도 모든 연결이 유지된다(전송 실패로 정리되지 않는다)")
+    void send_toMultipleConnections_keepsAllConnections() {
+        // 빌더 1회용 계약(연결마다 새로 만든다)은 이 단위 테스트로는 확인할 수 없다 — 레지스트리가 SseEmitter를
+        // 내부에서 생성해 전송된 payload를 관찰할 수 없고, 잘못 재사용해도 덧붙는 빈 줄은 예외를 일으키지 않는다.
+        // 그 계약은 send()의 주석과 구현으로 지키고, 여기서는 다중 연결 전송이 연결을 잃지 않는지만 고정한다.
+        registry.tryRegister(MEMBER_A, 5);
+        registry.tryRegister(MEMBER_A, 5);
+
+        assertThatCode(() -> registry.send(MEMBER_A, "notification", "payload"))
+                .doesNotThrowAnyException();
+
+        assertThat(registry.connectionCount(MEMBER_A)).isEqualTo(2);
+    }
 }

@@ -91,15 +91,27 @@ public class SseEmitterRegistry {
         if (emitters == null || emitters.isEmpty()) {
             return;
         }
-        SseEmitter.SseEventBuilder event = SseEmitter.event()
-                .name(eventName)
-                .data(data, MediaType.APPLICATION_JSON);
         for (SseEmitter emitter : emitters) {
-            sendOrDrop(memberId, emitter, event);
+            // 이벤트 빌더는 연결마다 새로 만든다 — SseEventBuilder는 1회용이다. build()가 호출될 때마다
+            // 개행을 덧붙이고 전송 목록에 항목을 추가하는데(DataWithMediaType에 equals가 없어 중복 제거도 안 된다),
+            // 하나를 여러 연결에 재사용하면 두 번째 이후 연결부터 빈 줄이 하나씩 늘어 붙는다.
+            // SSE에서 빈 이벤트는 EventSource가 무시해 지금은 무해하지만, 다중 탭(상한 5)이 정상 사용인
+            // 기능이라 재사용에 의존하지 않는다.
+            sendOrDrop(memberId, emitter, SseEmitter.event()
+                    .name(eventName)
+                    .data(data, MediaType.APPLICATION_JSON));
         }
     }
 
-    // 유휴 연결 유지용 heartbeat. 전송이 실패하는 죽은 연결은 이 주기에 함께 정리된다.
+    /*
+      유휴 연결 유지용 heartbeat. 전송이 실패하는 죽은 연결은 이 주기에 함께 정리된다.
+
+      알려진 한계(단일 인스턴스 팬아웃과 함께 수평 확장 시 해소한다): 이 루프는 단일 스레드에서 전 회원의
+      연결을 순회하며 blocking send를 한다. half-open TCP 연결이 소켓 버퍼가 찰 때까지 스레드를 붙잡으면
+      뒤에 있는 회원들의 heartbeat가 그만큼 밀리고, 15초 주기를 놓친 연결이 프록시에 끊길 수 있다.
+      전송은 부가 채널이고(저장이 원본, 끊겨도 폴링으로 받는다) MVP 동시 접속 규모가 작아 지금은 감수한다.
+      규모가 커지면 send 타임아웃 또는 소규모 스레드풀로 격리한다.
+     */
     private void heartbeat() {
         emittersByMember.forEach((memberId, emitters) -> {
             for (SseEmitter emitter : emitters) {
