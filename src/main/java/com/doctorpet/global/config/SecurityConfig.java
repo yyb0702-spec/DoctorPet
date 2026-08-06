@@ -39,6 +39,16 @@ public class SecurityConfig {
      * 호스트에 게시하지 않는 것(mysql·redis와 동일 패턴)이 실질적인 방어선이고, 이 permitAll은
      * "같은 네트워크 안에서는 인증 없이도 열려야 하는 지표·헬스체크"라는 의도를 코드로 명확히
      * 남기기 위함이다. @Order(1)로 아래 메인 체인보다 먼저 평가되게 한다.
+     *
+     * 이 permitAll이 실제로 관리 포트(8081) 요청에도 적용되는지는 문서만으로 확정하기 어려운
+     * 부분이라 Level 6(docker compose 실기동)로 확인했다(2차 리뷰 지적) — securityMatcher는
+     * 포트가 아니라 경로로 매칭되고, FilterChainProxy는 포트별로 분리돼 있지 않아 관리 포트
+     * 요청도 같은 체인들을 거친다(관리 포트 전용 DispatcherServlet은 별도 자식 컨텍스트라 실제
+     * 라우팅만 분리됨, spring-projects/spring-boot#50355). 실제로 8081의 /actuator/health
+     * 응답에 Spring Security의 HeaderWriterFilter가 남기는 표준 헤더(X-Frame-Options 등)가
+     * 그대로 포함되는 것으로 이 체인이 관리 포트 요청에도 적용됨을 확인했다 — 즉 permitAll은
+     * 문서용 의도 표시가 아니라 실제로 유효한 인가 규칙이고, docker-compose의 포트 비공개는
+     * 그 위에 얹는 추가 방어선이다.
      */
     @Bean
     @Order(1)
