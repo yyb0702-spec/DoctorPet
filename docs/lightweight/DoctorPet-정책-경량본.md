@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.17 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.35, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.36, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 회원·인증
