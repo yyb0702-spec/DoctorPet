@@ -5,6 +5,7 @@ import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRestoreRequest;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationPageResponse;
+import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -71,12 +72,19 @@ public class HospitalReservationController {
     }
 
     @PatchMapping("/{reservationId}/check-in")
-    public ApiResponse<Void> checkIn(
+    public ApiResponse<ReservationCheckInResponse> checkIn(
             @AuthenticationPrincipal MemberPrincipal principal,
             @PathVariable @Positive Long reservationId
     ) {
-        hospitalReservationService.checkIn(principal.memberId(), reservationId);
-        return ApiResponse.success();
+        ReservationCheckInResponse response = hospitalReservationService.checkIn(
+                principal.memberId(),
+                reservationId
+        );
+        return new ApiResponse<>(
+                "SUCCESS",
+                "예약 도착이 확인되었습니다.",
+                response
+        );
     }
 
     @PatchMapping("/{reservationId}/start")

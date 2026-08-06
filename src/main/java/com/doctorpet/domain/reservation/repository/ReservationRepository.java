@@ -138,13 +138,20 @@ public interface ReservationRepository
                    r.updatedAt = :updatedAt
              where r.id = :reservationId
                and r.hospitalId = :hospitalId
-               and r.status = :confirmedStatus
+               and r.status in :arrivalStatuses
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt >= :checkInCutoff
+               )
             """)
-    int checkInIfConfirmed(
+    int checkInIfAwaitingArrival(
             @Param("reservationId") Long reservationId,
             @Param("hospitalId") Long hospitalId,
-            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("arrivalStatuses") Collection<ReservationStatus> arrivalStatuses,
             @Param("checkedInStatus") ReservationStatus checkedInStatus,
+            @Param("checkInCutoff") LocalDateTime checkInCutoff,
             @Param("updatedAt") LocalDateTime updatedAt
     );
 
@@ -220,15 +227,38 @@ public interface ReservationRepository
                    r.updatedAt = :updatedAt
              where r.id = :reservationId
                and r.hospitalId = :hospitalId
-               and r.status = :confirmedStatus
+               and r.status in :arrivalStatuses
             """)
-    int markNoShowIfConfirmed(
+    int markNoShowIfAwaitingArrival(
             @Param("reservationId") Long reservationId,
             @Param("hospitalId") Long hospitalId,
-            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("arrivalStatuses") Collection<ReservationStatus> arrivalStatuses,
             @Param("noShowStatus") ReservationStatus noShowStatus,
             @Param("noShowAt") LocalDateTime noShowAt,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :pendingStatus,
+                   r.noShowPendingAt = :pendingAt,
+                   r.updatedAt = :pendingAt
+             where r.id = :reservationId
+               and r.status = :confirmedStatus
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt < :pendingCutoff
+               )
+            """)
+    int markAutoNoShowPendingIfConfirmed(
+            @Param("reservationId") Long reservationId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("pendingStatus") ReservationStatus pendingStatus,
+            @Param("pendingAt") LocalDateTime pendingAt,
+            @Param("pendingCutoff") LocalDateTime pendingCutoff
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
@@ -238,44 +268,57 @@ public interface ReservationRepository
                    r.noShowAt = :noShowAt,
                    r.updatedAt = :noShowAt
              where r.id = :reservationId
-               and r.status = :confirmedStatus
+               and r.status = :pendingStatus
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt < :finalCutoff
+               )
             """)
-    int markAutoNoShowIfConfirmed(
+    int markAutoNoShowIfPending(
             @Param("reservationId") Long reservationId,
-            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("pendingStatus") ReservationStatus pendingStatus,
             @Param("noShowStatus") ReservationStatus noShowStatus,
-            @Param("noShowAt") LocalDateTime noShowAt
+            @Param("noShowAt") LocalDateTime noShowAt,
+            @Param("finalCutoff") LocalDateTime finalCutoff
     );
 
     @Query("""
             select r.id as reservationId,
+                   r.status as status,
                    s.startAt as slotStartAt
               from Reservation r, ReservationSlot s
              where s.id = r.slotId
-               and r.status = :confirmedStatus
-               and s.startAt < :cutoff
+               and ((r.status = :confirmedStatus and s.startAt < :pendingCutoff)
+                    or (r.status = :pendingStatus and s.startAt < :finalCutoff))
              order by s.startAt asc, r.id asc
             """)
     List<ReservationNoShowTarget> findAutoNoShowTargets(
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
-            @Param("cutoff") LocalDateTime cutoff,
+            @Param("pendingStatus") ReservationStatus pendingStatus,
+            @Param("pendingCutoff") LocalDateTime pendingCutoff,
+            @Param("finalCutoff") LocalDateTime finalCutoff,
             Pageable pageable
     );
 
     @Query("""
             select r.id as reservationId,
+                   r.status as status,
                    s.startAt as slotStartAt
               from Reservation r, ReservationSlot s
              where s.id = r.slotId
-               and r.status = :confirmedStatus
-               and s.startAt < :cutoff
+               and ((r.status = :confirmedStatus and s.startAt < :pendingCutoff)
+                    or (r.status = :pendingStatus and s.startAt < :finalCutoff))
                and (s.startAt > :cursorStartAt
                     or (s.startAt = :cursorStartAt and r.id > :cursorId))
              order by s.startAt asc, r.id asc
             """)
     List<ReservationNoShowTarget> findAutoNoShowTargetsAfter(
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
-            @Param("cutoff") LocalDateTime cutoff,
+            @Param("pendingStatus") ReservationStatus pendingStatus,
+            @Param("pendingCutoff") LocalDateTime pendingCutoff,
+            @Param("finalCutoff") LocalDateTime finalCutoff,
             @Param("cursorStartAt") LocalDateTime cursorStartAt,
             @Param("cursorId") Long cursorId,
             Pageable pageable

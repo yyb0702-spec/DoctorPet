@@ -123,11 +123,12 @@ class ReservationQueryRepositoryIntegrationTest {
                 now,
                 now
         )).isEqualTo(1);
-        assertThat(reservationRepository.checkInIfConfirmed(
+        assertThat(reservationRepository.checkInIfAwaitingArrival(
                 reservation.getId(),
                 100L,
-                ReservationStatus.CONFIRMED,
+                List.of(ReservationStatus.CONFIRMED, ReservationStatus.NO_SHOW_PENDING),
                 ReservationStatus.CHECKED_IN,
+                now.minusMinutes(15),
                 now
         )).isEqualTo(1);
         assertThat(reservationRepository.startTreatmentIfCheckedIn(

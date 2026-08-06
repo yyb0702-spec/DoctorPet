@@ -61,10 +61,14 @@ class ReservationNoShowBatchServiceTest {
         ReservationNoShowTarget failed = target(1L, 20);
         ReservationNoShowTarget normal = target(2L, 19);
         given(reservationRepository.findAutoNoShowTargets(
-                eq(ReservationStatus.CONFIRMED), any(LocalDateTime.class), any(Pageable.class)))
+                eq(ReservationStatus.CONFIRMED),
+                eq(ReservationStatus.NO_SHOW_PENDING),
+                any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
                 .willReturn(List.of(failed));
         given(reservationRepository.findAutoNoShowTargetsAfter(
-                eq(ReservationStatus.CONFIRMED), any(LocalDateTime.class),
+                eq(ReservationStatus.CONFIRMED),
+                eq(ReservationStatus.NO_SHOW_PENDING),
+                any(LocalDateTime.class), any(LocalDateTime.class),
                 any(LocalDateTime.class), any(), any(Pageable.class)))
                 .willReturn(List.of(normal));
         given(processor.process(eq(1L), any(LocalDateTime.class)))
@@ -80,17 +84,27 @@ class ReservationNoShowBatchServiceTest {
     }
 
     private ReservationNoShowTarget target(Long id, long minutesAgo) {
-        return new TestNoShowTarget(id, LocalDateTime.now(CLOCK).minusMinutes(minutesAgo));
+        return new TestNoShowTarget(
+                id,
+                ReservationStatus.CONFIRMED,
+                LocalDateTime.now(CLOCK).minusMinutes(minutesAgo)
+        );
     }
 
     private record TestNoShowTarget(
             Long reservationId,
+            ReservationStatus status,
             LocalDateTime slotStartAt
     ) implements ReservationNoShowTarget {
 
         @Override
         public Long getReservationId() {
             return reservationId;
+        }
+
+        @Override
+        public ReservationStatus getStatus() {
+            return status;
         }
 
         @Override

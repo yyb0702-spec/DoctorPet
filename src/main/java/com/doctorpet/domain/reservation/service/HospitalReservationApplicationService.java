@@ -7,13 +7,16 @@ import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
+import com.doctorpet.domain.reservation.config.ReservationNoShowProperties;
 import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationEvent;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
+import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
@@ -32,6 +35,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
+import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -40,10 +44,16 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class HospitalReservationApplicationService {
 
+    private static final List<ReservationStatus> AWAITING_ARRIVAL_STATUSES = List.of(
+            ReservationStatus.CONFIRMED,
+            ReservationStatus.NO_SHOW_PENDING
+    );
+
     private final MemberService memberService;
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
+    private final ReservationNoShowProperties noShowProperties;
 
     /**
      * 병원 스태프가 자기 병원의 REQUESTED 예약을 승인한다(SA §5-1, §6-2).
@@ -109,24 +119,49 @@ public class HospitalReservationApplicationService {
      * 병원 스태프가 자기 병원의 CONFIRMED 예약을 체크인 처리한다(SA §5-1·§8-6).
      */
     @Transactional
-    public void checkIn(Long staffMemberId, Long reservationId) {
+    public ReservationCheckInResponse checkIn(Long staffMemberId, Long reservationId) {
         Long hospitalId = requireHospitalId(staffMemberId);
         Reservation reservation = findReservation(reservationId);
         assertHospitalOwnership(reservation, hospitalId);
 
-        ReservationSlot slot = findSlot(reservation.getSlotId());
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        if (reservation.getStatus() == ReservationStatus.CHECKED_IN) {
+            return existingCheckInResponse(reservation, staffMemberId, now);
+        }
+        if (!AWAITING_ARRIVAL_STATUSES.contains(reservation.getStatus())) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+
+        ReservationSlot slot = findSlot(reservation.getSlotId());
         validateCheckInDeadline(slot, now);
-        int updated = reservationRepository.checkInIfConfirmed(
+        int updated = reservationRepository.checkInIfAwaitingArrival(
                 reservationId,
                 hospitalId,
-                ReservationStatus.CONFIRMED,
+                AWAITING_ARRIVAL_STATUSES,
                 ReservationStatus.CHECKED_IN,
+                now.minusMinutes(totalCheckInGraceMinutes()),
                 now
         );
         if (updated == 0) {
+            Reservation current = reservationRepository
+                    .findByIdAndHospitalIdForUpdate(reservationId, hospitalId)
+                    .orElseThrow(() -> new ServiceException(
+                            ReservationErrorCode.RESERVATION_NOT_FOUND
+                    ));
+            if (current.getStatus() == ReservationStatus.CHECKED_IN) {
+                return existingCheckInResponse(current, staffMemberId, now);
+            }
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
+
+        reservationEventRepository.appendIfAbsent(
+                reservationId,
+                ReservationEventType.CHECKED_IN.name(),
+                "병원 직원 도착 확인",
+                staffMemberId,
+                now
+        );
+        return findCheckInResponse(reservationId);
     }
 
     /**
@@ -193,10 +228,10 @@ public class HospitalReservationApplicationService {
             throw new ServiceException(ReservationErrorCode.NO_SHOW_TOO_EARLY);
         }
 
-        int updated = reservationRepository.markNoShowIfConfirmed(
+        int updated = reservationRepository.markNoShowIfAwaitingArrival(
                 reservationId,
                 hospitalId,
-                ReservationStatus.CONFIRMED,
+                AWAITING_ARRIVAL_STATUSES,
                 ReservationStatus.NO_SHOW,
                 now,
                 now
@@ -402,11 +437,46 @@ public class HospitalReservationApplicationService {
             ReservationSlot slot,
             LocalDateTime now
     ) {
-        if (now.isAfter(slot.getStartAt().plusMinutes(10))) {
+        if (now.isAfter(slot.getStartAt().plusMinutes(totalCheckInGraceMinutes()))) {
             throw new ServiceException(
                     ReservationErrorCode.CHECK_IN_DEADLINE_PASSED
             );
         }
+    }
+
+    private int totalCheckInGraceMinutes() {
+        return noShowProperties.getGraceMinutes()
+                + noShowProperties.getPendingGraceMinutes();
+    }
+
+    private ReservationCheckInResponse existingCheckInResponse(
+            Reservation reservation,
+            Long staffMemberId,
+            LocalDateTime now
+    ) {
+        reservationEventRepository.appendIfAbsent(
+                reservation.getId(),
+                ReservationEventType.CHECKED_IN.name(),
+                "병원 직원 도착 확인",
+                staffMemberId,
+                reservation.getUpdatedAt() == null ? now : reservation.getUpdatedAt()
+        );
+        return findCheckInResponse(reservation.getId());
+    }
+
+    private ReservationCheckInResponse findCheckInResponse(Long reservationId) {
+        ReservationEvent event = reservationEventRepository
+                .findFirstByReservation_IdAndEventTypeOrderByOccurredAtAsc(
+                        reservationId,
+                        ReservationEventType.CHECKED_IN
+                )
+                .orElseThrow(() -> new IllegalStateException(
+                        "체크인 이력을 저장하지 못했습니다."
+                ));
+        return ReservationCheckInResponse.from(
+                reservationId,
+                event.getOccurredAt()
+        );
     }
 
     private void assertHospitalOwnership(
