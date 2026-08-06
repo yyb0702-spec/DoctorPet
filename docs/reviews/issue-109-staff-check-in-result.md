@@ -4,7 +4,7 @@
 
 ## 구현 결과
 
-- 병원 직원 전용 `PATCH /api/hospital/reservations/{reservationId}/check-in` API를 구현했다.
+- 병원 직원 전용 `PATCH /api/hospital/reservations/{reservationId}/check-in` API를 구현했다. 이슈에 남아 있던 `POST /api/v1/hospital/reservations/{reservationId}/check-in` 표기는 현재 SA·컨트롤러 정본인 `PATCH /api/hospital/reservations/{reservationId}/check-in`으로 정정했다.
 - `CONFIRMED`와 `NO_SHOW_PENDING` 예약을 `CHECKED_IN`으로 조건부 변경한다.
 - 예약시각 +10분 초과 시 `NO_SHOW_PENDING`, 기본 5분의 추가 유예가 끝난 +15분 초과 시 최종 `NO_SHOW`로 처리한다.
 - 최종 `NO_SHOW` 전에는 보호자 알림을 생성하지 않는다.
