@@ -47,7 +47,7 @@ Java 17, Spring Boot, Spring Data JPA, Spring Security, QueryDSL, MySQL 8.x, Red
 
 ## 미확정 — 구현하지 말고 질문 (SA 부록 A)
 
-실시간 push 방식(SSE/WebSocket), 미인증 계정 장기 미완료 처리, SNS 로그인 도입 범위, 이메일 인증·비밀번호 재설정 토큰 소비 순서, 탈퇴 트랜잭션과 Redis 부수효과 순서.
+양방향 실시간 채널(WebSocket+STOMP) 도입 여부 — 단방향 알림 push는 SSE로 확정됐다(§9-8), 미인증 계정 장기 미완료 처리, SNS 로그인 도입 범위, 이메일 인증·비밀번호 재설정 토큰 소비 순서, 탈퇴 트랜잭션과 Redis 부수효과 순서.
 
 ## 검증
 

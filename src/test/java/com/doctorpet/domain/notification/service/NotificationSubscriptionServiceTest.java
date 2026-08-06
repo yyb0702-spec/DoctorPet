@@ -2,8 +2,9 @@ package com.doctorpet.domain.notification.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -40,12 +41,12 @@ class NotificationSubscriptionServiceTest {
     void subscribe_validTicket_registersForResolvedMember() {
         SseEmitter emitter = new SseEmitter();
         given(ticketRepository.consume(TICKET)).willReturn(Optional.of(MEMBER_ID));
-        given(registry.register(MEMBER_ID)).willReturn(emitter);
+        given(registry.tryRegister(eq(MEMBER_ID), anyInt())).willReturn(emitter);
 
         SseEmitter result = subscriptionService.subscribe(TICKET);
 
         assertThat(result).isSameAs(emitter);
-        verify(registry).register(MEMBER_ID);
+        verify(registry).tryRegister(eq(MEMBER_ID), anyInt());
     }
 
     @Test
@@ -62,16 +63,15 @@ class NotificationSubscriptionServiceTest {
     }
 
     @Test
-    @DisplayName("동시 연결이 상한 이상이면 429(SSE_TOO_MANY_CONNECTIONS)이고 새 연결을 등록하지 않는다")
-    void subscribe_atConnectionCap_throwsAndDoesNotRegister() {
+    @DisplayName("연결 상한에 도달해 레지스트리가 등록을 거절하면 429(SSE_TOO_MANY_CONNECTIONS)로 응답한다")
+    void subscribe_atConnectionCap_throws() {
+        // 상한 검사는 레지스트리가 등록과 원자적으로 수행하고, 거절은 null로 표현된다.
         given(ticketRepository.consume(TICKET)).willReturn(Optional.of(MEMBER_ID));
-        given(registry.connectionCount(MEMBER_ID)).willReturn(5);
+        given(registry.tryRegister(eq(MEMBER_ID), anyInt())).willReturn(null);
 
         assertThatThrownBy(() -> subscriptionService.subscribe(TICKET))
                 .isInstanceOf(ServiceException.class)
                 .extracting(e -> ((ServiceException) e).getErrorCode())
                 .isEqualTo(NotificationErrorCode.SSE_TOO_MANY_CONNECTIONS);
-
-        verify(registry, never()).register(MEMBER_ID);
     }
 }

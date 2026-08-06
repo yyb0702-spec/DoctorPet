@@ -50,10 +50,28 @@ public class SseEmitterRegistry {
         }
     }
 
-    // 구독을 등록한다. 완료·타임아웃·에러 시 자기 자신을 레지스트리에서 제거하도록 콜백을 건다.
-    public SseEmitter register(Long memberId) {
+    /**
+     * 회원당 동시 연결 상한을 적용해 구독을 등록한다. 상한을 넘으면 {@code null}을 반환하고 호출자가 429로 거절한다.
+     *
+     * <p>"현재 개수 검사 + 추가"를 {@code compute}(키 단위 원자 연산) 안에서 함께 수행한다 — 두 단계로 나누면
+     * 동시 구독 요청이 모두 같은 개수를 읽고 상한을 통과해 리소스 보호가 우회된다(PR #106 리뷰 P1).
+     */
+    public SseEmitter tryRegister(Long memberId, int maxConnections) {
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
-        emittersByMember.computeIfAbsent(memberId, k -> ConcurrentHashMap.newKeySet()).add(emitter);
+        boolean[] registered = {false};
+        emittersByMember.compute(memberId, (key, existing) -> {
+            Set<SseEmitter> emitters = existing == null ? ConcurrentHashMap.newKeySet() : existing;
+            if (emitters.size() >= maxConnections) {
+                // 상한 초과 — 등록하지 않는다. 새로 만든 빈 집합은 맵에 남기지 않는다(existing == null이면 키 미생성).
+                return existing;
+            }
+            emitters.add(emitter);
+            registered[0] = true;
+            return emitters;
+        });
+        if (!registered[0]) {
+            return null;
+        }
 
         emitter.onCompletion(() -> remove(memberId, emitter));
         emitter.onTimeout(() -> {
@@ -99,16 +117,18 @@ public class SseEmitterRegistry {
         }
     }
 
-    private void remove(Long memberId, SseEmitter emitter) {
-        Set<SseEmitter> emitters = emittersByMember.get(memberId);
-        if (emitters == null) {
-            return;
-        }
-        emitters.remove(emitter);
-        // 비면 키 자체를 정리하되, 그 사이 새 연결이 추가됐으면(값이 바뀌었으면) 지우지 않는다.
-        if (emitters.isEmpty()) {
-            emittersByMember.remove(memberId, emitters);
-        }
+    // 제거와 빈 키 정리를 compute(키 단위 원자 연산) 안에서 함께 처리한다 — isEmpty() 확인과 키 삭제를 나누면
+    // 그 사이 같은 집합에 등록된 새 연결이 키와 함께 사라져 알림·heartbeat를 못 받는 고아가 된다(PR #106 리뷰 P2).
+    // 실제 호출자는 emitter 완료·타임아웃·에러 콜백이며, package-private으로 둬 동시성 회귀 테스트가 직접 호출한다.
+    void remove(Long memberId, SseEmitter emitter) {
+        emittersByMember.compute(memberId, (key, emitters) -> {
+            if (emitters == null) {
+                return null;
+            }
+            emitters.remove(emitter);
+            // null을 반환하면 키가 제거된다. 아직 남은 연결이 있으면 집합을 그대로 유지한다.
+            return emitters.isEmpty() ? null : emitters;
+        });
     }
 
     // 테스트·모니터링용: 현재 특정 수신자에게 열려 있는 연결 수.

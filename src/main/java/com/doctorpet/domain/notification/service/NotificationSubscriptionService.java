@@ -28,12 +28,14 @@ public class NotificationSubscriptionService {
     }
 
     // 티켓을 검증·소비해 수신자를 확정하고 SSE 연결을 연다. 티켓이 유효하지 않으면 401, 연결 상한 초과면 429.
+    // 상한 검사는 레지스트리가 등록과 원자적으로 처리한다(동시 구독이 상한을 우회하지 못하게, 리뷰 P1).
     public SseEmitter subscribe(String ticket) {
         Long memberId = ticketRepository.consume(ticket)
                 .orElseThrow(() -> new ServiceException(NotificationErrorCode.SSE_TICKET_INVALID));
-        if (registry.connectionCount(memberId) >= MAX_CONNECTIONS_PER_MEMBER) {
+        SseEmitter emitter = registry.tryRegister(memberId, MAX_CONNECTIONS_PER_MEMBER);
+        if (emitter == null) {
             throw new ServiceException(NotificationErrorCode.SSE_TOO_MANY_CONNECTIONS);
         }
-        return registry.register(memberId);
+        return emitter;
     }
 }
