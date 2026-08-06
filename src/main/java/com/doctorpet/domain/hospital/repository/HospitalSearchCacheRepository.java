@@ -116,4 +116,16 @@ public class HospitalSearchCacheRepository {
             );
         }
     }
+
+    public void evictInitialPage() {
+        try {
+            redisTemplate.delete(INITIAL_PAGE_KEY);
+        } catch (Exception exception) {
+            log.warn(
+                    "병원 검색 첫 페이지 캐시 삭제에 실패했습니다. key={}",
+                    INITIAL_PAGE_KEY,
+                    exception
+            );
+        }
+    }
 }

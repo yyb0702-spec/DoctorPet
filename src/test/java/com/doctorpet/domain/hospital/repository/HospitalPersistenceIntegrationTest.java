@@ -162,6 +162,35 @@ class HospitalPersistenceIntegrationTest {
         );
     }
 
+    @Test
+    void expandedSpeciesCapabilityCanBePersisted() {
+        Hospital hospital = hospitalRepository.saveAndFlush(
+                createHospital("EXPANDED-SPECIES-CAPABILITY")
+        );
+
+        HospitalCapability saved = hospitalCapabilityRepository.saveAndFlush(
+                HospitalCapability.create(hospital, CapabilityValue.BIRD)
+        );
+
+        entityManager.clear();
+
+        assertThat(hospitalCapabilityRepository.findById(saved.getId()))
+                .get()
+                .extracting(HospitalCapability::getCapabilityValue)
+                .isEqualTo(CapabilityValue.BIRD);
+
+        String dataType = (String) entityManager.createNativeQuery("""
+                        SELECT DATA_TYPE
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'hospital_capabilities'
+                          AND column_name = 'capability_value'
+                        """)
+                .getSingleResult();
+
+        assertThat(dataType).isEqualTo("varchar");
+    }
+
     private HospitalDetail createDetail(Hospital hospital) {
         return HospitalDetail.create(
                 hospital,

@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.30 |
+| 문서 버전 | v1.32 |
 | 작성 기준일 | 2026-08-05 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4: 환불 MVP 제외, 결제 멱등키(`merchant_payment_id`), `PAYMENT_COMPLETED` 제거(조합 표시), 이력 방식 B 등 리뷰 반영. v1.5~v1.6: 미확정 13건 확정(낙관적 락 실채택, Redis 캐시, 재시도 3회, 상한 300만원, 이메일 익명화, 슬롯 14일치 등 — 부록 A 참조) + 표현 경량화(사실관계 변경 없음). v1.7: 예약 상태 전이 조건부 UPDATE 보호 규칙 추가(§5), 부록 A에 탈퇴 시 활성 예약·미수금 처리 미확정 등재(하네스 2차 감사 반영). v1.8: 병원 매핑 복합 키, 슬롯-예약 1:N, AI 구조화 출력 5필드 저장을 확정하고 검색 Tool 실패 응답 주체의 문서 충돌을 미확정으로 등재. v1.9: `members`에 로그인 실패 잠금 컬럼(`failed_login_attempts`, `locked_until`) 추가 — feature/auth 구현 중 신설된 컬럼을 뒤늦게 스키마에 반영(A 도메인 결정 #1, 리뷰 반영). v1.10: 병원 시드 작성 시 승인한 진료역량 화이트리스트 13개를 확정하고 검색·AI 공통 계약으로 명시. v1.11: 결제수단 삭제 API(`DELETE /api/payment-methods/{paymentMethodId}`)를 §8-7에 추가하고, 삭제=소프트 삭제(`status=DELETED`)·중복 등록 허용·기본 결제수단 미도입을 확정(#33 구현·리뷰 반영). v1.12: §4의 `FK` 표기 의미를 명확화 — 크로스도메인 참조(`payment_methods.member_id` 등)는 DB 외래 키 제약 없이 `Long`으로 두고 앱 계층에서 무결성을 보장함을 정의(SA·DDL·가드레일 문서 충돌 정리, #33 리뷰 반영). v1.13: 최초 진입 기본 목록을 제휴 병원 우선으로 확정하고 검색용 인덱스 고도화는 전국 데이터 확장 단계의 실측 후 적용하도록 조정. v1.14~v1.22: 병원 검색·슬롯 조회·AI 상담·개인정보 경계를 확정. v1.23: 공통 서울 Clock 사용을 확정. v1.24: 결제 실패·재시도 정합성 계약을 명확화. v1.25: 저장형 알림 스키마와 멱등 계약을 확정. v1.26: 실제 LLM 제공자를 OpenAI `gpt-4.1-mini`로 확정. v1.27~v1.29: OpenAI Tool Calling, 위치 신호, 안전 출력 계약을 확정. v1.30: `reservations.approval_deadline_at`과 `(status, approval_deadline_at)` 인덱스를 정본 스키마에 추가하고, 기존 예약을 백필한 뒤 `NOT NULL`과 인덱스를 적용하는 일회성 마이그레이션을 확정(PR #94 리뷰 반영).
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다.
 
 ---
 
@@ -131,7 +131,7 @@ erDiagram
 | id | BIGINT PK | |
 | member_id | BIGINT FK | 소유 보호자 |
 | name | VARCHAR | |
-| species | VARCHAR | DOG / CAT |
+| species | VARCHAR | DOG / CAT / BIRD / RABBIT / HAMSTER / GUINEA_PIG / FERRET / REPTILE |
 | age | INT | |
 | weight | DECIMAL | |
 | neutered | BOOLEAN | |
@@ -187,11 +187,11 @@ erDiagram
 
 역량 AND 매칭용 `(capability_type, capability_value, hospital_id)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획을 확인한 뒤 적용한다. MVP에서는 `requiredCapabilities`·`supportedSpecies` 검색의 정확성을 우선 검증한다.
 
-진료역량 화이트리스트는 병원 시드 작성 시 아래 13개 값으로 확정했다.
+진료역량 화이트리스트는 병원 시드 작성 시 아래 19개 값으로 확정했다.
 
 | 분류 | 허용 값 |
 | --- | --- |
-| SPECIES | `DOG`, `CAT` |
+| SPECIES | `DOG`, `CAT`, `BIRD`, `RABBIT`, `HAMSTER`, `GUINEA_PIG`, `FERRET`, `REPTILE` |
 | EXAM | `BLOOD_TEST`, `XRAY`, `ULTRASOUND` |
 | TREATMENT | `ORTHOPEDIC_CARE`, `DENTAL_CARE`, `OPHTHALMIC_CARE`, `REHABILITATION`, `ONCOLOGY_CARE` |
 | EQUIPMENT | `CT`, `MRI`, `ENDOSCOPE` |
@@ -542,7 +542,7 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | 병원 상세 | GET | /api/hospitals/{hospitalId} | 공개 |
 | 병원 슬롯 조회 | GET | /api/hospitals/{hospitalId}/slots | 공개 |
 
-검색은 조건 조합 동적 검색(QueryDSL)에 페이징이고 제휴/비제휴를 모두 반환한다. 쿼리 파라미터 예: `region`, `distance`, `requiredCapabilities`(복수), `supportedSpecies`(DOG/CAT, 복수), `surgery`, `hospitalization`, `nightCare`, `emergency`, `page`, `size`, `sort`. 응답에 `partnershipStatus`를 담고, 비제휴는 예약 버튼 비활성 플래그와 "제휴 전 병원" 배지 정보를 붙인다.
+검색은 조건 조합 동적 검색(QueryDSL)에 페이징이고 제휴/비제휴를 모두 반환한다. 쿼리 파라미터 예: `region`, `distance`, `requiredCapabilities`(복수), `supportedSpecies`(축종 화이트리스트, 복수), `surgery`, `hospitalization`, `nightCare`, `emergency`, `page`, `size`, `sort`. 응답에 `partnershipStatus`를 담고, 비제휴는 예약 버튼 비활성 플래그와 "제휴 전 병원" 배지 정보를 붙인다.
 
 병원 검색 화면 최초 진입 시에는 별도 검색 조건이 없는 기본 페이지 크기 20의 목록에서 제휴 병원을 먼저 정렬하고, 제휴 병원이 페이지 크기보다 적으면 남은 슬롯을 비제휴 병원으로 채운다. 클라이언트는 `partnerOnly=false`, `page=1`, `size=20`, `sort=name`으로 요청하며, 동일한 기본 목록에서 페이지 번호만 변경한 경우에도 제휴 우선 정렬을 유지한다. 페이지 크기를 20이 아닌 값으로 변경하면 일반 이름순 정렬을 적용한다. `partnerOnly=true`는 제휴 병원만 조회하려는 명시적 필터로 유지한다. 이 우선 정렬은 사용자가 조건을 입력한 검색 결과를 변경하는 규칙이 아니라 초기 화면의 운영 정책이며, 조건 검색 이후에는 기존 2계층 노출 규칙을 그대로 적용한다.
 
@@ -599,7 +599,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 증상 기반 진료역량 추천·검색 | POST | /api/ai/consultations | 공개(임시 정보 허용) |
 
 - 요청 `{ symptomText, species, region?, latitude?, longitude? }`. 비로그인 상담은 `member_id`가 NULL이다. 위치 권한 요청과 좌표 조회는 프론트가 수행하고 사용자가 동의한 경우에만 전달한다.
-- `symptomText`는 필수이며 공백만 입력할 수 없고 1자 이상 1,000자 이하이다. `species`는 필수이며 `DOG`, `CAT`만 허용한다. `latitude`와 `longitude`는 함께 존재하거나 함께 없어야 하며 각각 `-90~90`, `-180~180` 범위여야 한다.
+- `symptomText`는 필수이며 공백만 입력할 수 없고 1자 이상 1,000자 이하이다. `species`는 필수이며 `DOG`, `CAT`, `BIRD`, `RABBIT`, `HAMSTER`, `GUINEA_PIG`, `FERRET`, `REPTILE`만 허용한다. `latitude`와 `longitude`는 함께 존재하거나 함께 없어야 하며 각각 `-90~90`, `-180~180` 범위여야 한다.
 - 응답 `{ structured: { possibleFocusAreas, requiredCapabilities, urgencyLevel, preVisitCheckpoints, recommendVetVisit }, hospitals: [...], disclaimer, message, fallback, locationRequired, locationRecommended }`.
 - `disclaimer`는 LLM 출력이 아니라 서버가 응답 조립 시 고정 문구로 주입한다(누락 불가).
 - `locationRecommended`는 응급 상황인데 유효한 좌표가 없을 때 `true`다. 위치 제공은 선택 사항이며 이 값은 병원 안내나 응급 고정 안내를 보류하는 차단 조건으로 사용하지 않는다. 프론트는 `true`이면 응급 안내를 먼저 표시한 뒤 위치 권한을 요청하고, 좌표 획득 시 같은 상담 또는 병원 검색을 좌표와 함께 다시 요청한다.
@@ -665,7 +665,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 ## 9-1. QueryDSL 동적 검색
 
-검색 대상은 자체 DB(`hospitals` + `hospital_details` + `hospital_capabilities`)이고 공공데이터 실시간 호출은 없다. 조건은 `BooleanBuilder`/동적 `where`로 조합하고 null 조건은 무시한다. `requiredCapabilities` 다중 매칭은 `hospital_capabilities`를 조인해 요청 역량을 전부 가진 병원만 남긴다(AND 매칭). 축종(`supportedSpecies`)도 MVP 조건이다(`capability_type='SPECIES'` 값 DOG/CAT, 복수 요청은 AND 매칭). 페이징은 count 쿼리를 분리하고 결과 DTO는 `Projections`로 직접 조회한다.
+검색 대상은 자체 DB(`hospitals` + `hospital_details` + `hospital_capabilities`)이고 공공데이터 실시간 호출은 없다. 조건은 `BooleanBuilder`/동적 `where`로 조합하고 null 조건은 무시한다. `requiredCapabilities` 다중 매칭은 `hospital_capabilities`를 조인해 요청 역량을 전부 가진 병원만 남긴다(AND 매칭). 축종(`supportedSpecies`)은 `capability_type='SPECIES'`의 확정 화이트리스트를 사용하며 복수 요청은 AND 매칭한다. 페이징은 count 쿼리를 분리하고 결과 DTO는 `Projections`로 직접 조회한다.
 
 거리 계산은 반경 사각박스(좌표 ± N도)로 후보를 좁힌 뒤 앱단에서 정밀 계산·정렬한다. `ST_Distance_Sphere` 같은 DB 정밀 계산은 안 쓰고, 전국 데이터 확장 단계에서 실행 계획과 응답시간을 측정한 뒤 좌표 인덱스 또는 공간 검색 방식으로 고도화한다. 영업상태는 폐업(`CLOSED`)을 기본 검색에서 제외하고 휴업(`CLOSED_TEMP`)은 포함하되 배지로 표시한다.
 
@@ -778,7 +778,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 ## 9-6. 공공데이터 배치 적재·2계층 매핑
 
-스케줄러가 공공데이터를 수집해 `hospitals`에 적재·갱신한다. 조인 키는 `local_gov_code + mgmt_no`. 제휴 매핑은 더미 제휴 데이터를 같은 복합 키로 조인해 `partnership_status=PARTNER`로 표시하고 `hospital_details`·`hospital_capabilities`를 보강한다. 비제휴는 원본만 유지(`NON_PARTNER`)해 참고용으로 노출하고 예약은 막는다. 범위는 전국 통합 조회(localdata.go.kr) 가능 여부와 무관하게 특정 지자체(서울 등 1~2곳)로 좁혀 시작하고, MVP는 1회 시드 적재로 충분하다. 주기 갱신 배치는 확장에서 도입한다. API 인증키 발급 소요는 착수 전 1주차에 확인한다.
+스케줄러가 전국 공공데이터를 수집해 `hospitals`에 적재·갱신한다. 조인 키는 `local_gov_code + mgmt_no`. 제휴 매핑은 운영 제휴 데이터를 같은 복합 키로 조인해 `partnership_status=PARTNER`로 표시하고 `hospital_details`·`hospital_capabilities`를 보강한다. 비제휴는 원본만 유지(`NON_PARTNER`)해 참고용으로 노출하고 예약은 막는다. 매주 월요일 03:00(`Asia/Seoul`)에 갱신하며, 여러 인스턴스의 중복 실행은 MySQL `GET_LOCK`으로 막는다. 외부 제휴 시스템이 생기기 전에는 저장소의 제휴 JSON을 재적용하고 임의의 제휴 API 계약은 만들지 않는다. 갱신 완료 후 기본 첫 페이지 Redis 캐시를 삭제하며, 캐시 삭제 실패는 원천 데이터 갱신을 실패시키지 않는다.
 
 ## 9-7. 스케줄러
 
@@ -787,7 +787,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 | 노쇼 자동 판정 | 1분 | CONFIRMED 중 예약시각+10분 경과·미체크인 → NO_SHOW(수동 판정 우선) |
 | 예약 요청 타임아웃 | 1분 | REQUESTED 중 승인 데드라인(`min(요청+1h, 예약−2h)`) 경과·미승인 → 자동 REJECTED, 슬롯 반환 |
 | 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정. 단, 사유가 `AMOUNT_MISMATCH`/`INVALID_PG_RESULT`인 `PENDING`은 자동 확정하지 않고 운영자 수동 확인 대상으로 분류(금액·식별자 정합성이 깨져 자동 확정 시 잘못된 금액 확정 위험) |
-| 공공데이터 적재 | 주1회 | MVP는 1회 시드 후 유지 (§9-6) |
+| 공공데이터 적재 | 매주 월요일 03:00(`Asia/Seoul`) | 전국 공공데이터 갱신 후 제휴 데이터를 재적용하고 검색 캐시를 삭제한다 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
 
 ## 9-8. 실시간 알림 (도전)
@@ -906,7 +906,8 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 것들은 목록에서 뺐다: 동시성=낙관적 락, 검색 캐시=최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 적용, 실시간 알림=MVP 폴링, 진료역량 화이트리스트=13개 고정 값(§4), 거리 계산=MVP 반경 박스 후 앱 정밀 계산·인덱스는 전국 데이터 확장 단계에서 실측 후 적용, 결제 재시도=3회, 진료비 상한=300만원(설정값), 결제수단 삭제·만료=삭제 자유+청구 시점 재확인 후 OFFLINE_REQUIRED, 예약 슬롯=배치·14일치·미예약 마감 허용, Refresh Token 키=`refresh:{memberId}` 단일·값은 SHA-256 해시(§6-1, 리뷰 지적), 이메일 재가입=탈퇴 시 익명화, AI 증상 보존=30일+패턴 마스킹, AI 제공자 비종속 Gateway·Fake 우선 구현, 프롬프트 리소스 파일 관리, 입력 1,000자·DOG/CAT 제한, 회원·비회원 Rate Limit, 검색 Tool 실패 서버 fallback, 2단계 응급 분기, 기본 Circuit Breaker, 탈퇴 시 활성 예약·미수금 보유 회원 처리=탈퇴 보류(§6-3), 이메일 인증·비밀번호 재설정 방식=링크형 토큰(Redis TTL, 1회용, 키는 SHA-256 해시)·가입 시 이메일 인증 필수(§6-4), 탈퇴 회원 Access Token 무효화=Redis 블랙리스트(`withdrawn:{memberId}`, TTL=Access Token 만료 시간), 로그아웃 Access Token 무효화=Redis 블랙리스트(`at-blacklist:{jti}`, 토큰 단위, TTL=그 토큰의 남은 수명, §6-1), 기존 회원 `email_verified` 백필=앱 최초 부팅 시 1회 true로 백필·`schema_migrations` 마커로 재실행 방지, 공공데이터=지자체 시작·MVP 1회 시드, 스케줄러=1분·1분·5분·주1회, 성능 목표=P95 300ms·100RPS·오류율 1%, 관찰성=Actuator+로그, 데모 고지=배너+실행 직전 확인.
+확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, MVP 폴링, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
+
 남은 것:
 
 | # | 항목 | 위치 |

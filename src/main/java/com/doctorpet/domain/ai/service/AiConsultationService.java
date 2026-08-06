@@ -10,6 +10,7 @@ import com.doctorpet.domain.ai.support.AiHospitalSearchIntentExtractor;
 import com.doctorpet.domain.ai.support.EmergencyKeywordDetector;
 import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
+import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.service.HospitalService;
@@ -23,11 +24,12 @@ import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
-import java.util.EnumSet;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.springframework.util.StringUtils;
 
 import lombok.RequiredArgsConstructor;
@@ -61,8 +63,10 @@ public class AiConsultationService {
             "가까운 병원을 찾으려면 위치를 제공하거나 지역을 입력해 주세요.";
     private static final String FALLBACK_MESSAGE =
             "현재 AI 상담을 이용하기 어렵습니다. 병원 검색에서 필요한 조건을 직접 선택해 주세요.";
-    private static final Set<CapabilityValue> SEARCH_CAPABILITIES = EnumSet.complementOf(
-            EnumSet.of(CapabilityValue.DOG, CapabilityValue.CAT));
+    private static final Set<CapabilityValue> SEARCH_CAPABILITIES =
+            Arrays.stream(CapabilityValue.values())
+                    .filter(value -> value.getType() != CapabilityType.SPECIES)
+                    .collect(Collectors.toUnmodifiableSet());
 
     private final AiGateway aiGateway;
     private final AiConsultationRepository aiConsultationRepository;
