@@ -126,6 +126,13 @@ public class ReservationNoShowBatchService {
                 }
             }
         }
+        if (scanned >= properties.getMaxScannedPerRun()) {
+            log.warn(
+                    "자동 노쇼 배치가 실행당 조회 상한에 도달했습니다. 잔여 대상은 다음 주기로 이월될 수 있습니다: scanned={}, maxScannedPerRun={}",
+                    scanned,
+                    properties.getMaxScannedPerRun()
+            );
+        }
         return new ReservationNoShowSummary(true, scanned, processed, skipped, failed, maxDelay);
     }
 

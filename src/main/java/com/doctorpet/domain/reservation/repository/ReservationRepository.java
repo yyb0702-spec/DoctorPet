@@ -253,7 +253,7 @@ public interface ReservationRepository
               from Reservation r, ReservationSlot s
              where s.id = r.slotId
                and r.status = :confirmedStatus
-        and s.startAt < :cutoff
+               and s.startAt < :cutoff
              order by s.startAt asc, r.id asc
             """)
     List<ReservationNoShowTarget> findAutoNoShowTargets(
@@ -268,7 +268,7 @@ public interface ReservationRepository
               from Reservation r, ReservationSlot s
              where s.id = r.slotId
                and r.status = :confirmedStatus
-        and s.startAt < :cutoff
+               and s.startAt < :cutoff
                and (s.startAt > :cursorStartAt
                     or (s.startAt = :cursorStartAt and r.id > :cursorId))
              order by s.startAt asc, r.id asc

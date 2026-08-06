@@ -52,6 +52,12 @@ public class ReservationNoShowIndexMigrationRunner implements ApplicationRunner 
             return;
         }
 
+        if (!indexExists(connection) && indexNameExists(connection)) {
+            throw new IllegalStateException(
+                    "reservations의 자동 노쇼 조회 인덱스 구성이 올바르지 않습니다."
+            );
+        }
+
         if (!indexExists(connection)) {
             try (Statement statement = connection.createStatement()) {
                 statement.execute("""
@@ -67,8 +73,29 @@ public class ReservationNoShowIndexMigrationRunner implements ApplicationRunner 
     }
 
     private void assertTargetSchema(Connection connection) throws SQLException {
-        if (!indexExists(connection)) {
-            throw new IllegalStateException("reservations의 자동 노쇼 조회 인덱스가 없습니다.");
+        if (indexExists(connection)) {
+            return;
+        }
+        if (indexNameExists(connection)) {
+            throw new IllegalStateException(
+                    "reservations의 자동 노쇼 조회 인덱스 구성이 올바르지 않습니다."
+            );
+        }
+        throw new IllegalStateException("reservations의 자동 노쇼 조회 인덱스가 없습니다.");
+    }
+
+    private boolean indexNameExists(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'reservations'
+                   and index_name = ?
+                """)) {
+            statement.setString(1, INDEX_NAME);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getInt(1) > 0;
+            }
         }
     }
 

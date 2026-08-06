@@ -85,6 +85,18 @@ class ReservationNoShowIndexMigrationIntegrationTest {
     }
 
     @Test
+    @DisplayName("이름만 같은 잘못된 인덱스가 있으면 구성 불일치로 즉시 실패한다")
+    void sameNameWithWrongColumns_failsFast() {
+        createWrongIndex();
+
+        assertThatThrownBy(
+                () -> new ReservationNoShowIndexMigrationRunner(jdbcTemplate).run(null)
+        )
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("자동 노쇼 조회 인덱스 구성이 올바르지 않습니다");
+    }
+
+    @Test
     @DisplayName("두 인스턴스가 동시에 실행돼도 인덱스와 마커는 한 번만 남는다")
     void concurrentRunners_areSerializedByDatabaseLock() throws InterruptedException {
         ReservationNoShowIndexMigrationRunner runner =
@@ -144,7 +156,7 @@ class ReservationNoShowIndexMigrationIntegrationTest {
     }
 
     private void dropIndex() {
-        if (indexExists()) {
+        if (indexNameExists()) {
             jdbcTemplate.execute("""
                     alter table reservations
                     drop index idx_reservations_status_slot
@@ -174,6 +186,24 @@ class ReservationNoShowIndexMigrationIntegrationTest {
                         having group_concat(column_name order by seq_in_index)
                                = 'status,slot_id'
                        ) matching_index
+                """, Integer.class, ReservationNoShowIndexMigrationRunner.INDEX_NAME);
+        return count != null && count > 0;
+    }
+
+    private void createWrongIndex() {
+        jdbcTemplate.execute("""
+                create index idx_reservations_status_slot
+                on reservations (slot_id, status)
+                """);
+    }
+
+    private boolean indexNameExists() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'reservations'
+                   and index_name = ?
                 """, Integer.class, ReservationNoShowIndexMigrationRunner.INDEX_NAME);
         return count != null && count > 0;
     }
