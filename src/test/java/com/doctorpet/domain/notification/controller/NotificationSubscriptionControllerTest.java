@@ -30,9 +30,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * Level 2 — SSE 구독 엔드포인트의 인가 경계와 실패 응답 계약을 검증한다(PR #106).
  *
  * <p>구독 경로는 `EventSource`가 헤더 인증을 못 해 permitAll이므로, 실제 {@link SecurityConfig}를 그대로
- * 불러와 인증 없이도 401/403으로 막히지 않는지 확인한다. 그리고 이 핸들러는 `text/event-stream`을
- * produces로 선언하므로, 티켓 실패(401)·연결 상한(429) 같은 오류가 `ApiResponse` JSON으로 정상 전달되는지
- * (스트림 미디어 타입 때문에 406으로 새지 않는지) 함께 검증한다.
+ * 불러와 인증 없이도 401/403으로 막히지 않는지 확인한다. 이 핸들러는 더 이상 {@code produces}를 선언하지
+ * 않는다 — 선언해두면 `Accept: text/event-stream`인 요청에서 예외가 났을 때 content negotiation이
+ * `ApiResponse`(JSON)를 협상하지 못해 오류가 전달되지 않는 문제가 있었다(2차 리뷰 발견). 그래서 이
+ * 테스트는 정상 응답이 여전히 `text/event-stream`인지(Spring이 `SseEmitter` 반환 타입으로 자동 결정),
+ * 그리고 티켓 실패(401)·연결 상한(429) 오류는 Accept가 `text/event-stream`이어도 JSON으로 전달되는지를
+ * 함께 검증한다.
  */
 @WebMvcTest(controllers = NotificationSubscriptionController.class)
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
