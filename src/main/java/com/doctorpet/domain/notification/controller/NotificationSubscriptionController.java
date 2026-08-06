@@ -9,7 +9,6 @@ import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,7 +35,10 @@ public class NotificationSubscriptionController {
     }
 
     // 발급받은 티켓으로 SSE 스트림을 구독한다(비인증 경로, 티켓으로 식별).
-    @GetMapping(value = "/subscribe", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    // produces를 선언하지 않는다 — SseEmitter 반환이면 Spring이 응답을 text/event-stream으로 처리하고,
+    // produces로 매핑을 제약하면 EventSource가 보내는 Accept: text/event-stream 요청에서 오류가 났을 때
+    // GlobalExceptionHandler의 ApiResponse(JSON)를 협상하지 못해 401·429가 클라이언트에 전달되지 않는다.
+    @GetMapping("/subscribe")
     public SseEmitter subscribe(@RequestParam @NotBlank String ticket) {
         return subscriptionService.subscribe(ticket);
     }
