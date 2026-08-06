@@ -17,6 +17,7 @@ import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItem
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
@@ -44,6 +45,8 @@ public class HospitalReservationApplicationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
+    // 상태 전이 트랜잭션 안에서 알림을 저장하고, 실시간 전송은 커밋 이후에 실행된다(SA §9-8, #88).
+    private final ReservationNotificationPublisher notificationPublisher;
 
     /**
      * 병원 스태프가 자기 병원의 REQUESTED 예약을 승인한다(SA §5-1, §6-2).
@@ -69,6 +72,8 @@ public class HospitalReservationApplicationService {
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
+
+        notificationPublisher.publishConfirmed(reservation.getMemberId(), reservationId);
     }
 
     /**
@@ -103,6 +108,8 @@ public class HospitalReservationApplicationService {
 
         ReservationSlot slot = findSlot(reservation.getSlotId());
         slot.open();
+
+        notificationPublisher.publishRejected(reservation.getMemberId(), reservationId);
     }
 
     /**
@@ -221,6 +228,11 @@ public class HospitalReservationApplicationService {
                 now
         );
 
+        // 이 호출이 실제로 CONFIRMED → NO_SHOW 전이를 성립시켰을 때만 알린다. 이미 NO_SHOW였던
+        // 멱등 경로(updated == 0)는 앞선 전이에서 이미 발행됐으므로 중복 발행하지 않는다.
+        if (updated != 0) {
+            notificationPublisher.publishNoShow(reservation.getMemberId(), reservationId);
+        }
     }
 
     /**
