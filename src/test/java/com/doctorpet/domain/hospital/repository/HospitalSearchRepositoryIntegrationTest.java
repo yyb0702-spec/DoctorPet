@@ -184,10 +184,12 @@ class HospitalSearchRepositoryIntegrationTest {
 
         List<HospitalSearchCandidate> result =
                 hospitalRepository.searchAll(condition);
+        long totalElements = hospitalRepository.count(condition);
 
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(matched.getId());
+        assertThat(totalElements).isEqualTo(1);
     }
 
     @Test
