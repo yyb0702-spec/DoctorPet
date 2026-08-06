@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.repository;
 
 import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -228,6 +229,56 @@ public interface ReservationRepository
             @Param("noShowStatus") ReservationStatus noShowStatus,
             @Param("noShowAt") LocalDateTime noShowAt,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :noShowStatus,
+                   r.noShowAt = :noShowAt,
+                   r.updatedAt = :noShowAt
+             where r.id = :reservationId
+               and r.status = :confirmedStatus
+            """)
+    int markAutoNoShowIfConfirmed(
+            @Param("reservationId") Long reservationId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("noShowStatus") ReservationStatus noShowStatus,
+            @Param("noShowAt") LocalDateTime noShowAt
+    );
+
+    @Query("""
+            select r.id as reservationId,
+                   s.startAt as slotStartAt
+              from Reservation r, ReservationSlot s
+             where s.id = r.slotId
+               and r.status = :confirmedStatus
+               and s.startAt < :cutoff
+             order by s.startAt asc, r.id asc
+            """)
+    List<ReservationNoShowTarget> findAutoNoShowTargets(
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("cutoff") LocalDateTime cutoff,
+            Pageable pageable
+    );
+
+    @Query("""
+            select r.id as reservationId,
+                   s.startAt as slotStartAt
+              from Reservation r, ReservationSlot s
+             where s.id = r.slotId
+               and r.status = :confirmedStatus
+               and s.startAt < :cutoff
+               and (s.startAt > :cursorStartAt
+                    or (s.startAt = :cursorStartAt and r.id > :cursorId))
+             order by s.startAt asc, r.id asc
+            """)
+    List<ReservationNoShowTarget> findAutoNoShowTargetsAfter(
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("cutoff") LocalDateTime cutoff,
+            @Param("cursorStartAt") LocalDateTime cursorStartAt,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

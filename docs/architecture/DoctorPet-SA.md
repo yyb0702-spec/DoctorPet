@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.32 |
-| 작성 기준일 | 2026-08-05 |
+| 문서 버전 | v1.35 |
+| 작성 기준일 | 2026-08-06 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다.
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강.
 
 ---
 
@@ -232,7 +232,7 @@ erDiagram
 | canceled_at | DATETIME NULL | |
 | no_show_at | DATETIME NULL | |
 
-인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)`.
+인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)`, `(status, slot_id)`.
 
 기존 예약이 있는 환경에서는 먼저 `approval_deadline_at`을 nullable로 추가하고, 각 `REQUESTED` 예약을 `min(requested_at + 1시간, slot.start_at - 2시간)`으로 백필한다. 검증이 끝난 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다. `ReservationApprovalDeadlineMigrationRunner`는 MySQL `GET_LOCK`으로 다중 인스턴스 실행을 직렬화하고 `schema_migrations`의 `reservation_approval_deadline_v1` 마커로 일회성 실행을 보장한다. 마커와 실제 스키마가 다르면 부팅을 중단한다.
 
@@ -441,6 +441,8 @@ stateDiagram-v2
 Access Token은 30분~1시간, Refresh Token은 14일이며 Redis에 저장·회전한다. 폐기된 Refresh Token이 재사용되면 해당 사용자 전체 세션을 무효화한다. 미인증 401, 권한 없음 403. 저장 키는 `refresh:{memberId}` 단일(기기 1세션 기준). 회전 시 갱신하고, 재사용 감지를 위해 이전 토큰과 비교한다. 저장하는 **값**은 토큰 원문이 아니라 SHA-256 해시다(리뷰 지적) — Redis 값 자체가 그대로 재발급에 쓸 수 있는 자격증명이므로, 원문을 저장하면 Redis 노출 사고만으로 서명 검증 없이 세션을 탈취할 수 있다. 비교(CAS)도 제시된 토큰을 해시해서 수행한다.
 
 로그아웃한 Access Token은 `at-blacklist:{jti}` 키로 개별 무효화한다(TTL=그 토큰의 남은 수명) — 탈퇴 무효화(`withdrawn:{memberId}`, 회원 단위)와 달리 로그아웃은 토큰 단위(jti)로만 막아, 로그아웃 직후 재로그인으로 받은 새 Access Token은 영향받지 않는다.
+
+**재발급(reissue) 직렬화와 펜싱 토큰(이슈 #100)**: 같은 회원의 재발급 요청은 `refresh-lock:{memberId}` 락(SET NX PX, TTL 3초)으로 직렬화한다. 락 TTL이 처리 중 만료되면(GC 정지 등 드문 경우) 뒤이은 요청이 새 락을 얻어 먼저 회전할 수 있는데, 이때 뒤늦게 도착한 원래 요청의 CAS 시도를 무조건 재사용(탈취)으로 판단해 세션을 지우면 방금 성공한 요청의 새 세션까지 함께 지워지는 버그가 있었다. 지금은 락을 얻을 때마다 `refresh-fence:{memberId}`(INCR, TTL 없음)로 단조 증가하는 펜싱 토큰을 함께 발급하고, `refresh:{memberId}`에 저장하는 값도 `{펜싱 토큰}:{해시}` 형식으로 바꿔 마지막 회전의 펜싱 토큰을 함께 기록한다. 회전 시도의 펜싱 토큰이 다음 둘 중 더 큰 값보다 작으면(더 최신 요청이 이미 회전을 끝냈거나, 회전은 아직 안 했어도 더 최신 락을 이미 발급받음) STALE로 보고 값을 건드리지 않는다 — 저장된 값의 펜싱 토큰만 보면, 더 최신 락이 발급됐지만 그 소유자가 아직 회전을 실행하지 못한 사이 뒤늦게 도착한 예전 락 소유자의 회전이 통과해버리는 레이스가 남기 때문에(2차 리뷰 지적), `refresh-fence` 카운터의 현재 값까지 함께 비교한다. 펜싱 검사를 통과했는데도 값이 일치하지 않으면 그때만 진짜 재사용(REUSED)으로 판단해 세션을 삭제한다. 펜싱 토큰이 아직 한 번도 기록되지 않은 값(콜론 없음 — 로그인 직후 `save()`, 또는 #123 배포 전 원문/해시)은 0으로 간주해 항상 다음 단계로 통과시킨다.
 
 ## 6-2. 역할·인가
 
@@ -897,8 +899,14 @@ sequenceDiagram
 - AWS EC2(앱), RDS(MySQL), ElastiCache(Redis).
 - GitHub Actions로 빌드·테스트 자동 실행, 이미지 빌드·배포.
 - k6로 검색·예약 처리량·응답시간을 비교한다. 검색 캐시는 최초 진입 기본 첫 페이지의 적용 전후만 비교한다.
-- 관찰성은 Spring Actuator + 로그(MVP 수준). Prometheus/Grafana는 여력에 따라 확장.
+- 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #105). Grafana 등 시각화는 여력에 따라 확장.
 - 실시간 메시징(§9-8)은 채팅 도입 여부에 따라 추후 재논의.
+
+**관측성 지표·API 문서 노출 범위(이슈 #105)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
+
+관리 포트(8081)만 헬스체크하면 관리 컨텍스트는 살아있지만 정작 앱 포트(8080)가 새 연결을 못 받는 상태를 놓칠 수 있다(2차 리뷰 지적, Spring Boot 공식 문서도 별도 관리 포트의 이 위험을 명시한다). Spring Boot 4.1의 헬스 그룹 `additional-path` 기능으로 readiness 헬스 그룹(기본 자동 활성화)을 앱 포트에 `/healthz`로도 노출해(`management.endpoint.health.group.readiness.additional-path=server:/healthz`), Dockerfile HEALTHCHECK가 8081 `/actuator/health`와 8080 `/healthz` 둘 다 확인하도록 바꿨다. `/healthz`도 `SecurityConfig` 메인 체인에서 permitAll한다.
+
+**Level 6 실기동 검증(2차 리뷰 지적, docker compose)**: `actuatorSecurityFilterChain`의 permitAll이 관리 포트(8081) 요청에도 실제로 적용되는지가 문서만으로는 불명확하다는 지적에 실제로 컨테이너를 띄워 확인했다. `docker compose exec app curl 8081/actuator/health`·`/actuator/prometheus`는 인증 헤더 없이 200을 반환했고, 응답에 Spring Security의 `HeaderWriterFilter`가 남기는 표준 헤더(`X-Frame-Options` 등)가 그대로 포함돼 이 체인이 실제로 관리 포트 요청에도 적용됨을 확인했다 — `securityMatcher`는 포트가 아니라 경로로 매칭되고 `FilterChainProxy`가 포트별로 분리돼 있지 않기 때문이다(관리 포트 전용 DispatcherServlet은 별도 자식 컨텍스트라 실제 라우팅만 분리된다, spring-projects/spring-boot#50355). 즉 permitAll은 의도 표시용이 아니라 실제로 유효한 인가 규칙이고, docker-compose가 8081을 호스트에 게시하지 않는 것은 그 위에 얹는 추가 방어선이다. 같은 검증 과정에서 `/v3/api-docs`가 (springdoc이 꺼진 프로파일에서) 기대한 404 대신 500을 반환하는 버그도 발견해 `GlobalExceptionHandler`에 `NoResourceFoundException` 전용 핸들러를 추가해 함께 수정했다 — `Exception.class` catch-all이 원래 자동 404여야 할 이 예외까지 가로채고 있었다.
 
 성능 목표는 검색 응답시간 P95 300ms 이하, 처리량 100 RPS, 오류율 1% 이하(PRD §9 성과지표와 동일 수치). 도전 과제는 MVP 완성 이후 진행하며, 미완 시 문서·부분 구성으로 대체한다.
 

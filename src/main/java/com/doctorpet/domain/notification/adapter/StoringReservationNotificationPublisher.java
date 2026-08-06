@@ -25,4 +25,15 @@ public class StoringReservationNotificationPublisher
                 reservationId
         );
     }
+
+    @Override
+    public void publishNoShow(Long guardianMemberId, Long reservationId) {
+        notificationService.create(
+                guardianMemberId,
+                NotificationType.NO_SHOW,
+                "예약 시간 이후 체크인이 확인되지 않아 노쇼로 처리되었습니다.",
+                NotificationResourceType.RESERVATION,
+                reservationId
+        );
+    }
 }
