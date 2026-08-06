@@ -67,6 +67,13 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**"
                         ).permitAll()
+                        // 앱 포트(8080) 자체의 헬스체크(2차 리뷰 지적, 이슈 #105) - 관리 포트(8081)
+                        // 헬스체크만으로는 관리 컨텍스트는 살아있지만 정작 메인 포트가 새 연결을
+                        // 못 받는 상태를 놓칠 수 있다. readiness 헬스 그룹을 application.yaml에서
+                        // additional-path(server:/healthz)로 이 포트에도 노출했으므로, 이 경로도
+                        // /actuator/**와 마찬가지로 인증 없이 열어야 Dockerfile HEALTHCHECK가
+                        // 401로 오판하지 않는다.
+                        .requestMatchers(HttpMethod.GET, "/healthz").permitAll()
                         // 인증/재발급 - 정책상 비인증 API (정책 결정 사항 §1, API 명세서 §1 참고)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/signup", "/api/auth/login", "/api/auth/reissue"
