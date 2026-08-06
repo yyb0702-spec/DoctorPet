@@ -48,6 +48,7 @@
 - 수동 확정과 자동 처리 다중 스레드 경합 검증
 - 상태 전이·SYSTEM 이력·알림의 원자성 및 멱등성 검증
 - MySQL `GET_LOCK` 다중 인스턴스 중복 방지 검증
+- 자동 노쇼 조회 인덱스 마이그레이션의 인덱스 생성·마커 기록·재실행 멱등·마커 불일치 실패 검증
 - 한 예약이 재시도 후 실패해도 다음 페이지 예약을 처리하는지 검증
 
 **수정 파일**
@@ -68,6 +69,7 @@
 - `DoctorPet-SA.md`
 - `reservation-auto-no-show-implementation.md`
 - `issue-29-auto-no-show-guide.md`
+- `ReservationNoShowIndexMigrationIntegrationTest.java`
 
 ## 변경 유형
 
@@ -93,8 +95,9 @@
 | Level 1 | `./gradlew compileJava compileTestJava --no-daemon` | PASS | 운영 코드와 테스트 코드 컴파일 | 전체 테스트 회귀 여부 |
 | Level 2 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.ReservationNoShowBatchServiceTest" --no-daemon` | PASS | 재시도·실패 격리·다음 페이지 진행 | 실제 DB 경합 |
 | Level 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.service.HospitalNoShowIntegrationTest" --no-daemon` | PASS | 실제 MySQL 경계·경합·멱등·이력·알림·잠금 | 외부 알림 전송 채널 |
+| Level 3 | `./gradlew test --tests "com.doctorpet.domain.reservation.migration.ReservationNoShowIndexMigrationIntegrationTest" --no-daemon` | PASS | 실제 MySQL 인덱스 생성·`schema_migrations` 마커·재실행·동시 기동·불일치 fail-fast | 운영 배포 환경별 권한 차이 |
 | Harness | `python scripts/harness_check.py` 및 `git diff --check` | PASS | 문서 링크·섹션 및 공백 오류 | 없음 |
-| 전체 회귀 | CI와 동일한 환경 변수·빈 MySQL·Redis에서 `./gradlew clean build --no-daemon` | PASS | 전체 742개 테스트와 패키징 | 없음 |
+| 전체 회귀 | GitHub Actions `CI / Build and Test (pull_request)` | PASS | 원격 CI 전체 빌드·테스트 | 운영 배포 환경별 권한 차이 |
 
 **미검증 항목**
 
@@ -103,6 +106,7 @@
 ## 테스트
 
 - `HospitalNoShowIntegrationTest` — 경계, 대상 상태, 체크인/수동 확정 경합, 멱등성, SYSTEM 이력, 알림, DB 잠금
+- `ReservationNoShowIndexMigrationIntegrationTest` — 실제 MySQL 인덱스·마커·재실행·동시 기동·불일치 fail-fast
 - `ReservationNoShowBatchServiceTest` — 단건 재시도 실패 후 다음 예약 처리
 
 ## AI 사용 내역
