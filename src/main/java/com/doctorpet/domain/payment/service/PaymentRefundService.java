@@ -67,9 +67,14 @@ public class PaymentRefundService {
         return outcome.response();
     }
 
+    // 공급자에 넘기는 취소 사유는 고정 문구다. 스태프가 입력한 사유는 병원 내부 감사값이라 외부 공급자에
+    // 전달하지 않는다 — 자유 입력이라 보호자 정보나 진료 내용이 섞일 수 있고, 그게 PG 콘솔·정산 내역에
+    // 남으면 최소 전송 원칙에 어긋난다. 입력 사유는 payment_refunds.reason에만 보관한다(보안).
+    private static final String GATEWAY_CANCEL_REASON = "진료비 환불";
+
     private PaymentCancelResult cancelAtGateway(RefundClaim claim) {
         PaymentCancelCommand command = new PaymentCancelCommand(
-                claim.merchantPaymentId(), claim.merchantRefundId(), claim.amount(), "진료비 환불");
+                claim.merchantPaymentId(), claim.merchantRefundId(), claim.amount(), GATEWAY_CANCEL_REASON);
         try {
             return paymentGateway.cancel(command);
         } catch (PaymentGatewayException e) {

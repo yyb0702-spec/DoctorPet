@@ -73,6 +73,8 @@ class PaymentRefundIntegrationTest {
     // 환불 확정 이후 PG 취소 웹훅이 상태를 덮어쓰지 않는지 실제 경로로 확인하기 위해 쓴다(목이 아니다).
     @Autowired private PaymentWebhookService paymentWebhookService;
     @Autowired private PaymentWebhookRepository paymentWebhookRepository;
+    // 환불 후 재청구가 막히는 의도된 한계를 실제 청구 경로로 확인하기 위해서만 쓴다.
+    @Autowired private PaymentChargeService paymentChargeService;
 
     @MockitoBean private ReservationLookupPort reservationLookupPort;
     @MockitoBean private StaffHospitalPort staffHospitalPort;
@@ -375,6 +377,22 @@ class PaymentRefundIntegrationTest {
         assertThat(payment.getRefundedAt()).isNotNull();
         // 알림도 환불 1회로 유지된다 — 웹훅이 상태를 재확정했다면 여기서 2회가 된다.
         verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("환불한 예약은 다시 청구할 수 없다(정정 재청구는 확장) — DUPLICATE_CHARGE로 막힌다")
+    void refunded_reservationCannotBeRechargedYet() {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow().getReservationId();
+        paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
+
+        // preRecord는 상태와 무관하게 existsByReservationId로 이중 청구를 막으므로, REFUNDED 행이 남아 있는
+        // 예약은 금액을 고쳐 다시 청구할 수 없다. UNIQUE(reservation_id)가 예약당 결제 1건을 강제하기 때문에
+        // 정정 재청구는 스키마 확장(payments 1:N) 없이는 불가능하다 — PRD·SA가 확장으로 분류한 그 항목이다.
+        // 의도된 한계를 테스트로 고정해, 나중에 조용히 동작이 바뀌거나 놓친 요구사항으로 오해되지 않게 한다.
+        assertThatThrownBy(() -> paymentChargeService.preRecord(reservationId, STAFF_MEMBER_ID, AMOUNT - 10_000))
+                .isInstanceOf(ServiceException.class)
+                .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
     }
 
     @Test

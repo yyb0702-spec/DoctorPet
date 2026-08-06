@@ -17,6 +17,7 @@ import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -112,15 +113,31 @@ public class PaymentRefundTxService {
      * <p>{@code applied}는 이 호출이 실제로 결제 상태를 전이시켰는지다 — 멈춘 선점을 회수한 요청과 원래 요청이
      * 같은 멱등키로 각각 성공을 확정하는 경우, 조건부 UPDATE(WHERE status='PAID')가 1건만 성립시키므로
      * 알림이 중복 발행되지 않는다(청구 후확정의 applied와 같은 역할, PR #81 P1).
+     *
+     * <p>두 조건부 UPDATE는 항상 같이 성립하거나 같이 실패한다 — 이력을 COMPLETED로 바꾸는 전이와 결제를
+     * REFUNDED로 바꾸는 전이가 이 트랜잭션에만 있으므로, 선점을 잃은 요청은 둘 다 0건이 된다. 그 불변식이
+     * 깨지면 "이력은 완료인데 결제는 PAID"(또는 그 반대)가 남아 조용히 어긋나므로, 갈라지는 경우를 감지해
+     * 로그로 드러낸다. 로그만 남기고 예외로 올리지는 않는다 — PG 취소는 이미 성립했으니 되돌릴 수 없고,
+     * 트랜잭션을 롤백하면 오히려 확정 기록만 사라진다.
      */
     @Transactional
     public RefundOutcome complete(Long refundId, Long paymentId, String pgCancelId) {
         LocalDateTime now = LocalDateTime.now(clock);
-        paymentRefundRepository.markCompletedIfRequested(refundId, pgCancelId, now);
-        int updated = paymentRepository.markRefundedIfPaid(paymentId, now);
+        int refundUpdated = paymentRefundRepository.markCompletedIfRequested(refundId, pgCancelId, now);
+        int paymentUpdated = paymentRepository.markRefundedIfPaid(paymentId, now);
+        if (refundUpdated != paymentUpdated) {
+            log.error("환불 확정 전이가 갈라졌다 — 수동 확인 필요: paymentId={}, refundId={}, 이력={}건, 결제={}건",
+                    paymentId, refundId, refundUpdated, paymentUpdated);
+        }
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-        return new RefundOutcome(PaymentHistoryResponse.from(payment), updated > 0);
+        // 전이가 성립하지 않았다면(다른 요청이 먼저 확정) 상태는 이미 REFUNDED여야 한다. PAID로 남아 있으면
+        // PG는 취소됐는데 우리 상태만 뒤처진 것이므로, 성공 응답으로 덮지 않고 드러낸다.
+        if (paymentUpdated == 0 && payment.getStatus() != PaymentStatus.REFUNDED) {
+            log.error("PG 취소는 성립했으나 결제 상태가 REFUNDED가 아니다 — 수동 확인 필요: paymentId={}, status={}",
+                    paymentId, payment.getStatus());
+        }
+        return new RefundOutcome(PaymentHistoryResponse.from(payment), paymentUpdated > 0);
     }
 
     /**
@@ -169,7 +186,7 @@ public class PaymentRefundTxService {
                 ? paymentRefundRepository.claimFailedForRetry(existing.getId(), reason, staffMemberId, now)
                 : paymentRefundRepository.claimStaleRequested(
                         existing.getId(), reason, staffMemberId,
-                        now.minusNanos(properties.getClaimStaleAfterMs() * 1_000_000L), now);
+                        now.minus(properties.getClaimStaleAfterMs(), ChronoUnit.MILLIS), now);
         if (claimed == 0) {
             // FAILED 재시도 경쟁에서 졌거나, REQUESTED 선점이 아직 신선하다(진행 중) → 가로채지 않는다.
             throw new ServiceException(PaymentErrorCode.REFUND_IN_PROGRESS);
