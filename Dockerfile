@@ -33,11 +33,19 @@ RUN mkdir -p /app/logs && chown -R doctorpet:doctorpet /app/logs
 USER doctorpet
 
 EXPOSE 8080
+# 액추에이터(health/prometheus) 전용 관리 포트(이슈 #105) — 앱 포트(8080)와 분리해 mysql·redis와
+# 같은 방식으로 호스트에 게시하지 않는다(docker-compose.yml 참고). 컨테이너 "내부"에서 curl하는
+# 아래 HEALTHCHECK는 호스트 게시 여부와 무관하게 그대로 동작한다.
+EXPOSE 8081
 
 # 컨테이너 자체 헬스체크 — docker-compose/오케스트레이터가 "떠는 있지만 아직 요청 못 받는"
 # 상태와 "정상 기동 완료"를 구분할 수 있게 한다. Actuator health가 permitAll로 열려 있어야 한다
-# (SecurityConfig 참고).
+# (SecurityConfig의 actuatorSecurityFilterChain 참고). 이슈 #105로 관리 포트가 8081로 바뀌었다.
+#
+# 관리 포트(8081)만 확인하면 관리 컨텍스트는 살아있지만 정작 앱 포트(8080)가 새 연결을 못 받는
+# 상태를 놓칠 수 있다(2차 리뷰 지적) — 그래서 8080의 /healthz(readiness 헬스 그룹, application.yaml
+# additional-path)도 함께 확인한다. 둘 중 하나라도 실패하면 unhealthy로 판정한다.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
-    CMD curl -f http://localhost:8080/actuator/health || exit 1
+    CMD curl -f http://localhost:8081/actuator/health && curl -f http://localhost:8080/healthz || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
