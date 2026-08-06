@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,7 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
 
     static final String CAPABILITY_VALUE_MIGRATION_KEY =
             "hospital_capability_value_varchar_v1";
-    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v5";
+    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v1";
     static final String NAME_ORDER_INDEX =
             "idx_hospitals_name_id_business_status";
     static final String PARTNERSHIP_NAME_ORDER_INDEX =
@@ -53,7 +54,7 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
     private static final String LOCK_NAME = "doctorpet:hospital_schema_migrations";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
     private static final int CAPABILITY_VALUE_LENGTH = 32;
-    private static final List<IndexDefinition> SEARCH_INDEXES = List.of(
+    static final List<IndexDefinition> SEARCH_INDEXES = List.of(
             new IndexDefinition(
                     "hospitals",
                     NAME_ORDER_INDEX,
@@ -255,34 +256,65 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
 
     private void assertDeprecatedIndexRemoved(Connection connection)
             throws SQLException {
-        if (indexNameExists(
+        List<String> remainingIndexes = deprecatedIndexesPresent(connection);
+        if (!remainingIndexes.isEmpty()) {
+            throw new IllegalStateException(
+                    "제거 대상 병원 검색 인덱스가 남아 있습니다: "
+                            + String.join(", ", remainingIndexes)
+            );
+        }
+    }
+
+    private List<String> deprecatedIndexesPresent(Connection connection)
+            throws SQLException {
+        List<String> remainingIndexes = new ArrayList<>();
+        addIfIndexExists(
                 connection,
+                remainingIndexes,
                 "hospitals",
                 DEPRECATED_BUSINESS_STATUS_INDEX
-        ) || indexNameExists(
+        );
+        addIfIndexExists(
                 connection,
+                remainingIndexes,
                 "hospitals",
                 DEPRECATED_NAME_ORDER_INDEX
-        ) || indexNameExists(
+        );
+        addIfIndexExists(
                 connection,
+                remainingIndexes,
                 "hospitals",
                 DEPRECATED_PARTNERSHIP_NAME_ORDER_INDEX
-        ) || indexNameExists(
+        );
+        addIfIndexExists(
                 connection,
+                remainingIndexes,
                 "hospitals",
                 DEPRECATED_COORDINATE_INDEX
-        ) || indexNameExists(
+        );
+        addIfIndexExists(
                 connection,
+                remainingIndexes,
                 "hospital_capabilities",
                 DEPRECATED_CAPABILITY_INDEX
-        ) || indexNameExists(
+        );
+        addIfIndexExists(
                 connection,
+                remainingIndexes,
                 "hospital_capabilities",
                 DEPRECATED_CAPABILITY_VALUE_INDEX
-        )) {
-            throw new IllegalStateException(
-                    "제거 대상 병원 검색 인덱스가 남아 있습니다"
-            );
+        );
+        return remainingIndexes;
+    }
+
+    private void addIfIndexExists(
+            Connection connection,
+            List<String> remainingIndexes,
+            String table,
+            String indexName
+    ) throws SQLException {
+        if (indexNameExists(connection, table, indexName)) {
+            remainingIndexes.add(table + "." + indexName);
         }
     }
 

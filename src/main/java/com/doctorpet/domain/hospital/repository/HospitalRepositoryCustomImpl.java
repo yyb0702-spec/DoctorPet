@@ -102,10 +102,7 @@ public class HospitalRepositoryCustomImpl
     }
 
     private boolean hasFacilityCondition(HospitalSearchCondition condition) {
-        return Boolean.TRUE.equals(condition.surgery())
-                || Boolean.TRUE.equals(condition.hospitalization())
-                || Boolean.TRUE.equals(condition.nightCare())
-                || Boolean.TRUE.equals(condition.emergency());
+        return facilityMatches(condition) != null;
     }
 
     private JPAQuery<HospitalSearchCandidate> searchQuery(

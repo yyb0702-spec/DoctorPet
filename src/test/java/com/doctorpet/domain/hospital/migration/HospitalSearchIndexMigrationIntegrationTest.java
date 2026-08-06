@@ -3,7 +3,12 @@ package com.doctorpet.domain.hospital.migration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.doctorpet.domain.hospital.entity.Hospital;
+import jakarta.persistence.Table;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -118,6 +123,27 @@ class HospitalSearchIndexMigrationIntegrationTest {
 
         assertThat(INDEXES).allMatch(this::indexExists);
         assertThat(markerCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("엔티티와 마이그레이션의 병원 인덱스 정의가 일치한다")
+    void entityAndMigrationIndexDefinitionsMatch() {
+        Map<String, String> entityIndexes = Arrays.stream(
+                        Hospital.class.getAnnotation(Table.class).indexes()
+                )
+                .collect(Collectors.toMap(
+                        jakarta.persistence.Index::name,
+                        index -> normalizeColumns(index.columnList())
+                ));
+        Map<String, String> migrationIndexes = HospitalSchemaMigrationRunner
+                .SEARCH_INDEXES
+                .stream()
+                .collect(Collectors.toMap(
+                        IndexDefinition::name,
+                        index -> normalizeColumns(index.columns())
+                ));
+
+        assertThat(entityIndexes).isEqualTo(migrationIndexes);
     }
 
     @Test
@@ -416,6 +442,10 @@ class HospitalSearchIndexMigrationIntegrationTest {
                 """, Integer.class,
                 HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY);
         return count == null ? 0 : count;
+    }
+
+    private String normalizeColumns(String columns) {
+        return columns.replaceAll("\\s+", "");
     }
 
     private record IndexSpec(String table, String name, String columns) {
