@@ -13,6 +13,7 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
 @RestControllerAdvice
@@ -49,6 +50,16 @@ public class GlobalExceptionHandler {
         ErrorCode errorCode = resolveDataIntegrityErrorCode(exception);
         return ResponseEntity.status(errorCode.getHttpStatus())
                 .body(ApiResponse.error(errorCode));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException exception) {
+        // 매핑된 핸들러도 정적 리소스도 없는 요청(예: springdoc이 꺼진 프로파일의 /v3/api-docs)은
+        // 원래 Spring이 자동으로 404로 응답하는데, 아래 Exception.class catch-all이 먼저 잡아버려서
+        // 이 저장소의 모든 "존재하지 않는 경로" 요청이 500으로 나가고 있었다(이슈 #105 2차 리뷰 P1,
+        // docker compose 실기동 검증에서 발견 — /v3/api-docs가 기대한 404 대신 500을 반환).
+        return ResponseEntity.status(CommonErrorCode.NOT_FOUND.getHttpStatus())
+                .body(ApiResponse.error(CommonErrorCode.NOT_FOUND));
     }
 
     @ExceptionHandler(Exception.class)

@@ -29,14 +29,18 @@ import org.springframework.test.web.servlet.MvcResult;
  * {@code securityMatcher}로 범위를 좁힌 전용 체인을 명시적으로 permitAll해야 한다. 이 클래스는
  * 실제 {@link SecurityConfig}를 그대로 불러와({@code addFilters}를 끄지 않음) "/actuator/**"·
  * Swagger·{@code /healthz} 경로가 401/403 없이 통과하는지 MockMvc로 직접 확인한다 — 이 체인들이
- * 서로 다른 물리 포트에서 뜬다는 사실 자체는 여기서 검증할 수 없고(실제 HTTP 서버를 띄우지 않는
- * 슬라이스 테스트의 한계), springdoc이 실제로 등록돼 {@code /v3/api-docs}가 200을 반환하는지도
- * 여기서는 확인할 수 없다(슬라이스는 springdoc 자동구성을 로드하지 않으므로 401/403만 아니면
- * 통과 — 2차 리뷰 지적). 이 클래스가 검증하는 것은 "SecurityConfig의 인가 규칙이 이 경로들을
- * 막지 않는다"까지다. 관리 포트 8081의 health/prometheus 200, 앱 포트 8080의 /healthz 200,
- * local 프로파일의 /v3/api-docs 200, docker/prod 프로파일의 /v3/api-docs 404, Dockerfile
- * HEALTHCHECK의 실제 healthy 전환은 docker compose로 실제 기동해 Level 5·6으로 검증하고 PR
- * 본문에 기록한다(docs/testing/verification-guide.md).
+ * 서로 다른 물리 포트에서 뜬다는 사실 자체는 여기서 검증할 수 없다(실제 HTTP 서버를 띄우지 않는
+ * 슬라이스 테스트의 한계). 이 클래스가 검증하는 것은 "SecurityConfig의 인가 규칙이 이 경로들을
+ * 막지 않는다"까지다 — 401/403만 아니면 통과하므로 실제 200/404 여부는 증명하지 못한다(2차 리뷰
+ * 지적).
+ *
+ * springdoc의 실제 200(local)/404(비-local) 여부는 {@link SwaggerLocalProfileIntegrationTest}·
+ * {@link SwaggerNonLocalProfileIntegrationTest}(Level 3, 실제 컨텍스트)가 검증한다. 관리 포트
+ * 8081의 health/prometheus 200, 앱 포트 8080의 /healthz 200, Dockerfile HEALTHCHECK의 실제
+ * healthy 전환은 물리적으로 분리된 포트와 실행 중인 컨테이너가 있어야만 확인할 수 있어 자동
+ * 테스트로 옮기지 않았다(RANDOM_PORT+관리 포트 분리 조합의 알려진 플레이키 이슈, spring-boot#48653
+ * 회피) — docker compose로 실제 기동해 Level 5·6으로 검증하고 PR 본문에 기록한다
+ * (docs/testing/verification-guide.md). 이 부분이 확인되기 전에는 머지하지 않는다.
  */
 @WebMvcTest(controllers = MemberController.class)
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
