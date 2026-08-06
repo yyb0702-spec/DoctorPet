@@ -32,8 +32,10 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
 
     static final String CAPABILITY_VALUE_MIGRATION_KEY =
             "hospital_capability_value_varchar_v1";
-    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v1";
-    static final String BUSINESS_STATUS_INDEX = "idx_hospitals_business_status";
+    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v2";
+    static final String NAME_ORDER_INDEX = "idx_hospitals_name_id";
+    static final String DEPRECATED_BUSINESS_STATUS_INDEX =
+            "idx_hospitals_business_status";
     static final String COORDINATE_INDEX = "idx_hospitals_coord_x_y";
     static final String CAPABILITY_INDEX =
             "idx_hospital_capabilities_type_value_hospital";
@@ -44,10 +46,10 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
     private static final List<IndexDefinition> SEARCH_INDEXES = List.of(
             new IndexDefinition(
                     "hospitals",
-                    BUSINESS_STATUS_INDEX,
-                    "business_status",
-                    "create index idx_hospitals_business_status "
-                            + "on hospitals (business_status)"
+                    NAME_ORDER_INDEX,
+                    "name,id",
+                    "create index idx_hospitals_name_id "
+                            + "on hospitals (name, id)"
             ),
             new IndexDefinition(
                     "hospitals",
@@ -106,9 +108,15 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
     private void migrateSearchIndexes(Connection connection) throws SQLException {
         if (migrationApplied(connection, SEARCH_INDEX_MIGRATION_KEY)) {
             assertSearchIndexes(connection);
+            assertDeprecatedIndexRemoved(connection);
             return;
         }
 
+        dropIndexIfExists(
+                connection,
+                "hospitals",
+                DEPRECATED_BUSINESS_STATUS_INDEX
+        );
         for (IndexDefinition index : SEARCH_INDEXES) {
             if (!indexExists(connection, index)) {
                 try (Statement statement = connection.createStatement()) {
@@ -118,9 +126,10 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
         }
 
         assertSearchIndexes(connection);
+        assertDeprecatedIndexRemoved(connection);
         recordMigration(connection, SEARCH_INDEX_MIGRATION_KEY);
         log.info("병원 검색 인덱스 마이그레이션 완료: {}, {}, {}",
-                BUSINESS_STATUS_INDEX, COORDINATE_INDEX, CAPABILITY_INDEX);
+                NAME_ORDER_INDEX, COORDINATE_INDEX, CAPABILITY_INDEX);
     }
 
     private void assertExistingCapabilityValuesFit(Connection connection)
@@ -173,6 +182,55 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 throw new IllegalStateException(
                         "병원 검색 인덱스가 없거나 컬럼 순서가 다릅니다: " + index.name()
                 );
+            }
+        }
+    }
+
+    private void assertDeprecatedIndexRemoved(Connection connection)
+            throws SQLException {
+        if (indexNameExists(
+                connection,
+                "hospitals",
+                DEPRECATED_BUSINESS_STATUS_INDEX
+        )) {
+            throw new IllegalStateException(
+                    "제거 대상 병원 검색 인덱스가 남아 있습니다: "
+                            + DEPRECATED_BUSINESS_STATUS_INDEX
+            );
+        }
+    }
+
+    private void dropIndexIfExists(
+            Connection connection,
+            String table,
+            String indexName
+    ) throws SQLException {
+        if (!indexNameExists(connection, table, indexName)) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(
+                    "alter table " + table + " drop index " + indexName
+            );
+        }
+    }
+
+    private boolean indexNameExists(
+            Connection connection,
+            String table,
+            String indexName
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = ?
+                   and index_name = ?
+                """)) {
+            statement.setString(1, table);
+            statement.setString(2, indexName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getInt(1) > 0;
             }
         }
     }

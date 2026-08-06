@@ -31,8 +31,8 @@ class HospitalSearchIndexMigrationIntegrationTest {
     private static final List<IndexSpec> INDEXES = List.of(
             new IndexSpec(
                     "hospitals",
-                    HospitalSchemaMigrationRunner.BUSINESS_STATUS_INDEX,
-                    "business_status"
+                    HospitalSchemaMigrationRunner.NAME_ORDER_INDEX,
+                    "name,id"
             ),
             new IndexSpec(
                     "hospitals",
@@ -53,10 +53,12 @@ class HospitalSearchIndexMigrationIntegrationTest {
     void removeMigrationState() {
         deleteMarker();
         INDEXES.forEach(this::dropIndex);
+        createDeprecatedBusinessStatusIndex();
     }
 
     @AfterEach
     void restoreSchema() {
+        dropDeprecatedBusinessStatusIndex();
         INDEXES.forEach(this::createIndex);
         deleteMarker();
     }
@@ -71,6 +73,7 @@ class HospitalSearchIndexMigrationIntegrationTest {
         runner.run(null);
 
         assertThat(INDEXES).allMatch(this::indexExists);
+        assertThat(deprecatedBusinessStatusIndexExists()).isFalse();
         assertThat(markerCount()).isEqualTo(1);
     }
 
@@ -84,6 +87,19 @@ class HospitalSearchIndexMigrationIntegrationTest {
         )
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("병원 검색 인덱스");
+    }
+
+    @Test
+    @DisplayName("마커 적용 후 제거 대상 인덱스가 다시 생기면 부팅 오류로 처리한다")
+    void appliedMarkerWithDeprecatedIndexFailsFast() {
+        INDEXES.forEach(this::createIndex);
+        insertMarker();
+
+        assertThatThrownBy(() ->
+                new HospitalSchemaMigrationRunner(jdbcTemplate).run(null)
+        )
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("제거 대상 병원 검색 인덱스");
     }
 
     private boolean indexExists(IndexSpec index) {
@@ -124,6 +140,39 @@ class HospitalSearchIndexMigrationIntegrationTest {
                 insert into schema_migrations (migration_key, applied_at)
                 values (?, now())
                 """, HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY);
+    }
+
+    private void createDeprecatedBusinessStatusIndex() {
+        if (!deprecatedBusinessStatusIndexExists()) {
+            jdbcTemplate.execute(
+                    "create index "
+                            + HospitalSchemaMigrationRunner
+                            .DEPRECATED_BUSINESS_STATUS_INDEX
+                            + " on hospitals (business_status)"
+            );
+        }
+    }
+
+    private void dropDeprecatedBusinessStatusIndex() {
+        if (deprecatedBusinessStatusIndexExists()) {
+            jdbcTemplate.execute(
+                    "alter table hospitals drop index "
+                            + HospitalSchemaMigrationRunner
+                            .DEPRECATED_BUSINESS_STATUS_INDEX
+            );
+        }
+    }
+
+    private boolean deprecatedBusinessStatusIndexExists() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'hospitals'
+                   and index_name = ?
+                """, Integer.class, HospitalSchemaMigrationRunner
+                .DEPRECATED_BUSINESS_STATUS_INDEX);
+        return count != null && count > 0;
     }
 
     private void deleteMarker() {
