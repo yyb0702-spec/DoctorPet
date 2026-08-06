@@ -12,6 +12,12 @@ public enum CapabilityValue {
 
     DOG(CapabilityType.SPECIES),
     CAT(CapabilityType.SPECIES),
+    BIRD(CapabilityType.SPECIES),
+    RABBIT(CapabilityType.SPECIES),
+    HAMSTER(CapabilityType.SPECIES),
+    GUINEA_PIG(CapabilityType.SPECIES),
+    FERRET(CapabilityType.SPECIES),
+    REPTILE(CapabilityType.SPECIES),
 
     BLOOD_TEST(CapabilityType.EXAM),
     XRAY(CapabilityType.EXAM),

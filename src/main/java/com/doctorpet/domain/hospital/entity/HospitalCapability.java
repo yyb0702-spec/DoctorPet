@@ -58,7 +58,11 @@ public class HospitalCapability {
     private CapabilityType capabilityType;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "capability_value", nullable = false)
+    @Column(
+            name = "capability_value",
+            nullable = false,
+            columnDefinition = "varchar(32)"
+    )
     private CapabilityValue capabilityValue;
 
     private HospitalCapability(

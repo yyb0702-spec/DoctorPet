@@ -9,7 +9,6 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Duration;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,19 +33,19 @@ class AnimalHospitalPublicDataClientTest {
                         BASE_URL,
                         System.getenv("PUBLIC_DATA_SERVICE_KEY"),
                         100,
-                        List.of("3130000"),
                         Duration.ofSeconds(3),
                         Duration.ofSeconds(10),
-                        "EPSG:5174"
+                        "EPSG:5174",
+                        3,
+                        Duration.ofMinutes(5)
                 );
         AnimalHospitalPublicDataClient client =
                 new AnimalHospitalPublicDataClient(properties);
 
-        // 마포구 개방자치단체 코드로 첫 번째 페이지에서 최대 10건만 요청합니다.
+        // 전국 동물병원 데이터의 첫 번째 페이지에서 최대 10건만 요청합니다.
         AnimalHospitalApiResponse response = client.fetch(
                 1,
-                10,
-                "3130000"
+                10
         );
 
         // 실제 JSON이 응답 DTO의 각 계층으로 정상 변환됐는지 확인합니다.
@@ -78,16 +77,17 @@ class AnimalHospitalPublicDataClientTest {
                             "http://localhost:" + server.getAddress().getPort(),
                             serviceKey,
                             100,
-                            List.of("3130000"),
                             Duration.ofSeconds(3),
                             Duration.ofSeconds(10),
-                            "EPSG:5174"
+                            "EPSG:5174",
+                            3,
+                            Duration.ofMinutes(5)
                     );
             AnimalHospitalPublicDataClient client =
                     new AnimalHospitalPublicDataClient(properties);
 
             // 외부 API 오류를 감싸되, 메시지와 원인에 요청 URI나 인증키를 남기지 않습니다.
-            assertThatThrownBy(() -> client.fetch(1, 10, "3130000"))
+            assertThatThrownBy(() -> client.fetch(1, 10))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("동물병원 공공데이터 API 호출에 실패했습니다.")
                     .hasNoCause()

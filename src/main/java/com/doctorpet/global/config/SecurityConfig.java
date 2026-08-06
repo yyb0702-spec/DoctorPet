@@ -58,6 +58,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/hospitals/**").permitAll()
                         // AI 상담 - 공개, 비로그인 임시 상담 허용 (API 명세서 §4)
                         .requestMatchers(HttpMethod.POST, "/api/ai/consultations").permitAll()
+                        // 결제 웹훅 - JWT가 아니라 웹훅 서명으로 검증한다(이슈 #48). 컨트롤러가 서명 실패를 401로 거부한다.
+                        .requestMatchers(HttpMethod.POST, "/api/payments/webhook").permitAll()
                         // 보호자 예약 요청·취소 (SA §8-5)
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasRole("GUARDIAN")
                         .requestMatchers(

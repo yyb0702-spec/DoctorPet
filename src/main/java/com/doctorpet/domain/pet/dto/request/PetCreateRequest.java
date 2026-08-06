@@ -15,7 +15,7 @@ import java.math.BigDecimal;
  *
  * name에 상한을 둔 이유는 SignupRequest.nickname과 같다 — DB 컬럼 길이(기본 varchar(255))를
  * 넘는 값이 검증을 통과해 DataIntegrityViolationException(500)으로 이어지는 것을 막기 위함이다.
- * species는 Java enum(PetSpecies)으로 받아, 화이트리스트(DOG/CAT) 밖의 값은 Jackson
+ * species는 Java enum(PetSpecies)으로 받아, 화이트리스트 밖의 값은 Jackson
  * 역직렬화 단계에서 자체적으로 거부되어 GlobalExceptionHandler가 400으로 응답한다.
  */
 public record PetCreateRequest(

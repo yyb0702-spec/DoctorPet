@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.repository;
 
 import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -100,6 +101,7 @@ public interface ReservationRepository
              where r.id = :reservationId
                and r.hospitalId = :hospitalId
                and r.status = :requestedStatus
+               and r.approvalDeadlineAt > :confirmedAt
             """)
     int approveIfRequested(
             @Param("reservationId") Long reservationId,
@@ -144,6 +146,36 @@ public interface ReservationRepository
             @Param("confirmedStatus") ReservationStatus confirmedStatus,
             @Param("checkedInStatus") ReservationStatus checkedInStatus,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+        update Reservation r
+           set r.status = :rejectedStatus,
+               r.updatedAt = :now,
+               r.approvalTimeoutNextRetryAt = null
+         where r.id = :reservationId
+           and r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+        """)
+    int rejectByTimeoutIfRequested(
+            @Param("reservationId") Long reservationId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("rejectedStatus") ReservationStatus rejectedStatus,
+            @Param("now") LocalDateTime now
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.approvalTimeoutNextRetryAt = :nextRetryAt
+             where r.id = :reservationId
+               and r.status = :requestedStatus
+            """)
+    int deferApprovalTimeoutRetry(
+            @Param("reservationId") Long reservationId,
+            @Param("requestedStatus") ReservationStatus requestedStatus,
+            @Param("nextRetryAt") LocalDateTime nextRetryAt
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
@@ -202,6 +234,56 @@ public interface ReservationRepository
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
+               set r.status = :noShowStatus,
+                   r.noShowAt = :noShowAt,
+                   r.updatedAt = :noShowAt
+             where r.id = :reservationId
+               and r.status = :confirmedStatus
+            """)
+    int markAutoNoShowIfConfirmed(
+            @Param("reservationId") Long reservationId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("noShowStatus") ReservationStatus noShowStatus,
+            @Param("noShowAt") LocalDateTime noShowAt
+    );
+
+    @Query("""
+            select r.id as reservationId,
+                   s.startAt as slotStartAt
+              from Reservation r, ReservationSlot s
+             where s.id = r.slotId
+               and r.status = :confirmedStatus
+               and s.startAt < :cutoff
+             order by s.startAt asc, r.id asc
+            """)
+    List<ReservationNoShowTarget> findAutoNoShowTargets(
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("cutoff") LocalDateTime cutoff,
+            Pageable pageable
+    );
+
+    @Query("""
+            select r.id as reservationId,
+                   s.startAt as slotStartAt
+              from Reservation r, ReservationSlot s
+             where s.id = r.slotId
+               and r.status = :confirmedStatus
+               and s.startAt < :cutoff
+               and (s.startAt > :cursorStartAt
+                    or (s.startAt = :cursorStartAt and r.id > :cursorId))
+             order by s.startAt asc, r.id asc
+            """)
+    List<ReservationNoShowTarget> findAutoNoShowTargetsAfter(
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("cutoff") LocalDateTime cutoff,
+            @Param("cursorStartAt") LocalDateTime cursorStartAt,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
                set r.status = :checkedInStatus,
                    r.updatedAt = :updatedAt
              where r.id = :reservationId
@@ -214,5 +296,74 @@ public interface ReservationRepository
             @Param("noShowStatus") ReservationStatus noShowStatus,
             @Param("checkedInStatus") ReservationStatus checkedInStatus,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+
+    @Query("""
+        select r
+          from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and r.approvalTimeoutNextRetryAt is null
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutTargets(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    /** 마감 시각·ID 커서 뒤의 다음 페이지를 조회해 실패 예약의 starvation을 막는다. */
+    @Query("""
+        select r
+          from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and r.approvalTimeoutNextRetryAt is null
+           and (
+                r.approvalDeadlineAt > :cursorDeadline
+                or (
+                    r.approvalDeadlineAt = :cursorDeadline
+                    and r.id > :cursorId
+                )
+           )
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutTargetsAfter(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            @Param("cursorDeadline") LocalDateTime cursorDeadline,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
+    );
+
+    @Query("""
+        select r from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and r.approvalTimeoutNextRetryAt <= :now
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutRetryTargets(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    @Query("""
+        select r from Reservation r
+         where r.status = :requestedStatus
+           and r.approvalDeadlineAt <= :now
+           and r.approvalTimeoutNextRetryAt <= :now
+           and (r.approvalDeadlineAt > :cursorDeadline
+                or (r.approvalDeadlineAt = :cursorDeadline and r.id > :cursorId))
+         order by r.approvalDeadlineAt asc, r.id asc
+        """)
+    List<Reservation> findApprovalTimeoutRetryTargetsAfter(
+            @Param("requestedStatus") ReservationStatus reservationStatus,
+            @Param("now") LocalDateTime now,
+            @Param("cursorDeadline") LocalDateTime cursorDeadline,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
     );
 }

@@ -26,7 +26,10 @@ public enum PaymentErrorCode implements ErrorCode {
     // 결제 레코드를 찾을 수 없음(후확정 단계 방어선).
     PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_005", "결제 정보를 찾을 수 없습니다."),
     // 오프라인 정산은 OFFLINE_REQUIRED 상태에서만 가능. PENDING·PAID 등 허용되지 않은 상태에서 시도한 경우(#36).
-    OFFLINE_PRECONDITION_FAILED(HttpStatus.CONFLICT, "PAYMENT_006", "오프라인 정산이 가능한 상태가 아닙니다.");
+    OFFLINE_PRECONDITION_FAILED(HttpStatus.CONFLICT, "PAYMENT_006", "오프라인 정산이 가능한 상태가 아닙니다."),
+    // 웹훅 서명 검증 실패(#48). 위조·재전송 등 신뢰할 수 없는 요청을 401로 거부한다.
+    // PAYMENT_006은 develop 병합분(#36 OFFLINE_PRECONDITION_FAILED)이 선점해 007로 재번호했다.
+    WEBHOOK_SIGNATURE_INVALID(HttpStatus.UNAUTHORIZED, "PAYMENT_007", "결제 웹훅 서명 검증에 실패했습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
