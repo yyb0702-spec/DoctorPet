@@ -154,11 +154,7 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 DEPRECATED_CAPABILITY_VALUE_INDEX
         );
         for (IndexDefinition index : SEARCH_INDEXES) {
-            if (!indexExists(connection, index)) {
-                try (Statement statement = connection.createStatement()) {
-                    statement.execute(index.createSql());
-                }
-            }
+            repairOrCreateIndex(connection, index);
         }
 
         assertSearchIndexes(connection);
@@ -168,6 +164,39 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 NAME_ORDER_INDEX,
                 PARTNERSHIP_NAME_ORDER_INDEX,
                 COORDINATE_INDEX);
+    }
+
+    private void repairOrCreateIndex(
+            Connection connection,
+            IndexDefinition index
+    ) throws SQLException {
+        if (indexExists(connection, index)) {
+            return;
+        }
+
+        if (indexNameExists(connection, index.table(), index.name())) {
+            if (indexColumnsMatch(connection, index)) {
+                makeIndexVisible(connection, index);
+                return;
+            }
+            dropIndexIfExists(connection, index.table(), index.name());
+        }
+
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(index.createSql());
+        }
+    }
+
+    private void makeIndexVisible(
+            Connection connection,
+            IndexDefinition index
+    ) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(
+                    "alter table " + index.table()
+                            + " alter index " + index.name() + " visible"
+            );
+        }
     }
 
     private void assertExistingCapabilityValuesFit(Connection connection)
@@ -294,6 +323,32 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
 
     private boolean indexExists(Connection connection, IndexDefinition index)
             throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*)
+                  from (
+                        select index_name
+                          from information_schema.statistics
+                         where table_schema = database()
+                           and table_name = ?
+                           and index_name = ?
+                         group by index_name
+                        having group_concat(column_name order by seq_in_index) = ?
+                           and min(is_visible) = 'YES'
+                       ) matching_index
+                """)) {
+            statement.setString(1, index.table());
+            statement.setString(2, index.name());
+            statement.setString(3, index.columns());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getInt(1) > 0;
+            }
+        }
+    }
+
+    private boolean indexColumnsMatch(
+            Connection connection,
+            IndexDefinition index
+    ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 select count(*)
                   from (

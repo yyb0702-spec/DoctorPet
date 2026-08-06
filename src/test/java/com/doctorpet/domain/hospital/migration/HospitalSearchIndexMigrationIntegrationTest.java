@@ -52,7 +52,7 @@ class HospitalSearchIndexMigrationIntegrationTest {
     @BeforeEach
     void removeMigrationState() {
         deleteMarker();
-        INDEXES.forEach(this::dropIndex);
+        INDEXES.forEach(this::dropIndexByName);
         createDeprecatedBusinessStatusIndex();
         createDeprecatedNameOrderIndex();
         createDeprecatedPartnershipNameOrderIndex();
@@ -69,7 +69,7 @@ class HospitalSearchIndexMigrationIntegrationTest {
         dropDeprecatedCoordinateIndex();
         dropDeprecatedCapabilityIndex();
         dropDeprecatedCapabilityValueIndex();
-        INDEXES.forEach(this::createIndex);
+        INDEXES.forEach(this::restoreIndex);
         deleteMarker();
     }
 
@@ -89,6 +89,34 @@ class HospitalSearchIndexMigrationIntegrationTest {
         assertThat(deprecatedCoordinateIndexExists()).isFalse();
         assertThat(deprecatedCapabilityIndexExists()).isFalse();
         assertThat(deprecatedCapabilityValueIndexExists()).isFalse();
+        assertThat(markerCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("동일 이름의 잘못된 인덱스를 올바른 컬럼 순서로 교체한다")
+    void replacesSameNameIndexWithWrongColumns() throws Exception {
+        IndexSpec target = INDEXES.get(0);
+        createIndex(target.table(), target.name(), "business_status,name,id");
+
+        new HospitalSchemaMigrationRunner(jdbcTemplate).run(null);
+
+        assertThat(INDEXES).allMatch(this::indexExists);
+        assertThat(markerCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("동일 정의의 INVISIBLE 인덱스를 VISIBLE로 복구한다")
+    void makesMatchingInvisibleIndexVisible() throws Exception {
+        INDEXES.forEach(this::createIndex);
+        IndexSpec target = INDEXES.get(0);
+        jdbcTemplate.execute(
+                "alter table " + target.table()
+                        + " alter index " + target.name() + " invisible"
+        );
+
+        new HospitalSchemaMigrationRunner(jdbcTemplate).run(null);
+
+        assertThat(INDEXES).allMatch(this::indexExists);
         assertThat(markerCount()).isEqualTo(1);
     }
 
@@ -128,13 +156,14 @@ class HospitalSearchIndexMigrationIntegrationTest {
                            and index_name = ?
                          group by index_name
                         having group_concat(column_name order by seq_in_index) = ?
+                           and min(is_visible) = 'YES'
                        ) matching_index
                 """, Integer.class, index.table(), index.name(), index.columns());
         return count != null && count > 0;
     }
 
-    private void dropIndex(IndexSpec index) {
-        if (indexExists(index)) {
+    private void dropIndexByName(IndexSpec index) {
+        if (indexNameExists(index)) {
             jdbcTemplate.execute(
                     "alter table " + index.table() + " drop index " + index.name()
             );
@@ -142,12 +171,30 @@ class HospitalSearchIndexMigrationIntegrationTest {
     }
 
     private void createIndex(IndexSpec index) {
-        if (!indexExists(index)) {
-            jdbcTemplate.execute(
-                    "create index " + index.name() + " on " + index.table()
-                            + " (" + index.columns() + ")"
-            );
-        }
+        createIndex(index.table(), index.name(), index.columns());
+    }
+
+    private void createIndex(String table, String name, String columns) {
+        jdbcTemplate.execute(
+                "create index " + name + " on " + table
+                        + " (" + columns + ")"
+        );
+    }
+
+    private void restoreIndex(IndexSpec index) {
+        dropIndexByName(index);
+        createIndex(index);
+    }
+
+    private boolean indexNameExists(IndexSpec index) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = ?
+                   and index_name = ?
+                """, Integer.class, index.table(), index.name());
+        return count != null && count > 0;
     }
 
     private void insertMarker() {
