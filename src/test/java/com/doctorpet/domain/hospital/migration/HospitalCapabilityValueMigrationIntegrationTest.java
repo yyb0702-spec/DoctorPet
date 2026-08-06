@@ -45,9 +45,14 @@ class HospitalCapabilityValueMigrationIntegrationTest {
     private HospitalRepository hospitalRepository;
 
     private Long hospitalId;
+    private boolean searchIndexMarkerExisted;
 
     @BeforeEach
     void prepareLegacySchema() {
+        searchIndexMarkerExisted = searchIndexMarkerCount() > 0;
+        if (!searchIndexMarkerExisted) {
+            insertSearchIndexMarker();
+        }
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
                 HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY
@@ -83,6 +88,7 @@ class HospitalCapabilityValueMigrationIntegrationTest {
 
     @AfterEach
     void restoreSchema() {
+        assertThat(searchIndexMarkerCount()).isEqualTo(1);
         jdbcTemplate.update(
                 "delete from hospital_capabilities where hospital_id = ?",
                 hospitalId
@@ -96,6 +102,9 @@ class HospitalCapabilityValueMigrationIntegrationTest {
                 "delete from schema_migrations where migration_key = ?",
                 HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY
         );
+        if (!searchIndexMarkerExisted) {
+            deleteSearchIndexMarker();
+        }
     }
 
     @Test
@@ -175,5 +184,29 @@ class HospitalCapabilityValueMigrationIntegrationTest {
                  where migration_key = ?
                 """, Integer.class,
                 HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY);
+    }
+
+    private int searchIndexMarkerCount() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from schema_migrations
+                 where migration_key = ?
+                """, Integer.class,
+                HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY);
+        return count == null ? 0 : count;
+    }
+
+    private void insertSearchIndexMarker() {
+        jdbcTemplate.update("""
+                insert into schema_migrations (migration_key, applied_at)
+                values (?, now())
+                """, HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY);
+    }
+
+    private void deleteSearchIndexMarker() {
+        jdbcTemplate.update(
+                "delete from schema_migrations where migration_key = ?",
+                HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY
+        );
     }
 }
