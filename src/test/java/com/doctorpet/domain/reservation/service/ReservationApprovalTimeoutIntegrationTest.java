@@ -345,6 +345,10 @@ class ReservationApprovalTimeoutIntegrationTest {
         );
         assertThat(timeoutEventCount(data.reservationId()))
                 .isEqualTo(race.processedCount());
+        // 이 테스트의 "수동 거절"은 서비스(HospitalReservationApplicationService.reject)가 아니라
+        // reservationRepository.rejectIfRequested를 직접 호출하는 시뮬레이션이므로 알림을 발행하지 않는다.
+        // 따라서 거절 알림 수는 자동 거절이 이긴 경우(processedCount=1)에만 1건이다 — 상수 1로 두면
+        // 수동 거절이 이긴 경우(processedCount=0)에 실패한다.
         assertThat(rejectedNotificationCount(data.reservationId()))
                 .isEqualTo(race.processedCount());
     }

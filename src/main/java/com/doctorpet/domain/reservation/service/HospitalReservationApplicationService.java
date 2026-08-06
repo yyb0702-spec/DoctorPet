@@ -45,7 +45,7 @@ public class HospitalReservationApplicationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
-    // 상태 전이 트랜잭션 안에서 알림을 저장하고, 실시간 전송은 커밋 이후에 실행된다(SA §9-8, #88).
+    // 상태 전이 트랜잭션 안에서 보호자 알림을 저장한다 — 전이가 롤백되면 알림도 함께 롤백된다(SA §9-8, #88).
     private final ReservationNotificationPublisher notificationPublisher;
 
     /**

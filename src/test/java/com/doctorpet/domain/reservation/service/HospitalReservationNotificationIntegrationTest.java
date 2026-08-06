@@ -114,8 +114,8 @@ class HospitalReservationNotificationIntegrationTest {
     }
 
     @Test
-    @DisplayName("알림 저장이 실패하면 예약 상태·슬롯 변경도 함께 롤백된다")
-    void notificationFailure_rollsBackTransition() {
+    @DisplayName("승인 중 알림 저장이 실패하면 예약 상태 변경도 함께 롤백된다")
+    void notificationFailureOnApprove_rollsBackTransition() {
         TestReservation data = saveRequestedReservation();
         doThrow(new IllegalStateException("알림 저장 실패 시뮬레이션"))
                 .when(notificationService)
@@ -126,7 +126,27 @@ class HospitalReservationNotificationIntegrationTest {
                 .isInstanceOf(IllegalStateException.class);
 
         // 알림 저장은 상태 전이와 같은 트랜잭션이므로 전이도 남지 않아야 한다.
+        // (승인 경로는 슬롯을 바꾸지 않으므로 슬롯 롤백 검증은 아래 거절 케이스가 담당한다.)
         assertThat(reservationStatus(data.reservationId())).isEqualTo(ReservationStatus.REQUESTED);
+        assertThat(totalNotificationCount(data.reservationId())).isZero();
+    }
+
+    @Test
+    @DisplayName("수동 거절 중 알림 저장이 실패하면 예약 상태와 슬롯 반환(slot.open())까지 함께 롤백된다")
+    void notificationFailureOnReject_rollsBackTransitionAndSlot() {
+        // 거절 경로는 조건부 UPDATE 외에 slot.open()(JPA dirty checking)까지 수행하므로,
+        // 알림 저장 실패 시 슬롯 반환이 실제로 롤백되는지는 이 경로에서만 검증할 수 있다(PR #107 리뷰 P2).
+        TestReservation data = saveRequestedReservation();
+        doThrow(new IllegalStateException("알림 저장 실패 시뮬레이션"))
+                .when(notificationService)
+                .create(any(), any(), any(), any(), any());
+
+        assertThatThrownBy(() -> hospitalReservationService.reject(
+                data.staffMemberId(), data.reservationId(), ReservationRejectReason.STAFF_SHORTAGE))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(reservationStatus(data.reservationId())).isEqualTo(ReservationStatus.REQUESTED);
+        // slot.open()이 커밋되지 않아 여전히 RESERVED여야 한다.
         assertThat(slotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.RESERVED);
         assertThat(totalNotificationCount(data.reservationId())).isZero();
     }

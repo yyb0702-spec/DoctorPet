@@ -1,7 +1,8 @@
 package com.doctorpet.domain.notification.adapter;
 
-// 예약 도메인의 알림 발행 요청을 notifications 테이블 저장으로 연결한다(#88). 저장은 상태 전이 트랜잭션에
-// 참여하고, 실시간 전송(SSE)은 NotificationService가 커밋 이후에 트리거한다(SA §9-8).
+// 예약 도메인의 알림 발행 요청을 notifications 테이블 저장으로 연결한다(#88).
+// 저장은 호출자의 상태 전이 트랜잭션에 참여하므로, 전이가 롤백되면 알림도 남지 않는다.
+// (실시간 전송은 이 클래스의 책임이 아니다 — 별도로 도입되는 push 채널이 저장된 알림을 전달한다.)
 
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
