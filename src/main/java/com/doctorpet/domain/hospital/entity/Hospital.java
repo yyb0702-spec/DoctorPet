@@ -14,8 +14,8 @@ import java.time.LocalDateTime;
 @Table(name = "hospitals",
         indexes = {
                 @Index(
-                        name = "idx_hospitals_name_id",
-                        columnList = "name, id"
+                        name = "idx_hospitals_name_id_business_status",
+                        columnList = "name, id, business_status"
                 ),
                 @Index(
                         name = "idx_hospitals_coord_x_y",

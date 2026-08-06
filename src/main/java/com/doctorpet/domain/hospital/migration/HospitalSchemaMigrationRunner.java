@@ -32,8 +32,10 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
 
     static final String CAPABILITY_VALUE_MIGRATION_KEY =
             "hospital_capability_value_varchar_v1";
-    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v2";
-    static final String NAME_ORDER_INDEX = "idx_hospitals_name_id";
+    static final String SEARCH_INDEX_MIGRATION_KEY = "hospital_search_indexes_v3";
+    static final String NAME_ORDER_INDEX =
+            "idx_hospitals_name_id_business_status";
+    static final String DEPRECATED_NAME_ORDER_INDEX = "idx_hospitals_name_id";
     static final String DEPRECATED_BUSINESS_STATUS_INDEX =
             "idx_hospitals_business_status";
     static final String COORDINATE_INDEX = "idx_hospitals_coord_x_y";
@@ -47,9 +49,9 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
             new IndexDefinition(
                     "hospitals",
                     NAME_ORDER_INDEX,
-                    "name,id",
-                    "create index idx_hospitals_name_id "
-                            + "on hospitals (name, id)"
+                    "name,id,business_status",
+                    "create index idx_hospitals_name_id_business_status "
+                            + "on hospitals (name, id, business_status)"
             ),
             new IndexDefinition(
                     "hospitals",
@@ -116,6 +118,11 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 connection,
                 "hospitals",
                 DEPRECATED_BUSINESS_STATUS_INDEX
+        );
+        dropIndexIfExists(
+                connection,
+                "hospitals",
+                DEPRECATED_NAME_ORDER_INDEX
         );
         for (IndexDefinition index : SEARCH_INDEXES) {
             if (!indexExists(connection, index)) {
@@ -192,10 +199,13 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 connection,
                 "hospitals",
                 DEPRECATED_BUSINESS_STATUS_INDEX
+        ) || indexNameExists(
+                connection,
+                "hospitals",
+                DEPRECATED_NAME_ORDER_INDEX
         )) {
             throw new IllegalStateException(
-                    "제거 대상 병원 검색 인덱스가 남아 있습니다: "
-                            + DEPRECATED_BUSINESS_STATUS_INDEX
+                    "제거 대상 병원 검색 인덱스가 남아 있습니다"
             );
         }
     }

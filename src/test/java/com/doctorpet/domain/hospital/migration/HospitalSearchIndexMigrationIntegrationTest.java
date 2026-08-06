@@ -32,7 +32,7 @@ class HospitalSearchIndexMigrationIntegrationTest {
             new IndexSpec(
                     "hospitals",
                     HospitalSchemaMigrationRunner.NAME_ORDER_INDEX,
-                    "name,id"
+                    "name,id,business_status"
             ),
             new IndexSpec(
                     "hospitals",
@@ -54,11 +54,13 @@ class HospitalSearchIndexMigrationIntegrationTest {
         deleteMarker();
         INDEXES.forEach(this::dropIndex);
         createDeprecatedBusinessStatusIndex();
+        createDeprecatedNameOrderIndex();
     }
 
     @AfterEach
     void restoreSchema() {
         dropDeprecatedBusinessStatusIndex();
+        dropDeprecatedNameOrderIndex();
         INDEXES.forEach(this::createIndex);
         deleteMarker();
     }
@@ -74,6 +76,7 @@ class HospitalSearchIndexMigrationIntegrationTest {
 
         assertThat(INDEXES).allMatch(this::indexExists);
         assertThat(deprecatedBusinessStatusIndexExists()).isFalse();
+        assertThat(deprecatedNameOrderIndexExists()).isFalse();
         assertThat(markerCount()).isEqualTo(1);
     }
 
@@ -172,6 +175,39 @@ class HospitalSearchIndexMigrationIntegrationTest {
                    and index_name = ?
                 """, Integer.class, HospitalSchemaMigrationRunner
                 .DEPRECATED_BUSINESS_STATUS_INDEX);
+        return count != null && count > 0;
+    }
+
+    private void createDeprecatedNameOrderIndex() {
+        if (!deprecatedNameOrderIndexExists()) {
+            jdbcTemplate.execute(
+                    "create index "
+                            + HospitalSchemaMigrationRunner
+                            .DEPRECATED_NAME_ORDER_INDEX
+                            + " on hospitals (name, id)"
+            );
+        }
+    }
+
+    private void dropDeprecatedNameOrderIndex() {
+        if (deprecatedNameOrderIndexExists()) {
+            jdbcTemplate.execute(
+                    "alter table hospitals drop index "
+                            + HospitalSchemaMigrationRunner
+                            .DEPRECATED_NAME_ORDER_INDEX
+            );
+        }
+    }
+
+    private boolean deprecatedNameOrderIndexExists() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'hospitals'
+                   and index_name = ?
+                """, Integer.class, HospitalSchemaMigrationRunner
+                .DEPRECATED_NAME_ORDER_INDEX);
         return count != null && count > 0;
     }
 
