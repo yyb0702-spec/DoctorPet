@@ -20,6 +20,7 @@ import com.doctorpet.domain.member.event.MemberSignedUpEvent;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
+import com.doctorpet.domain.member.repository.RotateResult;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -240,10 +241,10 @@ class AuthServiceTest {
         given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
         given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
         given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
-        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(Optional.of(7L));
         given(refreshTokenRepository.rotateIfMatches(
-                1L, "old-refresh-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
-        )).willReturn(true);
+                1L, 7L, "old-refresh-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
+        )).willReturn(RotateResult.SUCCESS);
 
         LoginResponse response = authService.reissue(request);
 
@@ -281,8 +282,10 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Redis 원자 교체가 실패하면(이미 회전된 토큰 재사용) 세션을 삭제하고 REFRESH_TOKEN_REUSED 예외를 던진다")
+    @DisplayName("Redis 원자 교체가 재사용으로 판정되면(REUSED) REFRESH_TOKEN_REUSED 예외를 던진다")
     void reissue_tokenReused() {
+        // 이슈 #100 대응: 세션 삭제는 더 이상 이 서비스가 별도로 호출하지 않는다 —
+        // rotateIfMatches의 Lua 스크립트가 REUSED 판정과 세션 삭제를 하나의 원자 연산으로 처리한다.
         ReissueRequest request = new ReissueRequest("already-rotated-token");
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(member, 1L);
@@ -295,16 +298,47 @@ class AuthServiceTest {
         given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
         given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
         given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
-        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(Optional.of(3L));
         given(refreshTokenRepository.rotateIfMatches(
-                1L, "already-rotated-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
-        )).willReturn(false);
+                1L, 3L, "already-rotated-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
+        )).willReturn(RotateResult.REUSED);
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.REFRESH_TOKEN_REUSED));
-        verify(refreshTokenRepository).deleteByMemberId(1L);
+        verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
+        verify(refreshTokenRepository).unlock(eq(1L), anyString());
+    }
+
+    @Test
+    @DisplayName("락 TTL 만료로 더 최신 요청에게 추월당하면(STALE) 세션을 건드리지 않고 REISSUE_IN_PROGRESS 예외를 던진다(이슈 #100)")
+    void reissue_staleFencingToken_doesNotTouchSession() {
+        // 락 TTL이 처리 중 만료돼 다른 요청이 새 락(더 큰 펜싱 토큰)을 얻어 먼저 회전에 성공한
+        // 상황을 재현한다 — 이 요청은 시간 경쟁에서 진 것뿐이므로, 이미 성공한 요청의 새 세션을
+        // 지우면 안 된다(수정 전 버그: 무조건 재사용으로 판단해 세션을 삭제했다).
+        ReissueRequest request = new ReissueRequest("old-refresh-token");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        setId(member, 1L);
+
+        given(jwtTokenProvider.validateToken("old-refresh-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("old-refresh-token")).willReturn(TokenType.REFRESH);
+        given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
+                .willReturn(new MemberPrincipal(1L, member.getEmail(), "GUARDIAN"));
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(jwtTokenProvider.generateAccessToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-access-token");
+        given(jwtTokenProvider.generateRefreshToken(1L, member.getEmail(), "GUARDIAN")).willReturn("new-refresh-token");
+        given(jwtProperties.getRefreshTokenExpiration()).willReturn(1_209_600_000L);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(Optional.of(5L));
+        given(refreshTokenRepository.rotateIfMatches(
+                1L, 5L, "old-refresh-token", "new-refresh-token", Duration.ofMillis(1_209_600_000L)
+        )).willReturn(RotateResult.STALE);
+
+        assertThatThrownBy(() -> authService.reissue(request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.REISSUE_IN_PROGRESS));
+        verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
         verify(refreshTokenRepository).unlock(eq(1L), anyString());
     }
 
@@ -321,7 +355,7 @@ class AuthServiceTest {
         given(jwtTokenProvider.getTokenType("old-refresh-token")).willReturn(TokenType.REFRESH);
         given(jwtTokenProvider.getMemberPrincipal("old-refresh-token"))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
-        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(false);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.reissue(request))
                 .isInstanceOf(ServiceException.class)
@@ -330,7 +364,7 @@ class AuthServiceTest {
 
         // 핵심 회귀 검증: 락을 못 얻었으면 회원 조회·토큰 발급·CAS·세션 삭제 중 아무것도 하지 않는다.
         verify(memberRepository, never()).findById(anyLong());
-        verify(refreshTokenRepository, never()).rotateIfMatches(anyLong(), anyString(), anyString(), any(Duration.class));
+        verify(refreshTokenRepository, never()).rotateIfMatches(anyLong(), anyLong(), anyString(), anyString(), any(Duration.class));
         verify(refreshTokenRepository, never()).deleteByMemberId(anyLong());
         // 락을 애초에 얻지 못했으므로 해제할 필요도, 호출도 없다.
         verify(refreshTokenRepository, never()).unlock(anyLong(), anyString());
@@ -344,7 +378,7 @@ class AuthServiceTest {
         given(jwtTokenProvider.getTokenType("valid-token")).willReturn(TokenType.REFRESH);
         given(jwtTokenProvider.getMemberPrincipal("valid-token"))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
-        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(true);
+        given(refreshTokenRepository.tryLock(eq(1L), anyString())).willReturn(Optional.of(1L));
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.reissue(request))
