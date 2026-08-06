@@ -26,7 +26,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "member.email-verified-backfill.enabled=false",
         "reservation.event-unique-migration.enabled=false",
         "reservation.approval-deadline-migration.enabled=false",
-        "hospital.capability-value-migration.enabled=false"
+        "hospital.schema-migration.enabled=false"
 })
 class HospitalCapabilityValueMigrationIntegrationTest {
 
@@ -50,7 +50,7 @@ class HospitalCapabilityValueMigrationIntegrationTest {
     void prepareLegacySchema() {
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
-                HospitalCapabilityValueMigrationRunner.MIGRATION_KEY
+                HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY
         );
         Hospital hospital = hospitalRepository.saveAndFlush(
                 Hospital.createFromPublicData(
@@ -94,15 +94,15 @@ class HospitalCapabilityValueMigrationIntegrationTest {
         hospitalRepository.deleteById(hospitalId);
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
-                HospitalCapabilityValueMigrationRunner.MIGRATION_KEY
+                HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY
         );
     }
 
     @Test
     @DisplayName("기존 ENUM 데이터를 보존하며 VARCHAR(32)로 전환하고 재실행을 방지한다")
     void legacyEnum_isMigratedToVarcharWithoutDataLoss() throws Exception {
-        HospitalCapabilityValueMigrationRunner runner =
-                new HospitalCapabilityValueMigrationRunner(jdbcTemplate);
+        HospitalSchemaMigrationRunner runner =
+                new HospitalSchemaMigrationRunner(jdbcTemplate);
 
         runner.run(null);
         runner.run(null);
@@ -122,10 +122,10 @@ class HospitalCapabilityValueMigrationIntegrationTest {
         jdbcTemplate.update("""
                 insert into schema_migrations (migration_key, applied_at)
                 values (?, now())
-                """, HospitalCapabilityValueMigrationRunner.MIGRATION_KEY);
+                """, HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY);
 
         assertThatThrownBy(() ->
-                new HospitalCapabilityValueMigrationRunner(jdbcTemplate).run(null)
+                new HospitalSchemaMigrationRunner(jdbcTemplate).run(null)
         )
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("VARCHAR(32)");
@@ -173,6 +173,7 @@ class HospitalCapabilityValueMigrationIntegrationTest {
                 select count(*)
                   from schema_migrations
                  where migration_key = ?
-                """, Integer.class, HospitalCapabilityValueMigrationRunner.MIGRATION_KEY);
+                """, Integer.class,
+                HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY);
     }
 }

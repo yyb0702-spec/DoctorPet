@@ -161,7 +161,7 @@ erDiagram
 | source_modified_at | DATETIME | 공공데이터 최종 수정일 |
 | partnership_status | VARCHAR | PARTNER / NON_PARTNER |
 
-검색 성능용 `(business_status)`, `(coord_x, coord_y)` 인덱스는 MVP DDL에 선반영하지 않는다. 전국 단위 데이터 확장 단계에서 실행 계획·응답시간을 측정한 뒤 선택도와 쿼리 패턴에 근거해 적용한다.
+전국 데이터 검색 성능 측정 후 기본 영업상태 필터에 `(business_status)`, 좌표 바운딩박스에 `(coord_x, coord_y)` 인덱스를 적용한다.
 제약: `UNIQUE(local_gov_code, mgmt_no)` — 지자체 범위의 관리번호를 공공데이터·제휴 데이터 복합 매핑 키로 사용한다.
 
 ### hospital_details (제휴 병원만, 자체 보강)
@@ -185,7 +185,7 @@ erDiagram
 | capability_type | VARCHAR | SPECIES / EXAM / TREATMENT / EQUIPMENT |
 | capability_value | VARCHAR | 아래 확정 화이트리스트 값 |
 
-역량 AND 매칭용 `(capability_type, capability_value, hospital_id)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획을 확인한 뒤 적용한다. MVP에서는 `requiredCapabilities`·`supportedSpecies` 검색의 정확성을 우선 검증한다.
+역량 AND 매칭용 `(capability_type, capability_value, hospital_id)` 인덱스를 적용한다.
 
 진료역량 화이트리스트는 병원 시드 작성 시 아래 19개 값으로 확정했다.
 

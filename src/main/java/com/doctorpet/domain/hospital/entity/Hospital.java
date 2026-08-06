@@ -12,6 +12,16 @@ import java.time.LocalDateTime;
 @Getter
 @Entity
 @Table(name = "hospitals",
+        indexes = {
+                @Index(
+                        name = "idx_hospitals_business_status",
+                        columnList = "business_status"
+                ),
+                @Index(
+                        name = "idx_hospitals_coord_x_y",
+                        columnList = "coord_x, coord_y"
+                )
+        },
         uniqueConstraints = {
         @UniqueConstraint(
                 name = "uk_hospitals_local_gov_code_mgmt_no",

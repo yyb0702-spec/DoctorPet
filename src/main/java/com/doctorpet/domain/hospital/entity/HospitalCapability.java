@@ -9,6 +9,7 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -24,6 +25,10 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "hospital_capabilities",
+        indexes = @Index(
+                name = "idx_hospital_capabilities_type_value_hospital",
+                columnList = "capability_type, capability_value, hospital_id"
+        ),
         uniqueConstraints = {
                 @UniqueConstraint(
                         name = "uk_hospital_capabilities_hospital_type_value",
