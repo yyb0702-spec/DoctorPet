@@ -88,7 +88,7 @@ class HospitalCapabilityValueMigrationIntegrationTest {
 
     @AfterEach
     void restoreSchema() {
-        assertThat(searchIndexMarkerCount()).isEqualTo(1);
+        int searchIndexMarkerCountAfterTest = searchIndexMarkerCount();
         jdbcTemplate.update(
                 "delete from hospital_capabilities where hospital_id = ?",
                 hospitalId
@@ -105,6 +105,7 @@ class HospitalCapabilityValueMigrationIntegrationTest {
         if (!searchIndexMarkerExisted) {
             deleteSearchIndexMarker();
         }
+        assertThat(searchIndexMarkerCountAfterTest).isEqualTo(1);
     }
 
     @Test
