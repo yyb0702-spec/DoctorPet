@@ -3,7 +3,6 @@ package com.doctorpet.domain.hospital.publicdata.config;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -16,9 +15,10 @@ class AnimalHospitalApiPropertiesTest {
                         null,
                         null,
                         0,
-                        List.of(),
                         null,
                         null,
+                        null,
+                        0,
                         null
                 );
 
@@ -32,6 +32,9 @@ class AnimalHospitalApiPropertiesTest {
         assertThat(properties.readTimeout())
                 .isEqualTo(Duration.ofSeconds(10));
         assertThat(properties.sourceCrs()).isEqualTo("EPSG:5174");
+        assertThat(properties.refreshMaxAttempts()).isEqualTo(3);
+        assertThat(properties.refreshRetryDelay())
+                .isEqualTo(Duration.ofMinutes(5));
         assertThat(properties.serviceKey()).isNull();
     }
 }

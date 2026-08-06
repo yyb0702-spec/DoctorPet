@@ -4,4 +4,6 @@ package com.doctorpet.domain.reservation.notification;
 public interface ReservationNotificationPublisher {
 
     void publishRejected(Long guardianMemberId, Long reservationId);
+
+    void publishNoShow(Long guardianMemberId, Long reservationId);
 }

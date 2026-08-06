@@ -1,11 +1,28 @@
 package com.doctorpet.domain.hospital.entity;
 
+import com.doctorpet.domain.pet.entity.PetSpecies;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class HospitalCapabilityTest {
+
+    @Test
+    void 반려동물_축종과_병원_지원_축종의_이름은_일치한다() {
+        Set<String> petSpecies = Arrays.stream(PetSpecies.values())
+                .map(Enum::name)
+                .collect(Collectors.toSet());
+        Set<String> hospitalSpecies = Arrays.stream(CapabilityValue.values())
+                .filter(value -> value.getType() == CapabilityType.SPECIES)
+                .map(Enum::name)
+                .collect(Collectors.toSet());
+
+        assertThat(hospitalSpecies).isEqualTo(petSpecies);
+    }
 
     @Test
     void 병원에_검사_역량을_등록한다() {

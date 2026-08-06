@@ -45,17 +45,17 @@ class PetProfileDdlIntegrationTest {
     @DisplayName("species enum이 문자열로 저장·조회되고 전체 컬럼이 매핑대로 영속화된다")
     void speciesEnumAndColumns_persistCorrectly() {
         PetProfile saved = petProfileRepository.saveAndFlush(
-                PetProfile.create(MEMBER_ID, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true));
+                PetProfile.create(MEMBER_ID, "짹짹이", PetSpecies.BIRD, 3, new BigDecimal("0.4"), false));
         entityManager.clear();
 
         PetProfile reloaded = petProfileRepository.findById(saved.getId()).orElseThrow();
 
         assertThat(reloaded.getMemberId()).isEqualTo(MEMBER_ID);
-        assertThat(reloaded.getName()).isEqualTo("초코");
-        assertThat(reloaded.getSpecies()).isEqualTo(PetSpecies.DOG);
+        assertThat(reloaded.getName()).isEqualTo("짹짹이");
+        assertThat(reloaded.getSpecies()).isEqualTo(PetSpecies.BIRD);
         assertThat(reloaded.getAge()).isEqualTo(3);
-        assertThat(reloaded.getWeight()).isEqualByComparingTo("5.4");
-        assertThat(reloaded.getNeutered()).isTrue();
+        assertThat(reloaded.getWeight()).isEqualByComparingTo("0.4");
+        assertThat(reloaded.getNeutered()).isFalse();
         assertThat(reloaded.getCreatedAt()).isNotNull();
     }
 

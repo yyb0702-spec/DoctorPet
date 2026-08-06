@@ -1,89 +1,35 @@
 package com.doctorpet.domain.hospital.publicdata.runner;
 
-import com.doctorpet.domain.hospital.entity.CapabilityValue;
-import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalDetailSeedData;
-import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalOperatingHoursSeedData;
-import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalSeedData;
-import com.doctorpet.domain.hospital.partnership.infrastructure.PartnerHospitalSeedLoader;
-import com.doctorpet.domain.hospital.partnership.service.PartnerHospitalSeedService;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
-import com.doctorpet.domain.hospital.publicdata.service.AnimalHospitalCollectionService;
+import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalRefreshResult;
+import com.doctorpet.domain.hospital.publicdata.service.AnimalHospitalRefreshService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.DayOfWeek;
-import java.util.List;
-import java.util.Map;
-
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
-import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class AnimalHospitalSeedRunnerTest {
 
     @Mock
-    private AnimalHospitalCollectionService collectionService;
-
-    @Mock
-    private PartnerHospitalSeedLoader partnerHospitalSeedLoader;
-
-    @Mock
-    private PartnerHospitalSeedService partnerHospitalSeedService;
+    private AnimalHospitalRefreshService refreshService;
 
     @Test
     void 실행되면_공공데이터_적재_후_제휴_데이터를_적용한다() {
-        given(collectionService.collectConfiguredRegions())
-                .willReturn(new AnimalHospitalCollectionResult(1, 2, 150));
-        List<PartnerHospitalSeedData> partnerSeedData = List.of(
-                new PartnerHospitalSeedData(
-                        "3130000",
-                        "313000001020260004",
-                        "시그널 동물의료센터",
-                        new PartnerHospitalDetailSeedData(
-                                Map.of(
-                                        DayOfWeek.MONDAY,
-                                        new PartnerHospitalOperatingHoursSeedData(
-                                                "09:00",
-                                                "20:00"
-                                        )
-                                ),
-                                true,
-                                true,
-                                false,
-                                false
-                        ),
-                        List.of(
-                                CapabilityValue.DOG,
-                                CapabilityValue.XRAY
-                        )
+        given(refreshService.refresh()).willReturn(
+                new AnimalHospitalRefreshResult(
+                        new AnimalHospitalCollectionResult(2, 150),
+                        1
                 )
         );
-        given(partnerHospitalSeedLoader.load())
-                .willReturn(partnerSeedData);
-        given(partnerHospitalSeedService.applyPartnerships(partnerSeedData))
-                .willReturn(1);
-        AnimalHospitalSeedRunner runner =
-                new AnimalHospitalSeedRunner(
-                        collectionService,
-                        partnerHospitalSeedLoader,
-                        partnerHospitalSeedService
-                );
+        AnimalHospitalSeedRunner runner = new AnimalHospitalSeedRunner(refreshService);
 
         // 제휴 대상 병원이 존재하도록 공공데이터 수집이 항상 먼저 실행되는지 확인합니다.
         runner.run(null);
 
-        org.mockito.InOrder executionOrder = inOrder(
-                collectionService,
-                partnerHospitalSeedLoader,
-                partnerHospitalSeedService
-        );
-        then(collectionService).should(executionOrder)
-                .collectConfiguredRegions();
-        then(partnerHospitalSeedLoader).should(executionOrder).load();
-        then(partnerHospitalSeedService).should(executionOrder)
-                .applyPartnerships(partnerSeedData);
+        then(refreshService).should().refresh();
     }
 }
