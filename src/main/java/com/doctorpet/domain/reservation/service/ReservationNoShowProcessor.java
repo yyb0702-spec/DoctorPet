@@ -1,5 +1,6 @@
 package com.doctorpet.domain.reservation.service;
 
+import com.doctorpet.domain.reservation.config.ReservationNoShowProperties;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
@@ -20,28 +21,54 @@ public class ReservationNoShowProcessor {
     private final ReservationRepository reservationRepository;
     private final ReservationEventRepository reservationEventRepository;
     private final ReservationNotificationPublisher notificationPublisher;
+    private final ReservationNoShowProperties properties;
 
     @Transactional
     public Result process(Long reservationId, LocalDateTime now) {
         Reservation reservation = reservationRepository.findById(reservationId).orElse(null);
         if (reservation == null) return Result.SKIPPED;
 
-        int updated = reservationRepository.markAutoNoShowIfConfirmed(
+        LocalDateTime pendingCutoff = now.minusMinutes(properties.getGraceMinutes());
+        LocalDateTime finalCutoff = pendingCutoff.minusMinutes(
+                properties.getPendingGraceMinutes()
+        );
+        int pendingUpdated = reservationRepository.markAutoNoShowPendingIfConfirmed(
                 reservationId,
                 ReservationStatus.CONFIRMED,
-                ReservationStatus.NO_SHOW,
-                now
+                ReservationStatus.NO_SHOW_PENDING,
+                now,
+                pendingCutoff
         );
-        if (updated == 0) return Result.SKIPPED;
+        if (pendingUpdated == 1) {
+            reservationEventRepository.appendIfAbsent(
+                    reservationId,
+                    ReservationEventType.AUTO_NO_SHOW_PENDING.name(),
+                    "예약 시각 이후 체크인 미확인으로 최종 노쇼 판정 대기",
+                    null,
+                    now
+            );
+        }
 
-        reservationEventRepository.appendIfAbsent(
+        int finalUpdated = reservationRepository.markAutoNoShowIfPending(
                 reservationId,
-                ReservationEventType.AUTO_NO_SHOW.name(),
-                "예약 시각 이후 체크인 미확인으로 자동 판정",
-                null,
-                now
+                ReservationStatus.NO_SHOW_PENDING,
+                ReservationStatus.NO_SHOW,
+                now,
+                finalCutoff
         );
-        notificationPublisher.publishNoShow(reservation.getMemberId(), reservationId);
-        return Result.PROCESSED;
+        if (finalUpdated == 1) {
+            reservationEventRepository.appendIfAbsent(
+                    reservationId,
+                    ReservationEventType.AUTO_NO_SHOW.name(),
+                    "추가 유예시간 경과 후 체크인 미확인으로 자동 판정",
+                    null,
+                    now
+            );
+            notificationPublisher.publishNoShow(reservation.getMemberId(), reservationId);
+        }
+
+        return pendingUpdated == 1 || finalUpdated == 1
+                ? Result.PROCESSED
+                : Result.SKIPPED;
     }
 }

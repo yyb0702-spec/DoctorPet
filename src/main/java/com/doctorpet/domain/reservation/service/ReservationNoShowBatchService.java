@@ -76,7 +76,10 @@ public class ReservationNoShowBatchService {
 
     private ReservationNoShowSummary processLocked() {
         LocalDateTime now = LocalDateTime.now(clock);
-        LocalDateTime cutoff = now.minusMinutes(properties.getGraceMinutes());
+        LocalDateTime pendingCutoff = now.minusMinutes(properties.getGraceMinutes());
+        LocalDateTime finalCutoff = pendingCutoff.minusMinutes(
+                properties.getPendingGraceMinutes()
+        );
         int scanned = 0;
         int processed = 0;
         int skipped = 0;
@@ -90,10 +93,19 @@ public class ReservationNoShowBatchService {
                     properties.getMaxScannedPerRun() - scanned);
             List<ReservationNoShowTarget> targets = cursorStartAt == null
                     ? reservationRepository.findAutoNoShowTargets(
-                    ReservationStatus.CONFIRMED, cutoff, PageRequest.of(0, pageSize))
+                            ReservationStatus.CONFIRMED,
+                            ReservationStatus.NO_SHOW_PENDING,
+                            pendingCutoff,
+                            finalCutoff,
+                            PageRequest.of(0, pageSize))
                     : reservationRepository.findAutoNoShowTargetsAfter(
-                    ReservationStatus.CONFIRMED, cutoff, cursorStartAt,
-                    cursorId, PageRequest.of(0, pageSize));
+                            ReservationStatus.CONFIRMED,
+                            ReservationStatus.NO_SHOW_PENDING,
+                            pendingCutoff,
+                            finalCutoff,
+                            cursorStartAt,
+                            cursorId,
+                            PageRequest.of(0, pageSize));
             if (targets.isEmpty()) break;
 
             for (ReservationNoShowTarget target : targets) {
@@ -102,7 +114,12 @@ public class ReservationNoShowBatchService {
                 cursorId = target.getReservationId();
                 try {
                     long delay = Math.max(0L, Duration.between(
-                            target.getSlotStartAt().plusMinutes(properties.getGraceMinutes()),
+                            target.getSlotStartAt().plusMinutes(
+                                    target.getStatus() == ReservationStatus.NO_SHOW_PENDING
+                                            ? properties.getGraceMinutes()
+                                                    + properties.getPendingGraceMinutes()
+                                            : properties.getGraceMinutes()
+                            ),
                             now
                     ).toMillis());
                     delaySummary.record(delay);

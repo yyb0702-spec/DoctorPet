@@ -2,10 +2,10 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.17 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.37, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.18 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.39, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v10 |
 ## 1. 시스템 구성
 DoctorPet은 보호자용 API, 병원 직원용 API, 외부 연동 및 배치 작업으로 구성한다.
 - JPA 감사 시각과 시간 기반 배치는 JVM 기본 시간대가 아니라 공통 `Asia/Seoul` Clock을 사용한다.
@@ -54,7 +54,7 @@ domain/
 - 기본 호출 구조는 `Controller → Service`이다.
 - 여러 도메인을 조합하는 흐름에만 `XxxApplicationService`를 사용한다.
 - AI·결제·공공데이터 연동은 각각 `AiGateway`, `PaymentGateway`, `PublicDataGateway`로 추상화한다.
-- 알림 전송은 `NotificationPusher` 인터페이스로 추상화하고, MVP2의 단방향 SSE 구현체가 이를 채운다(저장 커밋 이후 전송, §9-8).
+- 알림 전송은 `NotificationPusher` 인터페이스로 추상화한다.
 ## 4. 인증과 회원
 - 회원 역할은 `GUARDIAN`, `HOSPITAL_STAFF`로 구분한다.
 - Access Token 수명은 30분\~1시간이다.
@@ -108,7 +108,10 @@ REQUESTED → CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 REQUESTED → REJECTED
 REQUESTED → CANCELED
 CONFIRMED → CANCELED
-CONFIRMED → NO_SHOW  // 예약 시작 후 병원 수동 확정 또는 +10분 경과 자동 판정
+CONFIRMED → NO_SHOW_PENDING  // 예약시각 +10분 초과 자동 대기
+NO_SHOW_PENDING → NO_SHOW  // 추가 5분 초과 자동 최종 판정
+CONFIRMED/NO_SHOW_PENDING → CHECKED_IN  // 직원 도착 확인
+CONFIRMED → NO_SHOW  // 예약 시작 후 병원 수동 확정
 NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 ```
 - 슬롯과 예약 이력은 1:N이다. 거절·취소·승인 타임아웃으로 반환된 슬롯은 다른 예약에 다시 사용될 수 있다.
@@ -116,7 +119,8 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 병원 거절 사유는 직원 부족, 슬롯 등록 오류, 진료 불가, 기타의 4종으로 관리한다.
 - 예약 승인 타임아웃 또는 허용 범위 내 취소·거절 시 슬롯을 반환한다.
 - 체크인은 예약시간부터 예약시간 +10분까지 허용한다.
-- +10분이 지나도록 체크인하지 않으면 자동으로 `NO_SHOW` 처리한다.
+- +10분이 지나도록 체크인하지 않으면 `NO_SHOW_PENDING`으로 바꾸고 기본 5분의 추가 유예를 둔다.
+- 추가 유예까지 지나도록 체크인하지 않으면 최종 `NO_SHOW`로 바꾸고 보호자에게 알림을 보낸다.
 - 노쇼는 예약시각이 지난 건이므로 슬롯을 반환하지 않고 `RESERVED`로 유지한다.
 - 병원 직원은 예약 시작 시각부터 수동 노쇼 확정이 가능하며, 확정·정정 사유와 처리자를 append-only 이력으로 남긴다.
 - 노쇼 이력은 전 병원 통합으로 집계하며 정정된 건은 노쇼 횟수에서 제외한다.
@@ -146,18 +150,20 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 예약 슬롯은 14일치를 사전 생성한다.
 | 작업 | 주기 | 비고 |
 | --- | --- | --- |
-| 자동 노쇼 판정 | 1분 | 예약시간 +10분 경과 건 처리 |
+| 자동 노쇼 판정 | 1분 | +10분 경과 건을 `NO_SHOW_PENDING`, 추가 5분 경과 건을 `NO_SHOW`로 처리 |
 | 예약 승인 타임아웃 | 1분 | 응답 기한 경과 건 처리 |
 | 결제 상태 정산 | 5분 | 미확정 결제 상태 확인 |
 | 슬롯 생성 | 일 배치 | 향후 14일치 유지 |
 | 공공데이터 주기 갱신 | 매주 월요일 03:00 | 전국 원천 데이터 갱신 후 제휴 보강 재적용 |
+
+자동 노쇼 배치는 한 실행에서 같은 예약을 대기 전이와 최종 전이로 연달아 처리할 수 있다. 따라서 `maxScannedPerRun`은 예약의 고유 개수가 아니라 조회·전이 시도 횟수이고, `processed`는 한 번 이상 상태 전이에 성공한 예약 수로 집계한다. 대기·최종 전이별 실제 건수는 `reservation_events` 상태 이력으로 확인한다.
 ## 10. 데이터·보안 원칙
 - 비밀번호와 빌링키는 정본의 저장·암호화 규칙을 따른다.
 - 탈퇴 회원의 업무 이력은 참조 무결성을 유지하면서 개인정보를 익명화한다.
 - 외부 시스템 요청·응답에는 민감정보를 그대로 기록하지 않는다.
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
-- 양방향 실시간 채널(WebSocket+STOMP) 도입 여부 — 단방향 예약·결제 알림은 SSE로 확정했다(§9-8). 1:1 채팅 같은 양방향이 필요해질 때만 재논의한다.
+- 실시간 알림은 단방향 SSE로 확정하며, 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다.
 - 미인증 계정의 장기 미완료 처리
 - SNS 로그인 도입 범위와 기존 계정 연동 정책
 - 이메일 인증·비밀번호 재설정 토큰 소비 순서

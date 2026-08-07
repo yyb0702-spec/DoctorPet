@@ -18,6 +18,7 @@ public class ReservationNoShowProperties {
     @Positive private long intervalMs = 60_000L;
     @PositiveOrZero private long initialDelayMs = 60_000L;
     @Positive private int graceMinutes = 10;
+    @Positive private int pendingGraceMinutes = 5;
     @Positive private int batchSize = 100;
     @Positive private int maxScannedPerRun = 1_000;
     @Positive private int maxAttempts = 2;
