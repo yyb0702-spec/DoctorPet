@@ -26,7 +26,8 @@ public record HospitalDetailResponse(
         Boolean nightCare,
         Boolean emergency,
         List<HospitalBusinessHourResponse> businessHours,
-        List<CapabilityValue> capabilities
+        List<CapabilityValue> capabilities,
+        boolean favorite
 ) {
 
     private static final String NON_PARTNER_NOTICE =
@@ -55,7 +56,28 @@ public record HospitalDetailResponse(
                 partner ? detail.isNightCare() : null,
                 partner ? detail.isEmergency() : null,
                 partner ? toBusinessHours(detail) : null,
-                partner ? toCapabilities(hospitalCapabilities) : null
+                partner ? toCapabilities(hospitalCapabilities) : null,
+                false
+        );
+    }
+
+    public HospitalDetailResponse withFavorite(boolean favorite) {
+        return new HospitalDetailResponse(
+                hospitalId,
+                name,
+                address,
+                phoneNumber,
+                businessStatus,
+                partnershipStatus,
+                partnershipNotice,
+                openNow,
+                surgeryAvailable,
+                hospitalizationAvailable,
+                nightCare,
+                emergency,
+                businessHours,
+                capabilities,
+                favorite
         );
     }
 

@@ -41,6 +41,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
@@ -55,11 +56,26 @@ public class HospitalService {
     private final HospitalDetailRepository hospitalDetailRepository;
     private final HospitalCapabilityRepository hospitalCapabilityRepository;
     private final HospitalSearchCacheRepository hospitalSearchCacheRepository;
+    private final HospitalFavoriteService hospitalFavoriteService;
 
     @Transactional(readOnly = true)
     public HospitalDetailResponse getHospitalDetail(Long hospitalId) {
+        return getHospitalDetail(hospitalId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalDetailResponse getHospitalDetail(
+            Long hospitalId,
+            Long memberId
+    ) {
         Hospital hospital = hospitalRepository.findById(hospitalId)
                 .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));
+
+        boolean favorite = memberId != null
+                && hospitalFavoriteService.findFavoriteHospitalIds(
+                        memberId,
+                        List.of(hospitalId)
+                ).contains(hospitalId);
 
         if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER) {
             return HospitalDetailResponse.from(
@@ -67,7 +83,7 @@ public class HospitalService {
                     null,
                     null,
                     null
-            );
+            ).withFavorite(favorite);
         }
 
         HospitalDetail detail = hospitalDetailRepository.findByHospital(hospital)
@@ -91,7 +107,7 @@ public class HospitalService {
                         hospital.getBusinessStatus(),
                         detail.getOpenHours()
                 )
-        );
+        ).withFavorite(favorite);
     }
 
     /**
@@ -119,6 +135,47 @@ public class HospitalService {
 
     @Transactional(readOnly = true)
     public HospitalSearchPageResponse hospitalSearch(
+            String keyword,
+            String region,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            List<String> requiredCapabilities,
+            List<String> supportedSpecies,
+            Boolean surgery,
+            Boolean hospitalization,
+            Boolean nightCare,
+            Boolean emergency,
+            boolean partnerOnly,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
+    ) {
+        return hospitalSearch(
+                null,
+                keyword,
+                region,
+                latitude,
+                longitude,
+                radiusKm,
+                requiredCapabilities,
+                supportedSpecies,
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
+                partnerOnly,
+                openNowOnly,
+                page,
+                size,
+                sort
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalSearchPageResponse hospitalSearch(
+            Long memberId,
             String keyword,
             String region,
             BigDecimal latitude,
@@ -166,7 +223,7 @@ public class HospitalService {
         );
 
         if (radiusKm != null) {
-            return searchWithPostProcessing(
+            return withFavorites(memberId, searchWithPostProcessing(
                     condition,
                     latitude,
                     longitude,
@@ -175,31 +232,31 @@ public class HospitalService {
                     page,
                     size,
                     normalizedSort
-            );
+            ));
         }
 
         if (openNowOnly) {
-            return searchOpenNowWithBoundedPaging(
+            return withFavorites(memberId, searchOpenNowWithBoundedPaging(
                     condition,
                     latitude,
                     longitude,
                     page,
                     size,
                     normalizedSort
-            );
+            ));
         }
 
         if (normalizedSort == HospitalSearchSort.DISTANCE) {
-            return searchDistanceWithDatabasePaging(
+            return withFavorites(memberId, searchDistanceWithDatabasePaging(
                     condition,
                     latitude,
                     longitude,
                     page,
                     size
-            );
+            ));
         }
 
-        return searchWithDatabasePaging(
+        return withFavorites(memberId, searchWithDatabasePaging(
                 condition,
                 latitude,
                 longitude,
@@ -207,6 +264,39 @@ public class HospitalService {
                 size,
                 initialListing,
                 initialListing && page == 1
+        ));
+    }
+
+    private HospitalSearchPageResponse withFavorites(
+            Long memberId,
+            HospitalSearchPageResponse response
+    ) {
+        if (memberId == null || response.content().isEmpty()) {
+            return response;
+        }
+
+        Set<Long> favoriteHospitalIds =
+                hospitalFavoriteService.findFavoriteHospitalIds(
+                        memberId,
+                        response.content().stream()
+                                .map(HospitalSearchResponse::hospitalId)
+                                .toList()
+                );
+
+        List<HospitalSearchResponse> content = response.content().stream()
+                .map(hospital -> hospital.withFavorite(
+                        favoriteHospitalIds.contains(hospital.hospitalId())
+                ))
+                .toList();
+
+        return new HospitalSearchPageResponse(
+                content,
+                response.page(),
+                response.size(),
+                response.totalElements(),
+                response.totalPages(),
+                response.first(),
+                response.last()
         );
     }
 
