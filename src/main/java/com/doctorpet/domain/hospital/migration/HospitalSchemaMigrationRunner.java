@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -261,8 +262,20 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
             throw new IllegalStateException(
                     "제거 대상 병원 검색 인덱스가 남아 있습니다: "
                             + String.join(", ", remainingIndexes)
+                            + ". 제거 명령: "
+                            + removalCommands(remainingIndexes)
             );
         }
+    }
+
+    private String removalCommands(List<String> remainingIndexes) {
+        return remainingIndexes.stream()
+                .map(index -> {
+                    String[] qualifiedName = index.split("\\.", 2);
+                    return "alter table " + qualifiedName[0]
+                            + " drop index " + qualifiedName[1] + ";";
+                })
+                .collect(Collectors.joining(" "));
     }
 
     private List<String> deprecatedIndexesPresent(Connection connection)

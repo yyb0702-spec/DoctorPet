@@ -168,7 +168,18 @@ class HospitalSearchIndexMigrationIntegrationTest {
                 new HospitalSchemaMigrationRunner(jdbcTemplate).run(null)
         )
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("제거 대상 병원 검색 인덱스");
+                .hasMessageContaining("제거 대상 병원 검색 인덱스")
+                .hasMessageContaining(
+                        "hospitals."
+                                + HospitalSchemaMigrationRunner
+                                .DEPRECATED_BUSINESS_STATUS_INDEX
+                )
+                .hasMessageContaining(
+                        "alter table hospitals drop index "
+                                + HospitalSchemaMigrationRunner
+                                .DEPRECATED_BUSINESS_STATUS_INDEX
+                                + ";"
+                );
     }
 
     private boolean indexExists(IndexSpec index) {
