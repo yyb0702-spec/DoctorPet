@@ -1,5 +1,6 @@
 package com.doctorpet.domain.reservation.controller;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
+import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
@@ -17,6 +20,7 @@ import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.util.List;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,6 +95,53 @@ class HospitalReservationAuthorizationTest {
                 0,
                 20
         );
+    }
+
+    @Test
+    @DisplayName("비인증 사용자는 직원용 도착 확인 API에 접근할 수 없다")
+    void anonymous_cannotCheckIn() throws Exception {
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/check-in",
+                        10L
+                ))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("보호자는 직원용 도착 확인 API에 접근할 수 없다")
+    void guardian_cannotCheckIn() throws Exception {
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/check-in",
+                        10L
+                ).with(authentication(guardianAuthentication())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 직원용 도착 확인 API를 호출할 수 있다")
+    void hospitalStaff_canCheckIn() throws Exception {
+        given(hospitalReservationApplicationService.checkIn(50L, 10L))
+                .willReturn(new ReservationCheckInResponse(
+                        10L,
+                        ReservationStatus.CHECKED_IN,
+                        LocalDateTime.of(2026, 8, 6, 10, 0)
+                                .atZone(SEOUL_ZONE_ID)
+                                .toOffsetDateTime()
+                ));
+
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/check-in",
+                        10L
+                ).with(authentication(memberAuthentication(
+                        50L,
+                        "HOSPITAL_STAFF"
+                ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.reservationId").value(10L))
+                .andExpect(jsonPath("$.data.status").value("CHECKED_IN"));
+
+        verify(hospitalReservationApplicationService).checkIn(50L, 10L);
     }
 
     @Test

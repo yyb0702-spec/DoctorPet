@@ -1,11 +1,11 @@
-# DoctorPet 프로젝트 정책(v9 경량화)
+# DoctorPet 프로젝트 정책(v10 경량화)
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.17 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.38, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.18 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.40, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v10 |
 ## 1. 회원·인증
 - 회원 유형은 보호자(`GUARDIAN`)와 병원 스태프(`HOSPITAL_STAFF`)로 구분한다.
 - 반려동물은 회원가입 정보에서 제외하고 가입 후 선택 등록한다. 단, 예약 요청 전에는 프로필 등록이 필수다.
@@ -36,13 +36,16 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - 진료 완료와 진료비 청구는 별도 요청으로 처리한다.
 ## 4. 노쇼
 - 예약 시각 +10분까지는 지각으로 간주하여 체크인을 허용한다.
-- 10분을 초과한 미체크인 예약은 자동으로 `NO_SHOW` 처리한다.
+- 10분을 초과한 미체크인 예약은 `NO_SHOW_PENDING`으로 바꾸고 기본 5분의 추가 유예를 둔다.
+- 추가 유예가 끝날 때까지 체크인하지 않으면 최종 `NO_SHOW`로 바꾸고 보호자에게 알림을 보낸다.
 - 병원의 수동 판정이 자동 판정보다 우선한다.
 - 자동 노쇼 후 병원이 오판정을 정정하면 `CHECKED_IN`으로 복구하고 이력을 추가한다.
 - 노쇼 시 슬롯은 반환하지 않고 `RESERVED` 상태로 유지한다. 예약 시각이 지나 재판매 가치가 없기 때문이다.
 - 병원에는 해당 사용자의 전 병원 통합 예약 이력을 제공한다.
 - 이력은 전체 예약, 진료 완료, 취소, 노쇼 횟수로 구성하며 정정된 노쇼는 노쇼 횟수에서 제외한다.
 - 노쇼 수수료와 누적 노쇼에 따른 서비스 전체 자동 예약 제한은 적용하지 않는다.
+
+회원 탈퇴 전 활성 예약 확인에는 `CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`을 포함한다. `NO_SHOW_PENDING`은 직원 체크인으로 진행될 수 있어 탈퇴 후 병원 운영 정보가 끊기지 않도록 한다.
 ## 5. 결제
 - 보호자는 예약 요청 전에 빌링키를 등록한다. 등록 시 금액 승인은 발생하지 않는다.
 - 결제수단 조회·삭제는 본인 소유만 대상이다. 삭제는 소프트 삭제(`status=DELETED`)로 처리해 청구 이력·FK를 보존한다.
@@ -85,5 +88,5 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - timeout·fallback·기본 Circuit Breaker는 MVP에 포함한다.
 ## 7. 알림
 - 예약 승인·거절, 결제 결과, 노쇼 등 주요 상태 변경을 알림으로 저장한다.
-- MVP는 폴링 방식이고, MVP2에서 단방향 SSE push를 추가했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의).
+- MVP는 폴링으로 조회하고, MVP2 실시간 알림은 단방향 SSE로 전달한다. 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다.
 - 알림 저장이 원본이고 실시간 전달은 부가 기능이다.

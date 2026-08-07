@@ -97,6 +97,12 @@ public enum ReservationErrorCode implements ErrorCode {
             HttpStatus.BAD_REQUEST,
             "RESERVATION_015",
             "노쇼 정정 사유는 필수이며 255자 이하여야 합니다."
+    ),
+
+    CHECK_IN_HISTORY_NOT_FOUND(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "RESERVATION_016",
+            "체크인 이력을 찾을 수 없습니다."
     );
 
     private final HttpStatus httpStatus;
