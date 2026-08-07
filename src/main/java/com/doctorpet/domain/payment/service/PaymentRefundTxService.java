@@ -141,12 +141,25 @@ public class PaymentRefundTxService {
         }
 
         int paymentUpdated = paymentRepository.markRefundedIfPaid(paymentId, now);
+        // markRefundedIfPaid는 @Modifying(clearAutomatically=true)라 영속성 컨텍스트가 비워진다 → 아래 조회는 실제 재조회다.
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-        // 이력을 COMPLETED로 바꾼 요청은 결제도 반드시 전이시켜야 한다. 0건이면 상태 머신 밖의 불일치다.
-        if (paymentUpdated == 0) {
-            log.error("환불 이력은 확정했으나 결제 전이가 0건 — 수동 확인 필요: paymentId={}, refundId={}, status={}",
-                    paymentId, refundId, payment.getStatus());
+
+        /*
+          이력을 COMPLETED로 바꾼 요청은 결제도 반드시 전이시켜야 한다. 0건인데 결제가 REFUNDED도 아니면
+          "이력 COMPLETED + 결제 미환불"로 어긋나는데, 이 상태는 스스로 복구되지 않는다 — 이후 재요청이
+          reclaim()의 COMPLETED 분기에 걸려 계속 거부되기 때문이다(PR #112 리뷰 P1).
+
+          그래서 로그만 남기고 커밋하지 않고 예외로 올려 이력 변경까지 롤백한다. 롤백하면 REQUESTED 선점이
+          그대로 남으므로, 임계 경과 후 재시도가 같은 merchant_refund_id로 PG의 기존 취소 결과를 받아 정상
+          확정한다 — 이미 이동한 돈의 기록이 유실되지 않고 자가 복구된다.
+
+          결제가 이미 REFUNDED라면 결과적으로 원하는 상태이므로 롤백하지 않고 멱등 응답(applied=false)으로 둔다.
+         */
+        if (paymentUpdated == 0 && payment.getStatus() != PaymentStatus.REFUNDED) {
+            log.error("PG 취소는 성립했으나 결제를 REFUNDED로 확정하지 못함 — 이력까지 롤백하고 재시도로 복구한다: "
+                    + "paymentId={}, refundId={}, status={}", paymentId, refundId, payment.getStatus());
+            throw new ServiceException(PaymentErrorCode.REFUND_STATE_CONFLICT);
         }
         return new RefundOutcome(PaymentHistoryResponse.from(payment), paymentUpdated > 0);
     }

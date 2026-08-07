@@ -38,7 +38,12 @@ public enum PaymentErrorCode implements ErrorCode {
     REFUND_IN_PROGRESS(HttpStatus.CONFLICT, "PAYMENT_009", "환불 처리가 이미 진행 중입니다. 잠시 후 다시 확인해 주세요."),
     // PG 취소 호출이 실패해 환불이 성립하지 않음. 결제는 PAID로 남고 같은 멱등키로 재시도할 수 있다.
     // 게이트웨이 오류 원문·공급자 코드는 응답에 담지 않는다(내부 구현 노출 금지).
-    REFUND_GATEWAY_FAILED(HttpStatus.BAD_GATEWAY, "PAYMENT_010", "환불 처리에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    REFUND_GATEWAY_FAILED(HttpStatus.BAD_GATEWAY, "PAYMENT_010", "환불 처리에 실패했습니다. 잠시 후 다시 시도해 주세요."),
+    // PG 취소는 성립했는데 결제를 REFUNDED로 확정하지 못한 경우(조건부 UPDATE 0건, PR #112 리뷰 P1).
+    // 이력만 COMPLETED로 커밋하면 결제와 영구히 어긋나고 재요청도 그 이력에 막혀 복구되지 않으므로,
+    // 이 코드로 예외를 던져 이력 변경까지 함께 롤백한다. 롤백 후 REQUESTED 선점이 남아, 임계 경과 후
+    // 같은 멱등키 재시도가 PG의 기존 취소 결과를 받아 자가 복구한다.
+    REFUND_STATE_CONFLICT(HttpStatus.CONFLICT, "PAYMENT_011", "환불 상태를 확정할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

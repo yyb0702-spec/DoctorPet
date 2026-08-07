@@ -275,6 +275,33 @@ class PaymentRefundIntegrationTest {
     }
 
     @Test
+    @DisplayName("결제를 REFUNDED로 확정하지 못하면 이력 확정까지 롤백해 재시도로 복구할 수 있게 남긴다")
+    void paymentTransitionFails_rollsBackHistorySoRetryCanRecover() {
+        // 정상 경로에서는 도달하지 않는 방어 분기다(claim이 PAID만 통과시키고 펜스가 경합을 막는다).
+        // 다만 도달하면 "이력 COMPLETED + 결제 미환불"이 남고, 이후 재요청이 reclaim()의 COMPLETED 분기에
+        // 막혀 스스로 복구되지 않는다. 그래서 커밋하지 않고 롤백하는지 Tx 경계를 직접 호출해 고정한다(리뷰 P1).
+        Long paymentId = persistPayment(PaymentStatus.PENDING);   // PAID가 아니므로 markRefundedIfPaid가 0건이 된다
+        String token = "tok_conflict_" + paymentId;
+        PaymentRefund requested = paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
+                paymentId, "rfd_conflict_" + paymentId, AMOUNT, REASON, STAFF_MEMBER_ID,
+                LocalDateTime.now(clock), token));
+
+        assertThatThrownBy(() -> paymentRefundTxService.complete(
+                requested.getId(), paymentId, token, "PG-CONFLICT"))
+                .isInstanceOf(ServiceException.class)
+                .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.REFUND_STATE_CONFLICT);
+
+        // 이력이 COMPLETED로 커밋되지 않고 REQUESTED로 남아야 한다 — 같은 멱등키 재시도로 복구할 수 있는 상태다.
+        PaymentRefund afterRollback = paymentRefundRepository.findByPaymentId(paymentId).orElseThrow();
+        assertThat(afterRollback.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(afterRollback.getPgCancelId()).isNull();
+        assertThat(afterRollback.getRefundedAt()).isNull();
+        // 결제도 그대로다.
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.PENDING);
+    }
+
+    @Test
     @DisplayName("PG가 요청과 다른 금액을 취소하면 환불을 확정하지 않고 PAID를 유지한다(이력은 FAILED)")
     void amountMismatch_doesNotConfirmRefund() {
         Long paymentId = persistPayment(PaymentStatus.PAID);
