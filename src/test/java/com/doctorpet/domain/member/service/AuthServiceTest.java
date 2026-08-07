@@ -66,7 +66,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("이메일이 중복되지 않으면 비밀번호를 암호화해 회원을 저장하고 memberId를 반환한다")
     void signup_success() {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
         Member savedMember = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
         setId(savedMember, 1L);
 
@@ -87,7 +87,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("이미 사용 중인(활성 회원) 이메일이면 DUPLICATE_EMAIL 예외를 던진다")
     void signup_duplicateEmail() {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
         given(memberRepository.existsByEmail(request.email())).willReturn(true);
 
         assertThatThrownBy(() -> authService.signup(request))
@@ -99,7 +99,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("existsByEmail 사전 체크 이후 경쟁 상태로 이메일 UNIQUE 제약에 걸려도, 사전 체크와 같은 DUPLICATE_EMAIL로 응답한다")
     void signup_duplicateEmailRaceCondition_mapsToSameErrorAsPrecheck() {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
         given(memberRepository.existsByEmail(request.email())).willReturn(false);
         given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
         given(memberRepository.save(any(Member.class)))
@@ -120,7 +120,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("이메일 제약이 아닌 다른 무결성 위반이면 도메인 에러로 바꾸지 않고 그대로 전파한다")
     void signup_otherIntegrityViolation_propagatesAsIs() {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
         DataIntegrityViolationException otherViolation = new DataIntegrityViolationException(
                 "could not execute statement",
                 new SQLIntegrityConstraintViolationException(
