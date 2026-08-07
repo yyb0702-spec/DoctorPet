@@ -115,7 +115,7 @@ class PasswordResetServiceTest {
             member.recordLoginFailure(now);
         }
         given(memberTokenRepository.consumePasswordResetToken("valid-token")).willReturn(Optional.of(1L));
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.encode("newPassword1234")).willReturn("new-encoded-password");
 
         passwordResetService.confirmPasswordReset("valid-token", "newPassword1234");
@@ -131,7 +131,7 @@ class PasswordResetServiceTest {
         Member member = Member.createGuardian("guardian@example.com", "old-encoded-password", "보호자닉네임");
         setId(member, 1L);
         given(memberTokenRepository.consumePasswordResetToken("valid-token")).willReturn(Optional.of(1L));
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.encode("newPassword1234")).willReturn("new-encoded-password");
 
         passwordResetService.confirmPasswordReset("valid-token", "newPassword1234");
@@ -155,13 +155,28 @@ class PasswordResetServiceTest {
     @DisplayName("토큰은 유효하지만 그 사이 회원이 존재하지 않으면 MEMBER_NOT_FOUND 예외를 던지고, 세션을 건드리지 않는다")
     void confirmPasswordReset_memberNotFound() {
         given(memberTokenRepository.consumePasswordResetToken("valid-token")).willReturn(Optional.of(1L));
-        given(memberRepository.findById(1L)).willReturn(Optional.empty());
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> passwordResetService.confirmPasswordReset("valid-token", "newPassword1234"))
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
         verify(refreshTokenRepository, never()).deleteByMemberId(any());
+    }
+
+    @Test
+    @DisplayName("login()의 findByEmailForUpdate()와 같은 행 락(findByIdForUpdate)으로 조회한다 — 재설정·로그인 직렬화(리뷰 지적)")
+    void confirmPasswordReset_usesRowLockSharedWithLogin() {
+        Member member = Member.createGuardian("guardian@example.com", "old-encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        given(memberTokenRepository.consumePasswordResetToken("valid-token")).willReturn(Optional.of(1L));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.encode("newPassword1234")).willReturn("new-encoded-password");
+
+        passwordResetService.confirmPasswordReset("valid-token", "newPassword1234");
+
+        verify(memberRepository).findByIdForUpdate(1L);
+        verify(memberRepository, never()).findById(any());
     }
 
     private void setId(Member member, Long id) {
