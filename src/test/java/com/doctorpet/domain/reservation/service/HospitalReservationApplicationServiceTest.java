@@ -21,6 +21,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
@@ -62,6 +63,9 @@ class HospitalReservationApplicationServiceTest {
     @Mock
     private ReservationEventRepository reservationEventRepository;
 
+    @Mock
+    private ReservationNotificationPublisher notificationPublisher;
+
     private HospitalReservationApplicationService hospitalReservationService;
 
     @BeforeEach
@@ -70,7 +74,8 @@ class HospitalReservationApplicationServiceTest {
                 memberService,
                 reservationRepository,
                 reservationSlotRepository,
-                reservationEventRepository
+                reservationEventRepository,
+                notificationPublisher
         );
         lenient().when(memberService.getMyInfo(STAFF_ID)).thenReturn(
                 new MemberResponse(
@@ -110,6 +115,8 @@ class HospitalReservationApplicationServiceTest {
                 any(),
                 any()
         );
+        verify(notificationPublisher).publishConfirmed(
+                reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test
@@ -236,6 +243,8 @@ class HospitalReservationApplicationServiceTest {
                 any(),
                 any()
         );
+        verify(notificationPublisher).publishRejected(
+                reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test
@@ -514,6 +523,8 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class)
         );
+        verify(notificationPublisher).publishNoShow(
+                reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test

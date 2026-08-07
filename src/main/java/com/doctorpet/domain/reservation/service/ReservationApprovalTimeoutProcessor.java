@@ -69,7 +69,7 @@ public class ReservationApprovalTimeoutProcessor {
                 now
         );
 
-        notificationPublisher.publishRejected(
+        notificationPublisher.publishAutoRejected(
                 reservation.getMemberId(),
                 reservationId
         );
