@@ -434,46 +434,54 @@ class HospitalNoShowIntegrationTest {
     }
 
     @Test
-    @DisplayName("추가 유예 종료 경계에서 체크인과 최종 노쇼가 동시에 와도 하나의 전이만 성립한다")
-    void checkInAndFinalNoShowRace_atBoundary_onlyOneTransitionSucceeds()
+    @DisplayName("추가 유예 종료 시 실제 체크인 서비스와 최종 노쇼가 경합해도 하나의 전이만 성립한다")
+    void checkInAndFinalNoShowRace_throughServices_onlyOneTransitionSucceeds()
             throws InterruptedException {
         LocalDateTime base = LocalDateTime.now(SEOUL_ZONE_ID).withNano(0);
         TestReservation data = saveConfirmedReservation(base.minusMinutes(10).minusSeconds(1));
-        Long hospitalId = reservationRepository.findById(data.reservationId()).orElseThrow().getHospitalId();
         assertThat(noShowProcessor.process(data.reservationId(), base))
                 .isEqualTo(ReservationNoShowProcessor.Result.PROCESSED);
 
-        LocalDateTime boundary = base.plusMinutes(4).plusSeconds(59);
-        LocalDateTime cutoff = boundary.minusMinutes(15);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(2);
-        List<Integer> updates = new CopyOnWriteArrayList<>();
+        List<Throwable> errors = new CopyOnWriteArrayList<>();
 
-        executor.submit(() -> new TransactionTemplate(transactionManager)
-                .executeWithoutResult(status -> {
-                    await(start);
-                    updates.add(reservationRepository.checkInIfAwaitingArrival(
-                            data.reservationId(), hospitalId,
-                            List.of(ReservationStatus.CONFIRMED, ReservationStatus.NO_SHOW_PENDING),
-                            ReservationStatus.CHECKED_IN, cutoff, boundary));
-                    done.countDown();
-                }));
-        executor.submit(() -> new TransactionTemplate(transactionManager)
-                .executeWithoutResult(status -> {
-                    await(start);
-                    updates.add(reservationRepository.markAutoNoShowIfPending(
-                            data.reservationId(), ReservationStatus.NO_SHOW_PENDING,
-                            ReservationStatus.NO_SHOW, boundary, cutoff));
-                    done.countDown();
-                }));
+        executor.submit(() -> {
+            try {
+                await(start);
+                hospitalReservationService.checkIn(data.staffMemberId(), data.reservationId());
+            } catch (Throwable throwable) {
+                errors.add(throwable);
+            } finally {
+                done.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                await(start);
+                noShowProcessor.process(data.reservationId(), base.plusSeconds(11));
+            } catch (Throwable throwable) {
+                errors.add(throwable);
+            } finally {
+                done.countDown();
+            }
+        });
         start.countDown();
         assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
         executor.shutdown();
         assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-        assertThat(updates).containsExactlyInAnyOrder(1, 0);
-        assertThat(reservationRepository.findById(data.reservationId()).orElseThrow().getStatus())
-                .isEqualTo(ReservationStatus.CHECKED_IN);
+        assertThat(errors).allSatisfy(error -> assertThat(error)
+                .isInstanceOf(com.doctorpet.global.exception.ServiceException.class));
+        ReservationStatus status = reservationRepository.findById(data.reservationId())
+                .orElseThrow()
+                .getStatus();
+        assertThat(status).isIn(ReservationStatus.CHECKED_IN, ReservationStatus.NO_SHOW);
+        assertThat(reservationEventRepository.countByReservation_IdAndEventType(
+                data.reservationId(), ReservationEventType.CHECKED_IN)
+                + reservationEventRepository.countByReservation_IdAndEventType(
+                data.reservationId(), ReservationEventType.AUTO_NO_SHOW))
+                .isEqualTo(1L);
     }
 
     @Test

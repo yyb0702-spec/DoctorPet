@@ -79,7 +79,7 @@ PATCH /api/hospital/reservations/{reservationId}/check-in
 ```json
 {
   "code": "SUCCESS",
-  "message": "예약 도착이 확인되었습니다.",
+  "message": "요청이 성공했습니다.",
   "data": {
     "reservationId": 123,
     "status": "CHECKED_IN",
