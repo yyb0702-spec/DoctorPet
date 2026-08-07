@@ -376,6 +376,55 @@ class HospitalSearchRepositoryIntegrationTest {
                 .doesNotContain(farAway.getId());
     }
 
+    @Test
+    void 거리순_페이지는_가까운_병원부터_중복_없이_조회한다() {
+        Hospital nearest = saveHospitalAt(
+                "DISTANCE-NEAREST",
+                "SCOPE69 가까운 병원",
+                "126.9780",
+                "37.5665"
+        );
+        Hospital middle = saveHospitalAt(
+                "DISTANCE-MIDDLE",
+                "SCOPE69 중간 병원",
+                "127.0280",
+                "37.5665"
+        );
+        Hospital farthest = saveHospitalAt(
+                "DISTANCE-FARTHEST",
+                "SCOPE69 먼 병원",
+                "127.1280",
+                "37.5665"
+        );
+        hospitalRepository.flush();
+
+        HospitalSearchCondition condition = conditionWithKeyword("SCOPE69");
+
+        List<HospitalSearchCandidate> firstPage =
+                hospitalRepository.searchDistancePage(
+                        condition,
+                        new BigDecimal("37.5665"),
+                        new BigDecimal("126.9780"),
+                        0L,
+                        2
+                );
+        List<HospitalSearchCandidate> secondPage =
+                hospitalRepository.searchDistancePage(
+                        condition,
+                        new BigDecimal("37.5665"),
+                        new BigDecimal("126.9780"),
+                        2L,
+                        2
+                );
+
+        assertThat(firstPage)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactly(nearest.getId(), middle.getId());
+        assertThat(secondPage)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactly(farthest.getId());
+    }
+
     private Hospital saveHospital(
             String managementNumber,
             String name,
@@ -401,6 +450,31 @@ class HospitalSearchRepositoryIntegrationTest {
         if (partner) {
             hospital.markAsPartner();
         }
+        return hospitalRepository.save(hospital);
+    }
+
+    private Hospital saveHospitalAt(
+            String managementNumber,
+            String name,
+            String longitude,
+            String latitude
+    ) {
+        Hospital hospital = Hospital.createFromPublicData(
+                managementNumber,
+                "LOCAL-GOV",
+                name,
+                "02-1234-5678",
+                "서울특별시 중구 지번주소",
+                "서울특별시 중구 도로명주소",
+                "01234",
+                new BigDecimal(longitude),
+                new BigDecimal(latitude),
+                null,
+                BusinessStatus.OPEN,
+                null,
+                null,
+                null
+        );
         return hospitalRepository.save(hospital);
     }
 
