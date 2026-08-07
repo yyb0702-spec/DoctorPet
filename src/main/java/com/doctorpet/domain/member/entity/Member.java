@@ -47,6 +47,15 @@ public class Member extends BaseEntity {
     @Column(nullable = false)
     private String nickname;
 
+    /**
+     * 연락처(기능 구멍 점검 대응 — 병원-보호자 간 실질적 연락 수단이 없던 문제). 신규 가입은
+     * SignupRequest에서 필수로 받지만, 이 컬럼 자체는 nullable로 둔다 — 기존 회원은 phone=null
+     * 상태로 남고, 별도 백필 장치는 두지 않는다(email_verified 백필과 달리 외부에서 값을 채워줄
+     * 원천 데이터가 없어 백필 자체가 불가능하다).
+     */
+    @Column(name = "phone")
+    private String phone;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private MemberRole role;
@@ -78,10 +87,11 @@ public class Member extends BaseEntity {
     private static final int MAX_FAILED_LOGIN_ATTEMPTS = 5;
     private static final long LOCK_DURATION_MINUTES = 30;
 
-    private Member(String email, String password, String nickname, MemberRole role, Long hospitalId) {
+    private Member(String email, String password, String nickname, String phone, MemberRole role, Long hospitalId) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
+        this.phone = phone;
         this.role = role;
         this.hospitalId = hospitalId;
         this.emailVerified = false;
@@ -91,9 +101,19 @@ public class Member extends BaseEntity {
     /**
      * 보호자(GUARDIAN) 회원가입. 병원 스태프(HOSPITAL_STAFF)는 회원가입 대상이 아니라
      * 제휴 병원 시드 데이터로 생성된다(SA §6-2) — 이 팩토리로 만들 수 없다.
+     * phone=null로 생성한다 — 전화번호가 필요 없는 테스트 픽스처 등에서 계속 쓰기 위해 남겨둔
+     * 오버로드다. 실제 회원가입 API는 아래 4-arg 오버로드를 쓴다.
      */
     public static Member createGuardian(String email, String password, String nickname) {
-        return new Member(email, password, nickname, MemberRole.GUARDIAN, null);
+        return new Member(email, password, nickname, null, MemberRole.GUARDIAN, null);
+    }
+
+    /**
+     * 전화번호까지 받는 보호자 회원가입. AuthService.signup()에서 SignupRequest.phone()과 함께
+     * 사용한다(기능 구멍 점검 대응 — 병원-보호자 연락 수단 부재 문제).
+     */
+    public static Member createGuardian(String email, String password, String nickname, String phone) {
+        return new Member(email, password, nickname, phone, MemberRole.GUARDIAN, null);
     }
 
     /** 잠금 시간이 지났으면 자동 해제한다(실패 횟수 초기화 포함). 로그인 시도마다 가장 먼저 호출한다. */
