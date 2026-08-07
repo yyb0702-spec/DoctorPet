@@ -460,7 +460,7 @@ class HospitalNoShowIntegrationTest {
         executor.submit(() -> {
             try {
                 await(start);
-                noShowProcessor.process(data.reservationId(), base.plusSeconds(11));
+                noShowProcessor.process(data.reservationId(), base.plusMinutes(5).plusSeconds(1));
             } catch (Throwable throwable) {
                 errors.add(throwable);
             } finally {
