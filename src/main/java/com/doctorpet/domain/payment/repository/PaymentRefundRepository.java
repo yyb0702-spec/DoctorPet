@@ -17,6 +17,11 @@ import org.springframework.data.repository.query.Param;
   - 행이 있으면 아래 두 조건부 UPDATE 중 하나로만 선점을 넘겨받는다. 둘 다 갱신 0건이면 진 요청이므로
     상위에서 멱등 응답 또는 409로 처리한다. JPQL bulk UPDATE는 @LastModifiedDate를 우회하므로
     updatedAt을 서울 기준 Clock 값으로 명시 갱신한다(payments 조건부 UPDATE와 같은 함정).
+
+  소유권 펜스(claim_token, PR #112 리뷰 P1): 선점할 때마다 새 토큰을 발급하고, 확정(COMPLETED)·실패(FAILED)
+  전이는 status뿐 아니라 이 토큰까지 검사한다. status만 검사하면 선점이 회수된 뒤 도착한 이전 요청의 늦은
+  fail()이 새 소유자의 REQUESTED 행을 FAILED로 바꿔, 새 소유자의 complete()가 이력은 못 바꾸고 결제만
+  REFUNDED로 바꾸는 갈라짐이 생긴다.
  */
 public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Long> {
 
@@ -37,6 +42,7 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
                    r.refundedBy = :refundedBy,
                    r.failureReason = null,
                    r.claimedAt = :now,
+                   r.claimToken = :claimToken,
                    r.updatedAt = :now
              where r.id = :id
                and r.status = com.doctorpet.domain.payment.entity.RefundStatus.FAILED
@@ -45,7 +51,8 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
             @Param("id") Long id,
             @Param("reason") String reason,
             @Param("refundedBy") Long refundedBy,
-            @Param("now") LocalDateTime now
+            @Param("now") LocalDateTime now,
+            @Param("claimToken") String claimToken
     );
 
     /*
@@ -59,6 +66,7 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
                set r.reason = :reason,
                    r.refundedBy = :refundedBy,
                    r.claimedAt = :now,
+                   r.claimToken = :claimToken,
                    r.updatedAt = :now
              where r.id = :id
                and r.status = com.doctorpet.domain.payment.entity.RefundStatus.REQUESTED
@@ -69,7 +77,8 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
             @Param("reason") String reason,
             @Param("refundedBy") Long refundedBy,
             @Param("staleThreshold") LocalDateTime staleThreshold,
-            @Param("now") LocalDateTime now
+            @Param("now") LocalDateTime now,
+            @Param("claimToken") String claimToken
     );
 
     /*
@@ -85,11 +94,13 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
                    r.updatedAt = :refundedAt
              where r.id = :id
                and r.status = com.doctorpet.domain.payment.entity.RefundStatus.REQUESTED
+               and r.claimToken = :claimToken
             """)
     int markCompletedIfRequested(
             @Param("id") Long id,
             @Param("pgCancelId") String pgCancelId,
-            @Param("refundedAt") LocalDateTime refundedAt
+            @Param("refundedAt") LocalDateTime refundedAt,
+            @Param("claimToken") String claimToken
     );
 
     /*
@@ -103,10 +114,12 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, Lo
                    r.updatedAt = :now
              where r.id = :id
                and r.status = com.doctorpet.domain.payment.entity.RefundStatus.REQUESTED
+               and r.claimToken = :claimToken
             """)
     int markFailedIfRequested(
             @Param("id") Long id,
             @Param("failureReason") String failureReason,
-            @Param("now") LocalDateTime now
+            @Param("now") LocalDateTime now,
+            @Param("claimToken") String claimToken
     );
 }

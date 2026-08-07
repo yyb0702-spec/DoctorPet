@@ -326,6 +326,25 @@ class PortOnePaymentGatewayTest {
     }
 
     @Test
+    @DisplayName("이미 취소됨 재요청 후 조회가 취소 내역 없이 PARTIAL_CANCELLED면 전액으로 단정하지 않고 UNKNOWN이다")
+    void cancel_partialCancelledWithoutDetail_isUnknown() throws Exception {
+        // mapStatus는 CANCELLED와 PARTIAL_CANCELLED를 모두 FAILED로 합치므로 상태만으로는 부분 취소를 구분할 수
+        // 없다. 요청 금액을 그대로 채우면 상위 금액 대조가 통과해 일부만 취소된 결제가 전액 환불로 확정된다(리뷰 P1).
+        httpClient = mock(HttpClient.class);
+        HttpResponse<String> tokenResponse = response(200, TOKEN_RESPONSE);
+        HttpResponse<String> alreadyCancelled = response(409, "{\"type\":\"PAYMENT_ALREADY_CANCELLED\"}");
+        HttpResponse<String> queryResponse = response(200, "{\"status\":\"PARTIAL_CANCELLED\"}");
+        given(httpClient.send(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .willReturn(tokenResponse, alreadyCancelled, queryResponse);
+        PortOnePaymentGateway gateway =
+                new PortOnePaymentGateway(configuredProperties(), errorCodeMapper, httpClient, new ObjectMapper());
+
+        assertThatThrownBy(() -> gateway.cancel(new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구")))
+                .isInstanceOfSatisfying(PaymentGatewayException.class,
+                        ex -> assertThat(ex.getFailureReason()).isEqualTo(GatewayFailureReason.UNKNOWN));
+    }
+
+    @Test
     @DisplayName("2xx인데 취소 내역이 없으면 성공으로 단정하지 않고 UNKNOWN 예외를 던진다")
     void cancel_missingCancellation_unknown() throws Exception {
         PortOnePaymentGateway gateway = gatewayWith(response(200, "{}"));

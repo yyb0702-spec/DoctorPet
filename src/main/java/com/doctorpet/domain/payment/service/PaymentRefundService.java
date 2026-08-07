@@ -52,12 +52,13 @@ public class PaymentRefundService {
         if (result.amount() != claim.amount()) {
             log.error("PG 취소 금액 불일치 — 환불 미확정, 수동 확인 필요: paymentId={}, 요청={}, 취소={}",
                     paymentId, claim.amount(), result.amount());
-            paymentRefundTxService.fail(claim.refundId(), "REFUND_AMOUNT_MISMATCH");
+            paymentRefundTxService.fail(claim.refundId(), claim.claimToken(), "REFUND_AMOUNT_MISMATCH");
             throw new ServiceException(PaymentErrorCode.REFUND_GATEWAY_FAILED);
         }
 
         // Tx2 — 이력 COMPLETED + 결제 PAID→REFUNDED(커밋).
-        RefundOutcome outcome = paymentRefundTxService.complete(claim.refundId(), paymentId, result.pgCancelId());
+        RefundOutcome outcome = paymentRefundTxService.complete(
+                claim.refundId(), paymentId, claim.claimToken(), result.pgCancelId());
 
         // 커밋 이후 알림. 발행 실패가 환불 확정을 되돌리지 않도록 트랜잭션 밖에서 호출하고 예외도 삼킨다(SA §9-8).
         // 실제로 전이시킨 요청만 발행해, 멈춘 선점을 회수한 재시도가 알림을 중복 발행하지 않게 한다.
@@ -83,12 +84,12 @@ public class PaymentRefundService {
             // 받아 REFUNDED로 확정하므로 여기서 성공으로 단정하지 않는다.
             log.warn("PG 취소 실패 — 환불 미확정(결제는 PAID 유지): paymentId={}, refundId={}, reason={}",
                     claim.response().paymentId(), claim.refundId(), e.getFailureReason(), e);
-            paymentRefundTxService.fail(claim.refundId(), e.getFailureReason().name());
+            paymentRefundTxService.fail(claim.refundId(), claim.claimToken(), e.getFailureReason().name());
             throw new ServiceException(PaymentErrorCode.REFUND_GATEWAY_FAILED);
         } catch (RuntimeException e) {
             // 게이트웨이 계약을 벗어난 예외(어댑터 버그 등)도 선점을 풀어야 재시도가 가능하다.
             log.error("환불 오케스트레이션에서 계약 외 예외 — 선점 해제: refundId={}", claim.refundId(), e);
-            paymentRefundTxService.fail(claim.refundId(), "REFUND_ORCHESTRATION_ERROR");
+            paymentRefundTxService.fail(claim.refundId(), claim.claimToken(), "REFUND_ORCHESTRATION_ERROR");
             throw new ServiceException(PaymentErrorCode.REFUND_GATEWAY_FAILED);
         }
     }

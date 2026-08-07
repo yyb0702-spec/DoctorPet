@@ -77,6 +77,8 @@ class PaymentRefundIntegrationTest {
     @Autowired private PaymentChargeService paymentChargeService;
     // 선점 시각(claimed_at)을 운영과 같은 서울 기준으로 만들기 위해 주입한다.
     @Autowired private java.time.Clock clock;
+    // 소유권 펜스를 직접 검증하기 위해 Tx 경계를 직접 호출한다.
+    @Autowired private PaymentRefundTxService paymentRefundTxService;
 
     @MockitoBean private ReservationLookupPort reservationLookupPort;
     @MockitoBean private StaffHospitalPort staffHospitalPort;
@@ -209,7 +211,7 @@ class PaymentRefundIntegrationTest {
         // 환경(CI)에서 방금 만든 선점이 9시간 낡은 것으로 보여 "진행 중"이 아니라 회수 대상이 된다.
         paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
                 paymentId, "rfd_inflight_" + paymentId, AMOUNT, REASON, STAFF_MEMBER_ID,
-                LocalDateTime.now(clock)));
+                LocalDateTime.now(clock), "tok_inflight_" + paymentId));
 
         assertThatThrownBy(() -> paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON))
                 .isInstanceOf(ServiceException.class)
@@ -227,7 +229,8 @@ class PaymentRefundIntegrationTest {
         String stuckKey = "rfd_stuck_" + paymentId;
         // claim-stale-after-ms(기본 2분)보다 오래된 선점 — 앱이 PG 취소 도중 죽어 남은 행을 재현한다.
         paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
-                paymentId, stuckKey, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now(clock).minusMinutes(10)));
+                paymentId, stuckKey, AMOUNT, REASON, STAFF_MEMBER_ID,
+                LocalDateTime.now(clock).minusMinutes(10), "tok_stuck_" + paymentId));
 
         PaymentHistoryResponse response = paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, "멈춘 환불 복구");
 
@@ -240,12 +243,45 @@ class PaymentRefundIntegrationTest {
     }
 
     @Test
+    @DisplayName("선점이 회수된 뒤 도착한 이전 소유자의 실패·확정은 반영되지 않는다(소유권 펜스)")
+    void stolenClaim_lateResultsAreFenced() {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        String stuckKey = "rfd_fence_" + paymentId;
+        String oldToken = "tok_old_" + paymentId;
+        // 이전 소유자(A)의 멈춘 선점.
+        PaymentRefund stuck = paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
+                paymentId, stuckKey, AMOUNT, REASON, STAFF_MEMBER_ID,
+                LocalDateTime.now(clock).minusMinutes(10), oldToken));
+
+        // 새 소유자(B)가 선점을 회수해 환불을 확정한다.
+        paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, "회수 후 재시도");
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+
+        // A가 뒤늦게 실패를 기록하려 해도 펜스가 어긋나 갱신되지 않는다 — 없으면 이력이 FAILED로 뒤집힌다.
+        paymentRefundTxService.fail(stuck.getId(), oldToken, "LATE_FAILURE");
+        PaymentRefund afterLateFail = paymentRefundRepository.findByPaymentId(paymentId).orElseThrow();
+        assertThat(afterLateFail.getStatus()).isEqualTo(RefundStatus.COMPLETED);
+        assertThat(afterLateFail.getFailureReason()).isNull();
+
+        // A가 뒤늦게 성공을 확정하려 해도 결제 상태를 다시 건드리지 않는다(알림 재발행 없음).
+        RefundOutcome lateComplete =
+                paymentRefundTxService.complete(stuck.getId(), paymentId, oldToken, "PG-LATE");
+        assertThat(lateComplete.applied()).isFalse();
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+        verify(notificationPublisher, times(1))
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED));
+    }
+
+    @Test
     @DisplayName("PG가 요청과 다른 금액을 취소하면 환불을 확정하지 않고 PAID를 유지한다(이력은 FAILED)")
     void amountMismatch_doesNotConfirmRefund() {
         Long paymentId = persistPayment(PaymentStatus.PAID);
         String key = "rfd_mismatch_" + paymentId;
         paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
-                paymentId, key, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now(clock).minusMinutes(10)));
+                paymentId, key, AMOUNT, REASON, STAFF_MEMBER_ID,
+                LocalDateTime.now(clock).minusMinutes(10), "tok_mismatch_" + paymentId));
         // 같은 멱등키에 요청 금액과 다른 취소 결과를 심어 둔다.
         fakePaymentGateway.stubCancelAmount(key, AMOUNT - 1_000);
 

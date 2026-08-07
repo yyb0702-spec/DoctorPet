@@ -119,28 +119,34 @@ public class PaymentRefundTxService {
      * 같은 멱등키로 각각 성공을 확정하는 경우, 조건부 UPDATE(WHERE status='PAID')가 1건만 성립시키므로
      * 알림이 중복 발행되지 않는다(청구 후확정의 applied와 같은 역할, PR #81 P1).
      *
-     * <p>두 조건부 UPDATE는 항상 같이 성립하거나 같이 실패한다 — 이력을 COMPLETED로 바꾸는 전이와 결제를
-     * REFUNDED로 바꾸는 전이가 이 트랜잭션에만 있으므로, 선점을 잃은 요청은 둘 다 0건이 된다. 그 불변식이
-     * 깨지면 "이력은 완료인데 결제는 PAID"(또는 그 반대)가 남아 조용히 어긋나므로, 갈라지는 경우를 감지해
-     * 로그로 드러낸다. 로그만 남기고 예외로 올리지는 않는다 — PG 취소는 이미 성립했으니 되돌릴 수 없고,
-     * 트랜잭션을 롤백하면 오히려 확정 기록만 사라진다.
+     * <p>순서가 중요하다(PR #112 리뷰 P1): 이력 전이를 <b>먼저</b> 시도하고, 그것이 성립했을 때만 결제를 전이한다.
+     * 이력 전이는 status와 소유권 펜스({@code claimToken})를 함께 검사하므로, 선점을 잃은 요청은 여기서 0건이
+     * 되어 결제를 건드리지 못한다. 순서를 뒤집거나 펜스를 빼면 "이력 FAILED + 결제 REFUNDED"처럼 갈라진다.
      */
     @Transactional
-    public RefundOutcome complete(Long refundId, Long paymentId, String pgCancelId) {
+    public RefundOutcome complete(Long refundId, Long paymentId, String claimToken, String pgCancelId) {
         LocalDateTime now = LocalDateTime.now(clock);
-        int refundUpdated = paymentRefundRepository.markCompletedIfRequested(refundId, pgCancelId, now);
-        int paymentUpdated = paymentRepository.markRefundedIfPaid(paymentId, now);
-        if (refundUpdated != paymentUpdated) {
-            log.error("환불 확정 전이가 갈라졌다 — 수동 확인 필요: paymentId={}, refundId={}, 이력={}건, 결제={}건",
-                    paymentId, refundId, refundUpdated, paymentUpdated);
+        int refundUpdated = paymentRefundRepository.markCompletedIfRequested(refundId, pgCancelId, now, claimToken);
+        if (refundUpdated == 0) {
+            /*
+              선점을 잃었다(회수됐거나 이미 확정됨). 결제는 건드리지 않는다 — 이력을 못 바꾼 요청이 결제만
+              REFUNDED로 바꾸면 "이력 FAILED/REQUESTED + 결제 REFUNDED"로 갈라진다(PR #112 리뷰 P1).
+              PG 취소는 같은 멱등키라 현재 소유자가 재호출해도 기존 결과를 받아 정상 확정하므로 유실되지 않는다.
+             */
+            Payment current = paymentRepository.findById(paymentId)
+                    .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
+            log.warn("환불 확정 시점에 선점을 잃음 — 결제 상태를 바꾸지 않는다: paymentId={}, refundId={}, status={}",
+                    paymentId, refundId, current.getStatus());
+            return new RefundOutcome(PaymentHistoryResponse.from(current), false);
         }
+
+        int paymentUpdated = paymentRepository.markRefundedIfPaid(paymentId, now);
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-        // 전이가 성립하지 않았다면(다른 요청이 먼저 확정) 상태는 이미 REFUNDED여야 한다. PAID로 남아 있으면
-        // PG는 취소됐는데 우리 상태만 뒤처진 것이므로, 성공 응답으로 덮지 않고 드러낸다.
-        if (paymentUpdated == 0 && payment.getStatus() != PaymentStatus.REFUNDED) {
-            log.error("PG 취소는 성립했으나 결제 상태가 REFUNDED가 아니다 — 수동 확인 필요: paymentId={}, status={}",
-                    paymentId, payment.getStatus());
+        // 이력을 COMPLETED로 바꾼 요청은 결제도 반드시 전이시켜야 한다. 0건이면 상태 머신 밖의 불일치다.
+        if (paymentUpdated == 0) {
+            log.error("환불 이력은 확정했으나 결제 전이가 0건 — 수동 확인 필요: paymentId={}, refundId={}, status={}",
+                    paymentId, refundId, payment.getStatus());
         }
         return new RefundOutcome(PaymentHistoryResponse.from(payment), paymentUpdated > 0);
     }
@@ -150,15 +156,17 @@ public class PaymentRefundTxService {
      * 선점을 이미 잃었다면(조건부 UPDATE 0건) 다른 요청의 결과를 덮어쓰지 않는다.
      */
     @Transactional
-    public void fail(Long refundId, String failureReason) {
-        paymentRefundRepository.markFailedIfRequested(refundId, failureReason, LocalDateTime.now(clock));
+    public void fail(Long refundId, String claimToken, String failureReason) {
+        // 펜스가 어긋나면(선점 회수됨) 갱신 0건이 되어 새 소유자의 선점을 FAILED로 덮지 않는다.
+        paymentRefundRepository.markFailedIfRequested(
+                refundId, failureReason, LocalDateTime.now(clock), claimToken);
     }
 
     private RefundClaim insertClaim(
             Payment payment, ReservationChargeView reservation, Long staffMemberId, String reason) {
         PaymentRefund refund = PaymentRefund.requested(
                 payment.getId(), merchantRefundIdGenerator.generate(), payment.getAmount(),
-                reason, staffMemberId, LocalDateTime.now(clock));
+                reason, staffMemberId, LocalDateTime.now(clock), newClaimToken());
         try {
             paymentRefundRepository.saveAndFlush(refund);
         } catch (DataIntegrityViolationException e) {
@@ -170,9 +178,9 @@ public class PaymentRefundTxService {
             throw new ServiceException(PaymentErrorCode.REFUND_IN_PROGRESS);
         }
         return RefundClaim.claimed(
-                refund.getId(), refund.getMerchantRefundId(), payment.getMerchantPaymentId(),
-                refund.getAmount(), payment.getReservationId(), reservation.guardianMemberId(),
-                PaymentHistoryResponse.from(payment));
+                refund.getId(), refund.getMerchantRefundId(), refund.getClaimToken(),
+                payment.getMerchantPaymentId(), refund.getAmount(), payment.getReservationId(),
+                reservation.guardianMemberId(), PaymentHistoryResponse.from(payment));
     }
 
     private RefundClaim reclaim(
@@ -205,11 +213,14 @@ public class PaymentRefundTxService {
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
+        // 선점을 넘겨받을 때마다 새 펜스 토큰을 발급한다 — 이전 소유자의 늦은 확정·실패가 이 선점을 덮지 못한다.
+        String claimToken = newClaimToken();
         int claimed = existing.getStatus() == RefundStatus.FAILED
-                ? paymentRefundRepository.claimFailedForRetry(existing.getId(), reason, staffMemberId, now)
+                ? paymentRefundRepository.claimFailedForRetry(
+                        existing.getId(), reason, staffMemberId, now, claimToken)
                 : paymentRefundRepository.claimStaleRequested(
                         existing.getId(), reason, staffMemberId,
-                        now.minus(properties.getClaimStaleAfterMs(), ChronoUnit.MILLIS), now);
+                        now.minus(properties.getClaimStaleAfterMs(), ChronoUnit.MILLIS), now, claimToken);
         if (claimed == 0) {
             // FAILED 재시도 경쟁에서 졌거나, REQUESTED 선점이 아직 신선하다(진행 중) → 가로채지 않는다.
             throw new ServiceException(PaymentErrorCode.REFUND_IN_PROGRESS);
@@ -219,9 +230,14 @@ public class PaymentRefundTxService {
                     payment.getId(), existing.getId(), existing.getMerchantRefundId());
         }
         return RefundClaim.claimed(
-                existing.getId(), existing.getMerchantRefundId(), payment.getMerchantPaymentId(),
-                payment.getAmount(), payment.getReservationId(), reservation.guardianMemberId(),
-                PaymentHistoryResponse.from(payment));
+                existing.getId(), existing.getMerchantRefundId(), claimToken,
+                payment.getMerchantPaymentId(), payment.getAmount(), payment.getReservationId(),
+                reservation.guardianMemberId(), PaymentHistoryResponse.from(payment));
+    }
+
+    /** 선점 소유권 펜스 토큰. 추측 불가·정밀도 무관해야 하므로 UUID를 쓴다. */
+    private String newClaimToken() {
+        return java.util.UUID.randomUUID().toString();
     }
 
     /** 자병원 검증. 스태프 소속 병원을 인증 주체(memberId)로 재해석한다(요청 값 신뢰 금지, 보안). */

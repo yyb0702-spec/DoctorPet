@@ -12,6 +12,7 @@ import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
  * @param claimed          이 요청이 환불 선점을 얻었는지
  * @param refundId         환불 이력 행 id(선점한 경우에만 유효)
  * @param merchantRefundId PG 취소 멱등키. 재시도에도 이 값을 재사용한다
+ * @param claimToken       선점 소유권 펜스. Tx2가 이 토큰으로 "아직 내가 선점을 쥐고 있는지"를 검사한다
  * @param merchantPaymentId 취소 대상 결제의 PG 멱등키
  * @param amount           환불 금액(원)
  * @param reservationId    관련 예약(알림 발행용)
@@ -22,6 +23,7 @@ public record RefundClaim(
         boolean claimed,
         Long refundId,
         String merchantRefundId,
+        String claimToken,
         String merchantPaymentId,
         int amount,
         Long reservationId,
@@ -30,14 +32,14 @@ public record RefundClaim(
 ) {
 
     public static RefundClaim claimed(
-            Long refundId, String merchantRefundId, String merchantPaymentId, int amount,
+            Long refundId, String merchantRefundId, String claimToken, String merchantPaymentId, int amount,
             Long reservationId, Long guardianMemberId, PaymentHistoryResponse response) {
-        return new RefundClaim(true, refundId, merchantRefundId, merchantPaymentId, amount,
+        return new RefundClaim(true, refundId, merchantRefundId, claimToken, merchantPaymentId, amount,
                 reservationId, guardianMemberId, response);
     }
 
     public static RefundClaim alreadyRefunded(
             Long reservationId, Long guardianMemberId, PaymentHistoryResponse response) {
-        return new RefundClaim(false, null, null, null, 0, reservationId, guardianMemberId, response);
+        return new RefundClaim(false, null, null, null, null, 0, reservationId, guardianMemberId, response);
     }
 }

@@ -82,19 +82,34 @@ public class PaymentRefund extends BaseEntity {
     @Column(name = "claimed_at", nullable = false)
     private LocalDateTime claimedAt;
 
+    /*
+      선점 소유권 펜스 토큰(PR #112 리뷰 P1). 선점할 때마다 새로 발급하고, 확정(COMPLETED)·실패(FAILED) 전이의
+      조건에 함께 넣어 "지금 선점을 쥔 요청"만 결과를 쓸 수 있게 한다.
+
+      없으면 이런 갈라짐이 생긴다: 임계를 넘겨 선점이 회수된 뒤에도 이전 요청의 늦은 fail()이 id·status만
+      검사해 통과하므로, 새 소유자의 REQUESTED 행을 FAILED로 바꿔버린다. 그 뒤 새 소유자의 complete()는
+      이력 갱신은 0건이면서 결제만 REFUNDED로 바꿔 "이력 FAILED + 결제 REFUNDED"가 남는다.
+
+      claimed_at 비교로 대신하지 않는다 — DATETIME 정밀도에 따라 저장 시 절삭될 수 있어 동등 비교가 어긋날
+      위험이 있다. 토큰은 UUID 문자열이라 정밀도와 무관하다.
+     */
+    @Column(name = "claim_token", nullable = false, length = 40)
+    private String claimToken;
+
     // PG 취소가 확정된 시각. COMPLETED에서만 채워진다.
     @Column(name = "refunded_at")
     private LocalDateTime refundedAt;
 
     private PaymentRefund(
             Long paymentId, String merchantRefundId, int amount, String reason,
-            Long refundedBy, LocalDateTime claimedAt) {
+            Long refundedBy, LocalDateTime claimedAt, String claimToken) {
         this.paymentId = paymentId;
         this.merchantRefundId = merchantRefundId;
         this.amount = amount;
         this.reason = reason;
         this.refundedBy = refundedBy;
         this.claimedAt = claimedAt;
+        this.claimToken = claimToken;
         this.status = RefundStatus.REQUESTED;
     }
 
@@ -102,11 +117,15 @@ public class PaymentRefund extends BaseEntity {
      * 환불 선점(멱등키 선기록). status=REQUESTED로 생성한다. PG 취소 호출 전에 커밋해, 앱이 취소 도중 죽어도
      * "요청은 했다"는 기록이 남게 한다(청구의 PENDING 선기록과 같은 이유, SA §9-4).
      * 권한·상태·금액 검증은 Service에서 선행한다.
+     *
+     * <p>{@code claimToken}은 이 선점의 소유권 펜스다. 확정·실패 전이가 이 토큰을 조건으로 검사하므로,
+     * 선점이 회수된 뒤 도착한 이전 요청의 결과는 반영되지 않는다.
      */
     public static PaymentRefund requested(
             Long paymentId, String merchantRefundId, int amount, String reason,
-            Long refundedBy, LocalDateTime claimedAt) {
-        return new PaymentRefund(paymentId, merchantRefundId, amount, reason, refundedBy, claimedAt);
+            Long refundedBy, LocalDateTime claimedAt, String claimToken) {
+        return new PaymentRefund(paymentId, merchantRefundId, amount, reason,
+                refundedBy, claimedAt, claimToken);
     }
 
     /** PG 취소 성공. 실제 전이는 조건부 UPDATE가 원자적으로 하고, 이 메서드는 테스트 픽스처·단위 검증용이다. */

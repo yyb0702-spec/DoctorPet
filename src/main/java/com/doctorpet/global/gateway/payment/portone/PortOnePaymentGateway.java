@@ -190,8 +190,12 @@ public class PortOnePaymentGateway implements PaymentGateway {
     }
 
     /**
-     * "이미 취소됨" 응답을 단건조회로 확인해 취소 결과로 환산한다. 조회 상태가 취소(FAILED로 매핑)가 아니라면
-     * 취소가 성립했다고 볼 수 없으므로 UNKNOWN으로 올려 상위가 재시도·운영 확인으로 넘기게 한다.
+     * "이미 취소됨" 응답을 단건조회로 확인해 취소 결과로 환산한다. 취소 내역(취소 금액)을 확인할 수 있을 때만
+     * 성공으로 환산하고, 그러지 못하면 UNKNOWN으로 올려 상위가 재시도·운영 확인으로 넘기게 한다.
+     *
+     * <p>결제 상태만으로 전액 취소를 단정하지 않는다(PR #112 리뷰 P1) — {@code mapStatus}는 {@code CANCELLED}와
+     * {@code PARTIAL_CANCELLED}를 모두 {@code FAILED}로 합치므로 상태만으로는 부분 취소를 구분할 수 없다.
+     * 요청 금액을 그대로 채워 넣으면 상위 금액 대조가 통과해 일부만 취소된 결제가 전액 환불로 확정된다.
      */
     private PaymentCancelResult confirmCancelledByQuery(PaymentCancelCommand command, String token) {
         HttpResponse<String> response = send(
@@ -202,13 +206,10 @@ public class PortOnePaymentGateway implements PaymentGateway {
         if (cancellation != null) {
             return toCancelResult(cancellation);
         }
-        if (mapStatus(text(payment, "status")) == GatewayPaymentStatus.FAILED) {
-            // 취소·실패로는 확인되나 취소 내역 상세가 없다 — 금액은 요청 금액으로 간주하고 식별자는 비운다.
-            return new PaymentCancelResult(null, command.amount(), null);
-        }
         throw new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null,
-                "PortOne cancel 재요청이 이미 취소됨으로 응답했으나 조회에서 취소가 확인되지 않았습니다. "
-                        + "merchantPaymentId=" + command.merchantPaymentId(), null);
+                "PortOne cancel 재요청이 이미 취소됨으로 응답했으나 조회에서 취소 내역(취소 금액)을 확인할 수 "
+                        + "없습니다. 전액 취소로 단정하지 않습니다. merchantPaymentId="
+                        + command.merchantPaymentId(), null);
     }
 
     private PaymentCancelResult toCancelResult(JsonNode cancellation) {
