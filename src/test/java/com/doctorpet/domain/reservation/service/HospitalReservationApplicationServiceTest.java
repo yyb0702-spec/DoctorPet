@@ -27,6 +27,7 @@ import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
 import org.springframework.data.domain.Page;
@@ -77,6 +78,7 @@ class HospitalReservationApplicationServiceTest {
                         STAFF_ID,
                         "staff@example.com",
                         "병원스태프",
+                        null,
                         MemberRole.HOSPITAL_STAFF,
                         HOSPITAL_ID
                 )
@@ -726,12 +728,18 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.findHistoryAggregates(
                 any(), any(), any(), any()
         )).willReturn(List.of());
+        given(memberService.getPhonesByMemberIds(any()))
+                .willReturn(Map.of(1L, "010-1234-5678"));
 
         Page<?> result = hospitalReservationService.findHospitalReservations(
                 STAFF_ID, "REQUESTED", 0, 20
         );
 
         assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent())
+                .first()
+                .extracting("guardianPhone")
+                .isEqualTo("010-1234-5678");
         verify(reservationRepository).findByHospitalIdAndStatus(
                 org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
                 org.mockito.ArgumentMatchers.eq(ReservationStatus.REQUESTED),
