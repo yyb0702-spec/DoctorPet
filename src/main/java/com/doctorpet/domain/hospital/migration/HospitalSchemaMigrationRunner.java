@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -53,7 +54,6 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
     static final String COORDINATE_INDEX = "idx_hospitals_coord_x_y";
 
     private static final String LOCK_NAME = "doctorpet:hospital_schema_migrations";
-    private static final int LOCK_TIMEOUT_SECONDS = 30;
     private static final int CAPABILITY_VALUE_LENGTH = 32;
     static final List<IndexDefinition> SEARCH_INDEXES = List.of(
             new IndexDefinition(
@@ -82,6 +82,9 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
     );
 
     private final JdbcTemplate jdbcTemplate;
+
+    @Value("${hospital.schema-migration.lock-timeout-seconds:30}")
+    private int lockTimeoutSeconds = 30;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -446,7 +449,7 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
                 "select get_lock(?, ?)"
         )) {
             statement.setString(1, LOCK_NAME);
-            statement.setInt(2, LOCK_TIMEOUT_SECONDS);
+            statement.setInt(2, lockTimeoutSeconds);
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next() || resultSet.getInt(1) != 1) {
                     throw new IllegalStateException(
