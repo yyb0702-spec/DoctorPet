@@ -377,3 +377,13 @@ OFF 실행 계획은 UNIQUE 인덱스 `uk_hospital_capabilities_hospital_type_va
 검색 전용 인덱스를 추가하면 모든 역량 INSERT·UPDATE·DELETE에서 인덱스를 함께 관리하고 저장 공간과 마이그레이션 대상을 늘려야 한다. 현재 측정에서는 그 비용을 감수할 만큼 제품 쿼리가 개선되지 않았다. 따라서 신규 `(capability_value, hospital_id)` 후보를 **기각**하고, 실제 쿼리에서 사용되지 않은 기존 `(capability_type, capability_value, hospital_id)` 검색 인덱스도 최종 적용 대상에서 제외한다. 무결성 보장을 위한 `uk_hospital_capabilities_hospital_type_value`는 유지한다.
 
 재검토 시점은 진료 역량 행 수나 역량 검색 트래픽이 현재보다 유의미하게 증가했을 때다. 그때도 동일한 검색 조건으로 결과 동일성, 실행 계획, 전체 쿼리 절대 지연시간, 공공데이터 적재 비용을 함께 비교한다. 진료 역량 후보 검증 자체는 **PASS**, 도입 결정은 **기각**이다. 좌표 후보까지 판정을 마쳤지만 공공데이터 적재·갱신 쓰기 비용이 남아 있으므로 전체 인덱스 작업은 **PARTIAL**이다.
+
+## 17. 복합 인덱스 키 길이 확인
+
+- 확인일: 2026-08-07
+- 환경: 로컬 MySQL 8.4.8, `utf8mb4_0900_ai_ci`
+- 확인 명령: `SHOW CREATE TABLE hospitals`, `information_schema.columns` 조회
+
+실제 DDL에서 `name`은 `varchar(255)`, `business_status`는 `enum('CLOSED','CLOSED_TEMP','OPEN')`, `partnership_status`는 `enum('NON_PARTNER','PARTNER')`로 생성됐다. 두 enum은 값이 255개 이하이므로 MySQL에서 각각 1바이트로 저장된다.
+
+가장 큰 `idx_hospitals_partnership_name_id_business_status(partnership_status, name, id, business_status)`의 최대 키 길이는 `name` 1,020바이트(`255 × utf8mb4 최대 4바이트`) + enum 2바이트 + `BIGINT` 8바이트로 약 1,030바이트다. InnoDB 인덱스 키 한도 3,072바이트보다 약 2,042바이트 작다. 현재 정의는 키 길이 여유가 충분하므로 enum 컬럼에 별도 길이 제한을 추가하지 않는다. 인덱스에 문자열 컬럼을 추가하거나 문자셋·컬럼 타입을 변경할 때 다시 계산한다.
