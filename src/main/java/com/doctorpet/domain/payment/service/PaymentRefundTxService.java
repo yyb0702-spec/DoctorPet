@@ -15,6 +15,7 @@ import com.doctorpet.domain.payment.repository.PaymentRefundRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import jakarta.persistence.EntityManager;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -54,6 +55,8 @@ public class PaymentRefundTxService {
     // claimedAt·refundedAt을 JVM 기본 시간대가 아니라 이 Clock으로 만들어 다른 결제 시각과 어긋나지 않게 한다.
     private final Clock clock;
     private final PaymentRefundProperties properties;
+    // 1차 캐시를 우회한 재조회(refresh)에만 쓴다 — 동시 환불에서 승자의 커밋을 확인하기 위해서다.
+    private final EntityManager entityManager;
 
     public PaymentRefundTxService(
             PaymentRepository paymentRepository,
@@ -62,7 +65,8 @@ public class PaymentRefundTxService {
             StaffHospitalPort staffHospitalPort,
             MerchantRefundIdGenerator merchantRefundIdGenerator,
             Clock clock,
-            PaymentRefundProperties properties
+            PaymentRefundProperties properties,
+            EntityManager entityManager
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentRefundRepository = paymentRefundRepository;
@@ -71,6 +75,7 @@ public class PaymentRefundTxService {
         this.merchantRefundIdGenerator = merchantRefundIdGenerator;
         this.clock = clock;
         this.properties = properties;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -183,15 +188,19 @@ public class PaymentRefundTxService {
               따라서 곧바로 오류로 단정하지 않고 결제를 다시 읽는다. REFUNDED면 승자가 확정을 마친 것이므로
               멱등 응답으로 돌려준다(PG 재호출·알림 재발행 없음). 재조회해도 PAID면 그때는 상태 머신 밖의
               실제 불일치이므로 드러낸다(운영 확인 대상).
+
+              재조회는 반드시 refresh여야 한다 — findById는 이미 이 영속성 컨텍스트에 로드된 인스턴스를
+              그대로 돌려주므로(1차 캐시) DB를 다시 보지 않아 낡은 PAID를 계속 읽는다. JPQL 조회도 마찬가지로
+              관리 중인 엔티티는 캐시된 상태를 유지한다. 조건부 UPDATE 뒤 재조회가 최신을 보는 것은
+              @Modifying(clearAutomatically=true)가 컨텍스트를 비우기 때문인데, 이 분기에는 선행 UPDATE가 없다.
              */
-            Payment latest = paymentRepository.findById(payment.getId())
-                    .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
-            if (latest.getStatus() == PaymentStatus.REFUNDED) {
-                return RefundClaim.alreadyRefunded(latest.getReservationId(), reservation.guardianMemberId(),
-                        PaymentHistoryResponse.from(latest));
+            entityManager.refresh(payment);
+            if (payment.getStatus() == PaymentStatus.REFUNDED) {
+                return RefundClaim.alreadyRefunded(payment.getReservationId(), reservation.guardianMemberId(),
+                        PaymentHistoryResponse.from(payment));
             }
             log.error("환불 이력은 COMPLETED인데 재조회한 결제가 REFUNDED가 아님 — 수동 확인 필요: paymentId={}, refundId={}, status={}",
-                    payment.getId(), existing.getId(), latest.getStatus());
+                    payment.getId(), existing.getId(), payment.getStatus());
             throw new ServiceException(PaymentErrorCode.REFUND_PRECONDITION_FAILED);
         }
 
