@@ -187,21 +187,28 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
             dropIndexIfExists(connection, index.table(), index.name());
         }
 
-        try (Statement statement = connection.createStatement()) {
-            statement.execute(index.createSql());
-        }
+        executeIndexDdl(
+                connection,
+                "생성",
+                index.table(),
+                index.name(),
+                index.createSql()
+        );
     }
 
     private void makeIndexVisible(
             Connection connection,
             IndexDefinition index
     ) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute(
-                    "alter table " + index.table()
-                            + " alter index " + index.name() + " visible"
-            );
-        }
+        String ddl = "alter table " + index.table()
+                + " alter index " + index.name() + " visible";
+        executeIndexDdl(
+                connection,
+                "VISIBLE 전환",
+                index.table(),
+                index.name(),
+                ddl
+        );
     }
 
     private void assertExistingCapabilityValuesFit(Connection connection)
@@ -342,10 +349,29 @@ public class HospitalSchemaMigrationRunner implements ApplicationRunner {
         if (!indexNameExists(connection, table, indexName)) {
             return;
         }
+        String ddl = "alter table " + table + " drop index " + indexName;
+        executeIndexDdl(connection, "삭제", table, indexName, ddl);
+    }
+
+    private void executeIndexDdl(
+            Connection connection,
+            String operation,
+            String table,
+            String indexName,
+            String ddl
+    ) throws SQLException {
         try (Statement statement = connection.createStatement()) {
-            statement.execute(
-                    "alter table " + table + " drop index " + indexName
-            );
+            statement.execute(ddl);
+        } catch (SQLException exception) {
+            String message = "병원 검색 인덱스 " + operation + "에 실패했습니다: "
+                    + table + "." + indexName
+                    + ", SQLState=" + exception.getSQLState()
+                    + ", errorCode=" + exception.getErrorCode()
+                    + ", DDL=" + ddl
+                    + ". DB 사용자 ALTER 권한, 동일 이름 인덱스 상태, "
+                    + "InnoDB 키 길이 제한을 확인한 뒤 마이그레이션을 재실행하세요.";
+            log.error(message, exception);
+            throw new IllegalStateException(message, exception);
         }
     }
 

@@ -13,11 +13,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Level 3 — 실제 MySQL에서 병원 검색 인덱스 마이그레이션을 검증한다. */
+@ResourceLock("hospital-schema-migration")
 @SpringBootTest(properties = {
         "ai.gateway=fake",
         "payment.gateway=fake",
