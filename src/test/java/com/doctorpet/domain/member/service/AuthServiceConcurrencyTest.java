@@ -7,8 +7,10 @@ import com.doctorpet.domain.member.dto.request.ReissueRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.repository.MemberRepository;
+import com.doctorpet.domain.member.repository.MemberTokenRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -39,7 +41,13 @@ class AuthServiceConcurrencyTest {
     private AuthService authService;
 
     @Autowired
+    private PasswordResetService passwordResetService;
+
+    @Autowired
     private MemberRepository memberRepository;
+
+    @Autowired
+    private MemberTokenRepository memberTokenRepository;
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
@@ -115,6 +123,57 @@ class AuthServiceConcurrencyTest {
         // matches()로 "이 원문 토큰이 현재 저장된 해시와 일치하는지"를 확인한다.
         String winningRefreshToken = successes.get(0).refreshToken();
         assertThat(refreshTokenRepository.matches(memberId, winningRefreshToken)).isTrue();
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정과 로그인이 동시에 일어나도 재설정 후에는 옛 세션이 남지 않는다"
+            + "(리뷰 지적 — findByIdForUpdate()로 login()과 같은 행 락을 공유해 두 흐름을 직렬화)")
+    void concurrentPasswordResetAndLogin_neverLeavesStaleSession() throws InterruptedException {
+        // 락 없이 재설정하면: 재설정이 비밀번호를 아직 커밋하지 않은 사이 로그인이 옛 비밀번호로
+        // 통과해 새 Refresh Token을 저장하고, 그 직후 재설정이 커밋되면(비밀번호는 바뀌어도) 그
+        // 토큰은 이미 저장된 뒤라 삭제되지 않는다. 행 락을 공유하면 어느 쪽이 이겼든 재설정이
+        // 끝난 뒤에는 항상 "비밀번호는 새 값, 세션은 없음" 상태여야 한다 — 그 불변식을 검증한다.
+        String resetToken = memberTokenRepository.issuePasswordResetToken(memberId, Duration.ofHours(1));
+        LoginRequest loginRequest = new LoginRequest(email, CORRECT_PASSWORD);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch readyLatch = new CountDownLatch(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(2);
+
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                authService.login(loginRequest);
+            } catch (Exception ignored) {
+                // 재설정이 먼저 락을 잡고 커밋되면 옛 비밀번호 로그인은 INVALID_CREDENTIALS로
+                // 실패한다 — 공격자를 막는 정상 동작이므로 여기서는 무시한다.
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                passwordResetService.confirmPasswordReset(resetToken, "newPassword1234");
+            } catch (Exception ignored) {
+                // 토큰은 한 번만 발급했으므로 실패할 일이 없지만, 방어적으로 흡수한다.
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+
+        readyLatch.await();
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+        assertThat(completed).isTrue();
+
+        Member reloaded = memberRepository.findById(memberId).orElseThrow();
+        assertThat(passwordEncoder.matches("newPassword1234", reloaded.getPassword())).isTrue();
+        assertThat(refreshTokenRepository.findByMemberId(memberId)).isEmpty();
     }
 
     /** N개의 작업을 모두 준비시킨 뒤 동시에 출발시켜, 진짜 경쟁 상태를 재현한다. */
