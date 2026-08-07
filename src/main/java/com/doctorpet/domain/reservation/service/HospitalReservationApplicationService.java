@@ -279,6 +279,7 @@ public class HospitalReservationApplicationService {
         Map<Long, ReservationSlot> slotsById = findSlotsById(reservations.getContent());
         Map<Long, ReservationHistoryResponse> historiesByMemberId =
                 findHistoriesByMemberId(reservations.getContent());
+        Map<Long, String> phonesByMemberId = findPhonesByMemberId(reservations.getContent());
 
         return reservations.map(reservation -> {
             ReservationSlot slot = requireSlot(slotsById, reservation.getSlotId());
@@ -286,8 +287,10 @@ public class HospitalReservationApplicationService {
                     reservation.getMemberId(),
                     new ReservationHistoryResponse(0L, 0L, 0L, 0L)
             );
+            String guardianPhone = phonesByMemberId.get(reservation.getMemberId());
             return HospitalReservationListItemResponse.from(
                     reservation,
+                    guardianPhone,
                     slot.getStartAt(),
                     history
             );
@@ -341,6 +344,20 @@ public class HospitalReservationApplicationService {
                         ReservationHistoryAggregate::memberId,
                         ReservationHistoryAggregate::toResponse
                 ));
+    }
+
+    private Map<Long, String> findPhonesByMemberId(
+            Collection<Reservation> reservations
+    ) {
+        if (reservations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Collection<Long> memberIds = reservations.stream()
+                .map(Reservation::getMemberId)
+                .distinct()
+                .toList();
+        return memberService.getPhonesByMemberIds(memberIds);
     }
 
     private ReservationSlot requireSlot(
