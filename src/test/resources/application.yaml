@@ -1,0 +1,3 @@
+# 전체 SpringBootTest가 외부 AI 키 없이도 공통 컨텍스트를 구성하도록 테스트 전용 Fake Gateway를 사용한다.
+ai:
+  gateway: fake
