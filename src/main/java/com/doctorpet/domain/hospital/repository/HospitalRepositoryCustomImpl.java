@@ -85,15 +85,24 @@ public class HospitalRepositoryCustomImpl
 
     @Override
     public long count(HospitalSearchCondition condition) {
-        Long result = queryFactory
+        JPAQuery<Long> countQuery = queryFactory
                 .select(hospital.id.count())
-                .from(hospital)
-                .leftJoin(hospitalDetail)
-                .on(hospitalDetail.hospital.eq(hospital))
+                .from(hospital);
+
+        if (hasFacilityCondition(condition)) {
+            countQuery.leftJoin(hospitalDetail)
+                    .on(hospitalDetail.hospital.eq(hospital));
+        }
+
+        Long result = countQuery
                 .where(searchPredicates(condition))
                 .fetchOne();
 
         return result == null ? 0L : result;
+    }
+
+    private boolean hasFacilityCondition(HospitalSearchCondition condition) {
+        return facilityMatches(condition) != null;
     }
 
     private JPAQuery<HospitalSearchCandidate> searchQuery(

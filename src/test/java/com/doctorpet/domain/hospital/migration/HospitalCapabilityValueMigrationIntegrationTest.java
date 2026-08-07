@@ -11,10 +11,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+@ResourceLock("hospital-schema-migration")
 @SpringBootTest(properties = {
         "ai.gateway=fake",
         "payment.gateway=fake",
@@ -26,7 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "member.email-verified-backfill.enabled=false",
         "reservation.event-unique-migration.enabled=false",
         "reservation.approval-deadline-migration.enabled=false",
-        "hospital.capability-value-migration.enabled=false"
+        "hospital.schema-migration.enabled=false"
 })
 class HospitalCapabilityValueMigrationIntegrationTest {
 
@@ -45,12 +47,17 @@ class HospitalCapabilityValueMigrationIntegrationTest {
     private HospitalRepository hospitalRepository;
 
     private Long hospitalId;
+    private boolean searchIndexMarkerExisted;
 
     @BeforeEach
     void prepareLegacySchema() {
+        searchIndexMarkerExisted = searchIndexMarkerCount() > 0;
+        if (!searchIndexMarkerExisted) {
+            insertSearchIndexMarker();
+        }
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
-                HospitalCapabilityValueMigrationRunner.MIGRATION_KEY
+                HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY
         );
         Hospital hospital = hospitalRepository.saveAndFlush(
                 Hospital.createFromPublicData(
@@ -83,6 +90,7 @@ class HospitalCapabilityValueMigrationIntegrationTest {
 
     @AfterEach
     void restoreSchema() {
+        int searchIndexMarkerCountAfterTest = searchIndexMarkerCount();
         jdbcTemplate.update(
                 "delete from hospital_capabilities where hospital_id = ?",
                 hospitalId
@@ -94,15 +102,19 @@ class HospitalCapabilityValueMigrationIntegrationTest {
         hospitalRepository.deleteById(hospitalId);
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
-                HospitalCapabilityValueMigrationRunner.MIGRATION_KEY
+                HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY
         );
+        if (!searchIndexMarkerExisted) {
+            deleteSearchIndexMarker();
+        }
+        assertThat(searchIndexMarkerCountAfterTest).isEqualTo(1);
     }
 
     @Test
     @DisplayName("기존 ENUM 데이터를 보존하며 VARCHAR(32)로 전환하고 재실행을 방지한다")
     void legacyEnum_isMigratedToVarcharWithoutDataLoss() throws Exception {
-        HospitalCapabilityValueMigrationRunner runner =
-                new HospitalCapabilityValueMigrationRunner(jdbcTemplate);
+        HospitalSchemaMigrationRunner runner =
+                new HospitalSchemaMigrationRunner(jdbcTemplate);
 
         runner.run(null);
         runner.run(null);
@@ -122,10 +134,10 @@ class HospitalCapabilityValueMigrationIntegrationTest {
         jdbcTemplate.update("""
                 insert into schema_migrations (migration_key, applied_at)
                 values (?, now())
-                """, HospitalCapabilityValueMigrationRunner.MIGRATION_KEY);
+                """, HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY);
 
         assertThatThrownBy(() ->
-                new HospitalCapabilityValueMigrationRunner(jdbcTemplate).run(null)
+                new HospitalSchemaMigrationRunner(jdbcTemplate).run(null)
         )
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("VARCHAR(32)");
@@ -173,6 +185,31 @@ class HospitalCapabilityValueMigrationIntegrationTest {
                 select count(*)
                   from schema_migrations
                  where migration_key = ?
-                """, Integer.class, HospitalCapabilityValueMigrationRunner.MIGRATION_KEY);
+                """, Integer.class,
+                HospitalSchemaMigrationRunner.CAPABILITY_VALUE_MIGRATION_KEY);
+    }
+
+    private int searchIndexMarkerCount() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from schema_migrations
+                 where migration_key = ?
+                """, Integer.class,
+                HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY);
+        return count == null ? 0 : count;
+    }
+
+    private void insertSearchIndexMarker() {
+        jdbcTemplate.update("""
+                insert into schema_migrations (migration_key, applied_at)
+                values (?, now())
+                """, HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY);
+    }
+
+    private void deleteSearchIndexMarker() {
+        jdbcTemplate.update(
+                "delete from schema_migrations where migration_key = ?",
+                HospitalSchemaMigrationRunner.SEARCH_INDEX_MIGRATION_KEY
+        );
     }
 }

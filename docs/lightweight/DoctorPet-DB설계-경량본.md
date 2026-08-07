@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.17 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.36, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.37, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v9 |
 ## 1. 관계 요약
@@ -68,7 +68,7 @@ members 1 ── 0..N notifications
 | `source_modified_at` | DATETIME | 공공데이터 최종 수정일 |
 | `partnership_status` | VARCHAR | `PARTNER`, `NON_PARTNER` |
 제약: `UNIQUE(local_gov_code, mgmt_no)` — 지자체 범위 관리번호를 복합 매핑 키로 사용한다.
-검색 성능용 `(business_status)`, `(coord_x, coord_y)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획과 응답시간을 측정한 뒤 적용한다.
+검색 인덱스는 전국 데이터 기준 실행 계획과 OFF/ON 성능 비교 결과에 따라 기본 이름순 `(name, id, business_status)`, 제휴 병원 이름순 `(partnership_status, name, id, business_status)`, 좌표 바운딩박스 `(coord_x, coord_y)`를 적용한다. 선택도가 낮고 이름순 정렬을 지원하지 못한 `(business_status)` 단일 인덱스는 적용하지 않는다.
 ### `hospital_details`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ members 1 ── 0..N notifications
 | `hospital_id` | BIGINT | 병원 FK |
 | `capability_type` | VARCHAR | `SPECIES`, `EXAM`, `TREATMENT`, `EQUIPMENT` |
 | `capability_value` | VARCHAR | 역량 값 |
-역량 검색용 `(capability_type, capability_value, hospital_id)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획을 확인한 뒤 적용한다.
+진료역량 검색은 `UNIQUE(hospital_id, capability_type, capability_value)`를 유지한다. `(capability_value, hospital_id)` 후보는 실행 계획상 스캔 범위를 줄였지만 전체 쿼리 개선 폭이 1ms 미만이어서 쓰기·저장 비용을 감수할 근거가 부족하므로 적용하지 않는다. 진료역량 데이터나 검색 트래픽이 유의미하게 증가하면 다시 검토한다.
 ## 4. 예약
 ### `reservation_slots`
 | 필드 | 타입 | 제약·설명 |
