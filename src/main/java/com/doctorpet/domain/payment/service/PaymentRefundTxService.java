@@ -174,10 +174,24 @@ public class PaymentRefundTxService {
             PaymentRefund existing, Payment payment, ReservationChargeView reservation,
             Long staffMemberId, String reason) {
         if (existing.getStatus() == RefundStatus.COMPLETED) {
-            // 이력은 완료인데 결제가 PAID로 남아 있다 — Tx2가 두 전이를 한 트랜잭션에서 하므로 정상 경로에서는
-            // 생기지 않는다. 상태 머신 밖의 데이터이므로 멱등으로 뭉치지 않고 드러낸다(운영 확인 대상).
-            log.error("환불 이력은 COMPLETED인데 결제가 PAID로 남아 있음 — 수동 확인 필요: paymentId={}, refundId={}",
-                    payment.getId(), existing.getId());
+            /*
+              이력은 COMPLETED인데 이 트랜잭션이 읽은 결제는 아직 PAID다. 동시 환불에서 흔히 밟는 경로다 —
+              READ_COMMITTED는 문장마다 최신 커밋을 읽으므로, 승자가 Tx2(이력 COMPLETED + 결제 REFUNDED)를
+              커밋하는 사이에 이 트랜잭션이 결제는 커밋 전에, 이력은 커밋 후에 읽을 수 있다. 두 전이가 한
+              트랜잭션에 있어도 "읽는 쪽"까지 원자적이지는 않다.
+
+              따라서 곧바로 오류로 단정하지 않고 결제를 다시 읽는다. REFUNDED면 승자가 확정을 마친 것이므로
+              멱등 응답으로 돌려준다(PG 재호출·알림 재발행 없음). 재조회해도 PAID면 그때는 상태 머신 밖의
+              실제 불일치이므로 드러낸다(운영 확인 대상).
+             */
+            Payment latest = paymentRepository.findById(payment.getId())
+                    .orElseThrow(() -> new ServiceException(PaymentErrorCode.PAYMENT_NOT_FOUND));
+            if (latest.getStatus() == PaymentStatus.REFUNDED) {
+                return RefundClaim.alreadyRefunded(latest.getReservationId(), reservation.guardianMemberId(),
+                        PaymentHistoryResponse.from(latest));
+            }
+            log.error("환불 이력은 COMPLETED인데 재조회한 결제가 REFUNDED가 아님 — 수동 확인 필요: paymentId={}, refundId={}, status={}",
+                    payment.getId(), existing.getId(), latest.getStatus());
             throw new ServiceException(PaymentErrorCode.REFUND_PRECONDITION_FAILED);
         }
 

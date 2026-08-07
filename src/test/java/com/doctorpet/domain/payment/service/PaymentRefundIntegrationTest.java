@@ -75,6 +75,8 @@ class PaymentRefundIntegrationTest {
     @Autowired private PaymentWebhookRepository paymentWebhookRepository;
     // 환불 후 재청구가 막히는 의도된 한계를 실제 청구 경로로 확인하기 위해서만 쓴다.
     @Autowired private PaymentChargeService paymentChargeService;
+    // 선점 시각(claimed_at)을 운영과 같은 서울 기준으로 만들기 위해 주입한다.
+    @Autowired private java.time.Clock clock;
 
     @MockitoBean private ReservationLookupPort reservationLookupPort;
     @MockitoBean private StaffHospitalPort staffHospitalPort;
@@ -203,8 +205,11 @@ class PaymentRefundIntegrationTest {
     void freshClaim_rejectsConcurrentRequest() {
         Long paymentId = persistPayment(PaymentStatus.PAID);
         // PG 취소 직전에 멈춘 상태를 재현한다 — 선점만 되어 있고 결제는 PAID.
+        // claimedAt은 반드시 서울 기준 Clock으로 만든다. LocalDateTime.now()를 쓰면 JVM 기본 시간대가 UTC인
+        // 환경(CI)에서 방금 만든 선점이 9시간 낡은 것으로 보여 "진행 중"이 아니라 회수 대상이 된다.
         paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
-                paymentId, "rfd_inflight_" + paymentId, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now()));
+                paymentId, "rfd_inflight_" + paymentId, AMOUNT, REASON, STAFF_MEMBER_ID,
+                LocalDateTime.now(clock)));
 
         assertThatThrownBy(() -> paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON))
                 .isInstanceOf(ServiceException.class)
@@ -222,7 +227,7 @@ class PaymentRefundIntegrationTest {
         String stuckKey = "rfd_stuck_" + paymentId;
         // claim-stale-after-ms(기본 2분)보다 오래된 선점 — 앱이 PG 취소 도중 죽어 남은 행을 재현한다.
         paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
-                paymentId, stuckKey, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now().minusMinutes(10)));
+                paymentId, stuckKey, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now(clock).minusMinutes(10)));
 
         PaymentHistoryResponse response = paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, "멈춘 환불 복구");
 
@@ -240,7 +245,7 @@ class PaymentRefundIntegrationTest {
         Long paymentId = persistPayment(PaymentStatus.PAID);
         String key = "rfd_mismatch_" + paymentId;
         paymentRefundRepository.saveAndFlush(PaymentRefund.requested(
-                paymentId, key, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now().minusMinutes(10)));
+                paymentId, key, AMOUNT, REASON, STAFF_MEMBER_ID, LocalDateTime.now(clock).minusMinutes(10)));
         // 같은 멱등키에 요청 금액과 다른 취소 결과를 심어 둔다.
         fakePaymentGateway.stubCancelAmount(key, AMOUNT - 1_000);
 
