@@ -36,6 +36,16 @@ class MemberTest {
     }
 
     @Test
+    @DisplayName("createGuardian(3-arg)는 phone=null로 생성하고, 4-arg는 전달받은 phone을 그대로 저장한다(기능 구멍 점검 대응)")
+    void createGuardian_phoneOverload() {
+        Member withoutPhone = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        Member withPhone = Member.createGuardian("guardian2@example.com", "encoded-password", "보호자닉네임", "010-1234-5678");
+
+        assertThat(withoutPhone.getPhone()).isNull();
+        assertThat(withPhone.getPhone()).isEqualTo("010-1234-5678");
+    }
+
+    @Test
     @DisplayName("verifyEmail()을 호출하면 인증 완료 상태가 된다")
     void verifyEmail_marksVerified() {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
