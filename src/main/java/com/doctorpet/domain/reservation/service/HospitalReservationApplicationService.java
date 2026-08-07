@@ -81,6 +81,7 @@ public class HospitalReservationApplicationService {
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
+        notificationPublisher.publishConfirmed(reservation.getMemberId(), reservationId);
     }
 
     /**
@@ -115,6 +116,7 @@ public class HospitalReservationApplicationService {
 
         ReservationSlot slot = findSlot(reservation.getSlotId());
         slot.open();
+        notificationPublisher.publishRejected(reservation.getMemberId(), reservationId);
     }
 
     /**
