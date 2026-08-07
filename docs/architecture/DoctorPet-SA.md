@@ -209,7 +209,7 @@ erDiagram
 | hospital_id | BIGINT | 병원 ID. 병원 도메인 내부 FK |
 | created_at | DATETIME | 찜 등록 시각 |
 
-제약은 `UNIQUE(member_id, hospital_id)`로 동일 보호자의 동일 병원 중복 찜을 DB에서도 차단한다. 내 찜 목록은 `created_at DESC, id DESC`로 안정적으로 정렬하되, 이를 위한 별도 인덱스는 우선 적용하지 않는다. 기능 구현 후 실제 데이터 규모에서 실행 계획과 응답시간을 측정하고 필요성이 확인되면 후보 `(member_id, created_at DESC, id DESC)`를 적용한다. 병원은 공공데이터 갱신이나 예약 이력 때문에 하드 삭제하지 않으며, 회원 탈퇴 시 해당 회원의 찜은 개인정보·사용자 설정이므로 함께 삭제한다.
+제약은 `UNIQUE(member_id, hospital_id)`로 동일 보호자의 동일 병원 중복 찜을 DB에서도 차단한다. 내 찜 목록은 `created_at DESC, id DESC`로 안정적으로 정렬한다. 구현 후 로컬 MySQL에서 한 회원의 합성 찜 5,000건을 대상으로 20회 워밍업 뒤 200회 조회한 결과 중앙값 2.761ms, P95 4.388ms였고, 실행 계획은 5,000행 스캔과 `Using filesort`였다. 현재 응답시간에서는 별도 정렬 인덱스의 쓰기·저장 비용을 감수할 근거가 부족하므로 후보 `(member_id, created_at DESC, id DESC)`는 적용하지 않는다. 실제 회원별 찜 규모나 조회 부하가 유의미하게 증가하면 같은 조건으로 다시 측정한다. 병원은 공공데이터 갱신이나 예약 이력 때문에 하드 삭제하지 않으며, 회원 탈퇴 시 해당 회원의 찜은 개인정보·사용자 설정이므로 함께 삭제한다.
 
 ### reservation_slots (제휴 병원, 사전 생성)
 

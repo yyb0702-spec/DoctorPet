@@ -96,7 +96,7 @@ members 1 ── 0..N notifications
 | `member_id` | BIGINT | 인증된 보호자 ID, 회원 도메인 논리 참조 |
 | `hospital_id` | BIGINT | 병원 FK |
 | `created_at` | DATETIME | 찜 등록 시각 |
-제약: `UNIQUE(member_id, hospital_id)`로 중복 찜을 방지한다. 내 찜 목록은 `created_at DESC, id DESC`로 안정적으로 정렬하되 별도 조회 인덱스는 우선 적용하지 않고, 구현 후 실행 계획과 응답시간을 측정해 필요성이 확인되면 `(member_id, created_at DESC, id DESC)`를 적용한다. 회원 탈퇴 시 해당 회원의 찜은 삭제한다.
+제약: `UNIQUE(member_id, hospital_id)`로 중복 찜을 방지한다. 내 찜 목록은 `created_at DESC, id DESC`로 안정적으로 정렬한다. 로컬 MySQL 합성 찜 5,000건에서 20회 워밍업 후 200회 조회한 결과 중앙값 2.761ms, P95 4.388ms였고 5,000행 스캔과 `Using filesort`가 확인됐다. 현재 응답시간에서는 쓰기·저장 비용을 감수할 근거가 부족해 `(member_id, created_at DESC, id DESC)` 후보를 적용하지 않으며, 회원별 찜 규모나 조회 부하가 증가하면 다시 측정한다. 회원 탈퇴 시 해당 회원의 찜은 삭제한다.
 ## 4. 예약
 ### `reservation_slots`
 | 필드 | 타입 | 제약·설명 |
