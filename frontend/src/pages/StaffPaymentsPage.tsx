@@ -1,0 +1,167 @@
+// 병원 스태프 — 결제/환불 대시보드 (진료 완료 예약 기준).
+// 상태 필터는 현재 불러온 페이지 안에서만 적용된다(백엔드가 상태별 재조회를 지원하지 않음 — §Phase B 설계 노트).
+import { useState } from 'react'
+import { useHospitalPayments, useRefundPayment, useSettleOffline } from '@/features/staffPayments/hooks'
+import type { HospitalPaymentListItem } from '@/features/staffPayments/types'
+import { ReasonPrompt } from '@/components/common/ReasonPrompt'
+import { PaymentStatusBadge } from '@/components/common/StatusBadge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
+import { ApiError } from '@/lib/api/error'
+import { PaymentStatus } from '@/types/enums'
+
+const FILTERS = [
+  { key: 'ALL', label: '전체' },
+  { key: 'UNBILLED', label: '청구 전' },
+  { key: PaymentStatus.PENDING, label: '결제 진행중' },
+  { key: PaymentStatus.OFFLINE_REQUIRED, label: '현장 수납 필요' },
+  { key: PaymentStatus.PAID, label: '결제 완료' },
+  { key: PaymentStatus.OFFLINE_PAID, label: '현장 수납 완료' },
+  { key: PaymentStatus.REFUNDED, label: '환불 완료' },
+] as const
+
+function fmt(iso: string): string {
+  return new Date(iso).toLocaleString('ko-KR')
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
+}
+
+function PaymentRow({ item }: { item: HospitalPaymentListItem }) {
+  const settleOffline = useSettleOffline(item.reservationId)
+  const refund = useRefundPayment(item.reservationId)
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{item.petName}</span>
+            {item.paymentStatus ? (
+              <PaymentStatusBadge status={item.paymentStatus} />
+            ) : (
+              <span className="text-xs text-muted-foreground">청구 전</span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            진료 {fmt(item.reservedAt)}
+            {item.amount != null && ` · ${item.amount.toLocaleString('ko-KR')}원`}
+          </p>
+          {item.paidAt && (
+            <p className="text-xs text-muted-foreground">결제 완료 · {fmt(item.paidAt)}</p>
+          )}
+          {item.offlineSettledAt && (
+            <p className="text-xs text-muted-foreground">
+              현장 수납 완료 · {fmt(item.offlineSettledAt)}
+            </p>
+          )}
+          {item.refundedAt && (
+            <p className="text-xs text-muted-foreground">환불 완료 · {fmt(item.refundedAt)}</p>
+          )}
+        </div>
+
+        {item.paymentStatus === PaymentStatus.OFFLINE_REQUIRED && item.paymentId != null && (
+          <div className="space-y-1">
+            {settleOffline.isError && (
+              <p className="text-sm text-destructive">{errorMessage(settleOffline.error)}</p>
+            )}
+            <Button
+              size="sm"
+              disabled={settleOffline.isPending}
+              onClick={() => settleOffline.mutate(item.paymentId as number)}
+            >
+              {settleOffline.isPending ? '처리 중…' : '현장 수납 완료'}
+            </Button>
+          </div>
+        )}
+
+        {item.paymentStatus === PaymentStatus.PAID && item.paymentId != null && (
+          <ReasonPrompt
+            triggerLabel="전액 환불"
+            triggerVariant="destructive"
+            confirmLabel="환불 확정"
+            maxLength={200}
+            pending={refund.isPending}
+            errorMessage={refund.isError ? errorMessage(refund.error) : undefined}
+            onConfirm={(reason) =>
+              refund.mutate({ paymentId: item.paymentId as number, reason })
+            }
+          />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+export function StaffPaymentsPage() {
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]['key']>('ALL')
+  const [page, setPage] = useState(0)
+  const query = useHospitalPayments(page, 20)
+
+  const items = query.data?.content ?? []
+  const filtered = items.filter((item) => {
+    if (filter === 'ALL') return true
+    if (filter === 'UNBILLED') return item.paymentStatus == null
+    return item.paymentStatus === filter
+  })
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold">결제 관리</h1>
+      <p className="text-sm text-muted-foreground">
+        진료 완료된 예약의 결제 현황입니다. 상태 필터는 지금 불러온 목록 안에서만 적용돼요.
+      </p>
+
+      <div className="flex flex-wrap gap-1 border-b pb-2">
+        {FILTERS.map((f) => (
+          <Button
+            key={f.key}
+            size="sm"
+            variant={f.key === filter ? 'default' : 'ghost'}
+            onClick={() => setFilter(f.key)}
+          >
+            {f.label}
+          </Button>
+        ))}
+      </div>
+
+      {query.isLoading && <PageLoader />}
+      {query.isError && <ErrorState onRetry={() => query.refetch()} />}
+      {query.data && filtered.length === 0 && (
+        <EmptyState message="해당 상태의 결제가 없어요." />
+      )}
+
+      <div className="space-y-3">
+        {filtered.map((item) => (
+          <PaymentRow key={item.reservationId} item={item} />
+        ))}
+      </div>
+
+      {query.data && query.data.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={query.data.first}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+          >
+            이전
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {query.data.page + 1} / {query.data.totalPages}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={query.data.last}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            다음
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
