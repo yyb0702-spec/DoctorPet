@@ -68,8 +68,9 @@
 
 ### 알림
 
-- 필수: SA §9-8(폴링 확정·NotificationPusher 추상화), SA §8-8, SA §4 notifications
-- 제외: push 방식(SSE/WebSocket)은 미확정 — 단정하지 않는다(SA 부록 A).
+- 필수: SA §9-8(MVP 폴링 + MVP2 단방향 SSE 확정·NotificationPusher 추상화·티켓 인증·커밋 후 전송 불변식), SA §8-8, SA §4 notifications
+- 조건부: 예약·노쇼 이벤트 발행이 쟁점이면 예약 hot path(SA §5-1)와 `ReservationNotificationPublisher`(#88 연동)를 추가한다.
+- 주의: 양방향 채널(WebSocket+STOMP)은 채팅 도입 시에만 재논의한다 — 단방향 알림은 SSE로 확정(SA 부록 A #1).
 
 ### 공공데이터·슬롯 생성
 

@@ -3,10 +3,14 @@ package com.doctorpet.domain.reservation.service;
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.domain.member.entity.MemberRole;
+import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
+import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
@@ -14,6 +18,8 @@ import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutLock;
 import com.doctorpet.domain.reservation.scheduler.ReservationApprovalTimeoutSummary;
+import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -36,6 +42,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Level 3 — 실제 MySQL에서 승인 타임아웃의 트랜잭션·경합·멱등성을 검증한다. */
@@ -70,6 +77,13 @@ class ReservationApprovalTimeoutIntegrationTest {
     @Autowired
     private ReservationEventRepository eventRepository;
 
+    // 경합 테스트의 "수동 거절"을 운영과 같은 서비스 경로로 실행하기 위해 주입한다(PR #107 리뷰 P2).
+    @Autowired
+    private HospitalReservationApplicationService hospitalReservationService;
+
+    @Autowired
+    private MemberRepository memberRepository;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -79,6 +93,7 @@ class ReservationApprovalTimeoutIntegrationTest {
     private TransactionTemplate transactionTemplate;
     private final List<Long> reservationIds = new ArrayList<>();
     private final List<Long> slotIds = new ArrayList<>();
+    private final List<Long> staffMemberIds = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -108,6 +123,9 @@ class ReservationApprovalTimeoutIntegrationTest {
                     "delete from reservation_slots where id = ?",
                     slotId
             );
+        }
+        for (Long staffMemberId : staffMemberIds) {
+            jdbcTemplate.update("delete from members where id = ?", staffMemberId);
         }
     }
 
@@ -313,24 +331,25 @@ class ReservationApprovalTimeoutIntegrationTest {
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         AtomicInteger manualApplied = new AtomicInteger();
 
+        // 수동 거절을 리포지토리 직접 호출이 아니라 운영과 같은 서비스 경로로 실행한다 — 그래야
+        // 어느 쪽이 이겨도 거절 알림이 정확히 1건인지를 실제 동작으로 검증할 수 있다(PR #107 리뷰 P2).
+        Long staffMemberId = saveHospitalStaff(data.hospitalId());
+
         RaceResult race = runRace(
                 () -> {
-                    transactionTemplate.executeWithoutResult(status -> {
-                        int updated = reservationRepository.rejectIfRequested(
+                    try {
+                        hospitalReservationService.reject(
+                                staffMemberId,
                                 data.reservationId(),
-                                data.hospitalId(),
-                                ReservationStatus.REQUESTED,
-                                ReservationStatus.REJECTED,
-                                "기타",
-                                now
+                                ReservationRejectReason.OTHER
                         );
-                        if (updated == 1) {
-                            slotRepository.findById(data.slotId())
-                                    .orElseThrow()
-                                    .open();
-                            manualApplied.incrementAndGet();
+                        manualApplied.incrementAndGet();
+                    } catch (ServiceException exception) {
+                        // 자동 거절이 먼저 성립하면 조건부 UPDATE가 0행이 되어 INVALID_STATUS로 물러난다(정상 경합 패배).
+                        if (exception.getErrorCode() != ReservationErrorCode.INVALID_STATUS) {
+                            throw exception;
                         }
-                    });
+                    }
                     return null;
                 },
                 () -> processor.process(data.reservationId(), now)
@@ -343,10 +362,11 @@ class ReservationApprovalTimeoutIntegrationTest {
                 ReservationStatus.REJECTED,
                 ReservationSlotStatus.OPEN
         );
+        // 이력(TIMEOUT_REJECTED)은 자동 거절만 남기므로 자동이 이긴 경우에만 1건이다.
         assertThat(timeoutEventCount(data.reservationId()))
                 .isEqualTo(race.processedCount());
-        assertThat(rejectedNotificationCount(data.reservationId()))
-                .isEqualTo(race.processedCount());
+        // 알림은 수동(publishRejected)·자동(publishAutoRejected) 어느 쪽이 이겨도 정확히 1건이어야 한다.
+        assertThat(rejectedNotificationCount(data.reservationId())).isEqualTo(1L);
     }
 
     @Test
@@ -399,6 +419,20 @@ class ReservationApprovalTimeoutIntegrationTest {
                 "status",
                 "approval_deadline_at"
         );
+    }
+
+    // 해당 병원 소속 스태프를 만든다. 가입은 항상 GUARDIAN이므로(Member.createGuardian) 역할·병원은 직접 세팅한다.
+    private Long saveHospitalStaff(Long hospitalId) {
+        Member staff = Member.createGuardian(
+                "timeout-race-staff-" + System.nanoTime() + "@example.com",
+                "encoded-password",
+                "병원스태프"
+        );
+        ReflectionTestUtils.setField(staff, "role", MemberRole.HOSPITAL_STAFF);
+        ReflectionTestUtils.setField(staff, "hospitalId", hospitalId);
+        staff = memberRepository.saveAndFlush(staff);
+        staffMemberIds.add(staff.getId());
+        return staff.getId();
     }
 
     private TestReservation saveRequestedReservation(boolean expired) {

@@ -57,6 +57,9 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      # 액추에이터(health/prometheus) 관리 포트 8081은 의도적으로 게시하지 않는다(이슈 #105,
+      # mysql·redis와 동일 패턴) — 컨테이너 내부(HEALTHCHECK)와 같은 compose 네트워크 안에서만
+      # 접근 가능하고, 인터넷에서는 직접 보이지 않는다.
     env_file:
       - .env
     environment:

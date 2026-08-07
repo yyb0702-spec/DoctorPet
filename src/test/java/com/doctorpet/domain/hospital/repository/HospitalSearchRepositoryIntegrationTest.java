@@ -184,10 +184,72 @@ class HospitalSearchRepositoryIntegrationTest {
 
         List<HospitalSearchCandidate> result =
                 hospitalRepository.searchAll(condition);
+        long totalElements = hospitalRepository.count(condition);
 
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(matched.getId());
+        assertThat(totalElements).isEqualTo(1);
+    }
+
+    @Test
+    void 복수_시설조건에서도_검색_결과와_개수가_같다() {
+        Hospital matched = saveHospital(
+                "MULTI-FACILITY-MATCHED",
+                "복수시설격리 조건 일치 병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital missingNightCare = saveHospital(
+                "MULTI-FACILITY-MISSING",
+                "복수시설격리 야간진료 불가 병원",
+                BusinessStatus.OPEN,
+                true
+        );
+
+        hospitalDetailRepository.saveAll(List.of(
+                HospitalDetail.create(
+                        matched,
+                        OPEN_HOURS,
+                        true,
+                        true,
+                        true,
+                        true
+                ),
+                HospitalDetail.create(
+                        missingNightCare,
+                        OPEN_HOURS,
+                        true,
+                        true,
+                        false,
+                        true
+                )
+        ));
+        hospitalDetailRepository.flush();
+
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                "복수시설격리",
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                true,
+                true,
+                true,
+                true,
+                false
+        );
+
+        List<HospitalSearchCandidate> result =
+                hospitalRepository.searchAll(condition);
+        long totalElements = hospitalRepository.count(condition);
+
+        assertThat(result)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactly(matched.getId());
+        assertThat(totalElements).isEqualTo(result.size());
     }
 
     @Test

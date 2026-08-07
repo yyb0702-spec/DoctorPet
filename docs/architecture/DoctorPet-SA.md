@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.35 |
+| 문서 버전 | v1.39 |
 | 작성 기준일 | 2026-08-07 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 기능 구멍 점검(회원-병원 연락 수단 부재) 대응으로 `members.phone` 컬럼과 회원가입 필수 입력을 §4·§6-6·§8-1에, 병원 예약 목록 응답의 `guardianPhone` 노출을 §8-6에 추가. v1.35: 기능 구멍 점검(비밀번호 재설정 후 세션 미무효화 — 계정 탈취 복구 시나리오 결함) 대응으로 재설정 성공 시 `RefreshTokenRepository.deleteByMemberId()`를 호출하도록 §6-4에 반영.
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 성능 검증 결과에 따라 기본 이름순 `(name, id, business_status)`, 제휴 병원 이름순 `(partnership_status, name, id, business_status)`, 좌표 바운딩박스 `(coord_x, coord_y)` 인덱스를 확정하고, 효과가 미미한 진료역량 검색용 보조 인덱스는 도입하지 않기로 결정했다. v1.37(MVP2 고도화): 실시간 알림 push를 **단방향 SSE로 확정**하고 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). 예약 `CONFIRMED`/`REJECTED`와 노쇼 `NO_SHOW` 이벤트의 알림 저장 연동도 #88(PR #107)에서 병합했다. 스키마 변경은 없으며 알림은 기존 `notifications` 테이블, 구독 티켓은 Redis를 사용한다. v1.38: 기능 구멍 점검(회원-병원 연락 수단 부재) 대응으로 `members.phone` 컬럼과 회원가입 필수 입력을 §4·§6-6·§8-1에, 병원 예약 목록 응답의 `guardianPhone` 노출을 §8-6에 추가. v1.39: 기능 구멍 점검(비밀번호 재설정 후 세션 미무효화 — 계정 탈취 복구 시나리오 결함) 대응으로 재설정 성공 시 `RefreshTokenRepository.deleteByMemberId()`를 호출하도록 §6-4에 반영.
 
 ---
 
@@ -48,7 +48,7 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 - Gradle, JUnit5, Mockito, @SpringBootTest
 - 인프라(도전): Docker, AWS(EC2·RDS·ElastiCache), GitHub Actions, k6
 
-확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 `AiGateway` 추상화를 유지하면서 OpenAI `gpt-4.1-mini`의 Structured Outputs로 연동한다(§9-5). 실시간 알림은 MVP는 폴링이고 SSE/WebSocket push는 채팅 도입 여부에 따라 추후 재논의한다(§9-8).
+확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 `AiGateway` 추상화를 유지하면서 OpenAI `gpt-4.1-mini`의 Structured Outputs로 연동한다(§9-5). 실시간 알림은 MVP는 폴링이고, MVP2에서 단방향 SSE push를 확정해 추가했다(양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의, §9-8).
 
 시간 정책: 애플리케이션의 업무 시각은 `TimePolicy.SEOUL_ZONE_ID`를 적용한 공통 `Clock`을 사용한다. JPA `@CreatedDate`·`@LastModifiedDate`와 시간 기반 배치는 같은 Clock으로 `LocalDateTime`을 생성해 JVM 기본 시간대가 UTC인 환경에서도 저장 시각과 비교 기준이 어긋나지 않게 한다.
 
@@ -162,7 +162,7 @@ erDiagram
 | source_modified_at | DATETIME | 공공데이터 최종 수정일 |
 | partnership_status | VARCHAR | PARTNER / NON_PARTNER |
 
-검색 성능용 `(business_status)`, `(coord_x, coord_y)` 인덱스는 MVP DDL에 선반영하지 않는다. 전국 단위 데이터 확장 단계에서 실행 계획·응답시간을 측정한 뒤 선택도와 쿼리 패턴에 근거해 적용한다.
+전국 데이터 검색 성능 측정 후 기본 이름순 목록에 `(name, id, business_status)`, 제휴 병원 이름순 목록에 `(partnership_status, name, id, business_status)`, 좌표 바운딩박스에 `(coord_x, coord_y)` 인덱스를 적용한다. `(business_status)` 단일 인덱스는 낮은 선택도와 `name, id` 정렬 미지원으로 제외하고, 이름순 스캔 중 영업상태를 확인할 수 있는 복합 인덱스로 교체한다.
 제약: `UNIQUE(local_gov_code, mgmt_no)` — 지자체 범위의 관리번호를 공공데이터·제휴 데이터 복합 매핑 키로 사용한다.
 
 ### hospital_details (제휴 병원만, 자체 보강)
@@ -186,7 +186,7 @@ erDiagram
 | capability_type | VARCHAR | SPECIES / EXAM / TREATMENT / EQUIPMENT |
 | capability_value | VARCHAR | 아래 확정 화이트리스트 값 |
 
-역량 AND 매칭용 `(capability_type, capability_value, hospital_id)` 인덱스는 전국 단위 데이터 확장 단계에서 실행 계획을 확인한 뒤 적용한다. MVP에서는 `requiredCapabilities`·`supportedSpecies` 검색의 정확성을 우선 검증한다.
+역량 AND 매칭 쿼리는 `capability_value IN (...)`으로 후보를 고른 뒤 `hospital_id`로 그룹화한다. 전국 데이터 기준 OFF/ON 비교에서 `(capability_value, hospital_id)` 후보의 전체 쿼리 개선이 중앙값 0.775ms, P95 0.661ms에 그쳐 검색 전용 인덱스는 적용하지 않는다. 현재 규모에서는 기존 UNIQUE 인덱스 스캔을 사용하고, 진료 역량 데이터 규모나 검색 부하가 증가하면 같은 조건으로 다시 검증한다.
 
 진료역량 화이트리스트는 병원 시드 작성 시 아래 19개 값으로 확정했다.
 
@@ -333,7 +333,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | read_at | DATETIME NULL | 읽은 시각(NULL=미읽음). `is_read`는 이 값의 파생(`read_at IS NOT NULL`) |
 | created_at | DATETIME | |
 
-읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). #39는 알림 **저장 메커니즘**(엔티티·조회·읽음 처리)과 결제 결과(`PAYMENT_RESULT`) **발행**을 제공한다. 예약(`RESERVATION_CONFIRMED`/`RESERVATION_REJECTED`)·노쇼(`NO_SHOW`) 이벤트의 저장 연동은 §9-8 요구사항으로 **유지**되며(범위 축소가 아니다), 예약·노쇼 도메인 이벤트가 준비되는 **후속 이슈(#88)**에서 이 저장 메커니즘에 연결한다. push는 여전히 추상화만 두고 MVP는 폴링이다(§9-8).
+읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). #39는 알림 **저장 메커니즘**(엔티티·조회·읽음 처리)과 결제 결과(`PAYMENT_RESULT`) **발행**을 제공한다. 예약(`RESERVATION_CONFIRMED`/`RESERVATION_REJECTED`)·노쇼(`NO_SHOW`) 이벤트의 저장 연동은 **#88(PR #107)에서 다룬다** — 승인(CONFIRMED)·수동 거절(REJECTED)·승인 타임아웃 자동 거절(REJECTED)·노쇼(NO_SHOW) 전이를 상태 전이 트랜잭션 안에서 이 저장 메커니즘에 연결한다(사용자 취소 CANCELED는 본인이 한 행위라 알리지 않는다). 이 문서(#40)는 SSE 전송 계층까지를 범위로 하며, 발행처 연동은 companion PR에서 병합된다. push는 MVP2에서 단방향 SSE로 확정됐다(§9-8, #40).
 
 ### payment_webhooks (확장)
 
@@ -667,6 +667,10 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | --- | --- | --- | --- |
 | 목록 조회 | GET | /api/notifications | 인증 |
 | 읽음 처리 | PATCH | /api/notifications/{notificationId}/read | 인증(본인) |
+| 실시간 구독 티켓 발급(MVP2) | POST | /api/notifications/subscribe-ticket | 인증 |
+| 실시간 구독(SSE, MVP2) | GET | /api/notifications/subscribe?ticket= | 티켓 검증 |
+
+실시간 구독은 SSE다(§9-8, #40). `EventSource`가 JWT 헤더를 못 실으므로 인증된 요청으로 단기·1회성 티켓을 발급받아 쿼리로 제시한다(구독 경로만 비인증, 티켓으로 식별). 결제 결과·예약 승인/거절·노쇼 알림이 저장 즉시(커밋 이후) `notification` 이벤트로 전달되고, 재연결 시 저장분은 목록 조회(폴링)로 보정한다.
 
 ---
 
@@ -803,7 +807,14 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 병원 승인형 예약은 상태가 병원 액션에 따라 비동기로 바뀌므로 폴링 없이 즉시 받는 실시간 채널이 자연스럽다. 대상 이벤트는 예약 `CONFIRMED`/`REJECTED`, 결제 `PAID`/`OFFLINE_REQUIRED`, 노쇼 판정. 상태 전이 시 `notifications`에 저장한다.
 
-push 방식(SSE / WebSocket+STOMP)은 MVP 이후로 보류한다. MVP는 폴링으로 안전하게 완성하고, push 채택 여부·방식은 여력에 따라 추후 논의한다 — 수의사·보호자 1:1 채팅 같은 양방향이 실제로 필요해지면 그 범위에 한해 WebSocket+STOMP를, 예약/결제 알림 같은 단방향이면 SSE를 우선 검토한다(미확정). push가 정해지기 전에도 알림 발신은 `NotificationPusher` 인터페이스로 추상화해두고 구현체는 착수 시 고른다. WebSocket이면 STOMP CONNECT 시점에 JWT를 검증(ChannelInterceptor)하고, SSE면 `EventSource`가 커스텀 헤더를 못 실으므로 단기 발급 티켓 같은 별도 인증이 필요하다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 push는 부가 전달이다.
+push 방식은 **단방향 SSE로 확정한다**(MVP2 고도화, #40). MVP는 폴링으로 완성했고, 예약·결제 알림은 서버→클라이언트 단방향이라 SSE가 자연스럽다. 수의사·보호자 1:1 채팅 같은 양방향이 실제로 필요해지면 그 범위에 한해 WebSocket+STOMP를 추가로 검토하되, 현재는 도입하지 않는다.
+
+구현 계약:
+- 발신은 `NotificationPusher` 인터페이스로 추상화하고 SSE 구현체(`SseNotificationPusher`)가 수신자별 `SseEmitter` 레지스트리로 전달한다. 연결 레지스트리는 **단일 인스턴스 인메모리**이며, 수평 확장 시 Redis pub/sub 팬아웃을 후속으로 둔다. 리소스 소진 방지를 위해 **회원당 동시 연결 상한(5)**을 두고 초과 구독은 429로 거절한다(죽은 연결은 heartbeat 주기에 정리되어 자가 회복되는 soft cap).
+- **커밋 이후 전송 불변식**: 알림 저장이 원본이고 push는 부가 전달이다. 저장은 상태 전이 트랜잭션 안에서 이뤄지고(전이가 롤백되면 알림도 없음), 전송은 `@TransactionalEventListener(AFTER_COMMIT)`로 커밋 이후에만 실행된다. 전송 실패는 삼켜서 예약·결제 트랜잭션에 영향을 주지 않으며, 보호자는 폴링으로 알림을 받을 수 있다.
+- **인증**: `EventSource`가 커스텀 헤더(JWT)를 못 실으므로, 인증된 요청으로 단기(30초)·1회성 티켓을 발급받아(`POST /api/notifications/subscribe-ticket`) 구독 시 쿼리로 제시한다(`GET /api/notifications/subscribe?ticket=`). 티켓 값은 memberId를 담지 않는 난수(UUID)이고 매핑은 Redis에만 두며 소비 즉시 삭제(GET+DEL 원자 연산)해 재사용을 막는다.
+- 프록시가 유휴 연결을 끊지 않도록 주기적 heartbeat comment를 보낸다(전용 executor로 격리해 결제·예약 배치 스케줄러와 스레드를 공유하지 않는다).
+- **재연결 계약(프론트 필수)**: 티켓이 1회성이라 브라우저 `EventSource`의 자동 재연결은 이미 소비된 티켓으로 401을 받아 실패한다. 따라서 프론트는 `onerror`에서 자동 재연결에 의존하지 말고 **새 티켓을 발급받아 다시 구독**해야 한다(끊긴 동안의 유실 알림은 목록 조회 폴링으로 보정). emitter 타임아웃(30분) 만료 시에도 동일하게 새 티켓으로 재구독한다.
 
 ## 9-9. 예약 슬롯 생성·운영
 
@@ -906,8 +917,14 @@ sequenceDiagram
 - AWS EC2(앱), RDS(MySQL), ElastiCache(Redis).
 - GitHub Actions로 빌드·테스트 자동 실행, 이미지 빌드·배포.
 - k6로 검색·예약 처리량·응답시간을 비교한다. 검색 캐시는 최초 진입 기본 첫 페이지의 적용 전후만 비교한다.
-- 관찰성은 Spring Actuator + 로그(MVP 수준). Prometheus/Grafana는 여력에 따라 확장.
-- 실시간 메시징(§9-8)은 채팅 도입 여부에 따라 추후 재논의.
+- 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #105). Grafana 등 시각화는 여력에 따라 확장.
+- 단방향 실시간 알림은 SSE로 확정·구현했다(§9-8). 양방향 실시간 메시징은 채팅 도입 여부에 따라 추후 재논의.
+
+**관측성 지표·API 문서 노출 범위(이슈 #105)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
+
+관리 포트(8081)만 헬스체크하면 관리 컨텍스트는 살아있지만 정작 앱 포트(8080)가 새 연결을 못 받는 상태를 놓칠 수 있다(2차 리뷰 지적, Spring Boot 공식 문서도 별도 관리 포트의 이 위험을 명시한다). Spring Boot 4.1의 헬스 그룹 `additional-path` 기능으로 readiness 헬스 그룹(기본 자동 활성화)을 앱 포트에 `/healthz`로도 노출해(`management.endpoint.health.group.readiness.additional-path=server:/healthz`), Dockerfile HEALTHCHECK가 8081 `/actuator/health`와 8080 `/healthz` 둘 다 확인하도록 바꿨다. `/healthz`도 `SecurityConfig` 메인 체인에서 permitAll한다.
+
+**Level 6 실기동 검증(2차 리뷰 지적, docker compose)**: `actuatorSecurityFilterChain`의 permitAll이 관리 포트(8081) 요청에도 실제로 적용되는지가 문서만으로는 불명확하다는 지적에 실제로 컨테이너를 띄워 확인했다. `docker compose exec app curl 8081/actuator/health`·`/actuator/prometheus`는 인증 헤더 없이 200을 반환했고, 응답에 Spring Security의 `HeaderWriterFilter`가 남기는 표준 헤더(`X-Frame-Options` 등)가 그대로 포함돼 이 체인이 실제로 관리 포트 요청에도 적용됨을 확인했다 — `securityMatcher`는 포트가 아니라 경로로 매칭되고 `FilterChainProxy`가 포트별로 분리돼 있지 않기 때문이다(관리 포트 전용 DispatcherServlet은 별도 자식 컨텍스트라 실제 라우팅만 분리된다, spring-projects/spring-boot#50355). 즉 permitAll은 의도 표시용이 아니라 실제로 유효한 인가 규칙이고, docker-compose가 8081을 호스트에 게시하지 않는 것은 그 위에 얹는 추가 방어선이다. 같은 검증 과정에서 `/v3/api-docs`가 (springdoc이 꺼진 프로파일에서) 기대한 404 대신 500을 반환하는 버그도 발견해 `GlobalExceptionHandler`에 `NoResourceFoundException` 전용 핸들러를 추가해 함께 수정했다 — `Exception.class` catch-all이 원래 자동 404여야 할 이 예외까지 가로채고 있었다.
 
 성능 목표는 검색 응답시간 P95 300ms 이하, 처리량 100 RPS, 오류율 1% 이하(PRD §9 성과지표와 동일 수치). 도전 과제는 MVP 완성 이후 진행하며, 미완 시 문서·부분 구성으로 대체한다.
 
@@ -915,13 +932,13 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, MVP 폴링, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
+확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, 실시간 알림=MVP 폴링·MVP2 단방향 SSE(§9-8·#40), 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
 
 남은 것:
 
 | # | 항목 | 위치 |
 | --- | --- | --- |
-| 1 | 실시간 push 방식(SSE / WebSocket+STOMP) — 채팅 도입 여부에 따라 재논의 | §2, §9-8 |
+| 1 | 양방향 실시간 채널(WebSocket+STOMP) 도입 여부 — 단방향 예약·결제 알림은 SSE로 확정(MVP2, §9-8·#40). 수의사·보호자 1:1 채팅 같은 양방향이 필요해질 때만 재논의 | §2, §9-8 |
 | 2 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
 | 3 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
 | 4 | 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선(리뷰 지적 P2, non-blocking) — 상세 설계는 아래 참고 | §6-4 |

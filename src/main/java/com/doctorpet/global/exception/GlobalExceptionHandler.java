@@ -5,6 +5,7 @@ import jakarta.validation.ConstraintViolationException;
 import java.sql.SQLException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -13,8 +14,14 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
+/*
+  전역 예외 → ApiResponse 변환(AGENTS 응답 포맷 계약). 모든 오류 응답에 contentType(application/json)을
+  명시한다 — 그렇지 않으면 Accept가 JSON이 아닌 요청(예: SSE 구독의 Accept: text/event-stream)에서
+  content negotiation이 실패해 오류 본문을 쓸 수 없고, 상태 코드와 code가 클라이언트에 전달되지 않는다.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -22,6 +29,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleServiceException(ServiceException exception) {
         ErrorCode errorCode = exception.getErrorCode();
         return ResponseEntity.status(errorCode.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.error(errorCode));
     }
 
@@ -36,6 +44,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleInvalidRequestException(Exception exception) {
         // 요청 DTO 검증 실패는 VALIDATION_FAILED로 통일한다.
         return ResponseEntity.status(CommonErrorCode.VALIDATION_FAILED.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.error(CommonErrorCode.VALIDATION_FAILED));
     }
 
@@ -48,7 +57,19 @@ public class GlobalExceptionHandler {
         // 여기는 그 체크를 우회한 경쟁 상태 등 예외적인 경우의 최종 방어선이다(global은 domain을 참조하지 않는다).
         ErrorCode errorCode = resolveDataIntegrityErrorCode(exception);
         return ResponseEntity.status(errorCode.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.error(errorCode));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException exception) {
+        // 매핑된 핸들러도 정적 리소스도 없는 요청(예: springdoc이 꺼진 프로파일의 /v3/api-docs)은
+        // 원래 Spring이 자동으로 404로 응답하는데, 아래 Exception.class catch-all이 먼저 잡아버려서
+        // 이 저장소의 모든 "존재하지 않는 경로" 요청이 500으로 나가고 있었다(이슈 #105 2차 리뷰 P1,
+        // docker compose 실기동 검증에서 발견 — /v3/api-docs가 기대한 404 대신 500을 반환).
+        return ResponseEntity.status(CommonErrorCode.NOT_FOUND.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiResponse.error(CommonErrorCode.NOT_FOUND));
     }
 
     @ExceptionHandler(Exception.class)
@@ -56,6 +77,7 @@ public class GlobalExceptionHandler {
         // 예상하지 못한 예외는 내부 서버 오류로 응답한다.
         log.error("처리되지 않은 예외", exception);
         return ResponseEntity.status(CommonErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
     }
 
