@@ -7,3 +7,10 @@ spring:
 
 ai:
   gateway: fake
+
+# 테스트 프로파일은 local이 아니므로 Swagger/OpenAPI를 노출하지 않는 운영 기본값을 명시한다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
