@@ -26,6 +26,7 @@ import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -64,6 +65,9 @@ class HospitalReservationApplicationServiceTest {
     @Mock
     private ReservationEventRepository reservationEventRepository;
 
+    @Mock
+    private ReservationNotificationPublisher notificationPublisher;
+
     private HospitalReservationApplicationService hospitalReservationService;
 
     @BeforeEach
@@ -76,6 +80,7 @@ class HospitalReservationApplicationServiceTest {
                 reservationRepository,
                 reservationSlotRepository,
                 reservationEventRepository,
+                notificationPublisher,
                 noShowProperties
         );
         lenient().when(memberService.getMyInfo(STAFF_ID)).thenReturn(

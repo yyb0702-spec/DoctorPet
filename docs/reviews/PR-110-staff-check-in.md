@@ -121,5 +121,5 @@ Closes #109
 
 ## 비고
 
-- `RESERVATION_NO_SHOW_PENDING_GRACE_MINUTES` 기본값은 5이며 양의 정수로 검증합니다.
+- `RESERVATION_NO_SHOW_PENDING_GRACE_MINUTES` 기본값은 5이며 `@Positive`로 양의 정수만 허용합니다.
 - 로컬 Redis 또는 Docker를 기동한 뒤 Level 5·6의 남은 항목을 추가 확인해야 합니다.

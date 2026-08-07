@@ -801,7 +801,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 | 공공데이터 적재 | 매주 월요일 03:00(`Asia/Seoul`) | 전국 공공데이터 갱신 후 제휴 데이터를 재적용하고 검색 캐시를 삭제한다 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
 
-노쇼 배치는 한 예약이 같은 실행에서 `CONFIRMED → NO_SHOW_PENDING → NO_SHOW`로 연달아 전이될 수 있다. 따라서 `maxScannedPerRun`은 조회·전이 시도 횟수 상한이며, `processed`는 실제 상태 변경 횟수로 기록한다.
+노쇼 배치는 한 예약이 같은 실행에서 `CONFIRMED → NO_SHOW_PENDING → NO_SHOW`로 연달아 전이될 수 있다. 따라서 `maxScannedPerRun`은 조회·전이 시도 횟수 상한이며, `processed`는 한 번 이상 상태 전이에 성공한 예약 수로 기록한다. `AUTO_NO_SHOW_PENDING`과 `AUTO_NO_SHOW`의 실제 전이 건수는 상태 이력과 별도 지표로 확인한다.
 
 ## 9-8. 실시간 알림 (도전)
 

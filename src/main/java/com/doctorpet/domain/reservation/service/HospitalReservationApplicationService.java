@@ -23,6 +23,7 @@ import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -53,6 +54,7 @@ public class HospitalReservationApplicationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
+    private final ReservationNotificationPublisher notificationPublisher;
     private final ReservationNoShowProperties noShowProperties;
 
     /**
@@ -255,6 +257,9 @@ public class HospitalReservationApplicationService {
                 staffMemberId,
                 now
         );
+        if (updated == 1) {
+            notificationPublisher.publishNoShow(reservation.getMemberId(), reservationId);
+        }
 
     }
 
