@@ -554,6 +554,7 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class)
         );
+        verify(notificationPublisher).publishNoShow(reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test
@@ -636,6 +637,7 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 any(LocalDateTime.class)
         );
+        verify(notificationPublisher, never()).publishNoShow(any(), any());
     }
 
     @Test
