@@ -1,12 +1,19 @@
 package com.doctorpet.domain.hospital.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 
 import com.doctorpet.domain.hospital.dto.response.FavoriteHospitalPageResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.repository.HospitalFavoriteRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.member.repository.RefreshTokenRepository;
+import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.domain.member.service.MemberWithdrawalApplicationService;
+import com.doctorpet.domain.reservation.service.ReservationService;
+import com.doctorpet.global.security.JwtProperties;
+import com.doctorpet.global.security.JwtTokenProvider;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -21,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest(properties = {
         "payment.gateway=fake",
@@ -42,6 +50,24 @@ class HospitalFavoriteIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MemberWithdrawalApplicationService memberWithdrawalApplicationService;
+
+    @MockitoBean
+    private MemberService memberService;
+
+    @MockitoBean
+    private ReservationService reservationService;
+
+    @MockitoBean
+    private RefreshTokenRepository refreshTokenRepository;
+
+    @MockitoBean
+    private JwtProperties jwtProperties;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @BeforeEach
     void setUp() {
@@ -114,6 +140,66 @@ class HospitalFavoriteIntegrationTest {
     }
 
     @Test
+    void 내_찜_목록은_최신순과_ID_역순으로_안정적으로_페이징한다() {
+        Long memberId = uniqueMemberId();
+        Hospital first = saveHospital(BusinessStatus.OPEN);
+        Hospital second = saveHospital(BusinessStatus.OPEN);
+        Hospital old = saveHospital(BusinessStatus.OPEN);
+        hospitalFavoriteService.addFavorite(memberId, first.getId());
+        hospitalFavoriteService.addFavorite(memberId, second.getId());
+        hospitalFavoriteService.addFavorite(memberId, old.getId());
+
+        updateFavoritedAt(memberId, first.getId(), "2026-08-08 10:00:00.000000");
+        updateFavoritedAt(memberId, second.getId(), "2026-08-08 10:00:00.000000");
+        updateFavoritedAt(memberId, old.getId(), "2026-08-07 10:00:00.000000");
+
+        FavoriteHospitalPageResponse firstPage =
+                hospitalFavoriteService.getMyFavorites(memberId, 1, 2);
+        FavoriteHospitalPageResponse secondPage =
+                hospitalFavoriteService.getMyFavorites(memberId, 2, 2);
+
+        assertThat(firstPage.content())
+                .extracting(favorite -> favorite.hospitalId())
+                .containsExactly(second.getId(), first.getId());
+        assertThat(firstPage.totalElements()).isEqualTo(3L);
+        assertThat(firstPage.totalPages()).isEqualTo(2);
+        assertThat(firstPage.first()).isTrue();
+        assertThat(firstPage.last()).isFalse();
+        assertThat(secondPage.content())
+                .extracting(favorite -> favorite.hospitalId())
+                .containsExactly(old.getId());
+        assertThat(secondPage.first()).isFalse();
+        assertThat(secondPage.last()).isTrue();
+    }
+
+    @Test
+    void 회원_탈퇴는_해당_회원의_찜만_삭제한다() {
+        Long withdrawnMemberId = uniqueMemberId();
+        Long otherMemberId = uniqueMemberId();
+        Hospital hospital = saveHospital(BusinessStatus.OPEN);
+        hospitalFavoriteService.addFavorite(
+                withdrawnMemberId,
+                hospital.getId()
+        );
+        hospitalFavoriteService.addFavorite(otherMemberId, hospital.getId());
+        given(reservationService.hasActiveReservation(withdrawnMemberId))
+                .willReturn(false);
+        given(jwtProperties.getAccessTokenExpiration())
+                .willReturn(3_600_000L);
+
+        memberWithdrawalApplicationService.withdraw(withdrawnMemberId);
+
+        assertThat(hospitalFavoriteRepository.countByMemberIdAndHospitalId(
+                withdrawnMemberId,
+                hospital.getId()
+        )).isZero();
+        assertThat(hospitalFavoriteRepository.countByMemberIdAndHospitalId(
+                otherMemberId,
+                hospital.getId()
+        )).isEqualTo(1L);
+    }
+
+    @Test
     void 찜_해제를_반복해도_최종_상태는_해제로_유지된다() {
         Long memberId = uniqueMemberId();
         Hospital hospital = saveHospital(BusinessStatus.OPEN);
@@ -156,6 +242,23 @@ class HospitalFavoriteIntegrationTest {
         );
         hospitalRepository.saveAndFlush(hospital);
         return hospital;
+    }
+
+    private void updateFavoritedAt(
+            Long memberId,
+            Long hospitalId,
+            String favoritedAt
+    ) {
+        jdbcTemplate.update(
+                """
+                UPDATE hospital_favorites
+                SET created_at = ?
+                WHERE member_id = ? AND hospital_id = ?
+                """,
+                favoritedAt,
+                memberId,
+                hospitalId
+        );
     }
 
     private void deleteTestData() {

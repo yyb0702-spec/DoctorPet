@@ -1,6 +1,8 @@
 package com.doctorpet.domain.hospital.controller;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -83,6 +85,34 @@ class HospitalFavoriteControllerSecurityTest {
                         .header("Authorization", "Bearer guardian-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
+    }
+
+    @Test
+    void 비로그인_사용자는_병원_찜을_해제할_수_없다() throws Exception {
+        mockMvc.perform(delete("/api/hospitals/10/favorite"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON_002"));
+    }
+
+    @Test
+    void 병원_스태프는_병원_찜을_해제할_수_없다() throws Exception {
+        stubToken("staff-token", "HOSPITAL_STAFF");
+
+        mockMvc.perform(delete("/api/hospitals/10/favorite")
+                        .header("Authorization", "Bearer staff-token"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
+    void 보호자는_병원_찜을_해제할_수_있다() throws Exception {
+        stubToken("guardian-token", "GUARDIAN");
+
+        mockMvc.perform(delete("/api/hospitals/10/favorite")
+                        .header("Authorization", "Bearer guardian-token"))
+                .andExpect(status().isNoContent());
+
+        verify(hospitalFavoriteService).removeFavorite(1L, 10L);
     }
 
     @Test
