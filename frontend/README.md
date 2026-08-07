@@ -1,7 +1,7 @@
-# DoctorPet 프론트엔드 (보호자 웹)
+# DoctorPet 프론트엔드 (보호자·병원 스태프 웹)
 
-React + TypeScript + Vite 기반 보호자용 SPA. **로컬 전용**이며 `/frontend/`는
-`.git/info/exclude`로 git 추적에서 제외돼 있다(커밋·푸시 금지). 안정화 후 별도 지시로 합류.
+React + TypeScript + Vite 기반 SPA. 보호자용 화면과 병원 스태프용 화면(역할 기반 라우팅)을
+같은 앱에서 서비스한다. 모노레포(`SmartCare-Project`) 안의 `frontend/`로 git에 포함돼 있다.
 
 ## 실행
 
@@ -13,7 +13,7 @@ npm run dev:mock   # 백엔드 없이 UI만 (전체 MSW 목)
 
 - `npm run dev`: **목 OFF, 실연동 기본.** 백엔드(8080) 실데이터를 그대로 본다. 백엔드 미구현
   API(병원 검색·예약 목록·알림 등)는 에러/빈 상태로 보이는 게 정상이다.
-- `npm run dev:mock`: 백엔드 없이 전체 UI를 클릭해보는 목 모드(`.env.mock`, `VITE_FULL_MOCK=true`).
+- `npm run dev:mock`: 백엔드 없이 전체 UI를 클릭해보는 목 모드(`.env.mock`, `VITE_ENABLE_MOCKS=true`).
   단 `/pets`는 백엔드 실동작이라 목에서 제외 — 프록시로 백엔드에 간다.
 
 백엔드 CORS 미설정이라 dev 서버 프록시로 우회한다. 프록시 대상은 `VITE_PROXY_TARGET`으로 바꿀 수 있다.
@@ -74,6 +74,6 @@ MSW는 개발 + `VITE_ENABLE_MOCKS=true`일 때만 켜지고, **미구현 API만
 
 - **PortOne 빌링키 발급**(결제창 연동): 현재 결제수단 등록은 발급된 빌링키 문자열 입력. SDK 통합은 후속.
 - **AI 상담**: Tool 실패 응답 방식이 SA 부록 A `[결정 필요]`라 깊게 구현하지 않음. 메인 검색은 병원 검색으로 연결.
-- **실시간 push**: MVP는 폴링(`useNotifications` 훅으로 캡슐화). SSE/STOMP는 미확정.
-- **병원 스태프 화면·환불**: MVP 범위 밖.
+- **실시간 push**: 실시간 알림은 SSE로 연동 완료(`features/notifications/notificationSse.ts`, 티켓 인증·1회성 티켓 재구독 계약 포함). 폴링(`useNotifications`)은 끊김 시 백업 경로로 유지.
+- **병원 스태프 화면·환불**: 대시보드·승인/거절·상태전이·청구·오프라인 정산·환불(`POST /api/hospital/payments/{paymentId}/refund`) 화면 구현 완료. 단 결제/환불 내역 목록 조회(`GET /api/hospital/payments`)는 백엔드 미착수라 이 화면만 404 — 백엔드 머지 후 반영 필요. 스태프 계정 발급(회원가입)은 여전히 범위 밖(수동 DB 승격만 가능, `HANDOFF-hospital-and-sync.md` 참고).
 - 지도 SDK, 병원 후기 API는 미제공 → 자리(placeholder)만.

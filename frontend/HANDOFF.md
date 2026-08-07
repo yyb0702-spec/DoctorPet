@@ -8,7 +8,7 @@
 
 ## 저장소·작업 방식 (중요)
 - 저장소 루트: `C:\Users\김준형\Desktop\java\doctorpet\SmartCare-Project` (백엔드 Spring Boot)
-- 프론트는 그 안의 `frontend/` 폴더(React+TS+Vite). **로컬 전용** — `/frontend/`가 `.git/info/exclude`에 등록돼 git 추적 제외. **절대 커밋·푸시 금지.**
+- 프론트는 그 안의 `frontend/` 폴더(React+TS+Vite). 모노레포에 편입되어 git으로 추적된다(PR #127).
 - 먼저 읽을 것: `AGENTS.md`, `docs/frontend/DoctorPet-프론트엔드-기술스택.md`, `docs/frontend/DoctorPet-화면-메모.md`, `docs/architecture/DoctorPet-SA.md`(§5 상태머신·§7 공통응답·§8 API). 그리고 `frontend/README.md`.
 - 자동 로드되는 메모리 파일이 있다(`frontend-scaffold`, `backend-api-deviations`). 이미 최신화돼 있으니 참고.
 
@@ -18,7 +18,7 @@ React 19 + TypeScript + Vite / TanStack Query / axios(+401 재발급 인터셉�
 
 ## 실행 (목 정책)
 - `npm run dev` = **실연동(목 OFF)**. dev proxy `/api`→`http://localhost:8080`. 백엔드 실데이터.
-- `npm run dev:mock` = **백엔드 없이 전체 UI**(MSW full 목, `.env.mock`의 `VITE_FULL_MOCK=true`). `src/mocks/handlers.ts`(공용)+`demoHandlers.ts`(dev:mock 전용).
+- `npm run dev:mock` = **백엔드 없이 전체 UI**(MSW full 목, `.env.mock`의 `VITE_ENABLE_MOCKS=true`). `src/mocks/handlers.ts`(공용)+`demoHandlers.ts`(dev:mock 전용).
 - 백엔드 인프라: 프로젝트 루트에서 `docker compose up -d`(mysql 3307·redis 6380). 백엔드 앱은 `.\gradlew.bat bootRun`(프로파일 local 기본).
 - ⚠️ 한글 경로 때문에 gradle 빌드 산출물은 `C:/agora-build/...`로 리다이렉트됨(`~/.gradle/gradle.properties`의 `localBuildDir`). 테스트 포함 빌드는 워커 argfile이 깨질 수 있어 `bootJar -x test` 권장.
 - ⚠️ 공공데이터포털(data.go.kr) 점검으로 병원 실데이터 시드 불가 → 대신 `frontend/dev-seed-sample-hospitals.sql`로 샘플 병원 5곳(제휴/비제휴/임시휴업 다양) DB 주입:

@@ -8,7 +8,7 @@
 
 ## 저장소·작업 방식 (중요)
 - 저장소 루트: `C:\Users\김준형\Desktop\java\doctorpet\SmartCare-Project` (백엔드 Spring Boot 모노레포)
-- 프론트는 그 안의 `frontend/`(React 19 + TS + Vite). **로컬 전용** — `/frontend/`가 `.git/info/exclude`로 git 추적 제외. **절대 커밋·푸시 금지.**
+- 프론트는 그 안의 `frontend/`(React 19 + TS + Vite). 모노레포에 편입되어 git으로 추적된다(PR #127).
 - 먼저 읽을 것: `AGENTS.md`, `frontend/HANDOFF.md`(기존 인수인계), `frontend/README.md`, `docs/frontend/DoctorPet-프론트엔드-기술스택.md`, `docs/frontend/DoctorPet-화면-메모.md`(§C 병원 스태프 플로우 개략), `docs/architecture/DoctorPet-SA.md`(§5 상태머신·§7 공통응답·§8-5/§8-6/§8-7/§8-8·§9-8 실시간 알림).
 - 자동 로드 메모리(`frontend-scaffold`, `frontend-next-steps`, `backend-api-deviations`) 참고. **보호자(GUARDIAN) 화면은 2026-08-04 기준 전부 실연동 완료**(검색·상세·슬롯·펫·결제수단·예약 요청/취소/목록/상세·마이페이지·탈퇴·이메일인증·비번재설정·결제내역·AI 상담·알림 폴링). 이번 작업은 그 이후 백엔드 변경분 반영 + 병원 스태프 화면 신규다.
 
@@ -110,7 +110,7 @@
 
 ## 상태 배지·공통
 - 예약 상태: REQUESTED/CONFIRMED/CHECKED_IN/IN_TREATMENT/TREATMENT_COMPLETED/NO_SHOW/REJECTED/CANCELED. 결제 상태: PENDING/PAID/OFFLINE_REQUIRED/OFFLINE_PAID. 보호자 앱의 `<StatusBadge>`를 재사용/확장.
-- 환불(REFUNDED)은 아직 백엔드 미구현(#37 예정) → 화면에서 제외.
+- 환불(REFUNDED)은 백엔드 구현 완료(#37, PR #112 develop 머지) → `POST /api/hospital/payments/{paymentId}/refund { reason }`, `PaymentHistoryResponse.refundedAt`을 `features/staffPayments`·`features/payments`가 소비한다. 단 결제/환불 목록 조회(`GET /api/hospital/payments`)는 아직 백엔드 미착수라 해당 화면만 404.
 - mock 우선: `demoHandlers`에 병원 예약 목록·상태 전이·청구·정산 목을 추가해 전체 플로우를 dev:mock으로 시연 → 이후 실연동.
 
 ## 권장 순서
