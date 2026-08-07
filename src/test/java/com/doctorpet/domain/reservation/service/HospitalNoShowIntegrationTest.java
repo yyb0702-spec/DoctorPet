@@ -292,6 +292,13 @@ class HospitalNoShowIntegrationTest {
                 "중복 요청"
         );
 
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from notifications "
+                        + "where resource_type = 'RESERVATION' and resource_id = ? and type = 'NO_SHOW'",
+                Long.class,
+                data.reservationId()
+        )).isEqualTo(1L);
+
         hospitalReservationService.restoreNoShow(
                 data.staffMemberId(),
                 data.reservationId(),
