@@ -791,7 +791,8 @@ class AiConsultationServiceTest {
                 PartnershipStatus.PARTNER,
                 true,
                 null,
-                true
+                true,
+                false
         );
     }
 }

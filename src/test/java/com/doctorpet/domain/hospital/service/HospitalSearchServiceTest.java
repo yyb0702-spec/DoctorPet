@@ -53,6 +53,9 @@ class HospitalSearchServiceTest {
     @Mock
     private HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
+    @Mock
+    private HospitalFavoriteService hospitalFavoriteService;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -61,7 +64,8 @@ class HospitalSearchServiceTest {
                 hospitalRepository,
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
-                hospitalSearchCacheRepository
+                hospitalSearchCacheRepository,
+                hospitalFavoriteService
         );
     }
 
@@ -320,6 +324,54 @@ class HospitalSearchServiceTest {
                 .saveInitialPage(
                         org.mockito.ArgumentMatchers.any()
                 );
+    }
+
+    @Test
+    void 캐시_HIT_결과에도_인증된_보호자의_찜_여부를_별도로_결합한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.hit(
+                        new HospitalSearchCachedPage(
+                                List.of(candidate(hospital)),
+                                1L
+                        )
+                ));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+
+        HospitalSearchPageResponse response = hospitalService.hospitalSearch(
+                10L,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                20,
+                "name"
+        );
+
+        assertThat(response.content())
+                .singleElement()
+                .satisfies(result -> assertThat(result.favorite()).isTrue());
+        verifyNoInteractions(hospitalRepository);
     }
 
     @Test
