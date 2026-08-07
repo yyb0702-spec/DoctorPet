@@ -77,6 +77,21 @@ class MemberDdlIntegrationTest {
     }
 
     @Test
+    @DisplayName("신규 컬럼(phone)이 매핑대로 저장·조회되고, 3-arg 팩토리로 만든 기존 회원은 null로 남는다(기능 구멍 점검 대응)")
+    void phoneColumn_persistsCorrectly_andRemainsNullForLegacyFactory() {
+        Member withPhone = Member.createGuardian("withphone@example.com", "encoded", "닉네임", "010-1234-5678");
+        Member withoutPhone = Member.createGuardian("withoutphone@example.com", "encoded", "닉네임2");
+        Long withPhoneId = memberRepository.saveAndFlush(withPhone).getId();
+        Long withoutPhoneId = memberRepository.saveAndFlush(withoutPhone).getId();
+        entityManager.clear();
+
+        assertThat(memberRepository.findById(withPhoneId).orElseThrow().getPhone())
+                .isEqualTo("010-1234-5678");
+        assertThat(memberRepository.findById(withoutPhoneId).orElseThrow().getPhone())
+                .isNull();
+    }
+
+    @Test
     @DisplayName("Soft Delete(deleted_at) 후에는 findByEmail·existsByEmail 모두 조회되지 않는다")
     void softDeletedMember_isExcludedFromActiveQueries() {
         Member member = Member.createGuardian("softdelete@example.com", "encoded", "닉네임");
