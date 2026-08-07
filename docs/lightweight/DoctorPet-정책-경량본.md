@@ -85,5 +85,5 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - timeout·fallback·기본 Circuit Breaker는 MVP에 포함한다.
 ## 7. 알림
 - 예약 승인·거절, 결제 결과, 노쇼 등 주요 상태 변경을 알림으로 저장한다.
-- MVP는 폴링 방식이며 실시간 push는 확장 범위다.
+- MVP는 폴링 방식이고, MVP2에서 단방향 SSE push를 추가했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의).
 - 알림 저장이 원본이고 실시간 전달은 부가 기능이다.

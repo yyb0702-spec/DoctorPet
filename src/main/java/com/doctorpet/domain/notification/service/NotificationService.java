@@ -9,11 +9,13 @@ import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
+import com.doctorpet.domain.notification.push.NotificationCreatedEvent;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,6 +32,8 @@ public class NotificationService {
     // JPA 감사 시각(createdAt/updatedAt)과 같은 서울 기준 Clock(applicationClock). 읽음 시각도 이 Clock으로 만들어
     // 업무 시각과 감사 시각이 같은 시계를 쓰게 한다(SA 시간 정책, PR #87 P2 리뷰 반영).
     private final Clock clock;
+    // 저장 커밋 이후 실시간 전송(SSE)을 트리거한다. AFTER_COMMIT 리스너가 받아 처리하므로 롤백 시 전송되지 않는다(SA §9-8).
+    private final ApplicationEventPublisher eventPublisher;
 
     // 상태 전이 이벤트 수신자에게 알림을 저장한다. 수신자(memberId)는 이벤트 발행 도메인이 서버에서 확정해 전달한다.
     @Transactional
@@ -40,9 +44,14 @@ public class NotificationService {
             NotificationResourceType resourceType,
             Long resourceId
     ) {
-        return notificationRepository.save(
+        Notification saved = notificationRepository.save(
                 Notification.create(memberId, type, content, resourceType, resourceId)
         );
+        // 커밋 이후에만 실시간 전송하도록 이벤트를 등록한다(수신자 식별은 응답 DTO에 없으므로 이벤트에 함께 싣는다).
+        eventPublisher.publishEvent(
+                new NotificationCreatedEvent(saved.getMemberId(), NotificationResponse.from(saved))
+        );
+        return saved;
     }
 
     // 본인 알림을 최신순으로 페이징 조회한다. isRead가 null이면 전체, true/false면 읽음/미읽음만 반환한다.

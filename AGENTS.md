@@ -40,14 +40,14 @@ Java 17, Spring Boot, Spring Data JPA, Spring Security, QueryDSL, MySQL 8.x, Red
 
 - 동시성: 낙관적 락(`@Version`) 실채택, 조건부 UPDATE는 비교 베이스라인. `ReservationLockStrategy` 인터페이스로 추상화. Redis 분산 락 미사용 (SA §9-3)
 - 검색 캐시: Redis 원격 캐시. Caffeine 미사용 (SA §9-2)
-- 실시간 알림: MVP는 폴링. push는 `NotificationPusher` 인터페이스만 추상화 (SA §9-8)
+- 실시간 알림: MVP는 폴링, MVP2는 단방향 SSE 확정 (예약·결제 알림, #40). `NotificationPusher` 추상화 + `SseNotificationPusher` 구현, 티켓 기반 인증·커밋 후 전송. 양방향(WebSocket+STOMP)은 채팅 도입 시에만 재논의 (SA §9-8)
 - 환불: MVP 제외 (SA §4 payments·§9-4). 예약 상태에 `PAYMENT_COMPLETED` 없음 — 결제완료는 예약+결제 상태 조합으로 표현 (SA §5-4)
 - 응답 포맷: `ApiResponse{ code, message, data }`, 성공 `code="SUCCESS"`, 실패는 예외 → GlobalExceptionHandler
 - ErrorCode: `{DOMAIN}_{3자리}`, 도메인별 enum 분리 (글로벌 통합 enum 금지)
 
 ## 미확정 — 구현하지 말고 질문 (SA 부록 A)
 
-실시간 push 방식(SSE/WebSocket), 미인증 계정 장기 미완료 처리, SNS 로그인 도입 범위, 이메일 인증·비밀번호 재설정 토큰 소비 순서, 탈퇴 트랜잭션과 Redis 부수효과 순서.
+양방향 실시간 채널(WebSocket+STOMP) 도입 여부 — 단방향 알림 push는 SSE로 확정됐다(§9-8), 미인증 계정 장기 미완료 처리, SNS 로그인 도입 범위, 이메일 인증·비밀번호 재설정 토큰 소비 순서, 탈퇴 트랜잭션과 Redis 부수효과 순서.
 
 ## 검증
 

@@ -12,6 +12,7 @@ import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
+import com.doctorpet.domain.notification.push.NotificationCreatedEvent;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -42,11 +44,15 @@ class NotificationServiceTest {
     @Mock
     private NotificationRepository notificationRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private NotificationService notificationService;
 
     @BeforeEach
     void setUp() {
-        notificationService = new NotificationService(notificationRepository, FIXED_CLOCK);
+        notificationService = new NotificationService(
+                notificationRepository, FIXED_CLOCK, eventPublisher);
     }
 
     @Test
@@ -137,6 +143,29 @@ class NotificationServiceTest {
         notificationService.getMyNotifications(OWNER_ID, false, 0, 20);
 
         verify(notificationRepository).findByMemberIdAndReadAtIsNull(eq(OWNER_ID), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("생성: 알림을 저장하고, 커밋 이후 실시간 전송을 위한 NotificationCreatedEvent를 발행한다")
+    void create_savesAndPublishesEvent() {
+        Notification saved = paymentNotification(OWNER_ID);
+        given(notificationRepository.save(any(Notification.class))).willReturn(saved);
+
+        notificationService.create(
+                OWNER_ID,
+                NotificationType.PAYMENT_RESULT,
+                "진료비 결제가 완료되었습니다.",
+                NotificationResourceType.PAYMENT,
+                55L
+        );
+
+        verify(notificationRepository).save(any(Notification.class));
+        ArgumentCaptor<NotificationCreatedEvent> event =
+                ArgumentCaptor.forClass(NotificationCreatedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().recipientMemberId()).isEqualTo(OWNER_ID);
+        assertThat(event.getValue().payload().type())
+                .isEqualTo(NotificationType.PAYMENT_RESULT.name());
     }
 
     private Notification paymentNotification(Long memberId) {

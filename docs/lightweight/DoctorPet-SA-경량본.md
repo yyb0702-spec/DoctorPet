@@ -54,7 +54,7 @@ domain/
 - 기본 호출 구조는 `Controller → Service`이다.
 - 여러 도메인을 조합하는 흐름에만 `XxxApplicationService`를 사용한다.
 - AI·결제·공공데이터 연동은 각각 `AiGateway`, `PaymentGateway`, `PublicDataGateway`로 추상화한다.
-- 알림 전송은 `NotificationPusher` 인터페이스로 추상화한다.
+- 알림 전송은 `NotificationPusher` 인터페이스로 추상화하고, MVP2의 단방향 SSE 구현체가 이를 채운다(저장 커밋 이후 전송, §9-8).
 ## 4. 인증과 회원
 - 회원 역할은 `GUARDIAN`, `HOSPITAL_STAFF`로 구분한다.
 - Access Token 수명은 30분\~1시간이다.
@@ -157,7 +157,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 외부 시스템 요청·응답에는 민감정보를 그대로 기록하지 않는다.
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
-- 실시간 push 방식(SSE 또는 WebSocket+STOMP)
+- 양방향 실시간 채널(WebSocket+STOMP) 도입 여부 — 단방향 예약·결제 알림은 SSE로 확정했다(§9-8). 1:1 채팅 같은 양방향이 필요해질 때만 재논의한다.
 - 미인증 계정의 장기 미완료 처리
 - SNS 로그인 도입 범위와 기존 계정 연동 정책
 - 이메일 인증·비밀번호 재설정 토큰 소비 순서
