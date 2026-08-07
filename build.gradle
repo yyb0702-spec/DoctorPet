@@ -110,6 +110,13 @@ clean.doLast {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // CI에서 공통 Spring 컨텍스트 초기화가 실패할 때 실제 SQL 원인을 로그로 남긴다.
+    // 후속 테스트는 동일 컨텍스트 실패로 연쇄 실패할 수 있으므로 최초 예외가 진단 가능해야 한다.
+    testLogging {
+        showExceptions = true
+        showCauses = true
+        exceptionFormat = 'full'
+    }
     // 통합 테스트(@SpringBootTest)는 설정별로 ApplicationContext를 캐시하고 각 컨텍스트가 Hikari 커넥션 풀을
     // 따로 유지한다. 통합 테스트가 늘며 (캐시된 컨텍스트 수 × 기본 풀 10)이 MySQL max_connections(기본 151)를
     // 넘어, 뒤늦게 로딩되는 컨텍스트가 "Too many connections"로 컨텍스트 로딩에 실패했다(Dialect 결정 불가).
