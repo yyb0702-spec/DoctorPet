@@ -47,8 +47,10 @@ public-data:
     source-crs: EPSG:5174
 
 hospital:
-  capability-value-migration:
-    enabled: ${HOSPITAL_CAPABILITY_VALUE_MIGRATION_ENABLED:true}
+  # 병원 컬럼 보정과 검색 인덱스를 DB 잠금·개별 마커로 순서대로 적용한다.
+  schema-migration:
+    enabled: ${HOSPITAL_SCHEMA_MIGRATION_ENABLED:true}
+    lock-timeout-seconds: ${HOSPITAL_SCHEMA_MIGRATION_LOCK_TIMEOUT_SECONDS:30}
   search:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
