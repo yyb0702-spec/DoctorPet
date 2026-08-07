@@ -7,7 +7,9 @@ import com.doctorpet.global.gateway.payment.dto.BillingKeyIssueResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentCancelCommand;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -134,9 +136,57 @@ class FakePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("취소·환불은 MVP 확장 지점으로 미지원 예외를 던진다")
-    void cancelUnsupported() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> gateway.cancel(new PaymentCancelCommand("mpid-5", 1000, "테스트")));
+    @DisplayName("취소는 요청 금액을 그대로 반영하고 취소 멱등키를 기록한다")
+    void cancelSuccess() {
+        PaymentCancelResult result = gateway.cancel(
+                new PaymentCancelCommand("mpid-5", "rfd-5", 50000, "오청구"));
+
+        assertEquals(50000, result.amount());
+        assertTrue(result.pgCancelId().contains("rfd-5"));
+        assertEquals(List.of("rfd-5"), gateway.receivedMerchantRefundIds());
+        assertEquals(1, gateway.cancelCallCount());
+    }
+
+    @Test
+    @DisplayName("같은 취소 멱등키 재요청은 첫 취소 결과를 그대로 반환한다(이중 취소 없음)")
+    void cancelIsIdempotentPerRefundKey() {
+        PaymentCancelResult first = gateway.cancel(
+                new PaymentCancelCommand("mpid-6", "rfd-6", 50000, "오청구"));
+        // 두 번째 요청의 금액이 달라도 첫 취소 결과가 유지돼야 실제 PG 멱등 계약과 일치한다.
+        PaymentCancelResult second = gateway.cancel(
+                new PaymentCancelCommand("mpid-6", "rfd-6", 30000, "오청구"));
+
+        assertEquals(first.pgCancelId(), second.pgCancelId());
+        assertEquals(50000, second.amount());
+        // 호출 도달 횟수는 2회로 세되(상위의 중복 호출 검증용), 취소 결과는 1건으로 유지된다.
+        assertEquals(2, gateway.cancelCallCount());
+    }
+
+    @Test
+    @DisplayName("취소 실패를 주입하면 분류된 게이트웨이 예외를 던진다")
+    void cancelFailure() {
+        gateway.stubCancelFailure(GatewayFailureReason.NON_RETRIABLE, "CANCELLABLE_AMOUNT_CONSUMED", "취소 불가");
+
+        PaymentGatewayException e = assertThrows(PaymentGatewayException.class,
+                () -> gateway.cancel(new PaymentCancelCommand("mpid-7", "rfd-7", 50000, "오청구")));
+
+        assertEquals(GatewayFailureReason.NON_RETRIABLE, e.getFailureReason());
+        // 실패해도 호출 도달은 기록된다 — 상위가 "PG를 몇 번 불렀는지"로 멱등을 검증하기 때문이다.
+        assertEquals(1, gateway.cancelCallCount());
+    }
+
+    @Test
+    @DisplayName("reset은 취소 기록·시나리오까지 초기화한다")
+    void resetClearsCancelState() {
+        gateway.cancel(new PaymentCancelCommand("mpid-8", "rfd-8", 50000, "오청구"));
+        gateway.stubCancelFailure(GatewayFailureReason.RETRIABLE, "PG_TIMEOUT", "일시 장애");
+
+        gateway.reset();
+
+        assertEquals(0, gateway.cancelCallCount());
+        assertTrue(gateway.receivedMerchantRefundIds().isEmpty());
+        // 실패 주입이 남아 있으면 이후 테스트가 오염된다.
+        assertEquals(50000, gateway.cancel(
+                new PaymentCancelCommand("mpid-8", "rfd-8", 50000, "오청구")).amount());
     }
 }

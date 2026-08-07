@@ -30,6 +30,11 @@ payment:
     stale-after-ms: 120000     # 이 시간 이상 PENDING인 결제만 대상(방금 청구된 건 제외)
     batch-size: 100            # 한 배치 처리 최대 건수
     max-attempts: 10           # 재조회 소진 임계 — 초과여도 불확실하면 RECONCILE_STUCK로 PENDING 유지(자동 OFFLINE 전환 금지, 운영자 확인)
+  # 진료비 환불(이슈 #37). 비밀값이 아니라 모든 실행 환경 공통으로 둔다.
+  refund:
+    # REQUESTED 선점을 "멈춘 것"으로 보고 회수하기까지의 시간(ms). 짧으면 진행 중인 PG 취소를 가로채고,
+    # 길면 앱이 죽어 멈춘 환불의 복구가 늦어진다. PG 취소 왕복보다 충분히 길게 2분으로 둔다.
+    claim-stale-after-ms: 120000
 
 # 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
 public-data:
