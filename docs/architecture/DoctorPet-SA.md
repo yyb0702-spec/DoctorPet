@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.33 |
-| 작성 기준일 | 2026-08-06 |
+| 문서 버전 | v1.34 |
+| 작성 기준일 | 2026-08-07 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101).
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 기능 구멍 점검(회원-병원 연락 수단 부재) 대응으로 `members.phone` 컬럼과 회원가입 필수 입력을 §4·§6-6·§8-1에, 병원 예약 목록 응답의 `guardianPhone` 노출을 §8-6에 추가.
 
 ---
 
@@ -112,6 +112,7 @@ erDiagram
 | email | VARCHAR | 로그인 식별자. 활성 회원 기준 중복 검사(§6-3) |
 | password | VARCHAR | 해시 |
 | nickname | VARCHAR | |
+| phone | VARCHAR NULL | 연락처. 신규 가입은 필수이지만 컬럼 자체는 NULL 허용 — 기존 회원은 별도 백필 없이 NULL로 남는다(기능 구멍 점검 대응, §6-6) |
 | role | VARCHAR | GUARDIAN / HOSPITAL_STAFF |
 | hospital_id | BIGINT NULL | 스태프 소속 병원(보호자는 NULL) |
 | email_verified | BOOLEAN NOT NULL DEFAULT FALSE | 이메일 인증 여부. false인 동안 로그인 차단(§6-4) |
@@ -478,6 +479,12 @@ Access Token은 30분~1시간, Refresh Token은 14일이며 Redis에 저장·회
 
 착수 시점에 인터페이스(예: `OAuth2Gateway` 등, §6-4 `EmailGateway`와 같은 프로바이더 추상화 패턴)부터 확정하고 세부 사항은 그때 결정한다.
 
+## 6-6. 연락처(phone)
+
+기능 구멍 점검(2026-08)에서 병원이 예약 확인·노쇼 직전 연락을 할 수단이 없다는 지적을 반영해 `members.phone`을 추가했다. 회원가입(`SignupRequest`)에서 필수 입력으로 받고(`010`/`011`/`016`~`019` 국내 휴대폰 형식, 하이픈 유무 모두 허용), 컬럼 자체는 NULL을 허용한다 — 이미 가입한 기존 회원은 `phone=null`로 남고, `email_verified`처럼 별도 백필 러너를 두지 않는다(외부에서 값을 채워줄 원천 데이터 자체가 없어 백필이 애초에 불가능하다). `Member.createGuardian(email, password, nickname)` 3-arg 팩토리는 계속 `phone=null`로 생성하며, 회원가입 API 전용 4-arg 오버로드만 phone을 받는다.
+
+병원이 예약 목록을 조회할 때(`GET /api/hospital/reservations`, `HospitalReservationListItemResponse`) `guardianPhone` 필드로 함께 노출한다 — phone이 null인 기존 회원의 예약도 이 필드만 null이고 나머지 조회는 그대로 동작한다.
+
 ---
 
 # 7. 공통 응답·예외
@@ -516,7 +523,7 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | 비밀번호 재설정 요청 | POST | /api/auth/password-reset/request | 비인증 |
 | 비밀번호 재설정 확인 | POST | /api/auth/password-reset/confirm | 비인증 |
 
-- 회원가입 `{ email, password, nickname }` → 201 `{ memberId }`. 활성 회원 이메일 중복 시 409.
+- 회원가입 `{ email, password, nickname, phone }` → 201 `{ memberId }`. 활성 회원 이메일 중복 시 409. phone은 국내 휴대폰 형식(010/011/016~019, 하이픈 유무 무관) 필수 입력이다(§6-6).
 - 로그인 `{ email, password }` → 200 `{ accessToken, refreshToken }`. 실패 401, 이메일 미인증 403(§6-4).
 - 재발급 `{ refreshToken }` → 200 새 토큰 쌍. 재사용 감지 시 전체 세션 무효화 + 401.
 - 이메일 인증 확인 `?token=` → 200. 토큰이 없거나 만료·이미 사용됐으면 400(§6-4).
@@ -637,7 +644,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | CONFIRMED → NO_SHOW (자동보다 우선) |
 | 노쇼 정정 | PATCH | /api/hospital/reservations/{reservationId}/restore | NO_SHOW → CHECKED_IN, 이력 append |
 
-권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`을 포함한다. `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 +10분 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
+권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null일 수 있다. `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 +10분 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
 
 ### 8-7. 결제
 
