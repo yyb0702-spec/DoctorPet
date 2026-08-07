@@ -162,13 +162,13 @@ class HospitalPaymentControllerTest {
         given(paymentQueryService.getForHospital(100L, STAFF_MEMBER_ID)).willReturn(List.of(
                 new PaymentHistoryResponse(1L, 100L, PaymentStatus.OFFLINE_REQUIRED, null,
                         50000, "VISA", "1234",
-                        LocalDateTime.now(), null, LocalDateTime.now(), null),
+                        LocalDateTime.now(), null, LocalDateTime.now(), null, null),
                 new PaymentHistoryResponse(2L, 101L, PaymentStatus.PAID, PaymentChannel.BILLING_KEY,
                         30000, "VISA", "5678",
-                        LocalDateTime.now(), LocalDateTime.now(), null, null),
+                        LocalDateTime.now(), LocalDateTime.now(), null, null, null),
                 new PaymentHistoryResponse(3L, 102L, PaymentStatus.OFFLINE_PAID, PaymentChannel.OFFLINE,
                         20000, "VISA", "9012",
-                        LocalDateTime.now(), null, LocalDateTime.now(), LocalDateTime.now())));
+                        LocalDateTime.now(), null, LocalDateTime.now(), LocalDateTime.now(), null)));
 
         mockMvc.perform(get(CHARGE_URL))
                 .andExpect(status().isOk())

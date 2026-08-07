@@ -47,6 +47,10 @@ public class StoringPaymentNotificationPublisher implements PaymentNotificationP
             case PAID -> "진료비 결제가 완료되었습니다.";
             case OFFLINE_REQUIRED -> "진료비 자동 결제에 실패했습니다. 병원에서 현장 수납이 필요합니다.";
             case OFFLINE_PAID -> "병원 현장 수납으로 진료비 결제가 완료되었습니다.";
+            // 환불(#37)도 결제 결과 알림으로 발행한다 — NotificationType을 늘리지 않고 PAYMENT_RESULT를 재사용하며
+            // (임의 확장 금지), 보호자는 resourceType=PAYMENT + 내용으로 어떤 결제의 환불인지 알 수 있다.
+            // 환불 사유는 병원 내부 감사값이라 보호자 알림에 담지 않는다.
+            case REFUNDED -> "진료비가 전액 환불되었습니다. 환불 처리는 카드사에 따라 영업일이 소요될 수 있습니다.";
             case PENDING -> null;
         };
     }

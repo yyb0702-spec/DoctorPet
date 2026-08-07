@@ -4,6 +4,7 @@ import com.doctorpet.global.gateway.payment.dto.BillingKeyIssueResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentCancelCommand;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 
 /**
@@ -15,6 +16,8 @@ import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
  * 금액 검증 등은 이 계약의 책임이 아니라 상위 결제 서비스의 책임이다.
  *
  * <p>멱등: 승인·조회는 상위에서 생성한 {@code merchantPaymentId}를 그대로 전달·사용한다(외부 중복 승인 방지).
+ * 취소는 결제와 구분되는 별도 멱등키({@code merchantRefundId})를 쓴다 — 승인과 취소가 같은 키를 공유하면
+ * 공급자 멱등 캐시에서 서로 충돌하기 때문이다(#37).
  */
 public interface PaymentGateway {
 
@@ -40,10 +43,13 @@ public interface PaymentGateway {
     PaymentQueryResult query(String merchantPaymentId);
 
     /**
-     * 결제 취소·환불(확장 지점). 환불은 MVP 제외이므로(SA §9-4) 기본 구현은 미지원 예외를 던진다.
-     * 확장에서 결제 이력 테이블과 함께 실제 구현을 도입한다.
+     * 결제를 전액 취소(환불)한다. {@code merchantRefundId}를 멱등키로 전달하며, 재시도는 반드시 같은 값을
+     * 재사용해야 이중 취소를 막을 수 있다(이슈 #37).
+     *
+     * <p>이미 취소된 결제에 같은 멱등키로 재요청하면 예외가 아니라 기존 취소 결과를 반환한다 — 상위의
+     * 재시도·복구 경로가 이 성질에 의존한다. 취소 대상 금액 대조·상태 전이는 상위 서비스의 책임이다.
+     *
+     * @throws PaymentGatewayException 취소 실패·미확정 시(재시도 성격 포함)
      */
-    default void cancel(PaymentCancelCommand command) {
-        throw new UnsupportedOperationException("결제 취소·환불은 MVP 범위 밖입니다(SA §9-4 확장 지점).");
-    }
+    PaymentCancelResult cancel(PaymentCancelCommand command);
 }
