@@ -238,6 +238,30 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("하이픈이 한쪽 자리에만 있으면 400과 COMMON_001을 반환한다(리뷰 지적 — 두 -?가 서로 독립적이면 통과하던 버그)")
+    void signup_phoneWithPartialHyphens() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-12345678");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("하이픈이 다른 자리에만 있으면 400과 COMMON_001을 반환한다(리뷰 지적)")
+    void signup_phoneWithPartialHyphensReversed() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "0101234-5678");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
     @DisplayName("로그인 성공 시 200과 토큰 쌍을 반환한다")
     void login_success() throws Exception {
         LoginRequest request = new LoginRequest("guardian@example.com", "password1234");
