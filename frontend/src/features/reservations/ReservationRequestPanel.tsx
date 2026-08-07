@@ -42,7 +42,6 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
   const [slotId, setSlotId] = useState<number | null>(null)
   const [petId, setPetId] = useState<number | null>(null)
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null)
-  const [visitReason, setVisitReason] = useState('')
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
@@ -61,17 +60,9 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
     slotId != null && petId != null && paymentMethodId != null
 
   const handleSubmit = () => {
-    const pet = pets.find((p) => p.petId === petId)
-    if (!pet || slotId == null || paymentMethodId == null) return
+    if (petId == null || slotId == null || paymentMethodId == null) return
     createReservation.mutate(
-      {
-        petId: pet.petId,
-        slotId,
-        paymentMethodId,
-        petNameSnapshot: pet.name,
-        petSpeciesSnapshot: pet.species,
-        visitReason: visitReason.trim() || undefined,
-      },
+      { petId, slotId, paymentMethodId },
       { onSuccess: () => navigate('/reservations') },
     )
   }
@@ -225,18 +216,6 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
             </div>
           </div>
         )}
-
-        {/* 방문 사유(선택) — 병원 스태프가 예약 검토·진료 준비에 참고한다 */}
-        <div className="space-y-2">
-          <p className="text-sm font-medium">방문 사유 (선택)</p>
-          <textarea
-            className="flex min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            placeholder="예: 3일째 구토, 식욕 저하"
-            maxLength={255}
-            value={visitReason}
-            onChange={(e) => setVisitReason(e.target.value)}
-          />
-        </div>
 
         {createReservation.isError && (
           <p className="text-sm text-destructive">

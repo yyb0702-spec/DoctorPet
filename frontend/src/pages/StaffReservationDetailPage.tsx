@@ -198,7 +198,6 @@ export function StaffReservationDetailPage() {
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
           <p className="text-muted-foreground">진료 시간 {fmt(item.reservedAt)}</p>
-          {item.visitReason && <p>방문 사유: {item.visitReason}</p>}
           <p className="text-xs text-muted-foreground">
             전체 예약 {item.reservationHistory.totalReservationCount} ·
             진료완료 {item.reservationHistory.completedCount} · 취소{' '}

@@ -24,6 +24,7 @@ import { ReservationStatus } from '@/types/enums'
 const TABS: ReservationStatus[] = [
   ReservationStatus.REQUESTED,
   ReservationStatus.CONFIRMED,
+  ReservationStatus.NO_SHOW_PENDING,
   ReservationStatus.CHECKED_IN,
   ReservationStatus.IN_TREATMENT,
   ReservationStatus.TREATMENT_COMPLETED,
@@ -35,6 +36,7 @@ const TABS: ReservationStatus[] = [
 const TAB_LABEL: Record<ReservationStatus, string> = {
   REQUESTED: '요청',
   CONFIRMED: '확정',
+  NO_SHOW_PENDING: '노쇼 확인중',
   CHECKED_IN: '내원',
   IN_TREATMENT: '진료중',
   TREATMENT_COMPLETED: '진료완료',
@@ -206,9 +208,6 @@ export function StaffReservationQueuePage() {
                 <p className="text-sm text-muted-foreground">
                   {fmt(item.reservedAt)}
                 </p>
-                {item.visitReason && (
-                  <p className="text-sm">방문 사유: {item.visitReason}</p>
-                )}
                 <p className="text-xs text-muted-foreground">
                   전체 예약 {item.reservationHistory.totalReservationCount} ·
                   진료완료 {item.reservationHistory.completedCount} · 취소{' '}

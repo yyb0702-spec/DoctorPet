@@ -4,20 +4,21 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ChevronDown, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMe } from '@/features/members/hooks'
-import { useAuthStore } from '@/lib/auth/authStore'
+import { useLogout } from '@/features/auth/hooks'
 
 export function UserMenu() {
   const [open, setOpen] = useState(false)
   const me = useMe()
-  const signOut = useAuthStore((s) => s.signOut)
+  const logout = useLogout()
   const navigate = useNavigate()
 
   const name = me.data?.nickname ?? '내 계정'
 
   const handleSignOut = () => {
     setOpen(false)
-    signOut()
-    navigate('/login')
+    // 로컬 토큰만 지우면 서버 Redis의 Refresh Token이 계속 유효하게 남으므로
+    // /api/auth/logout까지 호출해 서버 세션도 함께 폐기한다(useLogout이 처리).
+    logout.mutate(undefined, { onSettled: () => navigate('/login') })
   }
 
   return (

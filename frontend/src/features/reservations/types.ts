@@ -5,15 +5,12 @@ import type {
   ReservationStatus,
 } from '@/types/enums'
 
-// POST /api/reservations 요청 (실연동).
-// 주의: 백엔드는 SA §8-5와 달리 스냅샷(petNameSnapshot·petSpeciesSnapshot)도 필수로 받는다.
+// POST /api/reservations 요청 (실연동). SA §8-5와 실제 ReservationRequest 계약 그대로
+// { petId, slotId, paymentMethodId }만 받는다 — 스냅샷은 서버가 petId로 조회해 직접 채운다.
 export interface ReservationRequestInput {
   petId: number
   slotId: number
   paymentMethodId: number
-  petNameSnapshot: string
-  petSpeciesSnapshot: string // "DOG" / "CAT" 문자열 스냅샷(enum 아님)
-  visitReason?: string // 방문 사유(선택). 병원 스태프 화면에 그대로 노출된다.
 }
 
 // ReservationResponse (실연동, 요청 성공 응답).
@@ -74,7 +71,6 @@ export interface ReservationDetail {
     endAt: string
   }
   rejectionReason: string | null
-  visitReason: string | null
   createdAt: string
   updatedAt: string
 }

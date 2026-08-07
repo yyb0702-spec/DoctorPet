@@ -102,6 +102,12 @@ function banner(
         desc: '취소 가능 시간 안에 요청되어 정상 취소됐어요.',
         tone: 'danger',
       }
+    case ReservationStatus.NO_SHOW_PENDING:
+      return {
+        title: '노쇼 여부를 확인하고 있어요',
+        desc: '예약 시간이 지나 병원에서 방문 여부를 확인 중이에요.',
+        tone: 'warning',
+      }
     case ReservationStatus.NO_SHOW:
       return {
         title: '노쇼로 처리됐어요',
@@ -188,12 +194,6 @@ export function ReservationDetailPage() {
             <dd>{fmt(r.slot.startAt)}</dd>
             <dt className="text-muted-foreground">요청 시각</dt>
             <dd>{fmt(r.createdAt)}</dd>
-            {r.visitReason && (
-              <>
-                <dt className="text-muted-foreground">방문 사유</dt>
-                <dd>{r.visitReason}</dd>
-              </>
-            )}
             {r.rejectionReason && (
               <>
                 <dt className="text-muted-foreground">거절 사유</dt>

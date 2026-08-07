@@ -351,19 +351,19 @@ export const demoHandlers = [
       petId: number
       slotId: number
       paymentMethodId: number
-      petNameSnapshot: string
-      petSpeciesSnapshot: string
     }
     const hospitalId = hospitalOfSlot(body.slotId)
     const reservationId = reservationSeq++
     const now = new Date().toISOString()
+    // 실제 백엔드처럼 petId로 조회해 스냅샷을 만든다(클라이언트 입력을 신뢰하지 않는다).
+    const pet = demoPets.find((p) => p.petId === body.petId)
     // 내 예약 목록에도 반영해 흐름이 이어지게 한다.
     mockReservations.unshift({
       reservationId,
       hospitalId,
       hospitalName: hospitalDetails[hospitalId]?.name ?? '병원',
       petId: body.petId,
-      petName: body.petNameSnapshot,
+      petName: pet?.name ?? '반려동물',
       reservedAt: new Date(Date.now() + 86_400_000).toISOString(),
       reservationStatus: 'REQUESTED',
       paymentStatus: null,

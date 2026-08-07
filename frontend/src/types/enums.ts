@@ -1,6 +1,7 @@
 // 백엔드 상태·enum 계약 (SA §4·§5). erasableSyntaxOnly 때문에 const 객체 + 유니온으로 표현한다.
 
-// 예약 상태 (SA §5-1)
+// 예약 상태 (SA §5-1). NO_SHOW_PENDING은 예약시각 경과 후 스케줄러가 NO_SHOW로
+// 최종 확정하기 전 유예(기본 5분) 상태다.
 export const ReservationStatus = {
   REQUESTED: 'REQUESTED',
   CONFIRMED: 'CONFIRMED',
@@ -9,6 +10,7 @@ export const ReservationStatus = {
   TREATMENT_COMPLETED: 'TREATMENT_COMPLETED',
   REJECTED: 'REJECTED',
   CANCELED: 'CANCELED',
+  NO_SHOW_PENDING: 'NO_SHOW_PENDING',
   NO_SHOW: 'NO_SHOW',
 } as const
 export type ReservationStatus =
@@ -116,6 +118,7 @@ export const ReservationProgressStatus = {
   PAYMENT_COMPLETED: 'PAYMENT_COMPLETED',
   RESERVATION_REJECTED: 'RESERVATION_REJECTED',
   RESERVATION_CANCELED: 'RESERVATION_CANCELED',
+  NO_SHOW_PENDING: 'NO_SHOW_PENDING',
   NO_SHOW: 'NO_SHOW',
 } as const
 export type ReservationProgressStatus =

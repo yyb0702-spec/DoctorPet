@@ -17,7 +17,6 @@ export interface StaffReservationListItem {
   reservedAt: string
   reservationStatus: ReservationStatus
   rejectionReason: string | null
-  visitReason: string | null
   reservationHistory: ReservationHistory
 }
 

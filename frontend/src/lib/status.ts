@@ -32,6 +32,10 @@ export const RESERVATION_STATUS_META: Record<ReservationStatus, StatusMeta> = {
   },
   [ReservationStatus.REJECTED]: { label: '거절됨', variant: 'destructive' },
   [ReservationStatus.CANCELED]: { label: '취소됨', variant: 'muted' },
+  [ReservationStatus.NO_SHOW_PENDING]: {
+    label: '노쇼 확인중',
+    variant: 'warning',
+  },
   [ReservationStatus.NO_SHOW]: { label: '노쇼', variant: 'destructive' },
 }
 
@@ -83,6 +87,10 @@ export const PROGRESS_STATUS_META: Record<
   [ReservationProgressStatus.RESERVATION_CANCELED]: {
     label: '취소됨',
     variant: 'muted',
+  },
+  [ReservationProgressStatus.NO_SHOW_PENDING]: {
+    label: '노쇼 확인중',
+    variant: 'warning',
   },
   [ReservationProgressStatus.NO_SHOW]: { label: '노쇼', variant: 'destructive' },
 }
