@@ -4,6 +4,7 @@ import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.MemberTokenRepository;
+import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.mail.EmailGateway;
 import java.time.Duration;
@@ -28,6 +29,7 @@ public class PasswordResetService {
 
     private final MemberRepository memberRepository;
     private final MemberTokenRepository memberTokenRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final EmailGateway emailGateway;
     private final PasswordEncoder passwordEncoder;
 
@@ -65,5 +67,13 @@ public class PasswordResetService {
                 .orElseThrow(() -> new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND));
 
         member.resetPassword(passwordEncoder.encode(newPassword));
+
+        // 계정 탈취 복구 시나리오 대응(기능 구멍 점검) — 비밀번호 재설정 성공은 "공격자가 세션을
+        // 쥐고 있을 수 있다"는 전제로 다뤄야 한다. Refresh Token을 지우지 않으면 공격자가 가진
+        // 세션이 새 비밀번호와 무관하게 재발급을 통해 계속 연장된다. MemberWithdrawalApplicationService의
+        // 탈퇴 처리와 동일한 패턴(RefreshTokenRepository.deleteByMemberId)이며, 그때와 같은
+        // 한계도 동일하게 남는다 — 무상태 JWT라 이미 발급된 Access Token은 자연 만료 전까지는
+        // 서명 검증만으로 계속 유효하다(즉시 강제 폐기 불가).
+        refreshTokenRepository.deleteByMemberId(memberId);
     }
 }
