@@ -44,6 +44,22 @@ class StoringPaymentNotificationPublisherTest {
     }
 
     @Test
+    @DisplayName("REFUNDED: 환불 완료 알림을 PAYMENT_RESULT로 저장한다(알림 유형을 늘리지 않는다, #37)")
+    void publish_refunded_savesNotification() {
+        publisher.publishChargeResult(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.REFUNDED);
+
+        // NotificationType은 늘리지 않고 PAYMENT_RESULT를 재사용한다 — 보호자는 resourceType=PAYMENT와
+        // 내용으로 어떤 결제의 환불인지 알 수 있다. 환불 사유는 병원 내부 감사값이라 알림에 담지 않는다.
+        verify(notificationService).create(
+                eq(GUARDIAN_ID),
+                eq(NotificationType.PAYMENT_RESULT),
+                ArgumentMatchers.contains("환불"),
+                eq(NotificationResourceType.PAYMENT),
+                eq(PAYMENT_ID)
+        );
+    }
+
+    @Test
     @DisplayName("OFFLINE_REQUIRED: 현장 수납 안내 알림을 저장한다")
     void publish_offlineRequired_savesNotification() {
         publisher.publishChargeResult(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.OFFLINE_REQUIRED);
