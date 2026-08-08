@@ -255,7 +255,7 @@ class ReviewApplicationServiceTest {
                 new BigDecimal("4.0"),
                 "기존 내용"
         );
-        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+        given(reviewRepository.findByIdForUpdate(100L)).willReturn(Optional.of(review));
 
         ReviewResponse response = service.update(
                 MEMBER_ID,
@@ -278,7 +278,7 @@ class ReviewApplicationServiceTest {
                 new BigDecimal("4.0"),
                 "기존 내용"
         );
-        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+        given(reviewRepository.findByIdForUpdate(100L)).willReturn(Optional.of(review));
 
         assertThatThrownBy(() -> service.update(
                 MEMBER_ID,
@@ -292,7 +292,7 @@ class ReviewApplicationServiceTest {
     @Test
     @DisplayName("존재하지 않는 리뷰는 수정할 수 없다")
     void update_reviewNotFound_throwsNotFound() {
-        given(reviewRepository.findById(100L)).willReturn(Optional.empty());
+        given(reviewRepository.findByIdForUpdate(100L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.update(
                 MEMBER_ID,
@@ -313,7 +313,7 @@ class ReviewApplicationServiceTest {
                 new BigDecimal("4.0"),
                 "삭제할 내용"
         );
-        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+        given(reviewRepository.findByIdForUpdate(100L)).willReturn(Optional.of(review));
 
         service.delete(MEMBER_ID, 100L);
 
@@ -332,7 +332,7 @@ class ReviewApplicationServiceTest {
                 new BigDecimal("4.0"),
                 "삭제할 내용"
         );
-        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+        given(reviewRepository.findByIdForUpdate(100L)).willReturn(Optional.of(review));
 
         assertThatThrownBy(() -> service.delete(MEMBER_ID, 100L))
                 .isInstanceOfSatisfying(ServiceException.class, e ->
@@ -344,7 +344,7 @@ class ReviewApplicationServiceTest {
     @Test
     @DisplayName("존재하지 않는 리뷰는 삭제할 수 없다")
     void delete_reviewNotFound_throwsNotFound() {
-        given(reviewRepository.findById(100L)).willReturn(Optional.empty());
+        given(reviewRepository.findByIdForUpdate(100L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.delete(MEMBER_ID, 100L))
                 .isInstanceOfSatisfying(ServiceException.class, e ->

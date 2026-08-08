@@ -106,7 +106,7 @@ public class ReviewApplicationService {
             Long reviewId,
             ReviewRequest request
     ) {
-        Review review = reviewRepository.findById(reviewId)
+        Review review = reviewRepository.findByIdForUpdate(reviewId)
                 .orElseThrow(() -> new ServiceException(
                         ReviewErrorCode.REVIEW_NOT_FOUND));
         if (!review.getMemberId().equals(memberId)) {
@@ -118,7 +118,7 @@ public class ReviewApplicationService {
 
     @Transactional
     public void delete(Long memberId, Long reviewId) {
-        Review review = reviewRepository.findById(reviewId)
+        Review review = reviewRepository.findByIdForUpdate(reviewId)
                 .orElseThrow(() -> new ServiceException(
                         ReviewErrorCode.REVIEW_NOT_FOUND));
         if (!review.getMemberId().equals(memberId)) {

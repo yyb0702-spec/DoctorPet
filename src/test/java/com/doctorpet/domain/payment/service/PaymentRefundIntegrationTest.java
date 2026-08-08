@@ -237,6 +237,36 @@ class PaymentRefundIntegrationTest {
                 .getReviewedAt()).isNull();
     }
 
+    @RepeatedTest(10)
+    @DisplayName("리뷰 수정과 환불이 경합해도 미처리 예외 없이 환불 상태로 수렴한다")
+    void reviewUpdateAndRefund_concurrently_preservesRefundInvariant()
+            throws InterruptedException {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reviewId = persistReview(paymentId);
+
+        runReviewMutationAndRefundConcurrently(
+                paymentId,
+                () -> reviewApplicationService.update(
+                        GUARDIAN_ID,
+                        reviewId,
+                        new ReviewRequest(new BigDecimal("5.0"), "수정 리뷰")
+                )
+        );
+    }
+
+    @RepeatedTest(10)
+    @DisplayName("리뷰 삭제와 환불이 경합해도 미처리 예외 없이 환불 상태로 수렴한다")
+    void reviewDeleteAndRefund_concurrently_preservesRefundInvariant()
+            throws InterruptedException {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reviewId = persistReview(paymentId);
+
+        runReviewMutationAndRefundConcurrently(
+                paymentId,
+                () -> reviewApplicationService.delete(GUARDIAN_ID, reviewId)
+        );
+    }
+
     @Test
     @DisplayName("리뷰 작성권 초기화가 실패하면 환불 이력과 결제 전이를 함께 롤백한다")
     void reviewResetFailure_rollsBackRefundCompletion() {
@@ -642,5 +672,77 @@ class PaymentRefundIntegrationTest {
             paymentOfflineSettleTxService.settle(paymentId, STAFF_MEMBER_ID);
         }
         return paymentId;
+    }
+
+    private Long persistReview(Long paymentId) {
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow();
+        reservation.markReviewed(LocalDateTime.now(clock));
+        reservationRepository.saveAndFlush(reservation);
+        return reviewRepository.saveAndFlush(Review.create(
+                reservationId,
+                HOSPITAL_ID,
+                GUARDIAN_ID,
+                new BigDecimal("4.5"),
+                "환불 전 리뷰"
+        )).getId();
+    }
+
+    private void runReviewMutationAndRefundConcurrently(
+            Long paymentId,
+            Runnable reviewMutation
+    ) throws InterruptedException {
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch readyLatch = new CountDownLatch(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(2);
+        List<Throwable> unexpected = new CopyOnWriteArrayList<>();
+
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                reviewMutation.run();
+            } catch (ServiceException e) {
+                if (e.getErrorCode() != ReviewErrorCode.REVIEW_NOT_FOUND) {
+                    unexpected.add(e);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                unexpected.add(e);
+            } catch (Throwable throwable) {
+                unexpected.add(throwable);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
+            } catch (Throwable throwable) {
+                unexpected.add(throwable);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+
+        readyLatch.await();
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpected).isEmpty();
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(reviewRepository.existsByReservationId(reservationId)).isFalse();
+        assertThat(reservationRepository.findById(reservationId).orElseThrow()
+                .getReviewedAt()).isNull();
     }
 }
