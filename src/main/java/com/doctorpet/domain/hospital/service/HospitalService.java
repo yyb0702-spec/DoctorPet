@@ -57,6 +57,11 @@ public class HospitalService {
     private final HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
     @Transactional(readOnly = true)
+    public boolean exists(Long hospitalId) {
+        return hospitalRepository.existsById(hospitalId);
+    }
+
+    @Transactional(readOnly = true)
     public HospitalDetailResponse getHospitalDetail(Long hospitalId) {
         Hospital hospital = hospitalRepository.findById(hospitalId)
                 .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));

@@ -1,8 +1,12 @@
 package com.doctorpet.domain.review.service;
 
+import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
 import com.doctorpet.domain.review.dto.request.ReviewCreateRequest;
+import com.doctorpet.domain.review.dto.response.HospitalReviewItemResponse;
+import com.doctorpet.domain.review.dto.response.ReviewPageResponse;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
 import com.doctorpet.domain.review.entity.Review;
 import com.doctorpet.domain.review.exception.ReviewErrorCode;
@@ -16,6 +20,8 @@ import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,9 +40,29 @@ public class ReviewApplicationService {
     );
 
     private final ReviewRepository reviewRepository;
+    private final HospitalService hospitalService;
     private final ReservationService reservationService;
     private final PaymentQueryService paymentQueryService;
     private final Clock applicationClock;
+
+    @Transactional(readOnly = true)
+    public ReviewPageResponse getHospitalReviews(Long hospitalId, int page, int size) {
+        if (!hospitalService.exists(hospitalId)) {
+            throw new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND);
+        }
+        PageRequest pageable = PageRequest.of(
+                page - 1,
+                size,
+                Sort.by(
+                        Sort.Order.desc("createdAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+        return ReviewPageResponse.from(
+                reviewRepository.findByHospitalId(hospitalId, pageable)
+                        .map(HospitalReviewItemResponse::from)
+        );
+    }
 
     @Transactional
     public ReviewResponse create(

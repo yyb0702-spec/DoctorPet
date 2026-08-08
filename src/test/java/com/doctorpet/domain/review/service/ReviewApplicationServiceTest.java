@@ -3,13 +3,17 @@ package com.doctorpet.domain.review.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
+import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
 import com.doctorpet.domain.review.dto.request.ReviewCreateRequest;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
+import com.doctorpet.domain.review.dto.response.ReviewPageResponse;
 import com.doctorpet.domain.review.entity.Review;
 import com.doctorpet.domain.review.exception.ReviewErrorCode;
 import com.doctorpet.domain.review.repository.ReviewRepository;
@@ -21,14 +25,18 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class ReviewApplicationServiceTest {
@@ -40,6 +48,9 @@ class ReviewApplicationServiceTest {
 
     @Mock
     private ReviewRepository reviewRepository;
+
+    @Mock
+    private HospitalService hospitalService;
 
     @Mock
     private ReservationService reservationService;
@@ -57,6 +68,7 @@ class ReviewApplicationServiceTest {
         );
         service = new ReviewApplicationService(
                 reviewRepository,
+                hospitalService,
                 reservationService,
                 paymentQueryService,
                 clock
@@ -162,6 +174,43 @@ class ReviewApplicationServiceTest {
 
         assertThatThrownBy(() -> service.create(MEMBER_ID, RESERVATION_ID, request()))
                 .isSameAs(otherViolation);
+    }
+
+    @Test
+    @DisplayName("병원 리뷰 목록은 최신 작성순과 ID 역순으로 조회한다")
+    void getHospitalReviews_ordersByCreatedAtAndIdDescending() {
+        Review review = Review.create(
+                RESERVATION_ID,
+                HOSPITAL_ID,
+                MEMBER_ID,
+                new BigDecimal("4.5"),
+                "친절했어요."
+        );
+        given(hospitalService.exists(HOSPITAL_ID)).willReturn(true);
+        given(reviewRepository.findByHospitalId(eq(HOSPITAL_ID), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(review)));
+
+        ReviewPageResponse response = service.getHospitalReviews(HOSPITAL_ID, 1, 20);
+
+        assertThat(response.page()).isEqualTo(1);
+        assertThat(response.content()).hasSize(1);
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(reviewRepository).findByHospitalId(eq(HOSPITAL_ID), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getSort().getOrderFor("createdAt").isDescending())
+                .isTrue();
+        assertThat(pageableCaptor.getValue().getSort().getOrderFor("id").isDescending())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 병원의 리뷰 목록은 조회할 수 없다")
+    void getHospitalReviews_hospitalNotFound_throwsNotFound() {
+        given(hospitalService.exists(HOSPITAL_ID)).willReturn(false);
+
+        assertThatThrownBy(() -> service.getHospitalReviews(HOSPITAL_ID, 1, 20))
+                .isInstanceOfSatisfying(ServiceException.class, e ->
+                        assertThat(e.getErrorCode())
+                                .isEqualTo(HospitalErrorCode.HOSPITAL_NOT_FOUND));
     }
 
     private void givenReviewableReservation(PaymentStatus paymentStatus) {
