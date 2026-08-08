@@ -23,6 +23,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -64,7 +65,7 @@ public class ReviewApplicationService {
         );
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ReviewResponse create(
             Long memberId,
             Long reservationId,
@@ -73,7 +74,14 @@ public class ReviewApplicationService {
         Long hospitalId = validateAndGetHospitalId(memberId, reservationId);
 
         LocalDateTime reviewedAt = LocalDateTime.now(applicationClock);
-        reservationService.markReviewed(reservationId, reviewedAt);
+        int claimed = reservationService.claimReviewOpportunity(
+                reservationId,
+                memberId,
+                reviewedAt
+        );
+        if (claimed != 1) {
+            throwReviewClaimFailure(reservationId);
+        }
 
         Review review = Review.create(
                 reservationId,
@@ -153,5 +161,18 @@ public class ReviewApplicationService {
             throw new ServiceException(ReviewErrorCode.PAYMENT_NOT_COMPLETED);
         }
         return hospitalId;
+    }
+
+    private void throwReviewClaimFailure(Long reservationId) {
+        if (reservationService.isReviewed(reservationId)) {
+            throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
+        }
+        PaymentStatus paymentStatus = paymentQueryService
+                .findStatusByReservationId(reservationId)
+                .orElse(null);
+        if (!ELIGIBLE_PAYMENT_STATUSES.contains(paymentStatus)) {
+            throw new ServiceException(ReviewErrorCode.PAYMENT_NOT_COMPLETED);
+        }
+        throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
     }
 }

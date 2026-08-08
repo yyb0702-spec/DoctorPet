@@ -84,6 +84,11 @@ class ReviewApplicationServiceTest {
                 .willReturn(Optional.of(HOSPITAL_ID));
         given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
                 .willReturn(Optional.of(PaymentStatus.PAID));
+        given(reservationService.claimReviewOpportunity(
+                RESERVATION_ID,
+                MEMBER_ID,
+                NOW
+        )).willReturn(1);
         given(reviewRepository.saveAndFlush(any(Review.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -92,7 +97,11 @@ class ReviewApplicationServiceTest {
         assertThat(response.reservationId()).isEqualTo(RESERVATION_ID);
         assertThat(response.hospitalId()).isEqualTo(HOSPITAL_ID);
         assertThat(response.rating()).isEqualByComparingTo("4.5");
-        verify(reservationService).markReviewed(RESERVATION_ID, NOW);
+        verify(reservationService).claimReviewOpportunity(
+                RESERVATION_ID,
+                MEMBER_ID,
+                NOW
+        );
         verify(reviewRepository).saveAndFlush(any(Review.class));
     }
 
@@ -136,6 +145,31 @@ class ReviewApplicationServiceTest {
                 .isInstanceOfSatisfying(ServiceException.class, e ->
                         assertThat(e.getErrorCode())
                                 .isEqualTo(ReviewErrorCode.ALREADY_REVIEWED));
+    }
+
+    @Test
+    @DisplayName("작성권 선점 전에 환불되면 리뷰 작성을 거부한다")
+    void create_refundedBeforeClaim_throwsConflict() {
+        given(reservationService.exists(RESERVATION_ID)).willReturn(true);
+        given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
+                .willReturn(Optional.of(HOSPITAL_ID));
+        given(reservationService.isReviewed(RESERVATION_ID)).willReturn(false);
+        given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
+                .willReturn(
+                        Optional.of(PaymentStatus.PAID),
+                        Optional.of(PaymentStatus.REFUNDED)
+                );
+        given(reservationService.claimReviewOpportunity(
+                RESERVATION_ID,
+                MEMBER_ID,
+                NOW
+        )).willReturn(0);
+
+        assertThatThrownBy(() -> service.create(MEMBER_ID, RESERVATION_ID, request()))
+                .isInstanceOfSatisfying(ServiceException.class, e ->
+                        assertThat(e.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.PAYMENT_NOT_COMPLETED));
+        verify(reviewRepository, never()).saveAndFlush(any(Review.class));
     }
 
     @Test
@@ -287,7 +321,8 @@ class ReviewApplicationServiceTest {
         service.delete(MEMBER_ID, 100L);
 
         verify(reviewRepository).delete(review);
-        verify(reservationService, never()).markReviewed(any(), any());
+        verify(reservationService, never())
+                .claimReviewOpportunity(any(), any(), any());
     }
 
     @Test
@@ -327,6 +362,11 @@ class ReviewApplicationServiceTest {
                 .willReturn(Optional.of(HOSPITAL_ID));
         given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
                 .willReturn(Optional.of(paymentStatus));
+        given(reservationService.claimReviewOpportunity(
+                RESERVATION_ID,
+                MEMBER_ID,
+                NOW
+        )).willReturn(1);
     }
 
     private ReviewRequest request() {

@@ -28,7 +28,10 @@ import com.doctorpet.domain.payment.webhook.PaymentWebhookService;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.review.entity.Review;
+import com.doctorpet.domain.review.dto.request.ReviewRequest;
+import com.doctorpet.domain.review.exception.ReviewErrorCode;
 import com.doctorpet.domain.review.repository.ReviewRepository;
+import com.doctorpet.domain.review.service.ReviewApplicationService;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.payment.GatewayFailureReason;
@@ -87,6 +90,7 @@ class PaymentRefundIntegrationTest {
     @Autowired private PaymentRefundTxService paymentRefundTxService;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReviewRepository reviewRepository;
+    @Autowired private ReviewApplicationService reviewApplicationService;
 
     @MockitoBean private ReservationLookupPort reservationLookupPort;
     @MockitoBean private StaffHospitalPort staffHospitalPort;
@@ -168,6 +172,65 @@ class PaymentRefundIntegrationTest {
 
         paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
 
+        assertThat(reviewRepository.existsByReservationId(reservationId)).isFalse();
+        assertThat(reservationRepository.findById(reservationId).orElseThrow()
+                .getReviewedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("리뷰 작성과 환불이 경합해도 REFUNDED 결제에는 리뷰와 작성 이력이 남지 않는다")
+    void reviewCreateAndRefund_concurrently_preservesRefundInvariant()
+            throws InterruptedException {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch readyLatch = new CountDownLatch(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(2);
+        List<Throwable> unexpected = new CopyOnWriteArrayList<>();
+
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                reviewApplicationService.create(
+                        GUARDIAN_ID,
+                        reservationId,
+                        new ReviewRequest(new BigDecimal("4.5"), "경합 리뷰")
+                );
+            } catch (ServiceException e) {
+                if (e.getErrorCode() != ReviewErrorCode.PAYMENT_NOT_COMPLETED) {
+                    unexpected.add(e);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                unexpected.add(e);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
+            } catch (Throwable throwable) {
+                unexpected.add(throwable);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+
+        readyLatch.await();
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpected).isEmpty();
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
         assertThat(reviewRepository.existsByReservationId(reservationId)).isFalse();
         assertThat(reservationRepository.findById(reservationId).orElseThrow()
                 .getReviewedAt()).isNull();

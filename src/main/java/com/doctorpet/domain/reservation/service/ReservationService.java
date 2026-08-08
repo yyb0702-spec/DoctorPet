@@ -73,10 +73,16 @@ public class ReservationService {
     }
 
     @Transactional
-    public void markReviewed(Long reservationId, LocalDateTime reviewedAt) {
-        Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND));
-        reservation.markReviewed(reviewedAt);
+    public int claimReviewOpportunity(
+            Long reservationId,
+            Long memberId,
+            LocalDateTime reviewedAt
+    ) {
+        return reservationRepository.claimReviewOpportunity(
+                reservationId,
+                memberId,
+                reviewedAt
+        );
     }
 
     @Transactional
