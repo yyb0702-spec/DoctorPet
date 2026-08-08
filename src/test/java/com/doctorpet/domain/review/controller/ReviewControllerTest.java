@@ -5,7 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -158,7 +158,7 @@ class ReviewControllerTest {
                 "수정한 리뷰입니다.", now, now
         ));
 
-        mockMvc.perform(patch("/api/reviews/{reviewId}", 100L)
+        mockMvc.perform(put("/api/reviews/{reviewId}", 100L)
                         .with(authentication(memberAuthentication(1L, "GUARDIAN")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -176,7 +176,7 @@ class ReviewControllerTest {
                 "수정한 리뷰입니다."
         );
 
-        mockMvc.perform(patch("/api/reviews/{reviewId}", 100L)
+        mockMvc.perform(put("/api/reviews/{reviewId}", 100L)
                         .with(authentication(memberAuthentication(1L, "GUARDIAN")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -192,7 +192,7 @@ class ReviewControllerTest {
                 "수정한 리뷰입니다."
         );
 
-        mockMvc.perform(patch("/api/reviews/{reviewId}", 100L)
+        mockMvc.perform(put("/api/reviews/{reviewId}", 100L)
                         .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

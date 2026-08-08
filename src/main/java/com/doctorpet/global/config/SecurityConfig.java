@@ -109,7 +109,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasRole("GUARDIAN")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/reviews")
                         .hasRole("GUARDIAN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/reviews/*")
+                        .requestMatchers(HttpMethod.PUT, "/api/reviews/*")
                         .hasRole("GUARDIAN")
                         .requestMatchers(
                                 HttpMethod.GET,

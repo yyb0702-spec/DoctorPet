@@ -642,7 +642,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | --- | --- | --- | --- |
 | 리뷰 작성 | POST | /api/reservations/{reservationId}/reviews | 보호자(예약 본인) |
 | 병원 리뷰 목록 | GET | /api/hospitals/{hospitalId}/reviews | 공개 |
-| 리뷰 수정 | PATCH | /api/reviews/{reviewId} | 보호자(작성자 본인) |
+| 리뷰 수정 | PUT | /api/reviews/{reviewId} | 보호자(작성자 본인) |
 | 리뷰 삭제 | DELETE | /api/reviews/{reviewId} | 보호자(작성자 본인) |
 
 작성 요청은 `{ rating, content }`, 수정 요청도 `{ rating, content }`로 평점과 내용을 함께 받는다. `rating`은 1.0~5.0의 0.5 단위이고 `content`는 공백일 수 없다. 수정 기간 제한은 없으며 성공할 때마다 `updatedAt`을 갱신한다. 작성·수정·삭제의 회원 식별은 `@AuthenticationPrincipal`만 사용하고 요청의 `memberId`·`hospitalId`를 신뢰하지 않는다. 작성 대상 병원과 회원은 `{reservationId}`로 조회한 예약에서 결정한다.
