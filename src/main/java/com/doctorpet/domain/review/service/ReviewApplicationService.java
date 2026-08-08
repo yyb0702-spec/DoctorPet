@@ -80,7 +80,8 @@ public class ReviewApplicationService {
                 reviewedAt
         );
         if (claimed != 1) {
-            throwReviewClaimFailure(reservationId);
+            validateReviewOpportunity(reservationId);
+            throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
         }
 
         Review review = Review.create(
@@ -151,19 +152,11 @@ public class ReviewApplicationService {
                 .findHospitalIdForOwner(reservationId, memberId)
                 .orElseThrow(() -> new ServiceException(
                         ReviewErrorCode.NOT_RESERVATION_OWNER));
-        if (reservationService.isReviewed(reservationId)) {
-            throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
-        }
-        PaymentStatus paymentStatus = paymentQueryService
-                .findStatusByReservationId(reservationId)
-                .orElse(null);
-        if (!ELIGIBLE_PAYMENT_STATUSES.contains(paymentStatus)) {
-            throw new ServiceException(ReviewErrorCode.PAYMENT_NOT_COMPLETED);
-        }
+        validateReviewOpportunity(reservationId);
         return hospitalId;
     }
 
-    private void throwReviewClaimFailure(Long reservationId) {
+    private void validateReviewOpportunity(Long reservationId) {
         if (reservationService.isReviewed(reservationId)) {
             throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
         }
@@ -173,6 +166,5 @@ public class ReviewApplicationService {
         if (!ELIGIBLE_PAYMENT_STATUSES.contains(paymentStatus)) {
             throw new ServiceException(ReviewErrorCode.PAYMENT_NOT_COMPLETED);
         }
-        throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
     }
 }
