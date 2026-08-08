@@ -5,10 +5,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.doctorpet.domain.review.dto.request.ReviewCreateRequest;
+import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
 import com.doctorpet.domain.review.service.ReviewApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
@@ -67,7 +68,7 @@ class ReviewControllerTest {
         given(reviewApplicationService.create(
                 eq(1L),
                 eq(10L),
-                any(ReviewCreateRequest.class)
+                any(ReviewRequest.class)
         )).willReturn(new ReviewResponse(
                 100L,
                 10L,
@@ -92,7 +93,7 @@ class ReviewControllerTest {
     @Test
     @DisplayName("0.5 단위가 아닌 평점은 400으로 거부한다")
     void create_invalidRatingStep_returnsBadRequest() throws Exception {
-        ReviewCreateRequest request = new ReviewCreateRequest(
+        ReviewRequest request = new ReviewRequest(
                 new BigDecimal("4.3"),
                 "친절했어요."
         );
@@ -108,7 +109,7 @@ class ReviewControllerTest {
     @Test
     @DisplayName("공백 리뷰 내용은 400으로 거부한다")
     void create_blankContent_returnsBadRequest() throws Exception {
-        ReviewCreateRequest request = new ReviewCreateRequest(
+        ReviewRequest request = new ReviewRequest(
                 new BigDecimal("4.5"),
                 "   "
         );
@@ -142,8 +143,65 @@ class ReviewControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON_002"));
     }
 
-    private ReviewCreateRequest validRequest() {
-        return new ReviewCreateRequest(
+    @Test
+    @DisplayName("보호자는 본인이 작성한 리뷰의 평점과 내용을 수정할 수 있다")
+    void update_guardian_returnsOk() throws Exception {
+        LocalDateTime now = LocalDateTime.of(2026, 8, 8, 12, 0);
+        ReviewRequest request = new ReviewRequest(
+                new BigDecimal("5.0"),
+                "수정한 리뷰입니다."
+        );
+        given(reviewApplicationService.update(
+                eq(1L), eq(100L), any(ReviewRequest.class)
+        )).willReturn(new ReviewResponse(
+                100L, 10L, 3L, 1L, new BigDecimal("5.0"),
+                "수정한 리뷰입니다.", now, now
+        ));
+
+        mockMvc.perform(patch("/api/reviews/{reviewId}", 100L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.rating").value(5.0))
+                .andExpect(jsonPath("$.data.content").value("수정한 리뷰입니다."));
+    }
+
+    @Test
+    @DisplayName("0.5 단위가 아닌 수정 평점은 거부한다")
+    void update_invalidRatingStep_returnsBadRequest() throws Exception {
+        ReviewRequest request = new ReviewRequest(
+                new BigDecimal("4.3"),
+                "수정한 리뷰입니다."
+        );
+
+        mockMvc.perform(patch("/api/reviews/{reviewId}", 100L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 리뷰를 수정할 수 없다")
+    void update_hospitalStaff_returnsForbidden() throws Exception {
+        ReviewRequest request = new ReviewRequest(
+                new BigDecimal("5.0"),
+                "수정한 리뷰입니다."
+        );
+
+        mockMvc.perform(patch("/api/reviews/{reviewId}", 100L)
+                        .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    private ReviewRequest validRequest() {
+        return new ReviewRequest(
                 new BigDecimal("4.5"),
                 "친절하게 진료해 주셨어요."
         );

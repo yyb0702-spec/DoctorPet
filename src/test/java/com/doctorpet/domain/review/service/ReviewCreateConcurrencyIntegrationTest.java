@@ -6,7 +6,7 @@ import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
-import com.doctorpet.domain.review.dto.request.ReviewCreateRequest;
+import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.exception.ReviewErrorCode;
 import com.doctorpet.domain.review.repository.ReviewRepository;
 import com.doctorpet.global.exception.ServiceException;
@@ -102,7 +102,7 @@ class ReviewCreateConcurrencyIntegrationTest {
                     reviewApplicationService.create(
                             MEMBER_ID,
                             reservationId,
-                            new ReviewCreateRequest(new BigDecimal("4.5"), "친절했어요.")
+                            new ReviewRequest(new BigDecimal("4.5"), "친절했어요.")
                     );
                     success.incrementAndGet();
                 } catch (ServiceException e) {

@@ -72,4 +72,9 @@ public class Review extends BaseEntity {
     ) {
         return new Review(reservationId, hospitalId, memberId, rating, content);
     }
+
+    public void update(BigDecimal rating, String content) {
+        this.rating = rating;
+        this.content = content;
+    }
 }

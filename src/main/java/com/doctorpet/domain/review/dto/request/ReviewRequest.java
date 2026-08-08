@@ -7,7 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 
-public record ReviewCreateRequest(
+public record ReviewRequest(
         @NotNull
         @DecimalMin("1.0")
         @DecimalMax("5.0")

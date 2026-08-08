@@ -5,13 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
-import com.doctorpet.domain.review.dto.request.ReviewCreateRequest;
+import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
 import com.doctorpet.domain.review.dto.response.ReviewPageResponse;
 import com.doctorpet.domain.review.entity.Review;
@@ -213,6 +214,64 @@ class ReviewApplicationServiceTest {
                                 .isEqualTo(HospitalErrorCode.HOSPITAL_NOT_FOUND));
     }
 
+    @Test
+    @DisplayName("작성자는 리뷰의 평점과 내용을 수정할 수 있다")
+    void update_author_succeeds() {
+        Review review = Review.create(
+                RESERVATION_ID,
+                HOSPITAL_ID,
+                MEMBER_ID,
+                new BigDecimal("4.0"),
+                "기존 내용"
+        );
+        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+
+        ReviewResponse response = service.update(
+                MEMBER_ID,
+                100L,
+                new ReviewRequest(new BigDecimal("4.5"), "수정한 내용")
+        );
+
+        assertThat(response.rating()).isEqualByComparingTo("4.5");
+        assertThat(response.content()).isEqualTo("수정한 내용");
+        verify(reviewRepository, never()).saveAndFlush(review);
+    }
+
+    @Test
+    @DisplayName("작성자가 아닌 회원은 리뷰를 수정할 수 없다")
+    void update_notAuthor_throwsForbidden() {
+        Review review = Review.create(
+                RESERVATION_ID,
+                HOSPITAL_ID,
+                2L,
+                new BigDecimal("4.0"),
+                "기존 내용"
+        );
+        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+
+        assertThatThrownBy(() -> service.update(
+                MEMBER_ID,
+                100L,
+                new ReviewRequest(new BigDecimal("4.5"), "수정한 내용")
+        )).isInstanceOfSatisfying(ServiceException.class, e ->
+                assertThat(e.getErrorCode())
+                        .isEqualTo(ReviewErrorCode.NOT_REVIEW_AUTHOR));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 리뷰는 수정할 수 없다")
+    void update_reviewNotFound_throwsNotFound() {
+        given(reviewRepository.findById(100L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.update(
+                MEMBER_ID,
+                100L,
+                new ReviewRequest(new BigDecimal("4.5"), "수정한 내용")
+        )).isInstanceOfSatisfying(ServiceException.class, e ->
+                assertThat(e.getErrorCode())
+                        .isEqualTo(ReviewErrorCode.REVIEW_NOT_FOUND));
+    }
+
     private void givenReviewableReservation(PaymentStatus paymentStatus) {
         given(reservationService.exists(RESERVATION_ID)).willReturn(true);
         given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
@@ -221,7 +280,7 @@ class ReviewApplicationServiceTest {
                 .willReturn(Optional.of(paymentStatus));
     }
 
-    private ReviewCreateRequest request() {
-        return new ReviewCreateRequest(new BigDecimal("4.5"), "친절했어요.");
+    private ReviewRequest request() {
+        return new ReviewRequest(new BigDecimal("4.5"), "친절했어요.");
     }
 }

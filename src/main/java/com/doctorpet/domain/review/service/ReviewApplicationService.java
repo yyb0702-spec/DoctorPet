@@ -4,7 +4,7 @@ import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
-import com.doctorpet.domain.review.dto.request.ReviewCreateRequest;
+import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.HospitalReviewItemResponse;
 import com.doctorpet.domain.review.dto.response.ReviewPageResponse;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
@@ -68,7 +68,7 @@ public class ReviewApplicationService {
     public ReviewResponse create(
             Long memberId,
             Long reservationId,
-            ReviewCreateRequest request
+            ReviewRequest request
     ) {
         Long hospitalId = validateAndGetHospitalId(memberId, reservationId);
 
@@ -90,6 +90,22 @@ public class ReviewApplicationService {
             }
             throw e;
         }
+    }
+
+    @Transactional
+    public ReviewResponse update(
+            Long memberId,
+            Long reviewId,
+            ReviewRequest request
+    ) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ServiceException(
+                        ReviewErrorCode.REVIEW_NOT_FOUND));
+        if (!review.getMemberId().equals(memberId)) {
+            throw new ServiceException(ReviewErrorCode.NOT_REVIEW_AUTHOR);
+        }
+        review.update(request.rating(), request.content());
+        return ReviewResponse.from(review);
     }
 
     // 동일 예약의 리뷰 중복(UNIQUE 위반)만 ALREADY_REVIEWED로 변환하고,
