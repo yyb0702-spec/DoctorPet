@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -51,6 +52,15 @@ public class ReviewController {
                 request
         );
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @DeleteMapping("/reviews/{reviewId}")
+    public ResponseEntity<Void> delete(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable Long reviewId
+    ) {
+        reviewApplicationService.delete(principal.memberId(), reviewId);
+        return ResponseEntity.noContent().build();
     }
 
 }

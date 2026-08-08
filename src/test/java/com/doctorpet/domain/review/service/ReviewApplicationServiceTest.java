@@ -272,6 +272,55 @@ class ReviewApplicationServiceTest {
                         .isEqualTo(ReviewErrorCode.REVIEW_NOT_FOUND));
     }
 
+    @Test
+    @DisplayName("작성자는 리뷰를 Hard Delete할 수 있다")
+    void delete_author_succeeds() {
+        Review review = Review.create(
+                RESERVATION_ID,
+                HOSPITAL_ID,
+                MEMBER_ID,
+                new BigDecimal("4.0"),
+                "삭제할 내용"
+        );
+        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+
+        service.delete(MEMBER_ID, 100L);
+
+        verify(reviewRepository).delete(review);
+        verify(reservationService, never()).markReviewed(any(), any());
+    }
+
+    @Test
+    @DisplayName("작성자가 아닌 회원은 리뷰를 삭제할 수 없다")
+    void delete_notAuthor_throwsForbidden() {
+        Review review = Review.create(
+                RESERVATION_ID,
+                HOSPITAL_ID,
+                2L,
+                new BigDecimal("4.0"),
+                "삭제할 내용"
+        );
+        given(reviewRepository.findById(100L)).willReturn(Optional.of(review));
+
+        assertThatThrownBy(() -> service.delete(MEMBER_ID, 100L))
+                .isInstanceOfSatisfying(ServiceException.class, e ->
+                        assertThat(e.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.NOT_REVIEW_AUTHOR));
+        verify(reviewRepository, never()).delete(any(Review.class));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 리뷰는 삭제할 수 없다")
+    void delete_reviewNotFound_throwsNotFound() {
+        given(reviewRepository.findById(100L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.delete(MEMBER_ID, 100L))
+                .isInstanceOfSatisfying(ServiceException.class, e ->
+                        assertThat(e.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.REVIEW_NOT_FOUND));
+        verify(reviewRepository, never()).delete(any(Review.class));
+    }
+
     private void givenReviewableReservation(PaymentStatus paymentStatus) {
         given(reservationService.exists(RESERVATION_ID)).willReturn(true);
         given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))

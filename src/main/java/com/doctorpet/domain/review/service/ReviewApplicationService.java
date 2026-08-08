@@ -108,6 +108,17 @@ public class ReviewApplicationService {
         return ReviewResponse.from(review);
     }
 
+    @Transactional
+    public void delete(Long memberId, Long reviewId) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ServiceException(
+                        ReviewErrorCode.REVIEW_NOT_FOUND));
+        if (!review.getMemberId().equals(memberId)) {
+            throw new ServiceException(ReviewErrorCode.NOT_REVIEW_AUTHOR);
+        }
+        reviewRepository.delete(review);
+    }
+
     // 동일 예약의 리뷰 중복(UNIQUE 위반)만 ALREADY_REVIEWED로 변환하고,
     // CHECK·NOT NULL 등 다른 무결성 위반은 원래 예외로 전파하기 위해 구분한다.
     private boolean isReservationIdDuplicate(DataIntegrityViolationException exception) {

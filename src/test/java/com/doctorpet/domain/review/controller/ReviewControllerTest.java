@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -196,6 +197,23 @@ class ReviewControllerTest {
                         .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
+    @DisplayName("보호자는 본인이 작성한 리뷰를 삭제할 수 있다")
+    void delete_guardian_returnsNoContent() throws Exception {
+        mockMvc.perform(delete("/api/reviews/{reviewId}", 100L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 리뷰를 삭제할 수 없다")
+    void delete_hospitalStaff_returnsForbidden() throws Exception {
+        mockMvc.perform(delete("/api/reviews/{reviewId}", 100L)
+                        .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_003"));
     }
