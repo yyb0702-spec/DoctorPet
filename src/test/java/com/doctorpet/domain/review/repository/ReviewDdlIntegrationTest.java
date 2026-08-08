@@ -64,4 +64,31 @@ class ReviewDdlIntegrationTest {
                 91003L, 92001L, 93001L, new BigDecimal("4.3"), "잘못된 평점"
         ))).isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    @DisplayName("병원 리뷰의 평균 평점과 개수를 한 번에 집계한다")
+    void ratingSummary_aggregatesAverageAndCount() {
+        reviewRepository.saveAndFlush(Review.create(
+                91004L, 92002L, 93001L, new BigDecimal("4.0"), "첫 리뷰"
+        ));
+        reviewRepository.saveAndFlush(Review.create(
+                91005L, 92002L, 93002L, new BigDecimal("4.5"), "두 번째 리뷰"
+        ));
+
+        ReviewRatingSummaryProjection summary =
+                reviewRepository.findRatingSummaryByHospitalId(92002L);
+
+        assertThat(summary.getAverageRating()).isEqualByComparingTo("4.25");
+        assertThat(summary.getReviewCount()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("리뷰가 없는 병원의 평균은 null이고 개수는 0이다")
+    void ratingSummary_withoutReviews_returnsNullAndZero() {
+        ReviewRatingSummaryProjection summary =
+                reviewRepository.findRatingSummaryByHospitalId(92999L);
+
+        assertThat(summary.getAverageRating()).isNull();
+        assertThat(summary.getReviewCount()).isZero();
+    }
 }
