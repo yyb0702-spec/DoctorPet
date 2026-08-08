@@ -10,6 +10,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     boolean existsByReservationId(Long reservationId);
 
+    void deleteByReservationId(Long reservationId);
+
     Page<Review> findByHospitalId(Long hospitalId, Pageable pageable);
 
     @Query("""

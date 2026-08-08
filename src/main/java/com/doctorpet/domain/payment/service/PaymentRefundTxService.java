@@ -13,6 +13,7 @@ import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
 import com.doctorpet.domain.payment.repository.PaymentRefundRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
+import com.doctorpet.domain.review.service.ReviewRefundService;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import jakarta.persistence.EntityManager;
@@ -31,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
     Tx1 claim()     권한·상태 검증 + payment_refunds 선점(REQUESTED) [커밋]
     (트랜잭션 밖)     PG 취소 — merchantRefundId를 멱등키로
-    Tx2 complete()  payment_refunds COMPLETED + payments PAID→REFUNDED [커밋]
+    Tx2 complete()  payment_refunds COMPLETED + payments PAID→REFUNDED + 리뷰·작성권 초기화 [커밋]
         fail()      payment_refunds FAILED (payments는 PAID 유지 → 같은 멱등키로 재시도 가능)
 
   선점 규칙(동시 환불이 PG 취소를 두 번 호출하지 않게 하는 핵심):
@@ -55,6 +56,7 @@ public class PaymentRefundTxService {
     // claimedAt·refundedAt을 JVM 기본 시간대가 아니라 이 Clock으로 만들어 다른 결제 시각과 어긋나지 않게 한다.
     private final Clock clock;
     private final PaymentRefundProperties properties;
+    private final ReviewRefundService reviewRefundService;
     // 1차 캐시를 우회한 재조회(refresh)에만 쓴다 — 동시 환불에서 승자의 커밋을 확인하기 위해서다.
     private final EntityManager entityManager;
 
@@ -66,6 +68,7 @@ public class PaymentRefundTxService {
             MerchantRefundIdGenerator merchantRefundIdGenerator,
             Clock clock,
             PaymentRefundProperties properties,
+            ReviewRefundService reviewRefundService,
             EntityManager entityManager
     ) {
         this.paymentRepository = paymentRepository;
@@ -75,6 +78,7 @@ public class PaymentRefundTxService {
         this.merchantRefundIdGenerator = merchantRefundIdGenerator;
         this.clock = clock;
         this.properties = properties;
+        this.reviewRefundService = reviewRefundService;
         this.entityManager = entityManager;
     }
 
@@ -112,8 +116,8 @@ public class PaymentRefundTxService {
     }
 
     /**
-     * Tx2 — PG 취소 성공 확정. 이력 행을 COMPLETED로, 결제를 PAID→REFUNDED로 전이한다. 두 전이가 한 트랜잭션에
-     * 있어 "이력은 완료인데 결제는 PAID" 같은 어긋난 상태가 남지 않는다.
+     * Tx2 — PG 취소 성공 확정. 이력 행을 COMPLETED로, 결제를 PAID→REFUNDED로 전이하고 리뷰와 작성권을
+     * 초기화한다. 모든 변경이 한 트랜잭션에 있어 일부만 반영된 상태가 남지 않는다.
      *
      * <p>{@code applied}는 이 호출이 실제로 결제 상태를 전이시켰는지다 — 멈춘 선점을 회수한 요청과 원래 요청이
      * 같은 멱등키로 각각 성공을 확정하는 경우, 조건부 UPDATE(WHERE status='PAID')가 1건만 성립시키므로
@@ -160,6 +164,9 @@ public class PaymentRefundTxService {
             log.error("PG 취소는 성립했으나 결제를 REFUNDED로 확정하지 못함 — 이력까지 롤백하고 재시도로 복구한다: "
                     + "paymentId={}, refundId={}, status={}", paymentId, refundId, payment.getStatus());
             throw new ServiceException(PaymentErrorCode.REFUND_STATE_CONFLICT);
+        }
+        if (paymentUpdated > 0) {
+            reviewRefundService.deleteAndReset(payment.getReservationId());
         }
         return new RefundOutcome(PaymentHistoryResponse.from(payment), paymentUpdated > 0);
     }

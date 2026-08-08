@@ -79,6 +79,13 @@ public class ReservationService {
         reservation.markReviewed(reviewedAt);
     }
 
+    @Transactional
+    public void resetReviewed(Long reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND));
+        reservation.resetReviewed();
+    }
+
     /**
      * 예약 생성에 필요한 슬롯 점유·리드타임·예약 저장만 담당한다.
      * 회원·반려동물·결제수단 검증과 스냅샷 생성은 ReservationApplicationService가 수행한다.

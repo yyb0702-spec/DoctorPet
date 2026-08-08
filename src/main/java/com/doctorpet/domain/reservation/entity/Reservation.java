@@ -95,6 +95,10 @@ public class Reservation extends BaseEntity {
         this.reviewedAt = reviewedAt;
     }
 
+    public void resetReviewed() {
+        this.reviewedAt = null;
+    }
+
     private Reservation(
             Long memberId,
             Long petId,
