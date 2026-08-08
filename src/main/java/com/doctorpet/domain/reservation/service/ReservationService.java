@@ -15,6 +15,7 @@ import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -54,6 +55,28 @@ public class ReservationService {
                         ReservationStatus.CHECKED_IN
                 )
         );
+    }
+
+    public boolean exists(Long reservationId) {
+        return reservationRepository.existsById(reservationId);
+    }
+
+    public Optional<Long> findHospitalIdForOwner(Long reservationId, Long memberId) {
+        return reservationRepository.findByIdAndMemberId(reservationId, memberId)
+                .map(Reservation::getHospitalId);
+    }
+
+    public boolean isReviewed(Long reservationId) {
+        return reservationRepository.findById(reservationId)
+                .map(Reservation::getReviewedAt)
+                .isPresent();
+    }
+
+    @Transactional
+    public void markReviewed(Long reservationId, LocalDateTime reviewedAt) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND));
+        reservation.markReviewed(reviewedAt);
     }
 
     /**

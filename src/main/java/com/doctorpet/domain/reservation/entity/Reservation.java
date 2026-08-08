@@ -88,6 +88,13 @@ public class Reservation extends BaseEntity {
     @Column(name = "no_show_pending_at")
     private LocalDateTime noShowPendingAt;
 
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
+    public void markReviewed(LocalDateTime reviewedAt) {
+        this.reviewedAt = reviewedAt;
+    }
+
     private Reservation(
             Long memberId,
             Long petId,

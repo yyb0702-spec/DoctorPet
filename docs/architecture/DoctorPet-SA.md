@@ -253,7 +253,7 @@ erDiagram
 | created_at | DATETIME | |
 | updated_at | DATETIME | |
 
-제약: `UNIQUE(reservation_id)`, `CHECK(rating >= 1.0 AND rating <= 5.0 AND MOD(rating * 10, 5) = 0)`. 인덱스: `(hospital_id, created_at, id)`. 삭제는 Hard Delete이며 삭제 행 자체는 복구하지 않는다. 재작성 가능 여부는 행 존재가 아니라 `reservations.reviewed_at`으로 판정한다.
+제약: `UNIQUE(reservation_id)`, `CHECK(rating >= 1.0 AND rating <= 5.0 AND MOD(rating * 10, 5) = 0)`. 조회용 인덱스는 성능 테스트와 실행 계획으로 필요성이 확인되기 전까지 추가하지 않는다. 삭제는 Hard Delete이며 삭제 행 자체는 복구하지 않는다. 재작성 가능 여부는 행 존재가 아니라 `reservations.reviewed_at`으로 판정한다.
 
 ### reservation_events (append-only, 방식 B)
 
