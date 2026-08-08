@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.41 |
-| 작성 기준일 | 2026-08-07 |
+| 문서 버전 | v1.42 |
+| 작성 기준일 | 2026-08-08 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 인덱스 성능 검증과 직원 도착 확인 API·`NO_SHOW_PENDING` 기본 5분 추가 유예를 반영했다. v1.37: 예약 알림 저장 연동을 반영하고 실시간 알림 push를 단방향 SSE로 확정했으며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). v1.38: 이번 병합에서 병원 검색 인덱스·SSE 설계와 직원 도착 확인·노쇼 유예 정책을 하나의 정본으로 통합했다. v1.39: SSE 확정 정책과 `processed` 처리 건수 정의를 본문·경량본에 일치시켰다. v1.40: MVP+ 고도화로 진료비 **전액 환불**(이슈 #37)을 도입해 §5-2 스키마(`payments.status`에 `REFUNDED`, `refunded_at`, 신규 `payment_refunds` 이력 테이블)와 §9-4 계약을 확정했다. 선점은 `payment_refunds.UNIQUE(payment_id)`와 소유권 펜스(`claim_token`)가 담당하고 결제 상태에 환불 진행 중 중간 단계를 두지 않는다. 재시도는 `merchant_refund_id`를 재사용하며, 확정 전이 불일치는 이력까지 롤백한다. 현장 현금 수납(`OFFLINE_PAID`) 환불과 부분 환불·정정 재청구는 확장으로 유지한다. v1.41: 전국 병원 검색의 무반경 거리순 요청을 MySQL `ST_Distance_Sphere` 정렬·DB 페이징으로 전환하고, 현재 영업 필터는 정렬된 후보를 200건 단위로 읽어 애플리케이션의 최대 메모리 적재량을 제한했다. 정확한 전체 일치 건수 계산을 위해 후보 전체 스캔은 유지되며 DB 왕복이 증가할 수 있는 트레이드오프를 명시했다(이슈 #69).
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 인덱스 성능 검증과 직원 도착 확인 API·`NO_SHOW_PENDING` 기본 5분 추가 유예를 반영했다. v1.37: 예약 알림 저장 연동을 반영하고 실시간 알림 push를 단방향 SSE로 확정했으며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). v1.38: 이번 병합에서 병원 검색 인덱스·SSE 설계와 직원 도착 확인·노쇼 유예 정책을 하나의 정본으로 통합했다. v1.39: SSE 확정 정책과 `processed` 처리 건수 정의를 본문·경량본에 일치시켰다. v1.40: MVP+ 고도화로 진료비 **전액 환불**(이슈 #37)을 도입해 §5-2 스키마(`payments.status`에 `REFUNDED`, `refunded_at`, 신규 `payment_refunds` 이력 테이블)와 §9-4 계약을 확정했다. 선점은 `payment_refunds.UNIQUE(payment_id)`와 소유권 펜스(`claim_token`)가 담당하고 결제 상태에 환불 진행 중 중간 단계를 두지 않는다. 재시도는 `merchant_refund_id`를 재사용하며, 확정 전이 불일치는 이력까지 롤백한다. 현장 현금 수납(`OFFLINE_PAID`) 환불과 부분 환불·정정 재청구는 확장으로 유지한다. v1.41: 전국 병원 검색의 무반경 거리순 요청을 MySQL `ST_Distance_Sphere` 정렬·DB 페이징으로 전환하고, 현재 영업 필터는 정렬된 후보를 200건 단위로 읽어 애플리케이션의 최대 메모리 적재량을 제한했다. 정확한 전체 일치 건수 계산을 위해 후보 전체 스캔은 유지되며 DB 왕복이 증가할 수 있는 트레이드오프를 명시했다(이슈 #69). v1.42: 병원 리뷰 CRUD·평점 집계(이슈 #114)를 확정했다. 결제 완료 자격과 예약당 최초 1회 작성권, 0.5 단위 평점, Hard Delete, 환불 시 리뷰 삭제·작성권 초기화, 동시 작성·환불 경합 불변식을 §4·§8-3·§9-10에 반영했다.
 
 ---
 
@@ -232,12 +232,28 @@ erDiagram
 | canceled_at | DATETIME NULL | |
 | no_show_pending_at | DATETIME NULL | 자동 노쇼 추가 유예 진입 시각 |
 | no_show_at | DATETIME NULL | |
+| reviewed_at | DATETIME NULL | 현재 리뷰 작성권을 사용한 시각. 사용자 직접 삭제 시 유지하고 환불 확정 시 NULL로 초기화 |
 
 인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)`, `(status, slot_id)`.
 
 기존 예약이 있는 환경에서는 먼저 `approval_deadline_at`을 nullable로 추가하고, 각 `REQUESTED` 예약을 `min(requested_at + 1시간, slot.start_at - 2시간)`으로 백필한다. 검증이 끝난 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다. `ReservationApprovalDeadlineMigrationRunner`는 MySQL `GET_LOCK`으로 다중 인스턴스 실행을 직렬화하고 `schema_migrations`의 `reservation_approval_deadline_v1` 마커로 일회성 실행을 보장한다. 마커와 실제 스키마가 다르면 부팅을 중단한다.
 
 하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션에서 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유를 원자적으로 처리하며, 충돌한 요청은 실패시킨다(§9-3).
+
+### reviews
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| reservation_id | BIGINT FK UNIQUE | 예약당 활성 리뷰 1개. 작성 자격·재작성 이력의 기준 |
+| hospital_id | BIGINT FK | 병원별 목록·평점 집계 대상 |
+| member_id | BIGINT FK | 작성자. 인증 주체와 예약 소유자를 모두 검증 |
+| rating | DECIMAL(2,1) | 1.0~5.0, 0.5 단위 |
+| content | TEXT | 공백이 아닌 리뷰 내용 |
+| created_at | DATETIME | |
+| updated_at | DATETIME | |
+
+제약: `UNIQUE(reservation_id)`, `CHECK(rating >= 1.0 AND rating <= 5.0 AND MOD(rating * 10, 5) = 0)`. 인덱스: `(hospital_id, created_at, id)`. 삭제는 Hard Delete이며 삭제 행 자체는 복구하지 않는다. 재작성 가능 여부는 행 존재가 아니라 `reservations.reviewed_at`으로 판정한다.
 
 ### reservation_events (append-only, 방식 B)
 
@@ -620,6 +636,20 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 유효한 날짜가 오늘 이전이거나 오늘+14일 이후이면 `200 OK`와 빈 `slots`를 반환한다. 날짜 형식 오류는 `400 VALIDATION_FAILED`다. 비제휴 병원 또는 영업상태가 `OPEN`이 아닌 병원은 `200 OK`와 빈 `dateAvailabilities`·`slots`를 반환한다. 병원이 없으면 `HOSPITAL_NOT_FOUND`다.
 
+#### 병원 리뷰 API
+
+| 명칭 | Method | Path | 권한 |
+| --- | --- | --- | --- |
+| 리뷰 작성 | POST | /api/reservations/{reservationId}/reviews | 보호자(예약 본인) |
+| 병원 리뷰 목록 | GET | /api/hospitals/{hospitalId}/reviews | 공개 |
+| 리뷰 상세 | GET | /api/reviews/{reviewId} | 공개 |
+| 리뷰 수정 | PATCH | /api/reviews/{reviewId} | 보호자(작성자 본인) |
+| 리뷰 삭제 | DELETE | /api/reviews/{reviewId} | 보호자(작성자 본인) |
+
+작성 요청은 `{ rating, content }`, 수정 요청도 `{ rating, content }`로 평점과 내용을 함께 받는다. `rating`은 1.0~5.0의 0.5 단위이고 `content`는 공백일 수 없다. 수정 기간 제한은 없으며 성공할 때마다 `updatedAt`을 갱신한다. 작성·수정·삭제의 회원 식별은 `@AuthenticationPrincipal`만 사용하고 요청의 `memberId`·`hospitalId`를 신뢰하지 않는다. 작성 대상 병원과 회원은 `{reservationId}`로 조회한 예약에서 결정한다.
+
+병원 리뷰 목록은 `createdAt DESC, id DESC`로 안정 정렬하고 페이지네이션한다. 병원 상세 응답에는 `averageRating`, `reviewCount`를 추가한다. 집계는 `reviews` 실데이터의 `AVG(rating)`·`COUNT(*)`를 조회 시 계산해 별도 누적 카운터와의 불일치를 만들지 않는다. 리뷰가 없으면 `averageRating=null`, `reviewCount=0`이고, 평균은 소수점 첫째 자리로 반환한다.
+
 ### 8-4. AI 상담
 
 | 명칭 | Method | Path | 권한 |
@@ -757,6 +787,7 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 - 확정에서 결제 전이가 0건인데 결제가 `REFUNDED`도 아니면 이력 확정까지 **롤백한다**(예외). 이력만 `COMPLETED`로 커밋하면 결제와 어긋난 채 이후 재요청이 그 이력에 막혀 복구되지 않는다. 롤백하면 `REQUESTED` 선점이 남아 임계 경과 후 같은 멱등키 재시도가 PG의 기존 취소 결과로 자가 복구한다(PR #112 리뷰 P1).
 - 선점에는 소유권 펜스(`claim_token`)를 둔다. 선점할 때마다 새 토큰을 발급하고 확정·실패 전이가 이 토큰을 함께 검사하므로, 선점이 회수된 뒤 도착한 이전 요청의 늦은 결과는 반영되지 않는다. 확정은 이력 전이를 먼저 시도하고 그것이 성립했을 때만 결제를 전이한다 — 순서를 뒤집거나 펜스를 빼면 "이력 FAILED + 결제 REFUNDED"로 갈라진다(PR #112 리뷰 P1).
 - "이미 취소됨" 재요청 뒤 단건조회에서 취소 내역(취소 금액)을 확인할 수 없으면 전액 취소로 단정하지 않고 미확정으로 올린다 — 상태만으로는 부분 취소(`PARTIAL_CANCELLED`)를 구분할 수 없어, 일부만 취소된 결제가 전액 환불로 확정될 수 있다(PR #112 리뷰 P1).
+- `PAID→REFUNDED` 확정이 성립하면 같은 Tx2에서 해당 예약의 리뷰를 Hard Delete하고 `reservations.reviewed_at`을 NULL로 초기화한다. 사용자 직접 리뷰 삭제와 달리 환불은 현재 유효한 결제 자격을 없애므로 작성권도 되돌린다. 리뷰 삭제·작성권 초기화가 실패하면 결제 전이와 환불 이력 확정도 함께 롤백해 PG 취소 결과를 다음 동일 멱등키 재시도로 복구한다.
 
 알려진 한계 (MVP+ 범위에서 의도한 것 — 확장 시 함께 해소한다)
 
@@ -852,6 +883,16 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 ## 9-9. 예약 슬롯 생성·운영
 
 슬롯은 시스템 배치로 생성한다(병원 직접 편성 UI는 범위 밖). 향후 14일치를 유지한다 — 7일이면 채점 시점에 슬롯이 모자랄 수 있고, 30일이면 더미 병원 수 대비 불필요하게 row가 많다. `hospital_details.open_hours` 기준으로 슬롯을 만들고 휴무일은 제외하며, 반영 세부는 구현 시 조정한다. `UNIQUE(hospital_id, start_at)`로 배치 재실행 시 멱등을 보장한다. 예약된(`RESERVED`) 슬롯은 삭제할 수 없고, 미예약(`OPEN`) 슬롯은 운영시간 변경 등으로 마감(상태에서 제외 또는 삭제)할 수 있다.
+
+## 9-10. 병원 리뷰 작성권·정합성
+
+리뷰 자격은 현재 유효한 결제 상태로, 작성 단위는 예약으로 분리한다. 로그인 보호자가 예약 소유자이고 같은 예약에 `PAID` 또는 `OFFLINE_PAID` 결제가 있을 때만 작성할 수 있다. `REFUNDED`, `PENDING`, `OFFLINE_REQUIRED`, 결제 없음은 거부한다. `reviews.UNIQUE(reservation_id)`는 활성 리뷰 중복을 막고, `reservations.reviewed_at`은 사용자가 Hard Delete한 뒤에도 최초 1회 작성권을 다시 쓰지 못하게 한다.
+
+최초 작성은 `reviewed_at IS NULL`이면서 유효 결제가 존재하는 예약만 조건부 UPDATE해 작성권을 선점한 뒤 같은 트랜잭션에서 리뷰를 INSERT한다. UPDATE 1건만 성공으로 인정하고, INSERT가 실패하면 선점도 롤백한다. 단순 선조회 후 저장하는 check-then-act는 금지한다.
+
+환불 Tx2는 `PAID→REFUNDED` 조건부 전이, 리뷰 Hard Delete, `reviewed_at=NULL`을 하나의 로컬 트랜잭션으로 묶는다. 리뷰 작성과 환불이 경합하면 최종 결과는 둘 중 하나다. 작성이 먼저 커밋되면 환불이 그 리뷰를 삭제하고 작성권을 초기화하며, 환불이 먼저 커밋되면 작성의 유효 결제 조건부 선점이 0건이 되어 실패한다. 어느 순서에서도 `REFUNDED` 결제에 리뷰가 남아서는 안 된다. 이를 실제 MySQL 다중 스레드 통합 테스트로 검증한다.
+
+사용자 직접 삭제는 리뷰 행만 삭제하고 `reviewed_at`을 유지한다. 환불 삭제만 `reviewed_at`을 초기화한다. 향후 정정 재결제로 예약당 결제가 1:N이 되면, 같은 예약에 새 `PAID` 결제가 생긴 경우 초기화된 작성권을 다시 사용할 수 있다. 정정 재결제 기능 자체와 신고·숨김·관리자 검수, AI 추천·검색 랭킹 반영은 현재 범위 밖이다.
 
 ---
 
@@ -1042,3 +1083,6 @@ Redis에서 사라진 뒤라 사용자는 같은 링크로 재시도할 수 없�
 | 탈퇴 후 동일 이메일 재가입(이메일 익명화) | Soft Delete 정합 |
 | 진행 중 예약 결제수단 삭제 허용 + 청구 시 재확인 후 OFFLINE_REQUIRED | 결제 정합성·UX |
 | 실시간 채널 장애 시 예약·결제 정상 + 알림 저장 복구 | 실시간 장애 격리 |
+| 동일 예약 동시 리뷰 작성 → 1건만 성립 | 리뷰 작성권·DB 제약 |
+| 리뷰 작성과 환불 경합 → REFUNDED 결제에 리뷰 0건·reviewed_at NULL | 리뷰·환불 정합성 |
+| 리뷰 CRUD·작성자 권한·평점 경계·평균/건수 집계 | 리뷰 계약 |
