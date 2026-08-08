@@ -29,9 +29,11 @@ public class PaymentQueryService {
     private final StaffHospitalPort staffHospitalPort;
     private final PaymentRepository paymentRepository;
 
-    @Transactional(readOnly = true)
-    public Optional<PaymentStatus> findStatusByReservationId(Long reservationId) {
-        return paymentRepository.findByReservationId(reservationId)
+    @Transactional
+    public Optional<PaymentStatus> findStatusByReservationIdForUpdate(
+            Long reservationId
+    ) {
+        return paymentRepository.findByReservationIdForUpdate(reservationId)
                 .map(Payment::getStatus);
     }
 

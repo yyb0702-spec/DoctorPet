@@ -82,7 +82,7 @@ class ReviewApplicationServiceTest {
         given(reservationService.exists(RESERVATION_ID)).willReturn(true);
         given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
                 .willReturn(Optional.of(HOSPITAL_ID));
-        given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
+        given(paymentQueryService.findStatusByReservationIdForUpdate(RESERVATION_ID))
                 .willReturn(Optional.of(PaymentStatus.PAID));
         given(reservationService.claimReviewOpportunity(
                 RESERVATION_ID,
@@ -124,7 +124,7 @@ class ReviewApplicationServiceTest {
         given(reservationService.exists(RESERVATION_ID)).willReturn(true);
         given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
                 .willReturn(Optional.of(HOSPITAL_ID));
-        given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
+        given(paymentQueryService.findStatusByReservationIdForUpdate(RESERVATION_ID))
                 .willReturn(Optional.of(PaymentStatus.PENDING));
 
         assertThatThrownBy(() -> service.create(MEMBER_ID, RESERVATION_ID, request()))
@@ -148,17 +148,14 @@ class ReviewApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("작성권 선점 전에 환불되면 리뷰 작성을 거부한다")
-    void create_refundedBeforeClaim_throwsConflict() {
+    @DisplayName("작성권 선점에 실패하면 이미 리뷰를 작성한 것으로 처리한다")
+    void create_claimFails_throwsAlreadyReviewed() {
         given(reservationService.exists(RESERVATION_ID)).willReturn(true);
         given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
                 .willReturn(Optional.of(HOSPITAL_ID));
         given(reservationService.isReviewed(RESERVATION_ID)).willReturn(false);
-        given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
-                .willReturn(
-                        Optional.of(PaymentStatus.PAID),
-                        Optional.of(PaymentStatus.REFUNDED)
-                );
+        given(paymentQueryService.findStatusByReservationIdForUpdate(RESERVATION_ID))
+                .willReturn(Optional.of(PaymentStatus.PAID));
         given(reservationService.claimReviewOpportunity(
                 RESERVATION_ID,
                 MEMBER_ID,
@@ -168,7 +165,7 @@ class ReviewApplicationServiceTest {
         assertThatThrownBy(() -> service.create(MEMBER_ID, RESERVATION_ID, request()))
                 .isInstanceOfSatisfying(ServiceException.class, e ->
                         assertThat(e.getErrorCode())
-                                .isEqualTo(ReviewErrorCode.PAYMENT_NOT_COMPLETED));
+                                .isEqualTo(ReviewErrorCode.ALREADY_REVIEWED));
         verify(reviewRepository, never()).saveAndFlush(any(Review.class));
     }
 
@@ -360,7 +357,7 @@ class ReviewApplicationServiceTest {
         given(reservationService.exists(RESERVATION_ID)).willReturn(true);
         given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
                 .willReturn(Optional.of(HOSPITAL_ID));
-        given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
+        given(paymentQueryService.findStatusByReservationIdForUpdate(RESERVATION_ID))
                 .willReturn(Optional.of(paymentStatus));
         given(reservationService.claimReviewOpportunity(
                 RESERVATION_ID,

@@ -49,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -177,7 +178,7 @@ class PaymentRefundIntegrationTest {
                 .getReviewedAt()).isNull();
     }
 
-    @Test
+    @RepeatedTest(10)
     @DisplayName("리뷰 작성과 환불이 경합해도 REFUNDED 결제에는 리뷰와 작성 이력이 남지 않는다")
     void reviewCreateAndRefund_concurrently_preservesRefundInvariant()
             throws InterruptedException {

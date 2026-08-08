@@ -80,7 +80,6 @@ public class ReviewApplicationService {
                 reviewedAt
         );
         if (claimed != 1) {
-            validateReviewOpportunity(reservationId);
             throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
         }
 
@@ -161,7 +160,7 @@ public class ReviewApplicationService {
             throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
         }
         PaymentStatus paymentStatus = paymentQueryService
-                .findStatusByReservationId(reservationId)
+                .findStatusByReservationIdForUpdate(reservationId)
                 .orElse(null);
         if (!ELIGIBLE_PAYMENT_STATUSES.contains(paymentStatus)) {
             throw new ServiceException(ReviewErrorCode.PAYMENT_NOT_COMPLETED);

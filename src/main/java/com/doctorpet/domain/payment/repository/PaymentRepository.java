@@ -5,8 +5,10 @@ import com.doctorpet.domain.payment.entity.PaymentStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,6 +23,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     boolean existsByReservationId(Long reservationId);
 
     Optional<Payment> findByReservationId(Long reservationId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+              from Payment p
+             where p.reservationId = :reservationId
+            """)
+    Optional<Payment> findByReservationIdForUpdate(
+            @Param("reservationId") Long reservationId
+    );
 
     Optional<Payment> findByMerchantPaymentId(String merchantPaymentId);
 
