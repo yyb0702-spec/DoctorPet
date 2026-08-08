@@ -16,6 +16,7 @@ import com.doctorpet.domain.review.repository.ReviewRepository;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import java.math.BigDecimal;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 class ReviewApplicationServiceTest {
@@ -121,6 +123,53 @@ class ReviewApplicationServiceTest {
                 .isInstanceOfSatisfying(ServiceException.class, e ->
                         assertThat(e.getErrorCode())
                                 .isEqualTo(ReviewErrorCode.ALREADY_REVIEWED));
+    }
+
+    @Test
+    @DisplayName("예약 ID UNIQUE 제약 위반은 이미 리뷰를 작성한 것으로 변환한다")
+    void create_reservationIdUniqueViolation_mapsToAlreadyReviewed() {
+        givenReviewableReservation(PaymentStatus.PAID);
+        given(reviewRepository.saveAndFlush(any(Review.class)))
+                .willThrow(new DataIntegrityViolationException(
+                        "could not execute statement",
+                        new SQLIntegrityConstraintViolationException(
+                                "Duplicate entry '10' for key 'reviews.uk_reviews_reservation_id'",
+                                "23000",
+                                1062
+                        )
+                ));
+
+        assertThatThrownBy(() -> service.create(MEMBER_ID, RESERVATION_ID, request()))
+                .isInstanceOfSatisfying(ServiceException.class, e ->
+                        assertThat(e.getErrorCode())
+                                .isEqualTo(ReviewErrorCode.ALREADY_REVIEWED));
+    }
+
+    @Test
+    @DisplayName("예약 ID UNIQUE 이외의 무결성 위반은 원래 예외를 전파한다")
+    void create_otherIntegrityViolation_propagatesAsIs() {
+        givenReviewableReservation(PaymentStatus.PAID);
+        DataIntegrityViolationException otherViolation = new DataIntegrityViolationException(
+                "could not execute statement",
+                new SQLIntegrityConstraintViolationException(
+                        "Check constraint 'ck_reviews_rating' is violated",
+                        "HY000",
+                        3819
+                )
+        );
+        given(reviewRepository.saveAndFlush(any(Review.class)))
+                .willThrow(otherViolation);
+
+        assertThatThrownBy(() -> service.create(MEMBER_ID, RESERVATION_ID, request()))
+                .isSameAs(otherViolation);
+    }
+
+    private void givenReviewableReservation(PaymentStatus paymentStatus) {
+        given(reservationService.exists(RESERVATION_ID)).willReturn(true);
+        given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
+                .willReturn(Optional.of(HOSPITAL_ID));
+        given(paymentQueryService.findStatusByReservationId(RESERVATION_ID))
+                .willReturn(Optional.of(paymentStatus));
     }
 
     private ReviewCreateRequest request() {

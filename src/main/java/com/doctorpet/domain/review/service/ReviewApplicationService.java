@@ -9,8 +9,10 @@ import com.doctorpet.domain.review.exception.ReviewErrorCode;
 import com.doctorpet.domain.review.repository.ReviewRepository;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -20,6 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ReviewApplicationService {
+
+    private static final String MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE = "23000";
+    private static final int MYSQL_DUPLICATE_ENTRY_ERROR_CODE = 1062;
+    private static final String RESERVATION_ID_UNIQUE_CONSTRAINT =
+            "uk_reviews_reservation_id";
 
     private static final Set<PaymentStatus> ELIGIBLE_PAYMENT_STATUSES = Set.of(
             PaymentStatus.PAID,
@@ -52,8 +59,27 @@ public class ReviewApplicationService {
         try {
             return ReviewResponse.from(reviewRepository.saveAndFlush(review));
         } catch (DataIntegrityViolationException e) {
-            throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
+            if (isReservationIdDuplicate(e)) {
+                throw new ServiceException(ReviewErrorCode.ALREADY_REVIEWED);
+            }
+            throw e;
         }
+    }
+
+    // 동일 예약의 리뷰 중복(UNIQUE 위반)만 ALREADY_REVIEWED로 변환하고,
+    // CHECK·NOT NULL 등 다른 무결성 위반은 원래 예외로 전파하기 위해 구분한다.
+    private boolean isReservationIdDuplicate(DataIntegrityViolationException exception) {
+        if (!(exception.getMostSpecificCause() instanceof SQLException sqlException)) {
+            return false;
+        }
+        if (!MYSQL_INTEGRITY_CONSTRAINT_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())
+                || sqlException.getErrorCode() != MYSQL_DUPLICATE_ENTRY_ERROR_CODE) {
+            return false;
+        }
+        String message = sqlException.getMessage();
+        return message != null
+                && message.toLowerCase(Locale.ROOT)
+                .contains(RESERVATION_ID_UNIQUE_CONSTRAINT);
     }
 
     private Long validateAndGetHospitalId(Long memberId, Long reservationId) {
