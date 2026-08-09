@@ -15,6 +15,7 @@
 | `docs/ai/context-router.md` | 작업별 읽을 문서 지도 (hot path) |
 | `docs/ai/rule-source-map.md` | 규칙 정본 지도 (충돌 시 어디를 고칠지) |
 | `docs/testing/verification-guide.md` | 검증 Level·판정 값·기록 양식 |
+| `docs/enhancement/README.md` | MVP 이후 고도화 델타 레이어(동결 SA를 도메인별 파일로 override) |
 
 문서끼리 충돌하면 PRD > SA > 코드컨벤션 순으로 따르고, 충돌 사실을 사용자에게 알린다. 정책정리본은 PRD·SA 아래다. 브랜치·커밋·PR 절차는 `docs/collaboration/github-rules.md`가 별도 영역의 정본이다. 문서 버전은 각 문서 헤더가 단일 정본이다. 규칙 중복·충돌 정리는 `docs/ai/rule-source-map.md`를 따른다.
 

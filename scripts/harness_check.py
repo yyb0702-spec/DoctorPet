@@ -27,6 +27,7 @@ HARNESS_DOCS = [
     "CLAUDE.md",
     "docs/ai/context-router.md",
     "docs/ai/rule-source-map.md",
+    "docs/enhancement/README.md",
     "docs/ai/review-gate.md",
     "docs/ai/implementation-guardrails.md",
     "docs/ai/completion-checklist.md",
