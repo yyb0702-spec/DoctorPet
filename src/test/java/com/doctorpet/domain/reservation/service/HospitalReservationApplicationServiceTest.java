@@ -30,6 +30,7 @@ import com.doctorpet.domain.reservation.notification.ReservationNotificationPubl
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
 import org.springframework.data.domain.Page;
@@ -88,6 +89,7 @@ class HospitalReservationApplicationServiceTest {
                         STAFF_ID,
                         "staff@example.com",
                         "병원스태프",
+                        null,
                         MemberRole.HOSPITAL_STAFF,
                         HOSPITAL_ID
                 )
@@ -775,17 +777,54 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.findHistoryAggregates(
                 any(), any(), any(), any()
         )).willReturn(List.of());
+        given(memberService.getPhonesByMemberIds(any()))
+                .willReturn(Map.of(1L, "010-1234-5678"));
 
         Page<?> result = hospitalReservationService.findHospitalReservations(
                 STAFF_ID, "REQUESTED", 0, 20
         );
 
         assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent())
+                .first()
+                .extracting("guardianPhone")
+                .isEqualTo("010-1234-5678");
         verify(reservationRepository).findByHospitalIdAndStatus(
                 org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
                 org.mockito.ArgumentMatchers.eq(ReservationStatus.REQUESTED),
                 org.mockito.ArgumentMatchers.any(Pageable.class)
         );
+    }
+
+    @Test
+    @DisplayName("종료된 예약(TREATMENT_COMPLETED)에는 보호자 전화번호를 노출하지 않는다(리뷰 지적 P2)")
+    void findHospitalReservations_terminalStatus_hidesGuardianPhone() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.TREATMENT_COMPLETED
+        );
+        ReservationSlot slot = slot();
+        given(reservationRepository.findByHospitalIdAndStatus(
+                any(),
+                any(),
+                any(Pageable.class)
+        ))
+                .willReturn(new PageImpl<>(List.of(reservation)));
+        given(reservationSlotRepository.findAllById(any()))
+                .willReturn(List.of(slot));
+        given(reservationRepository.findHistoryAggregates(
+                any(), any(), any(), any()
+        )).willReturn(List.of());
+
+        Page<?> result = hospitalReservationService.findHospitalReservations(
+                STAFF_ID, "TREATMENT_COMPLETED", 0, 20
+        );
+
+        assertThat(result.getContent())
+                .first()
+                .extracting("guardianPhone")
+                .isNull();
+        verify(memberService, never()).getPhonesByMemberIds(any());
     }
 
     private Reservation reservation(Long hospitalId) {
