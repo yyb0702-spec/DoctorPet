@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 프로젝트 진입·작업 순서·STRICT 신호 | `AGENTS.md` | `CLAUDE.md`(@import), Context Router |
 | 문서 라우팅(무엇을 읽고 무엇을 읽지 않을지) | `docs/ai/context-router.md` | AGENTS.md |
+| 고도화 델타(MVP 이후 override) | `docs/enhancement/README.md`(레이어 규칙)와 도메인별 델타 문서 | Context Router 고도화 hot path. 동결 SA를 범위 한정 override |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` | SA, Issue 본문 |
 | 설계·ERD·API·상태 머신·확정 기술 결정 | `docs/architecture/DoctorPet-SA.md` | Context Router, 구현 코드 |
 | 코드 스타일·클래스 규약·예외·응답 포맷 | `docs/architecture/DoctorPet-코드컨벤션.md` | Review Gate, 구현 가드레일 |
@@ -25,7 +26,7 @@
 
 ## 문서 우선순위
 
-내용이 충돌하면 **PRD > SA > 코드컨벤션** 순으로 따르고, 충돌 사실을 사용자에게 알린 뒤 정본을 수정한다. 정책정리본은 PRD·SA 아래이며, 브랜치·커밋·PR 절차 규칙은 `docs/collaboration/github-rules.md`가 별도 영역의 정본이다.
+내용이 충돌하면 **PRD > SA > 코드컨벤션** 순으로 따르고, 충돌 사실을 사용자에게 알린 뒤 정본을 수정한다. 정책정리본은 PRD·SA 아래이며, 브랜치·커밋·PR 절차 규칙은 `docs/collaboration/github-rules.md`가 별도 영역의 정본이다. 고도화 델타 문서가 있으면 그 문서가 `override 범위`에 선언한 범위 안에서는 델타 > 동결 SA이고, 범위 밖은 동결 SA가 정본이다.
 
 ## 변경 규칙
 
