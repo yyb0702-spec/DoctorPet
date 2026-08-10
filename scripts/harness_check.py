@@ -73,10 +73,37 @@ APPENDIX_REF = re.compile(r"SA\s*부록\s*([AB])")
 # 코드펜스·인라인코드·마크다운 링크 앵커를 걷어낸 뒤 남은 프로즈에서
 # `#` + 영문자로 시작하는 토큰(#A1, #Foo 등)을 찾는다. 실제 이슈·PR은 #숫자라
 # 여기 안 걸리고, 섹션(§)·부록·파일 링크도 표기가 달라 안 걸린다.
-FENCE = re.compile(r"```.*?```", re.DOTALL)
+FENCE_LINE = re.compile(r"^(\s*)([`~]{3,})(.*)$")
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 LINK_TARGET = re.compile(r"\]\([^)]*\)")
 DANGLING_HASH = re.compile(r"#([A-Za-z][\w-]*)")
+
+
+def strip_code_fences(text: str) -> str:
+    """코드펜스(``` 또는 ~~~, 길이 3+) 안의 내용을 빈 줄로 지운다.
+
+    CommonMark는 백틱과 물결표 둘 다 펜스로 인정하므로 둘 다 처리한다(리뷰 지적).
+    닫는 펜스는 여는 펜스와 같은 문자·같거나 긴 길이여야 하고 뒤에 정보 문자열이
+    없어야 한다. 백틱 여는 줄의 정보 문자열에는 백틱이 올 수 없다(그건 인라인 코드다).
+    줄 수는 보존한다(다른 검사의 줄 기준을 흔들지 않기 위함).
+    """
+    out: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        m = FENCE_LINE.match(line)
+        if fence is None:
+            if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
+                fence = (m.group(2)[0], len(m.group(2)))
+                out.append("")  # 여는 펜스 줄 제거
+            else:
+                out.append(line)
+        else:
+            fchar, flen = fence
+            if (m and m.group(2)[0] == fchar
+                    and len(m.group(2)) >= flen and m.group(3).strip() == ""):
+                fence = None  # 닫는 펜스
+            out.append("")  # 펜스 내부·펜스 줄 모두 제거
+    return "\n".join(out)
 
 
 def load(path: Path) -> str:
@@ -206,12 +233,12 @@ def check_section_refs(rel: str, text: str, prd_headers: set[str],
 def check_dangling_hash_refs(rel: str, text: str, errors: list[str]) -> None:
     """`#A1`·`#Foo`처럼 대응 대상이 없는 참조 태그가 프로즈에 샜는지 검사한다.
 
-    코드펜스·인라인코드·마크다운 링크 앵커(`](path#anchor)`)를 먼저 걷어낸다 —
+    코드펜스(``` 또는 ~~~)·인라인코드·마크다운 링크 앵커(`](path#anchor)`)를 먼저 걷어낸다 —
     셸 주석(`#!/usr/bin/env`)·CSS 색(`#fff`)·파일 앵커 링크는 정상이므로 검사 대상이 아니다.
     남은 프로즈에서 `#`+영문자 토큰만 결함으로 본다. `#숫자`(이슈·PR), `§`(섹션),
     `부록 A/B`, 한글 뒤 `#`은 매치되지 않아 오탐이 없다.
     """
-    scrubbed = FENCE.sub(" ", text)
+    scrubbed = strip_code_fences(text)
     scrubbed = INLINE_CODE.sub(" ", scrubbed)
     scrubbed = LINK_TARGET.sub(" ", scrubbed)
     for m in DANGLING_HASH.finditer(scrubbed):
