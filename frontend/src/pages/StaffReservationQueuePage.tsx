@@ -53,7 +53,7 @@ function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
 }
 
-function RowActions({ item }: { item: StaffReservationListItem }) {
+export function RowActions({ item }: { item: StaffReservationListItem }) {
   const approve = useApproveReservation()
   const reject = useRejectReservation()
   const checkIn = useCheckInReservation()
@@ -86,7 +86,10 @@ function RowActions({ item }: { item: StaffReservationListItem }) {
           />
         </div>
       )
+    // NO_SHOW_PENDING은 예약시각 경과~자동 노쇼 확정 사이 유예 상태로, 백엔드가
+    // CONFIRMED와 동일하게 내원 확인·노쇼 확정을 허용한다(SA §8-6, AWAITING_ARRIVAL_STATUSES).
     case ReservationStatus.CONFIRMED:
+    case ReservationStatus.NO_SHOW_PENDING:
       return (
         <div className="flex flex-wrap items-start gap-2">
           <Button

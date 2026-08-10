@@ -4,6 +4,7 @@ import { AppLayout } from '@/components/common/AppLayout'
 import { StaffLayout } from '@/components/common/StaffLayout'
 import { ProtectedRoute } from '@/app/ProtectedRoute'
 import { StaffRoute } from '@/app/StaffRoute'
+import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
 import { SignupPage } from '@/pages/SignupPage'
@@ -78,8 +79,14 @@ export const router = createBrowserRouter([
             path: '/staff/reservations/:reservationId',
             element: <StaffReservationDetailPage />,
           },
-          { path: '/staff/payments', element: <StaffPaymentsPage /> },
-          { path: '/staff/slots', element: <StaffSlotsPage /> },
+          // 결제 관리·슬롯 관리는 백엔드 미착수 — 플래그가 켜질 때만 라우트를 등록해
+          // URL 직접 접근으로도 미구현 API 404에 도달하지 못하게 막는다(PR #127 리뷰).
+          ...(HOSPITAL_OPS_BACKEND_READY
+            ? [
+                { path: '/staff/payments', element: <StaffPaymentsPage /> },
+                { path: '/staff/slots', element: <StaffSlotsPage /> },
+              ]
+            : []),
         ],
       },
     ],

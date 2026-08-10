@@ -1,18 +1,32 @@
 // 병원 스태프 전용 레이아웃 — 좌측 사이드바(예약 관리) + 상단(병원명·로그아웃).
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarCheck, LayoutDashboard, PawPrint } from 'lucide-react'
+import {
+  CalendarCheck,
+  CalendarClock,
+  CreditCard,
+  LayoutDashboard,
+  PawPrint,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useMe } from '@/features/members/hooks'
 import { useHospitalDetail } from '@/features/hospitals/hooks'
 import { useLogout } from '@/features/auth/hooks'
+import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 
 // 결제 관리(GET /api/hospital/payments)·슬롯 관리(GET/PATCH /api/hospital/slots*)는
-// 백엔드 미착수라 메뉴에서 숨긴다(리뷰 지적, HANDOFF-hospital-and-sync.md 참고).
-// 라우트는 남겨두되(/staff/payments, /staff/slots) 메뉴로는 진입할 수 없다.
+// 백엔드 미착수라 메뉴·라우트를 HOSPITAL_OPS_BACKEND_READY 플래그로 함께 껐다 켠다
+// (router.tsx도 같은 플래그를 본다). 메뉴만 숨기고 라우트를 남겨두면 URL 직접
+// 접근으로 미구현 API 404에 도달하므로 한 곳에서 제어한다(PR #127 리뷰).
 const NAV = [
   { to: '/staff', label: '대시보드', icon: LayoutDashboard, end: true },
   { to: '/staff/reservations', label: '예약 관리', icon: CalendarCheck },
+  ...(HOSPITAL_OPS_BACKEND_READY
+    ? [
+        { to: '/staff/payments', label: '결제 관리', icon: CreditCard },
+        { to: '/staff/slots', label: '슬롯 관리', icon: CalendarClock },
+      ]
+    : []),
 ]
 
 export function StaffLayout() {
