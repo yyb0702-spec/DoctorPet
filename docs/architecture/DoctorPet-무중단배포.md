@@ -118,6 +118,7 @@ upstream app_upstream {
 - `APP_BLUE_IMAGE_TAG`/`APP_GREEN_IMAGE_TAG`는 기존 `APP_IMAGE_TAG`와 동일한 패턴으로 배포 스크립트가 그때그때 export한다 — `.env`에 고정값으로 넣지 않는다(안 그러면 로컬 개발 시 `docker compose up`이 이상한 태그로 두 색을 동시에 빌드/pull 시도할 수 있다).
 - `nginx -s reload` 전에 `nginx -t`로 문법 검증을 먼저 한다 — 검증 실패한 설정으로 reload를 시도하면 nginx가 기존 워커를 유지한 채 실패해 조용히 컷오버가 안 되는데, 스크립트가 이걸 놓치면 "성공했다고 착각하고 넘어가는" 문제가 생긴다.
 - 커넥션 풀 크기(HikariCP) × 2(blue+green 동시 구동 순간) 합이 mysql `max_connections`를 넘지 않는지 구현 후 확인한다(성능 저하 논의에서 지적된 부분).
+- **1회성 마이그레이션(중요, AWS 콘솔 작업 아님)**: 이 변경 이전에는 `app` 컨테이너가 호스트 포트 8080을 직접 게시하고 있었다. 이 브랜치를 develop에 머지해 처음 배포할 때, 옛 `app` 컨테이너가 여전히 8080을 물고 있으면 nginx가 그 포트를 못 가져가 충돌한다. `deploy.yml`이 `docker ps --filter publish=8080 --filter name=app`으로 옛 컨테이너를 찾아 자동으로 정지·제거하도록 이미 반영해뒀다 — 사람이 EC2에 수동으로 들어가서 지울 필요는 없다. app-blue/app-green은 애초에 호스트 포트를 게시하지 않아 이 필터에 걸리지 않고, 두 번째 배포부터는 옛 컨테이너 자체가 없어서 이 블록은 항상 아무 일도 하지 않는다.
 
 ## 8. 구현 체크리스트
 

@@ -172,6 +172,20 @@ jobs:
               printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
             fi
 
+            # 1회성 마이그레이션 — 이 변경 이전에는 app 컨테이너가 호스트 포트 8080을 직접
+            # 게시하고 있었다. 이제 nginx가 8080을 게시해야 하는데, 옛 app 컨테이너가 아직 그
+            # 포트를 물고 있으면 nginx가 뜨지 못하고 충돌한다. docker compose가 아니라 원시
+            # docker 명령으로 "8080을 게시 중이면서 이름에 app이 들어간" 컨테이너를 찾아
+            # 정리한다 — app-blue/app-green은 애초에 호스트 포트를 게시하지 않으므로 이 필터에
+            # 절대 걸리지 않고, 이후 배포에서는 옛 app 컨테이너 자체가 없어 이 블록은 항상
+            # 아무 일도 하지 않는다(멱등).
+            OLD_APP_CONTAINER="$(docker ps -q --filter "publish=8080" --filter "name=app")"
+            if [ -n "$OLD_APP_CONTAINER" ]; then
+              echo "이전 단일 app 컨테이너가 8080을 게시 중이라 정리합니다(1회성 마이그레이션): $OLD_APP_CONTAINER"
+              docker stop "$OLD_APP_CONTAINER"
+              docker rm "$OLD_APP_CONTAINER"
+            fi
+
             # 인프라 3종(mysql/redis/nginx)만 대상으로 삼는다 — 이미지·설정이 안 바뀌는 한
             # 재시작되지 않고, 혹시 안 떠 있으면(최초 배포, 서버 재부팅 등) 복구한다.
             # app-blue/app-green은 이름을 명시하지 않아 대상에서 제외된다(서버에서 대상
