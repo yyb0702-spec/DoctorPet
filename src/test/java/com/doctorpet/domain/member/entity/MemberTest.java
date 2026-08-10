@@ -28,6 +28,18 @@ class MemberTest {
     }
 
     @Test
+    @DisplayName("withdraw()는 phone도 null로 지운다(리뷰 지적 P1 — 탈퇴 시 개인정보 정리 계약)")
+    void withdraw_clearsPhone() {
+        Member member = Member.createGuardian(
+                "guardian@example.com", "encoded-password", "보호자닉네임", "010-1234-5678");
+        setId(member, 42L);
+
+        member.withdraw(LocalDateTime.now());
+
+        assertThat(member.getPhone()).isNull();
+    }
+
+    @Test
     @DisplayName("생성 직후에는 이메일 인증이 안 된 상태다(백로그 P2 — 가입 시 이메일 인증 필수)")
     void createGuardian_startsUnverified() {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");

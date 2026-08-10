@@ -174,6 +174,9 @@ public class Member extends BaseEntity {
     /*
       탈퇴(Soft Delete) + 이메일 익명화(SA §6-3, 부록A 확정). email을 `withdrawn_{id}@deleted.doctorpet`로
       치환해 `email UNIQUE` 제약을 유지한 채 탈퇴 후 동일 이메일 재가입을 허용한다.
+      phone도 함께 null로 지운다(리뷰 지적 P1) — deleted_at으로 일반 조회에서만 숨겨질 뿐 실제
+      전화번호가 DB에 무기한 남으면 탈퇴 시 개인정보를 정리한다는 계약과 맞지 않는다. email처럼
+      고유 식별자를 유지해야 할 이유가 없어 익명화 대신 완전히 제거한다.
       활성 예약(CONFIRMED·CHECKED_IN)·미수금(OFFLINE_REQUIRED) 보유 여부 확인은 이 메서드의 책임이
       아니다 — Reservation/Payment 도메인 Repository를 여기서 직접 참조할 수 없으므로(구현
       가드레일), 상위 레이어(MemberWithdrawalApplicationService)가 각 도메인 Service를 통해
@@ -181,6 +184,7 @@ public class Member extends BaseEntity {
      */
     public void withdraw(LocalDateTime now) {
         this.email = "withdrawn_" + this.id + "@deleted.doctorpet";
+        this.phone = null;
         this.deletedAt = now;
     }
 }
