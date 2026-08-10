@@ -15,6 +15,7 @@ import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +54,9 @@ class HospitalSearchServiceTest {
     @Mock
     private HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
+    @Mock
+    private ReviewQueryService reviewQueryService;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -61,7 +65,8 @@ class HospitalSearchServiceTest {
                 hospitalRepository,
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
-                hospitalSearchCacheRepository
+                hospitalSearchCacheRepository,
+                reviewQueryService
         );
     }
 

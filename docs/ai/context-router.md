@@ -33,6 +33,13 @@
 - 제외: 예약·결제 상태 머신은 검색 계약과 무관하면 읽지 않는다.
 - 추가 탐색: 제휴/비제휴 노출 정책이 불명확하면 PRD §6-1을 추가한다.
 
+### 병원 리뷰 (STRICT: DDL·환불 정합성)
+
+- 필수: PRD §6-8, SA §4 reviews·reservations.reviewed_at, SA §8-3 병원 리뷰 API, SA §9-10
+- 조건부: 환불 연동을 바꾸면 SA §9-4를 추가하고, 병원 상세 집계를 바꾸면 SA §8-3 병원 상세 응답 계약을 함께 본다.
+- 제외: AI 추천·검색 랭킹, 신고·숨김·관리자 검수는 현재 범위 밖이다.
+- 주의: 리뷰 작성과 환불 경합은 실제 MySQL 다중 스레드 통합 테스트로 `REFUNDED` 결제에 리뷰가 남지 않음을 검증한다.
+
 ### AI 상담 (STRICT 아님, 단 안전 정책 필수)
 
 - 필수: [PRD §7(AI 안전 정책)](../product/DoctorPet-PRD.md), SA §9-5(AiGateway·Tool Calling), SA §8-4, SA §4 ai_consultations

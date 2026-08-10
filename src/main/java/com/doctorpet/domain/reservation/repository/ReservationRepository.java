@@ -95,6 +95,30 @@ public interface ReservationRepository
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
+               set r.reviewedAt = :reviewedAt,
+                   r.updatedAt = :reviewedAt
+             where r.id = :reservationId
+               and r.memberId = :memberId
+               and r.reviewedAt is null
+               and exists (
+                    select 1
+                      from Payment p
+                     where p.reservationId = r.id
+                       and p.status in (
+                            com.doctorpet.domain.payment.entity.PaymentStatus.PAID,
+                            com.doctorpet.domain.payment.entity.PaymentStatus.OFFLINE_PAID
+                       )
+               )
+            """)
+    int claimReviewOpportunity(
+            @Param("reservationId") Long reservationId,
+            @Param("memberId") Long memberId,
+            @Param("reviewedAt") LocalDateTime reviewedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
                set r.status = :confirmedStatus,
                    r.confirmedAt = :confirmedAt,
                    r.updatedAt = :updatedAt

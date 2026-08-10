@@ -23,6 +23,8 @@ import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
+import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -55,18 +57,26 @@ public class HospitalService {
     private final HospitalDetailRepository hospitalDetailRepository;
     private final HospitalCapabilityRepository hospitalCapabilityRepository;
     private final HospitalSearchCacheRepository hospitalSearchCacheRepository;
+    private final ReviewQueryService reviewQueryService;
+
+    @Transactional(readOnly = true)
+    public boolean exists(Long hospitalId) {
+        return hospitalRepository.existsById(hospitalId);
+    }
 
     @Transactional(readOnly = true)
     public HospitalDetailResponse getHospitalDetail(Long hospitalId) {
         Hospital hospital = hospitalRepository.findById(hospitalId)
                 .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));
+        ReviewRatingSummary ratingSummary = reviewQueryService.getRatingSummary(hospitalId);
 
         if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER) {
             return HospitalDetailResponse.from(
                     hospital,
                     null,
                     null,
-                    null
+                    null,
+                    ratingSummary
             );
         }
 
@@ -90,7 +100,8 @@ public class HospitalService {
                 calculateOpenNow(
                         hospital.getBusinessStatus(),
                         detail.getOpenHours()
-                )
+                ),
+                ratingSummary
         );
     }
 
