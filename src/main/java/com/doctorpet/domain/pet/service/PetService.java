@@ -101,6 +101,10 @@ public class PetService {
       부분 수정(Merge Patch)이다 — PetUpdateRequest에서 생략된(= null) 필드는 PetProfile.update()가
       기존 값을 유지한다. 영속 상태(managed) 엔티티를 그대로 수정해 트랜잭션 커밋 시 더티 체킹으로
       반영한다.
+      imageUrl은 인증된 클라이언트가 보내는 요청 값이라 신뢰 경계 밖에 있다(리뷰 지적) — 값이 있으면
+      저장 전에 imageStorageGateway.isManagedFileUrl()로 이 스토리지가 발급 가능한 URL이면서
+      해당 petId 네임스페이스(pets/{petId}/) 소속인지 확인한다. 업로드 절차를 거치지 않은 임의
+      외부 URL이나 다른 반려동물의 오브젝트 URL을 그대로 저장·노출하는 것을 막기 위함이다.
      */
     @Transactional
     public PetResponse update(Long memberId, Long petId, PetUpdateRequest request) {
@@ -109,6 +113,11 @@ public class PetService {
 
         if (!petProfile.getMemberId().equals(memberId)) {
             throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+
+        if (request.imageUrl() != null
+                && !imageStorageGateway.isManagedFileUrl(request.imageUrl(), imageKeyPrefix(petId))) {
+            throw new ServiceException(PetErrorCode.INVALID_IMAGE_URL);
         }
 
         petProfile.update(
@@ -144,7 +153,7 @@ public class PetService {
         }
 
         String extension = contentType.substring(contentType.indexOf('/') + 1);
-        String key = "pets/%d/%s.%s".formatted(petId, UUID.randomUUID(), extension);
+        String key = imageKeyPrefix(petId) + "%s.%s".formatted(UUID.randomUUID(), extension);
 
         PresignedUploadUrl presigned = imageStorageGateway.createPresignedUploadUrl(key, contentType);
 
@@ -153,6 +162,12 @@ public class PetService {
                 presigned.fileUrl(),
                 presigned.expiresInSeconds()
         );
+    }
+
+    // 업로드 key 생성(createImageUploadUrl)과 PATCH로 들어온 imageUrl 검증(update)이 같은
+    // petId 네임스페이스 기준을 쓰도록 한 곳에서만 정의한다.
+    private String imageKeyPrefix(Long petId) {
+        return "pets/%d/".formatted(petId);
     }
 
     /*
