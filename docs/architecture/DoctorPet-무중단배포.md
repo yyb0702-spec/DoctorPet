@@ -118,7 +118,8 @@ upstream app_upstream {
 - `APP_BLUE_IMAGE_TAG`/`APP_GREEN_IMAGE_TAG`는 기존 `APP_IMAGE_TAG`와 동일한 패턴으로 배포 스크립트가 그때그때 export한다 — `.env`에 고정값으로 넣지 않는다(안 그러면 로컬 개발 시 `docker compose up`이 이상한 태그로 두 색을 동시에 빌드/pull 시도할 수 있다).
 - `nginx -s reload` 전에 `nginx -t`로 문법 검증을 먼저 한다 — 검증 실패한 설정으로 reload를 시도하면 nginx가 기존 워커를 유지한 채 실패해 조용히 컷오버가 안 되는데, 스크립트가 이걸 놓치면 "성공했다고 착각하고 넘어가는" 문제가 생긴다.
 - 커넥션 풀 크기(HikariCP) × 2(blue+green 동시 구동 순간) 합이 mysql `max_connections`를 넘지 않는지 구현 후 확인한다(성능 저하 논의에서 지적된 부분).
-- **1회성 마이그레이션(중요, AWS 콘솔 작업 아님)**: 이 변경 이전에는 `app` 컨테이너가 호스트 포트 8080을 직접 게시하고 있었다. 이 브랜치를 develop에 머지해 처음 배포할 때, 옛 `app` 컨테이너가 여전히 8080을 물고 있으면 nginx가 그 포트를 못 가져가 충돌한다. `deploy.yml`이 `docker ps --filter publish=8080 --filter name=app`으로 옛 컨테이너를 찾아 자동으로 정지·제거하도록 이미 반영해뒀다 — 사람이 EC2에 수동으로 들어가서 지울 필요는 없다. app-blue/app-green은 애초에 호스트 포트를 게시하지 않아 이 필터에 걸리지 않고, 두 번째 배포부터는 옛 컨테이너 자체가 없어서 이 블록은 항상 아무 일도 하지 않는다.
+- **1회성 마이그레이션(중요, AWS 콘솔 작업 아님)**: 이 변경 이전에는 `app` 컨테이너가 호스트 포트 8080을 직접 게시하고 있었다. 이 브랜치를 develop에 머지해 처음 배포할 때, 옛 `app` 컨테이너가 여전히 8080을 물고 있으면 nginx가 그 포트를 못 가져가 충돌한다. `deploy.yml`이 `docker ps --filter publish=8080 --filter name=app`으로 옛 컨테이너를 찾아 자동으로 정지·제거하도록 이미 반영해뒀다 — 사람이 EC2에 수동으로 들어가서 지울 필요는 없다. app-blue/app-green은 애초에 호스트 포트를 게시하지 않아 이 필터에 걸리지 않고, 두 번째 배포부터는 옛 컨테이너 자체가 없어서 이 블록은 항상 아무 일도 하지 않는다. 이 정리는 대상 앱이 healthy로 확인된 뒤·nginx 기동 직전에 수행한다(리뷰 지적) — app-blue/green이 8080을 게시하지 않아 옛 컨테이너와 공존 가능하므로, 헬스체크보다 먼저 옛 컨테이너를 내리면 "옛 앱 정지 ~ 새 앱 pull·기동·헬스체크 통과"까지 불필요하게 다운타임이 늘어난다.
+- **컷오버 순간의 SSE 연결은 예외적으로 끊긴다(알려진 한계, 리뷰 지적)**: `/api/notifications/subscribe`는 최대 3600s 열려 있는 연결인데, 컷오버는 `nginx -s reload` 후 5초 드레인만 주고 이전 색을 `stop`한다. 일반 요청은 5초 안에 끝나 문제가 없지만, 드레인 시작 이전부터 열려 있던 SSE 연결은 이전 색이 정지되며 강제로 끊긴다. `EventSource`가 명세상 자동 재연결하므로 기능적으로는 새 색에 다시 붙어 복구되지만(알림 폴링과 달리 진짜 무중단은 아니다), 배포 순간에 한해 재연결 한 번이 발생한다는 점은 SSE를 쓰는 다른 기능을 추가할 때도 같이 감안한다.
 
 ## 8. 구현 체크리스트
 
@@ -127,6 +128,7 @@ upstream app_upstream {
 - [x] `.github/workflows/deploy.yml` 컷오버 로직으로 재작성 — YAML·bash 문법은 확인했으나(`python3 -c yaml.safe_load`, `bash -n`), 샌드박스에 Docker/nginx가 없어 실제 기동·컷오버 동작은 아직 실행 검증하지 못했다.
 - [ ] 로컬(`docker compose up -d`)에서 blue만으로 기존과 동일하게 뜨는지 확인
 - [ ] 실제 EC2에서 1회 배포로 부트스트랩(blue 최초 기동) 확인
-- [ ] 2회차 배포로 blue→green 컷오버, 컷오버 중 무중단 확인(연속 요청 스크립트로 검증)
+- [ ] 2회차 배포로 blue→green 컷오버, 컷오버 중 무중단 확인(연속 요청 스크립트로 검증) — `docker compose ps -q app-green`/`stop app-green`/`rm app-green`이 green 프로파일 상태와 무관하게 실제 컨테이너를 정상 조회·제어하는지도 이 회차에서 함께 확인(리뷰 지적, `COMPOSE_PROFILES=green` export로 방어했지만 실기동 확인 필요)
+- [ ] 컷오버 중 SSE(`/api/notifications/subscribe`) 구독 클라이언트가 연결 종료 후 자동 재연결로 정상 복구되는지 확인(리뷰 지적, 알려진 한계 재확인)
 - [ ] 의도적으로 healthcheck 실패하는 이미지로 배포해 "target만 정리되고 기존 색은 안 건드려지는지" 확인
 - [ ] SA 문서 또는 별도 인프라 섹션에 최종 반영 여부 결정(이 문서를 정본으로 유지할지, SA에 흡수할지)
