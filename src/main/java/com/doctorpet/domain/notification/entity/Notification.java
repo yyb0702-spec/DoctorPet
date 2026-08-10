@@ -23,7 +23,11 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "notifications",
-        indexes = @Index(name = "idx_notifications_member_created", columnList = "member_id, created_at")
+        indexes = {
+                @Index(name = "idx_notifications_member_created", columnList = "member_id, created_at"),
+                // 미읽음 개수·모두 읽음(PR #134 리뷰)이 매 요청 member_id = ? AND read_at IS NULL로 훑는다.
+                @Index(name = "idx_notifications_member_read", columnList = "member_id, read_at")
+        }
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

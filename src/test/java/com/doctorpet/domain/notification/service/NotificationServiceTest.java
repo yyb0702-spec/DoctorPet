@@ -8,6 +8,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
@@ -107,6 +108,38 @@ class NotificationServiceTest {
         notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
 
         verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any());
+    }
+
+    @Test
+    @DisplayName("미읽음 개수: 인증 회원의 read_at NULL 건수만 세어 DTO로 반환한다")
+    void getUnreadCount_countsUnreadOnly() {
+        given(notificationRepository.countByMemberIdAndReadAtIsNull(OWNER_ID)).willReturn(3L);
+
+        assertThat(notificationService.getUnreadCount(OWNER_ID).unreadCount()).isEqualTo(3L);
+        verify(notificationRepository).countByMemberIdAndReadAtIsNull(OWNER_ID);
+    }
+
+    @Test
+    @DisplayName("모두 읽음: 인증 회원의 미읽음을 공통 Clock 시각으로 bulk 갱신하고 갱신 건수를 반환한다")
+    void markAllRead_updatesWithClockAndReturnsCount() {
+        given(notificationRepository.markAllReadForMember(eq(OWNER_ID), any())).willReturn(4);
+
+        NotificationReadAllResponse response = notificationService.markAllRead(OWNER_ID);
+
+        assertThat(response.updatedCount()).isEqualTo(4);
+        ArgumentCaptor<LocalDateTime> readAt = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(notificationRepository).markAllReadForMember(eq(OWNER_ID), readAt.capture());
+        // 읽음 시각은 markAsRead와 동일하게 주입된 공통 Clock으로 만들어진다.
+        assertThat(readAt.getValue()).isEqualTo(LocalDateTime.now(FIXED_CLOCK));
+    }
+
+    @Test
+    @DisplayName("모두 읽음 멱등: 미읽음이 없어 갱신 0건이면 예외 없이 0을 반환한다")
+    void markAllRead_isIdempotentWhenNothingUnread() {
+        given(notificationRepository.markAllReadForMember(eq(OWNER_ID), any())).willReturn(0);
+
+        assertThat(notificationService.markAllRead(OWNER_ID).updatedCount()).isZero();
+        verify(notificationRepository).markAllReadForMember(eq(OWNER_ID), any());
     }
 
     @Test

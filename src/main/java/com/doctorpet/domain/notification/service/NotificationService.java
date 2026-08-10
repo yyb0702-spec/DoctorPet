@@ -4,7 +4,9 @@ package com.doctorpet.domain.notification.service;
 // memberId로만 하고, 읽음 처리 시 소유권을 서버에서 재검증한다(본인 아님 403, 없음 404).
 
 import com.doctorpet.domain.notification.dto.response.NotificationPageResponse;
+import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
+import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
@@ -73,6 +75,21 @@ public class NotificationService {
         }
 
         return NotificationPageResponse.from(result.map(NotificationResponse::from));
+    }
+
+    // 본인의 미읽음 알림 개수를 반환한다(배지 표시용). 목록을 폴링하지 않고 개수만 조회한다.
+    public NotificationUnreadCountResponse getUnreadCount(Long memberId) {
+        return NotificationUnreadCountResponse.of(
+                notificationRepository.countByMemberIdAndReadAtIsNull(memberId));
+    }
+
+    // 본인의 미읽음 알림을 모두 읽음 처리한다. 미읽음이 없으면 0건을 반환하고 예외 없이 멱등하다.
+    // 읽음 시각은 markAsRead와 동일하게 주입된 공통 Clock으로 만든다(SA 시간 정책).
+    @Transactional
+    public NotificationReadAllResponse markAllRead(Long memberId) {
+        int updated = notificationRepository.markAllReadForMember(
+                memberId, LocalDateTime.now(clock));
+        return NotificationReadAllResponse.of(updated);
     }
 
     // 개별 알림을 읽음 처리한다. 존재하지 않으면 404, 본인 알림이 아니면 403. 이미 읽은 알림이면 read_at 유지(멱등 200).
