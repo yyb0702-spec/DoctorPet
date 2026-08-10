@@ -167,8 +167,17 @@ jobs:
             # heredoc 대신 printf를 쓴다 — 이 script 블록은 YAML 리터럴 블록이라 heredoc
             # 종료 구분자에 들여쓰기가 섞이면(bash는 구분자 줄에 공백이 있으면 종료로 인식하지
             # 않는다) 스크립트 전체가 깨질 수 있어, 애초에 그 위험이 없는 방식을 쓴다.
+            #
+            # FIRST_DEPLOY(.active_color가 없던 시점) 여부를 여기서 고정해 둔다 — 이 파일이
+            # 방금 새로 만들어졌다면, 아직 존재하지 않는 app-$TARGET_COLOR:8080을 가리키는
+            # 상태다(리뷰 지적). nginx가 이 설정을 읽는 시점에 그 호스트가 실제로 없으면
+            # "호스트가 없어서 502를 반환"하는 게 아니라 nginx 자체가 "host not found in
+            # upstream"으로 설정 로드에 실패할 수 있다 — 아래에서 nginx 기동 순서를 이 플래그로
+            # 분기한다(대상 앱을 먼저 띄우고 헬스체크까지 통과한 뒤에만 nginx를 올린다).
+            FIRST_DEPLOY=false
             mkdir -p nginx/conf.d
             if [ ! -f nginx/conf.d/upstream-active.conf ]; then
+              FIRST_DEPLOY=true
               printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
             fi
 
@@ -191,7 +200,15 @@ jobs:
             # app-blue/app-green은 이름을 명시하지 않아 대상에서 제외된다(서버에서 대상
             # 미지정 `docker compose up -d`를 쓰지 않는다는 원칙과 같은 이유,
             # docker-compose.yml 상단 주석·무중단 배포 문서 7절).
-            docker compose up -d mysql redis nginx
+            #
+            # FIRST_DEPLOY면 nginx는 여기서 올리지 않는다(리뷰 지적) — 방금 써둔
+            # upstream-active.conf가 가리키는 app-$TARGET_COLOR가 아직 존재하지 않아 nginx가
+            # 설정 로드에 실패할 수 있다. 대상 앱을 기동·헬스체크로 검증한 뒤 아래에서 올린다.
+            if [ "$FIRST_DEPLOY" = "true" ]; then
+              docker compose up -d mysql redis
+            else
+              docker compose up -d mysql redis nginx
+            fi
 
             # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 대상 색에만 지정해서 띄운다
             # (리뷰 지적 P1과 동일한 이유) — 활성 색은 새 이미지를 pull·재시작하지 않으므로
@@ -224,6 +241,13 @@ jobs:
               fi
               sleep 10
             done
+
+            # FIRST_DEPLOY는 대상 앱이 healthy로 확인된 지금에서야 nginx를 올린다(리뷰 지적) —
+            # 이 시점에는 nginx/conf.d/upstream-active.conf가 가리키는 app-$TARGET_COLOR가
+            # 실제로 떠 있으므로 정적 upstream 호스트 해석이 실패하지 않는다.
+            if [ "$FIRST_DEPLOY" = "true" ]; then
+              docker compose up -d --no-deps nginx
+            fi
 
             # 컷오버 — nginx가 대상 색을 보게 설정을 바꾸고 reload한다. -t로 문법 검증을 먼저
             # 하지 않고 reload하면, 설정이 잘못됐을 때 nginx가 기존 워커를 유지한 채 조용히
