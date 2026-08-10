@@ -8,6 +8,8 @@ import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.entity.QHospitalCapability;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.core.types.dsl.NumberExpression;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQuery;
@@ -75,6 +77,42 @@ public class HospitalRepositoryCustomImpl
                             .then(0)
                             .otherwise(1)
                             .asc(),
+                        hospital.name.asc(),
+                        hospital.id.asc()
+                )
+                .offset(offset)
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
+    public List<HospitalSearchCandidate> searchDistancePage(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            long offset,
+            int limit
+    ) {
+        NumberExpression<Double> distanceMeters = Expressions.numberTemplate(
+                Double.class,
+                "st_distance_sphere(point({0}, {1}), point({2}, {3}))",
+                hospital.coordX,
+                hospital.coordY,
+                longitude,
+                latitude
+        );
+
+        return searchQuery(condition)
+                .orderBy(
+                        new CaseBuilder()
+                                .when(
+                                        hospital.coordX.isNull()
+                                                .or(hospital.coordY.isNull())
+                                )
+                                .then(1)
+                                .otherwise(0)
+                                .asc(),
+                        distanceMeters.asc(),
                         hospital.name.asc(),
                         hospital.id.asc()
                 )

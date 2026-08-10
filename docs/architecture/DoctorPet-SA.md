@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.41 |
-| 작성 기준일 | 2026-08-07 |
+| 문서 버전 | v1.45 |
+| 작성 기준일 | 2026-08-10 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 성능 검증 결과에 따라 기본 이름순 `(name, id, business_status)`, 제휴 병원 이름순 `(partnership_status, name, id, business_status)`, 좌표 바운딩박스 `(coord_x, coord_y)` 인덱스를 확정하고, 효과가 미미한 진료역량 검색용 보조 인덱스는 도입하지 않기로 결정했다. v1.37(MVP2 고도화): 실시간 알림 push를 **단방향 SSE로 확정**하고 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). 예약 `CONFIRMED`/`REJECTED`와 노쇼 `NO_SHOW` 이벤트의 알림 저장 연동도 #88(PR #107)에서 병합했다. 스키마 변경은 없으며 알림은 기존 `notifications` 테이블, 구독 티켓은 Redis를 사용한다. v1.38: 기능 구멍 점검(회원-병원 연락 수단 부재) 대응으로 `members.phone` 컬럼과 회원가입 필수 입력을 §4·§6-6·§8-1에, 병원 예약 목록 응답의 `guardianPhone` 노출을 §8-6에 추가. v1.39: 기능 구멍 점검(비밀번호 재설정 후 세션 미무효화 — 계정 탈취 복구 시나리오 결함) 대응으로 재설정 성공 시 `RefreshTokenRepository.deleteByMemberId()`를 호출하도록 §6-4에 반영. v1.40: 리뷰 지적 — 비밀번호 재설정이 회원 행을 잠그지 않아 로그인과 경합하면 v1.39의 세션 무효화가 무력화될 수 있는 문제를 `findByIdForUpdate()`로 `login()`과 같은 행 락을 공유하도록 §6-4에 반영. 같은 리뷰에서 전화번호 정규식의 두 하이픈 자리가 서로 독립적이라 부분 하이픈 입력도 통과하던 버그를 §6-6에 반영해 수정. v1.41: phone 필수화가 PRD와 충돌한다는 같은 리뷰 지적에 대해 PRD를 갱신하는 쪽으로 결정해(사용자 확인), PRD `docs/product/DoctorPet-PRD.md` v3.18에서 가입 계약을 "이메일·휴대폰·비밀번호·닉네임 모두 필수"로 확정하고 §6-6의 `[결정 필요]` 표기를 해소했다.
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 인덱스 성능 검증과 직원 도착 확인 API·`NO_SHOW_PENDING` 기본 5분 추가 유예를 반영했다. v1.37: 예약 알림 저장 연동을 반영하고 실시간 알림 push를 단방향 SSE로 확정했으며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). v1.38: 이번 병합에서 병원 검색 인덱스·SSE 설계와 직원 도착 확인·노쇼 유예 정책을 하나의 정본으로 통합했다. v1.39: SSE 확정 정책과 `processed` 처리 건수 정의를 본문·경량본에 일치시켰다. v1.40: MVP+ 고도화로 진료비 **전액 환불**(이슈 #37)을 도입해 §5-2 스키마(`payments.status`에 `REFUNDED`, `refunded_at`, 신규 `payment_refunds` 이력 테이블)와 §9-4 계약을 확정했다. 선점은 `payment_refunds.UNIQUE(payment_id)`와 소유권 펜스(`claim_token`)가 담당하고 결제 상태에 환불 진행 중 중간 단계를 두지 않는다. 재시도는 `merchant_refund_id`를 재사용하며, 확정 전이 불일치는 이력까지 롤백한다. 현장 현금 수납(`OFFLINE_PAID`) 환불과 부분 환불·정정 재청구는 확장으로 유지한다. v1.41: 전국 병원 검색의 무반경 거리순 요청을 MySQL `ST_Distance_Sphere` 정렬·DB 페이징으로 전환하고, 현재 영업 필터는 정렬된 후보를 200건 단위로 읽어 애플리케이션의 최대 메모리 적재량을 제한했다. 정확한 전체 일치 건수 계산을 위해 후보 전체 스캔은 유지되며 DB 왕복이 증가할 수 있는 트레이드오프를 명시했다(이슈 #69). v1.42: 기능 구멍 점검(회원-병원 연락 수단 부재) 대응으로 `members.phone` 컬럼과 회원가입 필수 입력을 §4·§6-6·§8-1에, 병원 예약 목록 응답의 `guardianPhone` 노출을 §8-6에 추가(이슈 #120). v1.43: 기능 구멍 점검(비밀번호 재설정 후 세션 미무효화 — 계정 탈취 복구 시나리오 결함) 대응으로 재설정 성공 시 `RefreshTokenRepository.deleteByMemberId()`를 호출하도록 §6-4에 반영(이슈 #121). v1.44: 리뷰 지적 — 비밀번호 재설정이 회원 행을 잠그지 않아 로그인과 경합하면 v1.43의 세션 무효화가 무력화될 수 있는 문제를 `findByIdForUpdate()`로 `login()`과 같은 행 락을 공유하도록 §6-4에 반영. 같은 리뷰에서 전화번호 정규식의 두 하이픈 자리가 서로 독립적이라 부분 하이픈 입력도 통과하던 버그를 §6-6에 반영해 수정. v1.45: phone 필수화가 PRD와 충돌한다는 같은 리뷰 지적에 대해 PRD를 갱신하는 쪽으로 결정해(사용자 확인), PRD `docs/product/DoctorPet-PRD.md` v3.20에서 가입 계약을 "이메일·휴대폰·비밀번호·닉네임 모두 필수"로 확정하고 §6-6의 `[결정 필요]` 표기를 해소했다.
 
 ---
 
@@ -48,7 +48,7 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 - Gradle, JUnit5, Mockito, @SpringBootTest
 - 인프라(도전): Docker, AWS(EC2·RDS·ElastiCache), GitHub Actions, k6
 
-확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 `AiGateway` 추상화를 유지하면서 OpenAI `gpt-4.1-mini`의 Structured Outputs로 연동한다(§9-5). 실시간 알림은 MVP는 폴링이고, MVP2에서 단방향 SSE push를 확정해 추가했다(양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의, §9-8).
+확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 `AiGateway` 추상화를 유지하면서 OpenAI `gpt-4.1-mini`의 Structured Outputs로 연동한다(§9-5). 실시간 알림은 MVP2에서 단방향 SSE를 사용하며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 적용한다(§9-8). 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다.
 
 시간 정책: 애플리케이션의 업무 시각은 `TimePolicy.SEOUL_ZONE_ID`를 적용한 공통 `Clock`을 사용한다. JPA `@CreatedDate`·`@LastModifiedDate`와 시간 기반 배치는 같은 Clock으로 `LocalDateTime`을 생성해 JVM 기본 시간대가 UTC인 환경에서도 저장 시각과 비교 기준이 어긋나지 않게 한다.
 
@@ -231,6 +231,7 @@ erDiagram
 | approval_timeout_next_retry_at | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | confirmed_at | DATETIME NULL | |
 | canceled_at | DATETIME NULL | |
+| no_show_pending_at | DATETIME NULL | 자동 노쇼 추가 유예 진입 시각 |
 | no_show_at | DATETIME NULL | |
 
 인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)`, `(status, slot_id)`.
@@ -245,7 +246,7 @@ erDiagram
 | --- | --- | --- |
 | id | BIGINT PK | |
 | reservation_id | BIGINT FK | |
-| event_type | VARCHAR | AUTO_NO_SHOW / MANUAL_NO_SHOW / NO_SHOW_CORRECTED / TIMEOUT_REJECTED |
+| event_type | VARCHAR | CHECKED_IN / AUTO_NO_SHOW_PENDING / AUTO_NO_SHOW / MANUAL_NO_SHOW / NO_SHOW_CORRECTED / TIMEOUT_REJECTED |
 | memo | VARCHAR NULL | |
 | processed_by | BIGINT NULL | 수동 처리자 회원 ID. 자동 처리면 NULL |
 | occurred_at | DATETIME | |
@@ -254,7 +255,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 기존 테이블에 중복 이력이 있으면 `ddl-auto=update`가 UNIQUE 추가에 실패하고도 애플리케이션이 부팅될 수 있다. 이를 막기 위해 `ReservationEventUniqueMigrationRunner`가 최초 배포 시 같은 `(reservation_id, event_type)` 중 가장 작은 `id`의 최초 이력만 남기고 중복을 정리한 뒤 UNIQUE를 명시적으로 추가·검증한다. 다중 인스턴스 최초 기동은 MySQL `GET_LOCK` advisory lock으로 직렬화한다. 성공 여부는 `schema_migrations`의 `reservation_event_unique_v1` 마커로 기록하며, 마커가 있는데 제약이 없으면 부팅을 실패시켜 스키마 불일치를 드러낸다.
 
-예약 도메인의 예외·비가역 사건만 기록한다(방식 B). 정상 전이(요청·승인·체크인·진료·완료·취소)는 `reservations`의 상태·시각 컬럼으로 표현하고 이 테이블에 남기지 않는다. 노쇼 자동/수동 판정, 노쇼 정정, 승인 타임아웃 자동거절처럼 상태만으로는 흔적이 사라지는 사건만 추가한다. 수동 사건은 `memo`에 필수 사유, `processed_by`에 인증된 병원 직원 ID를 기록한다. 결제 사건(오프라인 정산 등)은 여기가 아니라 `payments` 쪽에 기록한다. 추가만 하고 수정·삭제하지 않는다.
+예약 도메인의 예외·비가역 사건을 기록한다(방식 B). 정상 전이는 `reservations`의 상태·시각 컬럼으로 표현하는 것이 원칙이지만, 직원 도착 확인은 최초 처리 시각과 처리자를 멱등하게 반환해야 하므로 `CHECKED_IN` 이력을 예외적으로 저장한다. 노쇼 대기·자동/수동 판정, 노쇼 정정, 승인 타임아웃 자동거절처럼 상태만으로는 흔적이 사라지는 사건도 추가한다. 수동 사건은 `processed_by`에 인증된 병원 직원 ID를 기록한다. 결제 사건(오프라인 정산 등)은 여기가 아니라 `payments` 쪽에 기록한다. 추가만 하고 수정·삭제하지 않는다.
 
 ### payment_methods (빌링키)
 
@@ -283,7 +284,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | card_brand_snapshot | VARCHAR NULL | 청구 시점 카드 브랜드 |
 | card_last4_snapshot | VARCHAR NULL | 청구 시점 카드 뒷자리 |
 | amount | INT | 최종 진료비. 0 초과 & 절대 상한(300만원) 이하만 허용 |
-| status | VARCHAR | PENDING / PAID / OFFLINE_REQUIRED / OFFLINE_PAID |
+| status | VARCHAR | PENDING / PAID / OFFLINE_REQUIRED / OFFLINE_PAID / REFUNDED |
 | payment_channel | VARCHAR | BILLING_KEY / OFFLINE |
 | retry_count | INT | 재시도 횟수 |
 | failure_reason | VARCHAR NULL | 실패 사유 |
@@ -293,8 +294,29 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | offline_settled_by | BIGINT NULL | 오프라인 수납 스태프 member_id(감사) |
 | created_at | DATETIME | |
 | paid_at | DATETIME NULL | |
+| refunded_at | DATETIME NULL | 전액 환불 확정 시각(감사·조회 요약, #37) |
 
-환불(REFUNDED)은 MVP 제외(부분 환불은 확장). 결제가 단선 흐름(`PENDING→PAID` 또는 `PENDING→OFFLINE_REQUIRED→OFFLINE_PAID`)이라 행이 덮어써지지 않아 단일 행으로 이력이 보존된다. 환불·재청구를 확장으로 도입할 때 결제 이력 테이블(또는 Payment 1:N)을 추가한다.
+결제는 전진 단선 흐름(`PENDING→PAID[→REFUNDED]` 또는 `PENDING→OFFLINE_REQUIRED→OFFLINE_PAID`)이라 행이 덮어써지지 않아 단일 행으로 상태 이력이 보존된다.
+
+전액 환불(REFUNDED)은 MVP+ 고도화에서 도입했다(#37, 계약은 §9-4). 환불은 `PAID`를 덮어쓰므로 "누가·언제·얼마를·왜 되돌렸는지"가 payments만으로는 남지 않아, 예고했던 결제 이력 테이블 `payment_refunds`를 함께 추가했다. `payments.refunded_at`은 조회 응답에서 매번 이력을 조인하지 않기 위한 요약값이고(`offline_settled_at`과 같은 성격), 상세는 이력 테이블에 있다. **부분 환불·정정 재청구는 여전히 확장**이며, 그때 `UNIQUE(payment_id)`를 떼어 1:N으로 확장한다.
+
+**payment_refunds** (환불 이력)
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| payment_id | BIGINT | UNIQUE. 이 제약이 곧 환불 선점(claim)이다 |
+| merchant_refund_id | VARCHAR(80) | UNIQUE. PG 취소 멱등키. 재시도에도 재사용 |
+| amount | INT | 환불 금액. 전액 환불만 지원하므로 `payments.amount`와 같다 |
+| reason | VARCHAR(200) | 스태프 입력 사유(감사용, 보호자 알림·응답에 노출하지 않는다) |
+| status | VARCHAR | REQUESTED / COMPLETED / FAILED |
+| pg_cancel_id | VARCHAR(100) NULL | 공급자 취소 식별자 |
+| failure_reason | VARCHAR(100) NULL | 실패 분류값(공급자 오류 원문·민감정보 금지) |
+| refunded_by | BIGINT | 환불을 실행한 스태프 member_id(감사) |
+| claimed_at | DATETIME | 선점 시각. "진행 중"과 "멈춘 선점"을 구분하는 근거 |
+| claim_token | VARCHAR(40) | 선점 소유권 펜스. 확정·실패 전이가 함께 검사한다 |
+| refunded_at | DATETIME NULL | 취소 확정 시각(COMPLETED에서만) |
+| created_at / updated_at | DATETIME | |
 
 ### ai_consultations (상담 로그 + 운영·비용 측정)
 
@@ -333,7 +355,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | read_at | DATETIME NULL | 읽은 시각(NULL=미읽음). `is_read`는 이 값의 파생(`read_at IS NOT NULL`) |
 | created_at | DATETIME | |
 
-읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). #39는 알림 **저장 메커니즘**(엔티티·조회·읽음 처리)과 결제 결과(`PAYMENT_RESULT`) **발행**을 제공한다. 예약(`RESERVATION_CONFIRMED`/`RESERVATION_REJECTED`)·노쇼(`NO_SHOW`) 이벤트의 저장 연동은 **#88(PR #107)에서 다룬다** — 승인(CONFIRMED)·수동 거절(REJECTED)·승인 타임아웃 자동 거절(REJECTED)·노쇼(NO_SHOW) 전이를 상태 전이 트랜잭션 안에서 이 저장 메커니즘에 연결한다(사용자 취소 CANCELED는 본인이 한 행위라 알리지 않는다). 이 문서(#40)는 SSE 전송 계층까지를 범위로 하며, 발행처 연동은 companion PR에서 병합된다. push는 MVP2에서 단방향 SSE로 확정됐다(§9-8, #40).
+읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). #39는 알림 저장 메커니즘(엔티티·조회·읽음 처리)과 결제 결과(`PAYMENT_RESULT`) 발행을 제공한다. 예약(`RESERVATION_CONFIRMED`/`RESERVATION_REJECTED`)·노쇼(`NO_SHOW`) 이벤트도 저장 후 `NotificationPusher`를 통해 단방향 SSE로 전달한다. SSE 전송은 커밋 이후 수행하며 티켓 인증과 회원당 연결 상한을 적용한다.
 
 ### payment_webhooks (확장)
 
@@ -374,9 +396,12 @@ stateDiagram-v2
     REQUESTED --> CONFIRMED : 병원 승인
     REQUESTED --> REJECTED : 병원 거절 / 승인 데드라인까지 미승인(자동 거절)
     REQUESTED --> CANCELED : 사용자 취소(예약 2시간 전까지)
-    CONFIRMED --> CHECKED_IN : 병원 체크인(그레이스타임 +10분 내)
+    CONFIRMED --> CHECKED_IN : 직원 도착 확인(+15분 내)
     CONFIRMED --> CANCELED : 사용자 취소(예약 2시간 전까지)
-    CONFIRMED --> NO_SHOW : 예약 시작 후 병원 수동 확정 / +10분 경과 자동 판정
+    CONFIRMED --> NO_SHOW_PENDING : +10분 초과 자동 대기
+    NO_SHOW_PENDING --> CHECKED_IN : 추가 유예 5분 내 직원 도착 확인
+    NO_SHOW_PENDING --> NO_SHOW : +15분 초과 자동 최종 판정
+    CONFIRMED --> NO_SHOW : 예약 시작 후 병원 수동 확정
     CHECKED_IN --> IN_TREATMENT : 진료 시작
     IN_TREATMENT --> TREATMENT_COMPLETED : 진료 완료
     NO_SHOW --> CHECKED_IN : 병원 정정("사실 도착") + 이력 append
@@ -390,7 +415,8 @@ stateDiagram-v2
 - REQUESTED 진입 전제: 프로필 + 빌링키 등록, 예약시각 4시간 전까지.
 - REJECTED: 병원 거절, 또는 승인 데드라인 경과 시 스케줄러 자동 거절(이력 `TIMEOUT_REJECTED`). 슬롯 반환, 후불이라 환불 불필요. 데드라인 = `min(요청시각+1시간, 예약시각−2시간)`.
 - CANCELED: 사용자 취소. REQUESTED·CONFIRMED 두 상태 모두 예약시각 2시간 전까지. 슬롯 반환.
-- NO_SHOW: 병원은 예약 시작 시각부터 수동 확정할 수 있고, 예약시각 +10분 경과 시 스케줄러가 자동 판정한다(수동 판단 우선). 정정 시 CHECKED_IN 재전이.
+- NO_SHOW_PENDING: 예약시각 +10분 초과 시 자동 진입하며 기본 5분 동안 직원 도착 확인을 허용한다. 이 단계에서는 최종 노쇼 알림을 만들지 않는다.
+- NO_SHOW: 병원은 예약 시작 시각부터 수동 확정할 수 있고, 자동 처리는 +15분 초과 시 최종 판정한다(수동 판단 우선). 정정 시 CHECKED_IN 재전이.
 - `PAYMENT_COMPLETED`는 예약 상태에 두지 않는다. 진료 종료가 종착이고, 결제 완료 여부는 Payment 상태로 표현한다.
 
 노쇼 집계: `reservationHistory.noShowCount`는 현재 상태가 `NO_SHOW`인 예약만 센다(전 병원 통합). 정정으로 CHECKED_IN이 된 건은 세지 않는다(정정 = 오판정 취소). 자동판정·정정 흔적은 감사용으로 `reservation_events`에만 남는다.
@@ -640,13 +666,17 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 예약 요청 목록 | GET | /api/hospital/reservations?status=REQUESTED | (자병원 요청 목록, 예약자 이력 포함) |
 | 예약 승인 | PATCH | /api/hospital/reservations/{reservationId}/approve | REQUESTED → CONFIRMED |
 | 예약 거절 | PATCH | /api/hospital/reservations/{reservationId}/reject | REQUESTED → REJECTED, 슬롯 반환 |
-| 체크인 | PATCH | /api/hospital/reservations/{reservationId}/check-in | CONFIRMED → CHECKED_IN |
+| 직원 도착 확인 | PATCH | /api/hospital/reservations/{reservationId}/check-in | CONFIRMED/NO_SHOW_PENDING → CHECKED_IN |
 | 진료 시작 | PATCH | /api/hospital/reservations/{reservationId}/start | CHECKED_IN → IN_TREATMENT |
 | 진료 완료 | PATCH | /api/hospital/reservations/{reservationId}/complete | IN_TREATMENT → TREATMENT_COMPLETED |
-| 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | CONFIRMED → NO_SHOW (자동보다 우선) |
+| 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | CONFIRMED/NO_SHOW_PENDING → NO_SHOW (자동보다 우선) |
 | 노쇼 정정 | PATCH | /api/hospital/reservations/{reservationId}/restore | NO_SHOW → CHECKED_IN, 이력 append |
 
-권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null일 수 있다. `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 +10분 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
+보호자 예약 목록·상세의 진행 상태에는 `NO_SHOW_PENDING`을 포함해 대기 중임을 노출하고, 최종 `NO_SHOW` 전이에만 보호자 알림을 생성한다.
+
+`ReservationProgressStatus` 응답 값은 `RESERVATION_REQUESTED`, `RESERVATION_CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT`, `TREATMENT_COMPLETED`, `PAYMENT_COMPLETED`, `RESERVATION_REJECTED`, `RESERVATION_CANCELED`, `NO_SHOW`이다. `PAYMENT_COMPLETED`는 예약 상태가 `TREATMENT_COMPLETED`이고 결제 상태가 `PAID` 또는 `OFFLINE_PAID`일 때만 파생한다.
+
+권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null일 수 있다. `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
 
 ### 8-7. 결제
 
@@ -669,10 +699,6 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | --- | --- | --- | --- |
 | 목록 조회 | GET | /api/notifications | 인증 |
 | 읽음 처리 | PATCH | /api/notifications/{notificationId}/read | 인증(본인) |
-| 실시간 구독 티켓 발급(MVP2) | POST | /api/notifications/subscribe-ticket | 인증 |
-| 실시간 구독(SSE, MVP2) | GET | /api/notifications/subscribe?ticket= | 티켓 검증 |
-
-실시간 구독은 SSE다(§9-8, #40). `EventSource`가 JWT 헤더를 못 실으므로 인증된 요청으로 단기·1회성 티켓을 발급받아 쿼리로 제시한다(구독 경로만 비인증, 티켓으로 식별). 결제 결과·예약 승인/거절·노쇼 알림이 저장 즉시(커밋 이후) `notification` 이벤트로 전달되고, 재연결 시 저장분은 목록 조회(폴링)로 보정한다.
 
 ---
 
@@ -682,7 +708,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 검색 대상은 자체 DB(`hospitals` + `hospital_details` + `hospital_capabilities`)이고 공공데이터 실시간 호출은 없다. 조건은 `BooleanBuilder`/동적 `where`로 조합하고 null 조건은 무시한다. `requiredCapabilities` 다중 매칭은 `hospital_capabilities`를 조인해 요청 역량을 전부 가진 병원만 남긴다(AND 매칭). 축종(`supportedSpecies`)은 `capability_type='SPECIES'`의 확정 화이트리스트를 사용하며 복수 요청은 AND 매칭한다. 페이징은 count 쿼리를 분리하고 결과 DTO는 `Projections`로 직접 조회한다.
 
-거리 계산은 반경 사각박스(좌표 ± N도)로 후보를 좁힌 뒤 앱단에서 정밀 계산·정렬한다. `ST_Distance_Sphere` 같은 DB 정밀 계산은 안 쓰고, 전국 데이터 확장 단계에서 실행 계획과 응답시간을 측정한 뒤 좌표 인덱스 또는 공간 검색 방식으로 고도화한다. 영업상태는 폐업(`CLOSED`)을 기본 검색에서 제외하고 휴업(`CLOSED_TEMP`)은 포함하되 배지로 표시한다.
+반경 검색은 좌표 사각박스(좌표 ± N도)로 후보를 먼저 좁힌 뒤 애플리케이션에서 정밀 거리와 반경 포함 여부를 계산한다. 반경이 없는 거리순 검색은 MySQL `ST_Distance_Sphere`로 정렬하고 `(거리, 병원명, 병원 ID)` 순서로 DB 페이징하며, 좌표가 없는 병원은 좌표가 있는 병원 뒤에 둔다. 현재 영업 필터는 `open_hours` JSON의 요일·자정 넘김 판정 계약을 서버에 유지하되, 이름순 또는 거리순으로 정렬된 후보를 200건 단위로 읽어 요청 페이지의 결과와 전체 일치 건수만 보관한다. 따라서 무반경 거리순·현재 영업 검색은 전체 후보 목록을 한 번에 애플리케이션 메모리에 적재하지 않는다. 다만 현재 영업 검색은 정확한 `totalElements` 계산을 위해 조건 후보 전체를 끝까지 순회하므로 총 스캔 로우 수는 줄지 않고, 200건 단위 조회로 DB 왕복 횟수가 증가할 수 있다. 전국 데이터 기준 실행 계획·응답시간 측정과 영업시간 필터의 DB 전환 여부는 후속 성능 검증 대상으로 둔다. 영업상태는 폐업(`CLOSED`)을 기본 검색에서 제외하고 휴업(`CLOSED_TEMP`)은 포함하되 배지로 표시한다.
 
 역량·축종·시설 필터는 제휴 병원만 대상이다. `hospital_capabilities`·`hospital_details`가 제휴 병원만 보강되므로, `requiredCapabilities`/`species`/야간·응급 조건이 걸리면 비제휴 병원은 결과에서 빠진다. 비제휴는 지역·거리 등 원본 필드 조건으로만 노출된다. 그래서 AI가 역량 조건으로 검색하면 사실상 제휴 병원이 추천되고 비제휴는 "인근 참고 병원"으로만 함께 보인다.
 
@@ -725,7 +751,26 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 
 결제수단 삭제·만료: 청구 직전 `payment_method.status`를 조회해 `ACTIVE`가 아니면 자동 청구를 시도하지 않고 곧바로 `OFFLINE_REQUIRED`로 확정한다. 결제수단 삭제는 예약이 물려 있어도 자유롭게 허용한다(§4-2).
 
-오프라인 정산: `PATCH /api/hospital/payments/{paymentId}/offline-settle`, 전제 `status==OFFLINE_REQUIRED`, 처리 후 `OFFLINE_PAID`+`OFFLINE` 채널, `offline_settled_at/by` 감사 기록, 자동 재시도 파이프라인 중단. 환불은 MVP 제외이며 확장에서 결제 이력 테이블(또는 Payment 1:N)과 함께 도입한다.
+오프라인 정산: `PATCH /api/hospital/payments/{paymentId}/offline-settle`, 전제 `status==OFFLINE_REQUIRED`, 처리 후 `OFFLINE_PAID`+`OFFLINE` 채널, `offline_settled_at/by` 감사 기록, 자동 재시도 파이프라인 중단.
+
+환불(MVP 제외 → MVP+ 고도화에서 **전액 환불**만 도입, 이슈 #37): `POST /api/hospital/payments/{paymentId}/refund`, body는 사유만 받는다(금액을 받으면 과·소 환불이 가능해진다 — 결제 레코드의 금액을 그대로 취소한다). 전제 `status==PAID && payment_channel==BILLING_KEY`, 처리 후 `REFUNDED`+`refunded_at`, 채널은 결제 시점 값을 유지한다(무엇으로 결제된 건을 되돌렸는지가 남아야 한다).
+
+- 청구(§9-4)와 같은 3단 구조다: **선점(Tx1) → PG 취소(트랜잭션 밖) → 확정(Tx2)**. 취소 실패 시 결제는 `PAID`로 남아 같은 멱등키로 재시도할 수 있다.
+- 선점은 `payment_refunds`의 `UNIQUE(payment_id)` INSERT가 담당한다 — 동시 환불 요청 중 1건만 PG 취소로 진행하고 나머지는 `REFUND_IN_PROGRESS`(409)다. 결제 상태에 "환불 진행 중" 중간 단계를 두지 않는다: 실패 시 되돌리는 역방향 전이가 생겨 전진 단선 원칙(§5-2)이 깨지기 때문이다.
+- `merchant_refund_id`는 재시도에도 **재사용**한다. 새 키를 만들면 공급자도 이중 취소를 막을 수 없다. 승인 멱등키(`merchant_payment_id`)와 분리한다 — 같은 키를 공유하면 공급자 멱등 캐시에서 승인과 취소가 충돌한다.
+- `claimed_at`과 `payment.refund.claim-stale-after-ms`(기본 2분)로 "진행 중"과 "앱이 죽어 멈춘 선점"을 구분한다. 임계를 넘긴 선점만 회수해 같은 멱등키로 재시도하며, 이 경로가 "PG는 취소됐는데 우리 상태만 `PAID`로 멈춘" 행을 복구한다.
+- 알림 중복은 `PAID→REFUNDED` 조건부 UPDATE의 성립 여부로만 판단한다(§9-4 청구 후확정의 `applied`와 동일 근거). `NotificationType`은 늘리지 않고 `PAYMENT_RESULT`를 재사용한다.
+- 취소 금액이 요청과 다르면 `REFUNDED`로 확정하지 않는다 — 실제와 다른 금액이 이력에 남으므로 사유를 기록한 채 `PAID`를 유지하고 운영 확인 대상으로 남긴다(§9-4 정합성 오류와 같은 원칙).
+- 현장 현금 수납(`OFFLINE_PAID`)의 환불과 **부분 환불·정정 재청구는 여전히 확장**이다. 전자는 현금 반환 절차·승인자·증빙 정책이 미정이고, 후자는 `UNIQUE(payment_id)`를 떼고 1:N으로 확장해야 한다.
+
+- 확정에서 결제 전이가 0건인데 결제가 `REFUNDED`도 아니면 이력 확정까지 **롤백한다**(예외). 이력만 `COMPLETED`로 커밋하면 결제와 어긋난 채 이후 재요청이 그 이력에 막혀 복구되지 않는다. 롤백하면 `REQUESTED` 선점이 남아 임계 경과 후 같은 멱등키 재시도가 PG의 기존 취소 결과로 자가 복구한다(PR #112 리뷰 P1).
+- 선점에는 소유권 펜스(`claim_token`)를 둔다. 선점할 때마다 새 토큰을 발급하고 확정·실패 전이가 이 토큰을 함께 검사하므로, 선점이 회수된 뒤 도착한 이전 요청의 늦은 결과는 반영되지 않는다. 확정은 이력 전이를 먼저 시도하고 그것이 성립했을 때만 결제를 전이한다 — 순서를 뒤집거나 펜스를 빼면 "이력 FAILED + 결제 REFUNDED"로 갈라진다(PR #112 리뷰 P1).
+- "이미 취소됨" 재요청 뒤 단건조회에서 취소 내역(취소 금액)을 확인할 수 없으면 전액 취소로 단정하지 않고 미확정으로 올린다 — 상태만으로는 부분 취소(`PARTIAL_CANCELLED`)를 구분할 수 없어, 일부만 취소된 결제가 전액 환불로 확정될 수 있다(PR #112 리뷰 P1).
+
+알려진 한계 (MVP+ 범위에서 의도한 것 — 확장 시 함께 해소한다)
+
+- **환불한 예약은 다시 청구할 수 없다.** 청구 선기록이 상태와 무관하게 `exists(reservation_id)`로 이중 청구를 막고, `payments.UNIQUE(reservation_id)`가 예약당 1건을 강제하기 때문이다. 즉 오청구를 환불해도 올바른 금액으로 재청구하는 흐름은 없다 — 정정 재청구가 확장으로 분류된 이유이자, 그 확장이 `payments` 1:N 스키마 변경을 필요로 하는 지점이다. 그때까지 금액 정정은 병원 수기·운영자 콘솔로 처리한다.
+- **멈춘 환불을 자동 복구하는 스케줄러는 없다.** 정산(§9-7)과 달리 배치를 두지 않았고, 임계를 넘긴 선점은 다음 환불 요청이 들어올 때만 회수·재시도된다. 그때까지 결제는 `PAID`로 보인다 — PG에서 이미 취소됐다면 그 시간 동안 실제와 어긋난다. 환불 빈도가 낮고(오청구 한정) 스태프가 결과를 즉시 확인하는 동기 요청이라 MVP+에서는 배치 대신 재요청 경로로 둔다.
 
 ## 9-5. AI 제한적 Tool Calling
 
@@ -799,24 +844,19 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 | 스케줄러 | 주기 | 처리 |
 | --- | --- | --- |
-| 노쇼 자동 판정 | 1분 | CONFIRMED 중 예약시각+10분 경과·미체크인 → NO_SHOW(수동 판정 우선) |
+| 노쇼 자동 판정 | 1분 | CONFIRMED 중 예약시각+10분 초과·미체크인 → NO_SHOW_PENDING, 기본 추가 유예 5분 초과 → NO_SHOW(수동 판정 우선, 최종 전이에만 보호자 알림) |
 | 예약 요청 타임아웃 | 1분 | REQUESTED 중 승인 데드라인(`min(요청+1h, 예약−2h)`) 경과·미승인 → 자동 REJECTED, 슬롯 반환 |
 | 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정. 단, 사유가 `AMOUNT_MISMATCH`/`INVALID_PG_RESULT`인 `PENDING`은 자동 확정하지 않고 운영자 수동 확인 대상으로 분류(금액·식별자 정합성이 깨져 자동 확정 시 잘못된 금액 확정 위험) |
 | 공공데이터 적재 | 매주 월요일 03:00(`Asia/Seoul`) | 전국 공공데이터 갱신 후 제휴 데이터를 재적용하고 검색 캐시를 삭제한다 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
 
-## 9-8. 실시간 알림 (도전)
+노쇼 배치는 한 예약이 같은 실행에서 `CONFIRMED → NO_SHOW_PENDING → NO_SHOW`로 연달아 전이될 수 있다. 따라서 `maxScannedPerRun`은 조회·전이 시도 횟수 상한이며, `processed`는 한 번 이상 상태 전이에 성공한 예약 수를 뜻한다. `AUTO_NO_SHOW_PENDING`과 `AUTO_NO_SHOW`의 실제 전이 건수는 `reservation_events` 상태 이력으로 확인한다.
+
+## 9-8. 실시간 알림 (MVP2)
 
 병원 승인형 예약은 상태가 병원 액션에 따라 비동기로 바뀌므로 폴링 없이 즉시 받는 실시간 채널이 자연스럽다. 대상 이벤트는 예약 `CONFIRMED`/`REJECTED`, 결제 `PAID`/`OFFLINE_REQUIRED`, 노쇼 판정. 상태 전이 시 `notifications`에 저장한다.
 
-push 방식은 **단방향 SSE로 확정한다**(MVP2 고도화, #40). MVP는 폴링으로 완성했고, 예약·결제 알림은 서버→클라이언트 단방향이라 SSE가 자연스럽다. 수의사·보호자 1:1 채팅 같은 양방향이 실제로 필요해지면 그 범위에 한해 WebSocket+STOMP를 추가로 검토하되, 현재는 도입하지 않는다.
-
-구현 계약:
-- 발신은 `NotificationPusher` 인터페이스로 추상화하고 SSE 구현체(`SseNotificationPusher`)가 수신자별 `SseEmitter` 레지스트리로 전달한다. 연결 레지스트리는 **단일 인스턴스 인메모리**이며, 수평 확장 시 Redis pub/sub 팬아웃을 후속으로 둔다. 리소스 소진 방지를 위해 **회원당 동시 연결 상한(5)**을 두고 초과 구독은 429로 거절한다(죽은 연결은 heartbeat 주기에 정리되어 자가 회복되는 soft cap).
-- **커밋 이후 전송 불변식**: 알림 저장이 원본이고 push는 부가 전달이다. 저장은 상태 전이 트랜잭션 안에서 이뤄지고(전이가 롤백되면 알림도 없음), 전송은 `@TransactionalEventListener(AFTER_COMMIT)`로 커밋 이후에만 실행된다. 전송 실패는 삼켜서 예약·결제 트랜잭션에 영향을 주지 않으며, 보호자는 폴링으로 알림을 받을 수 있다.
-- **인증**: `EventSource`가 커스텀 헤더(JWT)를 못 실으므로, 인증된 요청으로 단기(30초)·1회성 티켓을 발급받아(`POST /api/notifications/subscribe-ticket`) 구독 시 쿼리로 제시한다(`GET /api/notifications/subscribe?ticket=`). 티켓 값은 memberId를 담지 않는 난수(UUID)이고 매핑은 Redis에만 두며 소비 즉시 삭제(GET+DEL 원자 연산)해 재사용을 막는다.
-- 프록시가 유휴 연결을 끊지 않도록 주기적 heartbeat comment를 보낸다(전용 executor로 격리해 결제·예약 배치 스케줄러와 스레드를 공유하지 않는다).
-- **재연결 계약(프론트 필수)**: 티켓이 1회성이라 브라우저 `EventSource`의 자동 재연결은 이미 소비된 티켓으로 401을 받아 실패한다. 따라서 프론트는 `onerror`에서 자동 재연결에 의존하지 말고 **새 티켓을 발급받아 다시 구독**해야 한다(끊긴 동안의 유실 알림은 목록 조회 폴링으로 보정). emitter 타임아웃(30분) 만료 시에도 동일하게 새 티켓으로 재구독한다.
+실시간 push는 MVP2에서 단방향 SSE로 확정한다. `NotificationPusher` 추상화 뒤에 SSE 구현을 두고, `EventSource`의 헤더 제약을 보완하기 위해 구독 티켓을 인증한다. 알림 저장 트랜잭션이 커밋된 뒤 push를 전송하며 회원당 연결 상한을 적용한다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 SSE는 부가 전달이다. 양방향 WebSocket+STOMP는 수의사·보호자 채팅 도입 시에만 별도 검토한다.
 
 ## 9-9. 예약 슬롯 생성·운영
 
@@ -888,7 +928,8 @@ sequenceDiagram
     participant H as 병원 스태프
 
     SCH->>S: 1분 주기 스캔
-    S->>S: 예약시각+10분 경과·미체크인 → NO_SHOW (이력 AUTO_NO_SHOW)
+    S->>S: 예약시각+10분 초과·미체크인 → NO_SHOW_PENDING (이력 AUTO_NO_SHOW_PENDING)
+    S->>S: 추가 5분 초과·미체크인 → NO_SHOW (이력 AUTO_NO_SHOW + 알림)
     alt 병원 수동 우선
         H->>S: 노쇼 수동 확정 (이력 MANUAL_NO_SHOW)
     end
@@ -920,7 +961,7 @@ sequenceDiagram
 - GitHub Actions로 빌드·테스트 자동 실행, 이미지 빌드·배포.
 - k6로 검색·예약 처리량·응답시간을 비교한다. 검색 캐시는 최초 진입 기본 첫 페이지의 적용 전후만 비교한다.
 - 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #105). Grafana 등 시각화는 여력에 따라 확장.
-- 단방향 실시간 알림은 SSE로 확정·구현했다(§9-8). 양방향 실시간 메시징은 채팅 도입 여부에 따라 추후 재논의.
+- 실시간 알림은 단방향 SSE로 확정했으며, 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다(§9-8).
 
 **관측성 지표·API 문서 노출 범위(이슈 #105)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
 
@@ -934,13 +975,12 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, 실시간 알림=MVP 폴링·MVP2 단방향 SSE(§9-8·#40), 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
+확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, 단방향 SSE 실시간 알림, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
 
 남은 것:
 
 | # | 항목 | 위치 |
 | --- | --- | --- |
-| 1 | 양방향 실시간 채널(WebSocket+STOMP) 도입 여부 — 단방향 예약·결제 알림은 SSE로 확정(MVP2, §9-8·#40). 수의사·보호자 1:1 채팅 같은 양방향이 필요해질 때만 재논의 | §2, §9-8 |
 | 2 | 이메일 인증 링크를 끝까지 클릭하지 않는 미인증 계정 처리 — 무기한 방치 vs 가입 후 N일 경과 시 자동 삭제(배치 필요) | §6-4 |
 | 3 | SNS 로그인(구글·카카오) 도입 여부·지원 프로바이더 범위·기존 이메일 계정과의 연동 정책 — 착수 전 팀 합의 필요(PRD·SA 가입 스펙 변경 수반) | §6-5 |
 | 4 | 이메일 인증·비밀번호 재설정 토큰 소비 순서 개선(리뷰 지적 P2, non-blocking) — 상세 설계는 아래 참고 | §6-4 |

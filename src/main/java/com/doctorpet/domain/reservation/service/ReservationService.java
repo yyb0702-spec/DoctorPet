@@ -41,14 +41,18 @@ public class ReservationService {
     private final ReservationLockStrategy reservationLockStrategy;
 
     /*
-      회원 탈퇴 전 활성 예약(CONFIRMED·CHECKED_IN) 보유 여부 확인용(SA §6-3, 부록A 확정).
+      회원 탈퇴 전 활성 예약(CONFIRMED·NO_SHOW_PENDING·CHECKED_IN) 보유 여부 확인용(SA §6-3, 부록A 확정).
       다른 도메인(Member)은 이 Service를 경유해서만 호출한다 — ReservationRepository를
       직접 참조하지 않는다(구현 가드레일).
      */
     public boolean hasActiveReservation(Long memberId) {
         return reservationRepository.existsByMemberIdAndStatusIn(
                 memberId,
-                List.of(ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN)
+                List.of(
+                        ReservationStatus.CONFIRMED,
+                        ReservationStatus.NO_SHOW_PENDING,
+                        ReservationStatus.CHECKED_IN
+                )
         );
     }
 

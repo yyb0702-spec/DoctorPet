@@ -72,7 +72,7 @@ class ReservationServiceTest {
     }
  
     @Test
-    @DisplayName("CONFIRMED 또는 CHECKED_IN 예약이 있으면 true를 반환한다")
+    @DisplayName("CONFIRMED·NO_SHOW_PENDING 또는 CHECKED_IN 예약이 있으면 true를 반환한다")
     void hasActiveReservation_true() {
         given(reservationRepository.existsByMemberIdAndStatusIn(
                 eq(1L), eq(activeStatuses()))).willReturn(true);
@@ -83,7 +83,7 @@ class ReservationServiceTest {
     }
  
     @Test
-    @DisplayName("CONFIRMED·CHECKED_IN 예약이 없으면 false를 반환한다(REQUESTED·CANCELED 등은 활성으로 안 본다)")
+    @DisplayName("활성 예약이 없으면 false를 반환한다(REQUESTED·CANCELED 등은 활성으로 안 본다)")
     void hasActiveReservation_false() {
         given(reservationRepository.existsByMemberIdAndStatusIn(
                 eq(1L), eq(activeStatuses()))).willReturn(false);
@@ -230,7 +230,11 @@ class ReservationServiceTest {
     }
  
     private Collection<ReservationStatus> activeStatuses() {
-        return List.of(ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN);
+        return List.of(
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.NO_SHOW_PENDING,
+                ReservationStatus.CHECKED_IN
+        );
     }
  
     private ReservationSlot slot(LocalDateTime startAt) {

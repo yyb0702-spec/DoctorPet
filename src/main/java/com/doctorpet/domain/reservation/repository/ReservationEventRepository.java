@@ -4,6 +4,7 @@ import com.doctorpet.domain.reservation.entity.ReservationEvent;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -28,6 +29,11 @@ public interface ReservationEventRepository extends JpaRepository<ReservationEve
     );
 
     List<ReservationEvent> findAllByReservation_IdOrderByOccurredAtAsc(Long reservationId);
+
+    Optional<ReservationEvent> findFirstByReservation_IdAndEventTypeOrderByOccurredAtAsc(
+            Long reservationId,
+            ReservationEventType eventType
+    );
 
     long countByReservation_IdAndEventType(
             Long reservationId,

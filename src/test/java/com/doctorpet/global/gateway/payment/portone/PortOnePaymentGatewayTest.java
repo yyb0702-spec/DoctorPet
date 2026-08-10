@@ -19,6 +19,8 @@ import com.doctorpet.global.gateway.payment.PaymentGatewayException;
 import com.doctorpet.global.gateway.payment.dto.BillingKeyIssueResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveCommand;
 import com.doctorpet.global.gateway.payment.dto.PaymentApproveResult;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelCommand;
+import com.doctorpet.global.gateway.payment.dto.PaymentCancelResult;
 import com.doctorpet.global.gateway.payment.dto.PaymentQueryResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
@@ -250,5 +252,106 @@ class PortOnePaymentGatewayTest {
         assertThatThrownBy(() -> gateway.query("pay_1"))
                 .isInstanceOfSatisfying(PaymentGatewayException.class,
                         ex -> assertThat(ex.getFailureReason()).isEqualTo(GatewayFailureReason.RETRIABLE));
+    }
+
+    // --- 취소·환불 바인딩 (#37) ---
+
+    @Test
+    @DisplayName("취소는 취소 내역의 식별자·금액·시각을 반환하고 시각은 서울 기준으로 변환한다")
+    void cancel_bindsCancellation() throws Exception {
+        PortOnePaymentGateway gateway = gatewayWith(response(200,
+                "{\"cancellation\":{\"id\":\"cancel_1\",\"pgCancellationId\":\"pg_cancel_1\","
+                        + "\"totalAmount\":50000,\"cancelledAt\":\"2026-08-06T01:00:00Z\"}}"));
+
+        PaymentCancelResult result = gateway.cancel(
+                new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구"));
+
+        assertThat(result.pgCancelId()).isEqualTo("pg_cancel_1");
+        assertThat(result.amount()).isEqualTo(50000);
+        // 01:00Z == 서울 10:00(승인 시각과 같은 시간 정책).
+        assertThat(result.cancelledAt()).isEqualTo(LocalDateTime.of(2026, 8, 6, 10, 0));
+    }
+
+    @Test
+    @DisplayName("취소 요청은 merchantRefundId를 RFC 8941 형식으로 감싼 Idempotency-Key로 실어 이중 취소를 막는다")
+    void cancel_sendsRefundIdempotencyKey() throws Exception {
+        PortOnePaymentGateway gateway = gatewayWith(response(200,
+                "{\"cancellation\":{\"pgCancellationId\":\"pg_cancel_1\",\"totalAmount\":50000}}"));
+
+        gateway.cancel(new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구"));
+
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient, times(2)).send(captor.capture(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+        HttpRequest cancelRequest = captor.getAllValues().stream()
+                .filter(req -> req.uri().getPath().endsWith("/cancel"))
+                .findFirst()
+                .orElseThrow();
+        // 결제 승인과 다른 별도 멱등키여야 한다 — 같은 키를 쓰면 공급자 멱등 캐시에서 승인과 취소가 충돌한다.
+        assertThat(cancelRequest.headers().firstValue("Idempotency-Key")).hasValue("\"rfd_1\"");
+    }
+
+    @Test
+    @DisplayName("이미 취소된 결제 재요청은 단건조회로 확인해 기존 취소 결과를 성공으로 반환한다")
+    void cancel_alreadyCancelled_absorbedAsSuccess() throws Exception {
+        // send 순서는 토큰 발급(1) → 취소 409(이미 취소됨) → 단건조회(3)다.
+        // 확인 조회는 토큰을 재발급하지 않고 취소 때 받은 토큰을 재사용하므로 토큰 응답은 한 번만 스텁한다.
+        httpClient = mock(HttpClient.class);
+        HttpResponse<String> tokenResponse = response(200, TOKEN_RESPONSE);
+        HttpResponse<String> alreadyCancelled = response(409, "{\"type\":\"PAYMENT_ALREADY_CANCELLED\"}");
+        HttpResponse<String> queryResponse = response(200,
+                "{\"status\":\"CANCELLED\",\"cancellations\":[{\"pgCancellationId\":\"pg_cancel_1\","
+                        + "\"totalAmount\":50000}]}");
+        given(httpClient.send(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .willReturn(tokenResponse, alreadyCancelled, queryResponse);
+        PortOnePaymentGateway gateway =
+                new PortOnePaymentGateway(configuredProperties(), errorCodeMapper, httpClient, new ObjectMapper());
+
+        PaymentCancelResult result = gateway.cancel(
+                new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구"));
+
+        // 실패로 올리면 상위의 재시도·복구 경로가 영구히 실패한다 — 기존 취소 결과를 성공으로 흡수해야 한다.
+        assertThat(result.pgCancelId()).isEqualTo("pg_cancel_1");
+        assertThat(result.amount()).isEqualTo(50000);
+    }
+
+    @Test
+    @DisplayName("취소 불가(취소 가능 금액 소진)는 NON_RETRIABLE로 분류해 예외를 던진다")
+    void cancel_nonRetriable() throws Exception {
+        PortOnePaymentGateway gateway = gatewayWith(
+                response(400, "{\"type\":\"CANCELLABLE_AMOUNT_CONSUMED\"}"));
+
+        assertThatThrownBy(() -> gateway.cancel(new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구")))
+                .isInstanceOfSatisfying(PaymentGatewayException.class,
+                        ex -> assertThat(ex.getFailureReason()).isEqualTo(GatewayFailureReason.NON_RETRIABLE));
+    }
+
+    @Test
+    @DisplayName("이미 취소됨 재요청 후 조회가 취소 내역 없이 PARTIAL_CANCELLED면 전액으로 단정하지 않고 UNKNOWN이다")
+    void cancel_partialCancelledWithoutDetail_isUnknown() throws Exception {
+        // mapStatus는 CANCELLED와 PARTIAL_CANCELLED를 모두 FAILED로 합치므로 상태만으로는 부분 취소를 구분할 수
+        // 없다. 요청 금액을 그대로 채우면 상위 금액 대조가 통과해 일부만 취소된 결제가 전액 환불로 확정된다(리뷰 P1).
+        httpClient = mock(HttpClient.class);
+        HttpResponse<String> tokenResponse = response(200, TOKEN_RESPONSE);
+        HttpResponse<String> alreadyCancelled = response(409, "{\"type\":\"PAYMENT_ALREADY_CANCELLED\"}");
+        HttpResponse<String> queryResponse = response(200, "{\"status\":\"PARTIAL_CANCELLED\"}");
+        given(httpClient.send(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .willReturn(tokenResponse, alreadyCancelled, queryResponse);
+        PortOnePaymentGateway gateway =
+                new PortOnePaymentGateway(configuredProperties(), errorCodeMapper, httpClient, new ObjectMapper());
+
+        assertThatThrownBy(() -> gateway.cancel(new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구")))
+                .isInstanceOfSatisfying(PaymentGatewayException.class,
+                        ex -> assertThat(ex.getFailureReason()).isEqualTo(GatewayFailureReason.UNKNOWN));
+    }
+
+    @Test
+    @DisplayName("2xx인데 취소 내역이 없으면 성공으로 단정하지 않고 UNKNOWN 예외를 던진다")
+    void cancel_missingCancellation_unknown() throws Exception {
+        PortOnePaymentGateway gateway = gatewayWith(response(200, "{}"));
+
+        // 성공으로 오판하면 환불되지 않은 결제가 REFUNDED로 확정된다.
+        assertThatThrownBy(() -> gateway.cancel(new PaymentCancelCommand("pay_1", "rfd_1", 50000, "오청구")))
+                .isInstanceOfSatisfying(PaymentGatewayException.class,
+                        ex -> assertThat(ex.getFailureReason()).isEqualTo(GatewayFailureReason.UNKNOWN));
     }
 }

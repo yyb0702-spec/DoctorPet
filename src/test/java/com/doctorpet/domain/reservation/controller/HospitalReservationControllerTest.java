@@ -3,6 +3,7 @@ package com.doctorpet.domain.reservation.controller;
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRestoreRequest;
+import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.response.ApiResponse;
@@ -13,6 +14,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
+
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -53,10 +56,18 @@ class HospitalReservationControllerTest {
 
     @Test
     void checkIn_delegatesAuthenticatedStaffAndReservationId() {
-        ApiResponse<Void> response = hospitalReservationController.checkIn(principal, 10L);
+        ReservationCheckInResponse checkIn = ReservationCheckInResponse.from(
+                10L,
+                LocalDateTime.of(2026, 8, 6, 10, 0)
+        );
+        when(hospitalReservationService.checkIn(50L, 10L)).thenReturn(checkIn);
+
+        ApiResponse<ReservationCheckInResponse> response =
+                hospitalReservationController.checkIn(principal, 10L);
 
         verify(hospitalReservationService).checkIn(50L, 10L);
         assertThat(response.code()).isEqualTo("SUCCESS");
+        assertThat(response.data()).isEqualTo(checkIn);
     }
 
     @Test

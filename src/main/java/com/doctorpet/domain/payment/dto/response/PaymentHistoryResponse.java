@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
   failure_reason도 마찬가지다 — RECONCILE_QUERY_FAILED·CHARGE_ORCHESTRATION_ERROR 같은 내부 처리 분류 코드라,
   노출하면 내부 구현 변경이 곧 API 계약 변경이 되고 보호자에게도 의미가 없어 응답에 담지 않는다(PR #79 리뷰 반영).
   failedAt은 자동 청구 실패로 오프라인 전환된 시각(offline_required_at)이다.
+  refundedAt은 전액 환불이 확정된 시각(#37)이다 — 보호자가 환불 여부를 확인해야 하므로 status(REFUNDED)와 함께
+  노출한다. 환불 사유·처리 스태프·PG 취소 식별자는 병원 내부 감사값이라 담지 않는다(payment_refunds에만 남는다).
  */
 public record PaymentHistoryResponse(
         Long paymentId,
@@ -24,7 +26,8 @@ public record PaymentHistoryResponse(
         LocalDateTime createdAt,
         LocalDateTime paidAt,
         LocalDateTime failedAt,
-        LocalDateTime offlineSettledAt
+        LocalDateTime offlineSettledAt,
+        LocalDateTime refundedAt
 ) {
 
     public static PaymentHistoryResponse from(Payment payment) {
@@ -39,6 +42,7 @@ public record PaymentHistoryResponse(
                 payment.getCreatedAt(),
                 payment.getPaidAt(),
                 payment.getOfflineRequiredAt(),
-                payment.getOfflineSettledAt());
+                payment.getOfflineSettledAt(),
+                payment.getRefundedAt());
     }
 }

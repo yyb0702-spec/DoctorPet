@@ -95,6 +95,11 @@ public class Payment extends BaseEntity {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    // 전액 환불이 확정된 시각(#37). 상세 이력(사유·처리자·PG 취소 식별자)은 payment_refunds에 있고,
+    // 이 컬럼은 결제 조회 응답·목록에서 매번 이력 테이블을 조인하지 않으려는 요약값이다(offline_settled_at과 같은 성격).
+    @Column(name = "refunded_at")
+    private LocalDateTime refundedAt;
+
     private Payment(
             Long reservationId, String merchantPaymentId, Long paymentMethodId,
             String cardBrandSnapshot, String cardLast4Snapshot, int amount
@@ -151,6 +156,20 @@ public class Payment extends BaseEntity {
         ensurePending();
         this.retryCount = retryCount;
         this.failureReason = failureReason;
+    }
+
+    /**
+     * 전액 환불 확정(#37). PAID에서만 전이한다 — 오프라인 수납(OFFLINE_PAID) 환불은 범위 밖이고,
+     * PENDING은 승인 여부가 불확실해 취소 대상이 아니다. 실제 전이는 조건부 UPDATE(WHERE status='PAID')가
+     * 원자적으로 하고, 이 메서드는 테스트 픽스처·단위 검증용이다.
+     * 채널은 결제 시점 값(BILLING_KEY)을 그대로 유지한다 — 어떤 수단으로 결제된 건을 되돌렸는지가 남아야 한다.
+     */
+    public void markRefunded(LocalDateTime refundedAt) {
+        if (this.status != PaymentStatus.PAID) {
+            throw new IllegalStateException("PAID 상태에서만 환불할 수 있습니다. 현재 상태=" + this.status);
+        }
+        this.status = PaymentStatus.REFUNDED;
+        this.refundedAt = refundedAt;
     }
 
     private void ensurePending() {

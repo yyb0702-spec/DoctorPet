@@ -63,7 +63,7 @@ class ReservationPaymentQueryControllerTest {
 
     private PaymentHistoryResponse paid() {
         return new PaymentHistoryResponse(1L, 100L, PaymentStatus.PAID, PaymentChannel.BILLING_KEY,
-                50000, "VISA", "1234", LocalDateTime.now(), LocalDateTime.now(), null, null);
+                50000, "VISA", "1234", LocalDateTime.now(), LocalDateTime.now(), null, null, null);
     }
 
     @Test

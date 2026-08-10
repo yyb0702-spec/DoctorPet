@@ -85,6 +85,9 @@ public class Reservation extends BaseEntity {
     @Column(name = "no_show_at")
     private LocalDateTime noShowAt;
 
+    @Column(name = "no_show_pending_at")
+    private LocalDateTime noShowPendingAt;
+
     private Reservation(
             Long memberId,
             Long petId,

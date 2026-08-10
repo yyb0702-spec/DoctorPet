@@ -35,6 +35,7 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -47,6 +48,8 @@ import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 @Service
 @RequiredArgsConstructor
 public class HospitalService {
+
+    private static final int POST_PROCESSING_BATCH_SIZE = 200;
 
     private final HospitalRepository hospitalRepository;
     private final HospitalDetailRepository hospitalDetailRepository;
@@ -155,9 +158,6 @@ public class HospitalService {
                 partnerOnly
         );
 
-        boolean requiresPostProcessing = radiusKm != null
-                || openNowOnly
-                || normalizedSort == HospitalSearchSort.DISTANCE;
         boolean initialListing = isInitialListing(
                 condition,
                 openNowOnly,
@@ -165,7 +165,7 @@ public class HospitalService {
                 normalizedSort
         );
 
-        if (requiresPostProcessing) {
+        if (radiusKm != null) {
             return searchWithPostProcessing(
                     condition,
                     latitude,
@@ -175,6 +175,27 @@ public class HospitalService {
                     page,
                     size,
                     normalizedSort
+            );
+        }
+
+        if (openNowOnly) {
+            return searchOpenNowWithBoundedPaging(
+                    condition,
+                    latitude,
+                    longitude,
+                    page,
+                    size,
+                    normalizedSort
+            );
+        }
+
+        if (normalizedSort == HospitalSearchSort.DISTANCE) {
+            return searchDistanceWithDatabasePaging(
+                    condition,
+                    latitude,
+                    longitude,
+                    page,
+                    size
             );
         }
 
@@ -412,6 +433,127 @@ public class HospitalService {
                 size,
                 totalElements,
                 totalPages
+        );
+    }
+
+    private HospitalSearchPageResponse searchDistanceWithDatabasePaging(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size
+    ) {
+        long totalElements = hospitalRepository.count(condition);
+        int totalPages = calculateTotalPages(totalElements, size);
+        long offset = (long) (page - 1) * size;
+
+        List<HospitalSearchResponse> content =
+                totalElements == 0 || page > totalPages
+                        ? List.of()
+                        : hospitalRepository.searchDistancePage(
+                                        condition,
+                                        latitude,
+                                        longitude,
+                                        offset,
+                                        size
+                                ).stream()
+                                .map(candidate -> toSearchResult(
+                                        candidate,
+                                        latitude,
+                                        longitude
+                                ))
+                                .map(this::toSearchResponse)
+                                .toList();
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private HospitalSearchPageResponse searchOpenNowWithBoundedPaging(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size,
+            HospitalSearchSort sort
+    ) {
+        long requestedFrom = (long) (page - 1) * size;
+        long matchingCount = 0;
+        long candidateOffset = 0;
+        List<HospitalSearchResponse> content = new ArrayList<>(size);
+
+        while (true) {
+            List<HospitalSearchCandidate> candidates =
+                    searchPostProcessingBatch(
+                            condition,
+                            latitude,
+                            longitude,
+                            sort,
+                            candidateOffset
+                    );
+
+            if (candidates.isEmpty()) {
+                break;
+            }
+
+            for (HospitalSearchCandidate candidate : candidates) {
+                HospitalSearchResult result = toSearchResult(
+                        candidate,
+                        latitude,
+                        longitude
+                );
+                if (!Boolean.TRUE.equals(result.openNow())) {
+                    continue;
+                }
+
+                if (matchingCount >= requestedFrom
+                        && content.size() < size) {
+                    content.add(toSearchResponse(result));
+                }
+                matchingCount++;
+            }
+
+            candidateOffset += candidates.size();
+            if (candidates.size() < POST_PROCESSING_BATCH_SIZE) {
+                break;
+            }
+        }
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                matchingCount,
+                calculateTotalPages(matchingCount, size)
+        );
+    }
+
+    private List<HospitalSearchCandidate> searchPostProcessingBatch(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            HospitalSearchSort sort,
+            long offset
+    ) {
+        if (sort == HospitalSearchSort.DISTANCE) {
+            return hospitalRepository.searchDistancePage(
+                    condition,
+                    latitude,
+                    longitude,
+                    offset,
+                    POST_PROCESSING_BATCH_SIZE
+            );
+        }
+
+        return hospitalRepository.searchPage(
+                condition,
+                offset,
+                POST_PROCESSING_BATCH_SIZE
         );
     }
 

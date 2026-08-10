@@ -14,17 +14,19 @@ import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationEvent;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.config.ReservationNoShowProperties;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
-import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -71,12 +73,16 @@ class HospitalReservationApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
+        ReservationNoShowProperties noShowProperties = new ReservationNoShowProperties();
+        noShowProperties.setGraceMinutes(10);
+        noShowProperties.setPendingGraceMinutes(5);
         hospitalReservationService = new HospitalReservationApplicationService(
                 memberService,
                 reservationRepository,
                 reservationSlotRepository,
                 reservationEventRepository,
-                notificationPublisher
+                notificationPublisher,
+                noShowProperties
         );
         lenient().when(memberService.getMyInfo(STAFF_ID)).thenReturn(
                 new MemberResponse(
@@ -117,8 +123,6 @@ class HospitalReservationApplicationServiceTest {
                 any(),
                 any()
         );
-        verify(notificationPublisher).publishConfirmed(
-                reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test
@@ -245,8 +249,6 @@ class HospitalReservationApplicationServiceTest {
                 any(),
                 any()
         );
-        verify(notificationPublisher).publishRejected(
-                reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test
@@ -277,18 +279,34 @@ class HospitalReservationApplicationServiceTest {
     @Test
     @DisplayName("자기 병원의 CONFIRMED 예약을 체크인 처리한다")
     void checkIn_success() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        LocalDateTime checkedInAt = LocalDateTime.now(SEOUL_ZONE_ID);
         given(reservationRepository.findById(RESERVATION_ID))
-                .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+                .willReturn(Optional.of(reservation));
         given(reservationSlotRepository.findById(SLOT_ID))
                 .willReturn(Optional.of(slot()));
-        given(reservationRepository.checkInIfConfirmed(
-                any(), any(), any(), any(), any()
+        given(reservationRepository.checkInIfAwaitingArrival(
+                any(), any(), any(), any(), any(), any()
         )).willReturn(1);
+        given(reservationEventRepository
+                .findFirstByReservation_IdAndEventTypeOrderByOccurredAtAsc(
+                        RESERVATION_ID,
+                        ReservationEventType.CHECKED_IN
+                )).willReturn(Optional.of(ReservationEvent.create(
+                        reservation,
+                        ReservationEventType.CHECKED_IN,
+                        "병원 직원 도착 확인",
+                        STAFF_ID,
+                        checkedInAt
+                )));
 
         hospitalReservationService.checkIn(STAFF_ID, RESERVATION_ID);
 
-        verify(reservationRepository).checkInIfConfirmed(
-                any(), any(), any(), any(), any()
+        verify(reservationRepository).checkInIfAwaitingArrival(
+                any(), any(), any(), any(), any(), any()
         );
     }
 
@@ -296,12 +314,22 @@ class HospitalReservationApplicationServiceTest {
     @DisplayName("이미 처리된 예약은 체크인할 수 없다")
     void checkIn_whenUpdateIsZero_throwsInvalidStatus() {
         given(reservationRepository.findById(RESERVATION_ID))
-                .willReturn(Optional.of(reservation(HOSPITAL_ID)));
+                .willReturn(Optional.of(reservationWithStatus(
+                        HOSPITAL_ID,
+                        ReservationStatus.CONFIRMED
+                )));
         given(reservationSlotRepository.findById(SLOT_ID))
                 .willReturn(Optional.of(slot()));
-        given(reservationRepository.checkInIfConfirmed(
-                any(), any(), any(), any(), any()
+        given(reservationRepository.checkInIfAwaitingArrival(
+                any(), any(), any(), any(), any(), any()
         )).willReturn(0);
+        given(reservationRepository.findByIdAndHospitalIdForUpdate(
+                RESERVATION_ID,
+                HOSPITAL_ID
+        )).willReturn(Optional.of(reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.NO_SHOW
+        )));
 
         assertThatThrownBy(() -> hospitalReservationService.checkIn(
                 STAFF_ID,
@@ -405,10 +433,13 @@ class HospitalReservationApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("예약 시각 10분이 지나면 체크인할 수 없다")
+    @DisplayName("예약 시각 15분이 지나면 체크인할 수 없다")
     void checkIn_afterGraceTime_throwsDeadlinePassed() {
-        Reservation reservation = reservation(HOSPITAL_ID);
-        ReservationSlot slot = slot(LocalDateTime.now().minusMinutes(11));
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        ReservationSlot slot = slot(LocalDateTime.now().minusMinutes(16));
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation));
         given(reservationSlotRepository.findById(SLOT_ID))
@@ -422,8 +453,8 @@ class HospitalReservationApplicationServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ReservationErrorCode.CHECK_IN_DEADLINE_PASSED);
 
-        verify(reservationRepository, never()).checkInIfConfirmed(
-                any(), any(), any(), any(), any()
+        verify(reservationRepository, never()).checkInIfAwaitingArrival(
+                any(), any(), any(), any(), any(), any()
         );
     }
 
@@ -508,7 +539,7 @@ class HospitalReservationApplicationServiceTest {
                 .willReturn(Optional.of(slot(
                         LocalDateTime.now(SEOUL_ZONE_ID).minusMinutes(1)
                 )));
-        given(reservationRepository.markNoShowIfConfirmed(
+        given(reservationRepository.markNoShowIfAwaitingArrival(
                 any(), any(), any(), any(), any(), any()
         )).willReturn(1);
 
@@ -525,8 +556,7 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class)
         );
-        verify(notificationPublisher).publishNoShow(
-                reservation.getMemberId(), RESERVATION_ID);
+        verify(notificationPublisher).publishNoShow(reservation.getMemberId(), RESERVATION_ID);
     }
 
     @Test
@@ -551,7 +581,7 @@ class HospitalReservationApplicationServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ReservationErrorCode.NO_SHOW_TOO_EARLY);
 
-        verify(reservationRepository, never()).markNoShowIfConfirmed(
+        verify(reservationRepository, never()).markNoShowIfAwaitingArrival(
                 any(), any(), any(), any(), any(), any()
         );
     }
@@ -592,7 +622,7 @@ class HospitalReservationApplicationServiceTest {
                 .willReturn(Optional.of(slot(
                         LocalDateTime.now(SEOUL_ZONE_ID).minusMinutes(11)
                 )));
-        given(reservationRepository.markNoShowIfConfirmed(
+        given(reservationRepository.markNoShowIfAwaitingArrival(
                 any(), any(), any(), any(), any(), any()
         )).willReturn(0);
 
@@ -609,6 +639,7 @@ class HospitalReservationApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(STAFF_ID),
                 any(LocalDateTime.class)
         );
+        verify(notificationPublisher, never()).publishNoShow(any(), any());
     }
 
     @Test
@@ -624,7 +655,7 @@ class HospitalReservationApplicationServiceTest {
                 .willReturn(Optional.of(slot(
                         LocalDateTime.now(SEOUL_ZONE_ID).minusMinutes(11)
                 )));
-        given(reservationRepository.markNoShowIfConfirmed(
+        given(reservationRepository.markNoShowIfAwaitingArrival(
                 any(), any(), any(), any(), any(), any()
         )).willReturn(0);
         given(reservationRepository.findByIdAndHospitalIdForUpdate(
@@ -679,6 +710,13 @@ class HospitalReservationApplicationServiceTest {
                 "늦게 도착해 접수 완료"
         );
 
+        verify(reservationEventRepository).appendIfAbsent(
+                org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
+                org.mockito.ArgumentMatchers.eq(ReservationEventType.CHECKED_IN.name()),
+                org.mockito.ArgumentMatchers.eq("노쇼 정정 후 직원 도착 확인"),
+                org.mockito.ArgumentMatchers.eq(STAFF_ID),
+                any(LocalDateTime.class)
+        );
         verify(reservationEventRepository).appendIfAbsent(
                 org.mockito.ArgumentMatchers.eq(RESERVATION_ID),
                 org.mockito.ArgumentMatchers.eq(ReservationEventType.NO_SHOW_CORRECTED.name()),
