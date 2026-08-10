@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.entity.HospitalFavorite;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.domain.Page;
@@ -19,14 +20,15 @@ public interface HospitalFavoriteRepository
             value = """
                     INSERT INTO hospital_favorites
                         (member_id, hospital_id, created_at)
-                    VALUES (:memberId, :hospitalId, CURRENT_TIMESTAMP(6))
+                    VALUES (:memberId, :hospitalId, :createdAt)
                     ON DUPLICATE KEY UPDATE id = id
                     """,
             nativeQuery = true
     )
     int insertIfAbsent(
             @Param("memberId") Long memberId,
-            @Param("hospitalId") Long hospitalId
+            @Param("hospitalId") Long hospitalId,
+            @Param("createdAt") LocalDateTime createdAt
     );
 
     long deleteByMemberIdAndHospitalId(Long memberId, Long hospitalId);

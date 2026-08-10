@@ -7,6 +7,8 @@ import com.doctorpet.domain.hospital.repository.HospitalFavoriteRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -24,6 +26,7 @@ public class HospitalFavoriteService {
     private final HospitalRepository hospitalRepository;
     private final HospitalFavoriteRepository hospitalFavoriteRepository;
     private final MemberService memberService;
+    private final Clock applicationClock;
 
     @Transactional
     public void addFavorite(Long memberId, Long hospitalId) {
@@ -33,7 +36,11 @@ public class HospitalFavoriteService {
             throw new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND);
         }
 
-        hospitalFavoriteRepository.insertIfAbsent(memberId, hospitalId);
+        hospitalFavoriteRepository.insertIfAbsent(
+                memberId,
+                hospitalId,
+                LocalDateTime.now(applicationClock)
+        );
     }
 
     @Transactional

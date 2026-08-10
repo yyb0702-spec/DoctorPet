@@ -11,16 +11,23 @@ import com.doctorpet.domain.hospital.repository.HospitalFavoriteRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class HospitalFavoriteServiceTest {
+
+    private static final LocalDateTime NOW =
+            LocalDateTime.of(2026, 8, 10, 12, 0);
 
     @Mock
     private HospitalRepository hospitalRepository;
@@ -31,8 +38,21 @@ class HospitalFavoriteServiceTest {
     @Mock
     private MemberService memberService;
 
-    @InjectMocks
     private HospitalFavoriteService hospitalFavoriteService;
+
+    @BeforeEach
+    void setUp() {
+        Clock clock = Clock.fixed(
+                Instant.parse("2026-08-10T03:00:00Z"),
+                ZoneId.of("Asia/Seoul")
+        );
+        hospitalFavoriteService = new HospitalFavoriteService(
+                hospitalRepository,
+                hospitalFavoriteRepository,
+                memberService,
+                clock
+        );
+    }
 
     @Test
     void 존재하는_병원은_멱등_삽입으로_찜한다() {
@@ -41,7 +61,7 @@ class HospitalFavoriteServiceTest {
         hospitalFavoriteService.addFavorite(1L, 10L);
 
         verify(memberService).lockActiveMember(1L);
-        verify(hospitalFavoriteRepository).insertIfAbsent(1L, 10L);
+        verify(hospitalFavoriteRepository).insertIfAbsent(1L, 10L, NOW);
     }
 
     @Test
@@ -57,7 +77,11 @@ class HospitalFavoriteServiceTest {
                 ).isEqualTo(HospitalErrorCode.HOSPITAL_NOT_FOUND));
 
         verify(hospitalFavoriteRepository, never())
-                .insertIfAbsent(1L, 10L);
+                .insertIfAbsent(
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any(LocalDateTime.class)
+                );
     }
 
     @Test
