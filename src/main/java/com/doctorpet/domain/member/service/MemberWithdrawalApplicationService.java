@@ -2,6 +2,7 @@ package com.doctorpet.domain.member.service;
 
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
+import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
@@ -38,15 +39,19 @@ public class MemberWithdrawalApplicationService {
 
     private final MemberService memberService;
     private final ReservationService reservationService;
+    private final HospitalFavoriteService hospitalFavoriteService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
 
     @Transactional
     public void withdraw(Long memberId) {
+        memberService.lockActiveMember(memberId);
+
         if (reservationService.hasActiveReservation(memberId)) {
             throw new ServiceException(MemberErrorCode.WITHDRAWAL_BLOCKED);
         }
 
+        hospitalFavoriteService.deleteAllByMemberId(memberId);
         memberService.withdraw(memberId);
         refreshTokenRepository.deleteByMemberId(memberId);
         refreshTokenRepository.blacklistMember(

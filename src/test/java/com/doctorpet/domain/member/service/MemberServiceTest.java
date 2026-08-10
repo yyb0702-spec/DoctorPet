@@ -74,6 +74,32 @@ class MemberServiceTest {
     }
 
     @Test
+    @DisplayName("활성 회원 행을 쓰기 잠금으로 조회한다")
+    void lockActiveMember_success() {
+        Member member = Member.createGuardian(
+                "guardian@example.com",
+                "encoded-password",
+                "보호자닉네임"
+        );
+        given(memberRepository.findByIdForUpdate(1L))
+                .willReturn(Optional.of(member));
+
+        memberService.lockActiveMember(1L);
+    }
+
+    @Test
+    @DisplayName("탈퇴했거나 존재하지 않는 회원은 쓰기 잠금을 획득할 수 없다")
+    void lockActiveMember_memberNotFound() {
+        given(memberRepository.findByIdForUpdate(1L))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> memberService.lockActiveMember(1L))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
+    @Test
     @DisplayName("존재하는 회원이면 닉네임을 변경하고 변경된 정보를 반환한다")
     void updateNickname_success() {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "옛닉네임");
