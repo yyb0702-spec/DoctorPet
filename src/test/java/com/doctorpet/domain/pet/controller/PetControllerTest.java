@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
+import com.doctorpet.domain.pet.dto.response.PetImageUploadUrlResponse;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.domain.pet.exception.PetErrorCode;
@@ -90,7 +91,7 @@ class PetControllerTest {
     void register_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
         PetCreateRequest request = new PetCreateRequest("초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
-        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true, null);
         given(petService.register(anyLong(), any(PetCreateRequest.class))).willReturn(response);
 
         mockMvc.perform(post("/api/pets")
@@ -197,8 +198,8 @@ class PetControllerTest {
     void getMyPets_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
         List<PetResponse> responses = List.of(
-                new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true),
-                new PetResponse(11L, "나비", PetSpecies.CAT, 2, new BigDecimal("3.2"), false));
+                new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true, null),
+                new PetResponse(11L, "나비", PetSpecies.CAT, 2, new BigDecimal("3.2"), false, null));
         given(petService.getMyPets(1L)).willReturn(responses);
 
         mockMvc.perform(get("/api/pets"))
@@ -213,7 +214,7 @@ class PetControllerTest {
     @DisplayName("상세 조회 성공 시 200과 반려동물 프로필을 반환한다")
     void getPet_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true, null);
         given(petService.getPet(1L, 10L)).willReturn(response);
 
         mockMvc.perform(get("/api/pets/{petId}", 10L))
@@ -249,8 +250,9 @@ class PetControllerTest {
     @DisplayName("수정 성공 시 200과 수정된 프로필을 반환한다")
     void update_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
-        PetResponse response = new PetResponse(10L, "초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
+        PetResponse response = new PetResponse(10L, "초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
         given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class))).willReturn(response);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
@@ -298,7 +300,8 @@ class PetControllerTest {
     @DisplayName("수정 시 나이가 음수면 400과 COMMON_001을 반환한다")
     void update_negativeAge() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, -1, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코", PetSpecies.DOG, -1, new BigDecimal("6.0"), false, null);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -311,7 +314,7 @@ class PetControllerTest {
     @DisplayName("수정 시 체중이 0 이하면 400과 COMMON_001을 반환한다")
     void update_nonPositiveWeight() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("0"), false);
+        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("0"), false, null);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -342,7 +345,7 @@ class PetControllerTest {
         String body = """
                 {"name":"초코","species":"DOG","age":4,"weight":6.0}
                 """;
-        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), true);
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), true, null);
         given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class))).willReturn(response);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
@@ -358,7 +361,7 @@ class PetControllerTest {
         String body = """
                 {"weight":6.0}
                 """;
-        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("6.0"), true);
+        PetResponse response = new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("6.0"), true, null);
         given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class))).willReturn(response);
         ArgumentCaptor<PetUpdateRequest> captor = ArgumentCaptor.forClass(PetUpdateRequest.class);
 
@@ -373,6 +376,7 @@ class PetControllerTest {
         assertThat(captor.getValue().age()).isNull();
         assertThat(captor.getValue().weight()).isEqualByComparingTo("6.0");
         assertThat(captor.getValue().neutered()).isNull();
+        assertThat(captor.getValue().imageUrl()).isNull();
     }
 
     @Test
@@ -393,7 +397,7 @@ class PetControllerTest {
     @DisplayName("수정 시 weight의 소수 자리가 2자리를 초과하면 400과 COMMON_001을 반환한다")
     void update_weightTooManyFractionDigits() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetUpdateRequest request = new PetUpdateRequest(null, null, null, new BigDecimal("6.123"), null);
+        PetUpdateRequest request = new PetUpdateRequest(null, null, null, new BigDecimal("6.123"), null, null);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -406,7 +410,8 @@ class PetControllerTest {
     @DisplayName("존재하지 않는 petId를 수정하면 404와 PET_001을 반환한다")
     void update_notFound() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
         given(petService.update(eq(1L), eq(999L), any(PetUpdateRequest.class)))
                 .willThrow(new ServiceException(PetErrorCode.PET_NOT_FOUND));
 
@@ -421,13 +426,83 @@ class PetControllerTest {
     @DisplayName("다른 회원 소유의 반려동물을 수정하면 403과 COMMON_003을 반환한다")
     void update_notOwner_returnsForbidden() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        PetUpdateRequest request = new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
         given(petService.update(eq(1L), eq(10L), any(PetUpdateRequest.class)))
                 .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN));
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
+    @DisplayName("업로드 URL 발급 성공 시 200과 uploadUrl·imageUrl을 반환한다")
+    void createImageUploadUrl_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        PetImageUploadUrlResponse response = new PetImageUploadUrlResponse(
+                "https://bucket.s3.ap-northeast-2.amazonaws.com/pets/10/uuid.jpg?sig=abc",
+                "https://bucket.s3.ap-northeast-2.amazonaws.com/pets/10/uuid.jpg",
+                300
+        );
+        given(petService.createImageUploadUrl(1L, 10L, "image/jpeg")).willReturn(response);
+
+        mockMvc.perform(post("/api/pets/{petId}/image/upload-url", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contentType":"image/jpeg"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.uploadUrl").value(response.uploadUrl()))
+                .andExpect(jsonPath("$.data.imageUrl").value(response.imageUrl()))
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(300));
+    }
+
+    @Test
+    @DisplayName("허용되지 않는 contentType이면 400과 COMMON_001을 반환한다")
+    void createImageUploadUrl_invalidContentType() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+
+        mockMvc.perform(post("/api/pets/{petId}/image/upload-url", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contentType":"application/pdf"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId로 업로드 URL을 요청하면 404와 PET_001을 반환한다")
+    void createImageUploadUrl_notFound() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        given(petService.createImageUploadUrl(1L, 999L, "image/jpeg"))
+                .willThrow(new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        mockMvc.perform(post("/api/pets/{petId}/image/upload-url", 999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contentType":"image/jpeg"}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PET_001"));
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물에 업로드 URL을 요청하면 403과 COMMON_003을 반환한다")
+    void createImageUploadUrl_notOwner_returnsForbidden() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
+        given(petService.createImageUploadUrl(1L, 10L, "image/jpeg"))
+                .willThrow(new ServiceException(CommonErrorCode.FORBIDDEN));
+
+        mockMvc.perform(post("/api/pets/{petId}/image/upload-url", 10L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contentType":"image/jpeg"}
+                                """))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_003"));
     }
