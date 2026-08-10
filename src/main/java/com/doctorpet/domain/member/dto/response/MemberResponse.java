@@ -10,6 +10,7 @@ public record MemberResponse(
         Long memberId,
         String email,
         String nickname,
+        String phone,
         MemberRole role,
         Long hospitalId
 ) {
@@ -19,6 +20,7 @@ public record MemberResponse(
                 member.getId(),
                 member.getEmail(),
                 member.getNickname(),
+                member.getPhone(),
                 member.getRole(),
                 member.getHospitalId()
         );

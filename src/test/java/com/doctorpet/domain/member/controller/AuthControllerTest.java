@@ -99,7 +99,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("회원가입 성공 시 201과 memberId를 반환한다")
     void signup_success() throws Exception {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
         given(authService.signup(any(SignupRequest.class))).willReturn(new SignupResponse(1L));
 
         mockMvc.perform(post("/api/auth/signup")
@@ -113,7 +113,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("이메일이 중복이면 409와 MEMBER_001을 반환한다")
     void signup_duplicateEmail() throws Exception {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
         given(authService.signup(any(SignupRequest.class)))
                 .willThrow(new ServiceException(MemberErrorCode.DUPLICATE_EMAIL));
 
@@ -127,7 +127,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("이메일 형식이 올바르지 않으면 400과 COMMON_001을 반환한다")
     void signup_invalidEmail() throws Exception {
-        SignupRequest request = new SignupRequest("not-an-email", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest("not-an-email", "password1234", "보호자닉네임", "010-1234-5678");
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -139,7 +139,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("비밀번호가 8자 미만이면 400과 COMMON_001을 반환한다")
     void signup_shortPassword() throws Exception {
-        SignupRequest request = new SignupRequest("guardian@example.com", "short", "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "short", "보호자닉네임", "010-1234-5678");
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -151,7 +151,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("비밀번호가 72자를 초과하면 400과 COMMON_001을 반환한다")
     void signup_longPassword() throws Exception {
-        SignupRequest request = new SignupRequest("guardian@example.com", "a".repeat(73), "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", "a".repeat(73), "보호자닉네임", "010-1234-5678");
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -166,7 +166,7 @@ class AuthControllerTest {
         // 한글 25자 = UTF-8 75바이트. 문자 수(25)만 보면 통과할 것 같지만 바이트 수는 초과한다 —
         // @Size(max = 72)였다면 이 요청이 통과해 passwordEncoder.encode()에서 500이 났을 케이스(리뷰 지적).
         String longKoreanPassword = "가".repeat(25);
-        SignupRequest request = new SignupRequest("guardian@example.com", longKoreanPassword, "보호자닉네임");
+        SignupRequest request = new SignupRequest("guardian@example.com", longKoreanPassword, "보호자닉네임", "010-1234-5678");
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -178,7 +178,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("닉네임이 255자를 초과하면 400과 COMMON_001을 반환한다(DB 길이 초과로 500이 나던 버그 수정)")
     void signup_longNickname() throws Exception {
-        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "닉".repeat(256));
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "닉".repeat(256), "010-1234-5678");
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -191,7 +191,68 @@ class AuthControllerTest {
     @DisplayName("이메일이 255자를 초과하면 400과 COMMON_001을 반환한다")
     void signup_longEmail() throws Exception {
         String longLocalPart = "a".repeat(250);
-        SignupRequest request = new SignupRequest(longLocalPart + "@example.com", "password1234", "보호자닉네임");
+        SignupRequest request = new SignupRequest(longLocalPart + "@example.com", "password1234", "보호자닉네임", "010-1234-5678");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("전화번호가 비어있으면 400과 COMMON_001을 반환한다")
+    void signup_blankPhone() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("전화번호 형식이 올바르지 않으면 400과 COMMON_001을 반환한다")
+    void signup_invalidPhone() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "02-1234-5678");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("하이픈 없는 전화번호도 허용한다")
+    void signup_phoneWithoutHyphens() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "01012345678");
+        given(authService.signup(any(SignupRequest.class))).willReturn(new SignupResponse(1L));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+    }
+
+    @Test
+    @DisplayName("하이픈이 한쪽 자리에만 있으면 400과 COMMON_001을 반환한다(리뷰 지적 — 두 -?가 서로 독립적이면 통과하던 버그)")
+    void signup_phoneWithPartialHyphens() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-12345678");
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("하이픈이 다른 자리에만 있으면 400과 COMMON_001을 반환한다(리뷰 지적)")
+    void signup_phoneWithPartialHyphensReversed() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "0101234-5678");
 
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
