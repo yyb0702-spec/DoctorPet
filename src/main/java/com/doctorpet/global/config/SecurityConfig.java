@@ -107,6 +107,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/notifications/subscribe").permitAll()
                         // 보호자 예약 요청·취소 (SA §8-5)
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasRole("GUARDIAN")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/reviews")
+                        .hasRole("GUARDIAN")
+                        .requestMatchers(HttpMethod.PUT, "/api/reviews/*")
+                        .hasRole("GUARDIAN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/reviews/*")
+                        .hasRole("GUARDIAN")
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/reservations",

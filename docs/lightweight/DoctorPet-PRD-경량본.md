@@ -2,10 +2,10 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.19 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.41, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.21 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.43, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
-| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v10 |
+| 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v12 |
 ## 1. 제품 개요
 DoctorPet은 반려동물 증상을 입력받아 AI가 방문 필요성과 필요 진료역량을 안내하고, 근처 동물병원 검색부터 예약·진료·후불 결제까지 연결하는 서비스다.
 ```plain text

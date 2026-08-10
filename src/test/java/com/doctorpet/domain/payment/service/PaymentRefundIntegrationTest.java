@@ -25,9 +25,18 @@ import com.doctorpet.domain.payment.repository.PaymentRefundRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.payment.repository.PaymentWebhookRepository;
 import com.doctorpet.domain.payment.webhook.PaymentWebhookService;
+import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.repository.ReservationRepository;
+import com.doctorpet.domain.review.entity.Review;
+import com.doctorpet.domain.review.dto.request.ReviewRequest;
+import com.doctorpet.domain.review.exception.ReviewErrorCode;
+import com.doctorpet.domain.review.repository.ReviewRepository;
+import com.doctorpet.domain.review.service.ReviewApplicationService;
+import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.payment.GatewayFailureReason;
 import com.doctorpet.global.gateway.payment.fake.FakePaymentGateway;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -79,12 +89,16 @@ class PaymentRefundIntegrationTest {
     @Autowired private java.time.Clock clock;
     // 소유권 펜스를 직접 검증하기 위해 Tx 경계를 직접 호출한다.
     @Autowired private PaymentRefundTxService paymentRefundTxService;
+    @Autowired private ReservationRepository reservationRepository;
+    @Autowired private ReviewRepository reviewRepository;
+    @Autowired private ReviewApplicationService reviewApplicationService;
 
     @MockitoBean private ReservationLookupPort reservationLookupPort;
     @MockitoBean private StaffHospitalPort staffHospitalPort;
     @MockitoBean private PaymentNotificationPublisher notificationPublisher;
 
     private final List<Long> paymentIds = new ArrayList<>();
+    private final List<Long> reservationIds = new ArrayList<>();
     private final List<String> createdWebhookIds = new ArrayList<>();
 
     @BeforeEach
@@ -103,6 +117,8 @@ class PaymentRefundIntegrationTest {
         paymentIds.forEach(id -> paymentRefundRepository.findByPaymentId(id)
                 .ifPresent(paymentRefundRepository::delete));
         paymentIds.forEach(paymentRepository::deleteById);
+        reservationIds.forEach(reviewRepository::deleteByReservationId);
+        reservationIds.forEach(reservationRepository::deleteById);
         fakePaymentGateway.reset();
     }
 
@@ -135,6 +151,149 @@ class PaymentRefundIntegrationTest {
         assertThat(fakePaymentGateway.cancelCallCount()).isEqualTo(1);
         verify(notificationPublisher, times(1))
                 .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED));
+    }
+
+    @Test
+    @DisplayName("환불 확정은 리뷰를 Hard Delete하고 예약의 리뷰 작성권을 초기화한다")
+    void refund_deletesReviewAndResetsReviewedAt() {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow();
+        reservation.markReviewed(LocalDateTime.now(clock));
+        reservationRepository.saveAndFlush(reservation);
+        reviewRepository.saveAndFlush(Review.create(
+                reservationId,
+                HOSPITAL_ID,
+                GUARDIAN_ID,
+                new BigDecimal("4.5"),
+                "환불 전 리뷰"
+        ));
+
+        paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
+
+        assertThat(reviewRepository.existsByReservationId(reservationId)).isFalse();
+        assertThat(reservationRepository.findById(reservationId).orElseThrow()
+                .getReviewedAt()).isNull();
+    }
+
+    @RepeatedTest(10)
+    @DisplayName("리뷰 작성과 환불이 경합해도 REFUNDED 결제에는 리뷰와 작성 이력이 남지 않는다")
+    void reviewCreateAndRefund_concurrently_preservesRefundInvariant()
+            throws InterruptedException {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch readyLatch = new CountDownLatch(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(2);
+        List<Throwable> unexpected = new CopyOnWriteArrayList<>();
+
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                reviewApplicationService.create(
+                        GUARDIAN_ID,
+                        reservationId,
+                        new ReviewRequest(new BigDecimal("4.5"), "경합 리뷰")
+                );
+            } catch (ServiceException e) {
+                if (e.getErrorCode() != ReviewErrorCode.PAYMENT_NOT_COMPLETED) {
+                    unexpected.add(e);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                unexpected.add(e);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
+            } catch (Throwable throwable) {
+                unexpected.add(throwable);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+
+        readyLatch.await();
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpected).isEmpty();
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(reviewRepository.existsByReservationId(reservationId)).isFalse();
+        assertThat(reservationRepository.findById(reservationId).orElseThrow()
+                .getReviewedAt()).isNull();
+    }
+
+    @RepeatedTest(10)
+    @DisplayName("리뷰 수정과 환불이 경합해도 미처리 예외 없이 환불 상태로 수렴한다")
+    void reviewUpdateAndRefund_concurrently_preservesRefundInvariant()
+            throws InterruptedException {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reviewId = persistReview(paymentId);
+
+        runReviewMutationAndRefundConcurrently(
+                paymentId,
+                () -> reviewApplicationService.update(
+                        GUARDIAN_ID,
+                        reviewId,
+                        new ReviewRequest(new BigDecimal("5.0"), "수정 리뷰")
+                )
+        );
+    }
+
+    @RepeatedTest(10)
+    @DisplayName("리뷰 삭제와 환불이 경합해도 미처리 예외 없이 환불 상태로 수렴한다")
+    void reviewDeleteAndRefund_concurrently_preservesRefundInvariant()
+            throws InterruptedException {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reviewId = persistReview(paymentId);
+
+        runReviewMutationAndRefundConcurrently(
+                paymentId,
+                () -> reviewApplicationService.delete(GUARDIAN_ID, reviewId)
+        );
+    }
+
+    @Test
+    @DisplayName("리뷰 작성권 초기화가 실패하면 환불 이력과 결제 전이를 함께 롤백한다")
+    void reviewResetFailure_rollsBackRefundCompletion() {
+        Long paymentId = persistPayment(PaymentStatus.PAID);
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        RefundClaim claim = paymentRefundTxService.claim(
+                paymentId,
+                STAFF_MEMBER_ID,
+                REASON
+        );
+        reservationRepository.deleteById(reservationId);
+
+        assertThatThrownBy(() -> paymentRefundTxService.complete(
+                claim.refundId(),
+                paymentId,
+                claim.claimToken(),
+                "PG-CLEANUP-FAIL"
+        )).isInstanceOf(ServiceException.class)
+                .hasFieldOrPropertyWithValue("errorCode", CommonErrorCode.NOT_FOUND);
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.PAID);
+        PaymentRefund refund = paymentRefundRepository.findByPaymentId(paymentId)
+                .orElseThrow();
+        assertThat(refund.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(refund.getPgCancelId()).isNull();
     }
 
     @Test
@@ -481,12 +640,25 @@ class PaymentRefundIntegrationTest {
      * 조합(예: PAID인데 채널 null)이 픽스처로 새지 않게 한다. OFFLINE_PAID만 저장 후 조건부 UPDATE로 전이한다.
      */
     private Long persistPayment(PaymentStatus status) {
-        long reservationId = System.nanoTime();
+        LocalDateTime now = LocalDateTime.now(clock);
+        Reservation reservation = reservationRepository.saveAndFlush(Reservation.request(
+                GUARDIAN_ID,
+                System.nanoTime(),
+                HOSPITAL_ID,
+                System.nanoTime(),
+                7L,
+                "초코",
+                "DOG",
+                now,
+                now.plusDays(1)
+        ));
+        long reservationId = reservation.getId();
+        reservationIds.add(reservationId);
         Payment payment = Payment.pending(reservationId, "pay_" + reservationId, 7L, "VISA", "1234", AMOUNT);
         switch (status) {
             // PENDING은 선기록 상태 그대로 쓴다. REFUNDED는 이 헬퍼로 만들지 않는다(환불 경로로만 도달).
             case PENDING -> { }
-            case PAID -> payment.markPaid("PG-" + reservationId, LocalDateTime.now());
+            case PAID -> payment.markPaid("PG-" + reservationId, now);
             case OFFLINE_REQUIRED, OFFLINE_PAID -> payment.markOfflineRequired("NON_RETRIABLE", 0);
             case REFUNDED -> throw new IllegalArgumentException("REFUNDED 픽스처는 환불 경로로만 만든다");
         }
@@ -500,5 +672,77 @@ class PaymentRefundIntegrationTest {
             paymentOfflineSettleTxService.settle(paymentId, STAFF_MEMBER_ID);
         }
         return paymentId;
+    }
+
+    private Long persistReview(Long paymentId) {
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow();
+        reservation.markReviewed(LocalDateTime.now(clock));
+        reservationRepository.saveAndFlush(reservation);
+        return reviewRepository.saveAndFlush(Review.create(
+                reservationId,
+                HOSPITAL_ID,
+                GUARDIAN_ID,
+                new BigDecimal("4.5"),
+                "환불 전 리뷰"
+        )).getId();
+    }
+
+    private void runReviewMutationAndRefundConcurrently(
+            Long paymentId,
+            Runnable reviewMutation
+    ) throws InterruptedException {
+        Long reservationId = paymentRepository.findById(paymentId).orElseThrow()
+                .getReservationId();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch readyLatch = new CountDownLatch(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(2);
+        List<Throwable> unexpected = new CopyOnWriteArrayList<>();
+
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                reviewMutation.run();
+            } catch (ServiceException e) {
+                if (e.getErrorCode() != ReviewErrorCode.REVIEW_NOT_FOUND) {
+                    unexpected.add(e);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                unexpected.add(e);
+            } catch (Throwable throwable) {
+                unexpected.add(throwable);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
+            } catch (Throwable throwable) {
+                unexpected.add(throwable);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+
+        readyLatch.await();
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpected).isEmpty();
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(reviewRepository.existsByReservationId(reservationId)).isFalse();
+        assertThat(reservationRepository.findById(reservationId).orElseThrow()
+                .getReviewedAt()).isNull();
     }
 }
