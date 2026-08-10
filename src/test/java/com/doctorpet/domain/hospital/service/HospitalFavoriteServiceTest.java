@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.repository.HospitalFavoriteRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.global.exception.ServiceException;
 import java.util.List;
 import java.util.Set;
@@ -27,6 +28,9 @@ class HospitalFavoriteServiceTest {
     @Mock
     private HospitalFavoriteRepository hospitalFavoriteRepository;
 
+    @Mock
+    private MemberService memberService;
+
     @InjectMocks
     private HospitalFavoriteService hospitalFavoriteService;
 
@@ -36,6 +40,7 @@ class HospitalFavoriteServiceTest {
 
         hospitalFavoriteService.addFavorite(1L, 10L);
 
+        verify(memberService).lockActiveMember(1L);
         verify(hospitalFavoriteRepository).insertIfAbsent(1L, 10L);
     }
 

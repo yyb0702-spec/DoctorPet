@@ -5,6 +5,7 @@ import com.doctorpet.domain.hospital.dto.response.FavoriteHospitalResponse;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.repository.HospitalFavoriteRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.global.exception.ServiceException;
 import java.util.Collection;
 import java.util.Set;
@@ -22,9 +23,12 @@ public class HospitalFavoriteService {
 
     private final HospitalRepository hospitalRepository;
     private final HospitalFavoriteRepository hospitalFavoriteRepository;
+    private final MemberService memberService;
 
     @Transactional
     public void addFavorite(Long memberId, Long hospitalId) {
+        memberService.lockActiveMember(memberId);
+
         if (!hospitalRepository.existsById(hospitalId)) {
             throw new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND);
         }

@@ -45,6 +45,8 @@ public class MemberWithdrawalApplicationService {
 
     @Transactional
     public void withdraw(Long memberId) {
+        memberService.lockActiveMember(memberId);
+
         if (reservationService.hasActiveReservation(memberId)) {
             throw new ServiceException(MemberErrorCode.WITHDRAWAL_BLOCKED);
         }

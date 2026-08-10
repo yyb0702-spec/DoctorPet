@@ -57,6 +57,7 @@ class MemberWithdrawalApplicationServiceTest {
 
         memberWithdrawalApplicationService.withdraw(1L);
 
+        then(memberService).should().lockActiveMember(1L);
         then(hospitalFavoriteService).should().deleteAllByMemberId(1L);
         then(memberService).should().withdraw(1L);
         then(refreshTokenRepository).should().deleteByMemberId(1L);
@@ -72,6 +73,7 @@ class MemberWithdrawalApplicationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.WITHDRAWAL_BLOCKED));
+        then(memberService).should().lockActiveMember(1L);
         then(memberService).should(never()).withdraw(1L);
         then(hospitalFavoriteService).should(never()).deleteAllByMemberId(1L);
         then(refreshTokenRepository).should(never()).deleteByMemberId(1L);
