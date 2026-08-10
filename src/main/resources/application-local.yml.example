@@ -69,3 +69,18 @@ mail:
     port: 587
     username: change-this-to-your-smtp-username
     password: change-this-to-your-smtp-app-password
+
+# 반려동물 프로필 이미지 업로드(presigned URL, S3ImageStorageGateway)
+# payment.gateway와 동일한 fail-safe 패턴: image.storage.provider를 명시해야 게이트웨이 빈이
+# 등록됩니다(미설정 시 어떤 게이트웨이도 안 뜸 = fail-safe).
+#   fake : 실제 S3를 호출하지 않고 로그로만 남김(로컬/테스트 — 반환된 uploadUrl로는 실제 업로드 안 됨)
+#   s3   : 실제 S3 presigned URL 발급(운영용, bucket·region 필수, 커밋 금지)
+# AWS 자격 증명은 여기 두지 않는다 — SDK 기본 체인(환경 변수 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY,
+# 또는 IAM 역할)을 그대로 쓴다(AGENTS 보안).
+image:
+  storage:
+    provider: fake
+    s3:
+      bucket: change-this-to-your-bucket-name
+      region: ap-northeast-2
+      presign-ttl-seconds: 300

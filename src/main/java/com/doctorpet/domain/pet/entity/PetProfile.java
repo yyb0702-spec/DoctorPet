@@ -59,6 +59,12 @@ public class PetProfile extends BaseEntity {
     @Column(nullable = false)
     private Boolean neutered;
 
+    // 반려동물 프로필 사진 URL. presigned URL로 S3에 직접 업로드한 뒤(PetController
+    // POST /{petId}/image/upload-url) 이 필드에 URL만 저장한다 — 파일 바이트는 서버를 거치지
+    // 않는다. 등록 시점에는 값이 없고(null), 이후 update()로만 채워진다.
+    @Column(name = "image_url", length = 2048)
+    private String imageUrl;
+
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
@@ -95,13 +101,17 @@ public class PetProfile extends BaseEntity {
      * 보고 기존 값을 그대로 유지하고, null이 아닌 필드만 교체한다(PetUpdateRequest 참고).
      * memberId(소유자)는 수정 대상이 아니다 — 소유권 이전은 지원하지 않는다.
      * 과거 예약에는 스냅샷이 별도로 남아 있어(SA §4) 이 수정이 과거 이력에 영향을 주지 않는다.
+     * imageUrl도 같은 병합 규칙을 따른다 — 생략하면 기존 이미지를 유지한다. 이미지 제거(원상태로
+     * 되돌리기)는 이 메서드로 지원하지 않는다(빈 문자열도 "생략 아님"으로 취급해 그대로 저장되므로,
+     * 명시적 삭제가 필요해지면 별도 계약을 추가해야 한다 — 현재는 SA 부록 A 대상이 아님, 확장 범위).
      */
     public void update(
             String name,
             PetSpecies species,
             Integer age,
             BigDecimal weight,
-            Boolean neutered
+            Boolean neutered,
+            String imageUrl
     ) {
         if (name != null) {
             this.name = name;
@@ -117,6 +127,9 @@ public class PetProfile extends BaseEntity {
         }
         if (neutered != null) {
             this.neutered = neutered;
+        }
+        if (imageUrl != null) {
+            this.imageUrl = imageUrl;
         }
     }
 

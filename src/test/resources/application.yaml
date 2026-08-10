@@ -8,6 +8,17 @@ spring:
 ai:
   gateway: fake
 
+# PetService가 ImageStorageGateway를 필수 생성자 주입으로 받는데, 이 빈은
+# image.storage.provider가 fake/s3일 때만 등록된다(fail-safe, 폴백 빈 없음). PetService는
+# @Service라 전체 컨텍스트를 띄우는 다른 도메인의 @SpringBootTest도 컴포넌트 스캔으로 함께
+# 로딩하므로, 이 값이 없으면 pet 도메인과 무관한 테스트까지 NoSuchBeanDefinitionException으로
+# 컨텍스트 로딩에 실패한다(PR #133 리뷰 지적 P1). CI는 .github/workflows/ci.yml의
+# IMAGE_STORAGE_PROVIDER env로 우연히 통과했을 뿐이라, 로컬 ./gradlew test·IntelliJ 실행을
+# 위해 ai.gateway와 같은 방식으로 여기 전역 설정한다.
+image:
+  storage:
+    provider: fake
+
 # 테스트 프로파일은 local이 아니므로 Swagger/OpenAPI를 노출하지 않는 운영 기본값을 명시한다.
 springdoc:
   api-docs:
