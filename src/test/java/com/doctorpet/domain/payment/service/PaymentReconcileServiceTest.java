@@ -2,6 +2,7 @@ package com.doctorpet.domain.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -142,7 +143,8 @@ class PaymentReconcileServiceTest {
 
         assertThat(summary.paid()).isEqualTo(1);
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
-        verify(notificationPublisher).publishChargeResult(eq(GUARDIAN_ID), eq(RESERVATION_ID), any(), eq(PaymentStatus.PAID));
+        verify(notificationPublisher).publishChargeResult(
+                eq(GUARDIAN_ID), eq(RESERVATION_ID), any(), eq(PaymentStatus.PAID), eq(AMOUNT));
         verify(reconcileLock).unlock(LOCK_TOKEN);
     }
 
@@ -159,16 +161,21 @@ class PaymentReconcileServiceTest {
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.retryCount()).isEqualTo(1);
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
+        // 일시적 PENDING(곧 확정될 상태)에는 결과 알림도, "결제 확인 중" 안내도 발행하지 않는다.
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), anyInt());
+        verify(notificationPublisher, never()).publishPendingNotice(anyLong(), anyLong(), any(), anyInt());
     }
 
     @Test
-    @DisplayName("단건조회 PENDING이 재시도 임계를 넘겨도 불확실하면 OFFLINE 대신 PENDING을 유지한다(RECONCILE_STUCK)")
-    void queryPending_atMax_staysPending() {
-        // 재조회 임계를 넘겨도 승인 여부가 불확실하면 OFFLINE(이중결제 위험) 대신 PENDING을 유지하고 알림도 없다.
+    @DisplayName("재시도 임계를 넘겨 STUCK(오래 미확정)이면 상태는 PENDING 유지, '결제 확인 중' 안내를 1회 발행한다")
+    void queryPending_atMax_publishesStuckNotice() {
+        // 재조회 임계를 넘겨도 승인 여부가 불확실하면 OFFLINE(이중결제 위험) 대신 PENDING을 유지한다.
+        // 단, 무음이 CS로 이어지지 않도록 "결제 확인 중" 안내는 발행한다(상태는 그대로).
         lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
         given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(MAX_ATTEMPTS)));
+        given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
+                new ReservationChargeView(RESERVATION_ID, 1L, GUARDIAN_ID, 7L, true)));
 
         ReconcileSummary summary = service.reconcile();
 
@@ -176,7 +183,9 @@ class PaymentReconcileServiceTest {
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("RECONCILE_STUCK");
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
+        // 상태 확정 알림은 없고(전이 없음), 대신 "결제 확인 중" 안내를 금액과 함께 발행한다.
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), anyInt());
+        verify(notificationPublisher).publishPendingNotice(eq(GUARDIAN_ID), eq(RESERVATION_ID), any(), eq(AMOUNT));
     }
 
     @Test
@@ -206,7 +215,8 @@ class PaymentReconcileServiceTest {
 
         assertThat(summary.stillPending()).isEqualTo(1);
         assertThat(captureOutcome().failureReason()).isEqualTo("RECONCILE_QUERY_FAILED");
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), anyInt());
+        verify(notificationPublisher, never()).publishPendingNotice(anyLong(), anyLong(), any(), anyInt());
     }
 
     @Test
@@ -222,7 +232,8 @@ class PaymentReconcileServiceTest {
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.PENDING);
         assertThat(outcome.failureReason()).isEqualTo("RECONCILE_AMOUNT_MISMATCH");
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), anyInt());
+        verify(notificationPublisher, never()).publishPendingNotice(anyLong(), anyLong(), any(), anyInt());
     }
 
     @Test

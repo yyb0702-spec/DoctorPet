@@ -42,6 +42,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class PaymentReconcileService {
 
+    // 재조회 상한을 넘겨 오래 미확정으로 남긴 PENDING의 사유(ChargeOutcome.failureReason). 이 사유일 때만
+    // "결제 확인 중" 안내를 발행하므로, resolveStillPending의 표시와 reconcileOne의 판별이 같은 값을 쓰게 상수로 둔다.
+    private static final String RECONCILE_STUCK = "RECONCILE_STUCK";
+
     private final PaymentRepository paymentRepository;
     private final PaymentChargeService paymentChargeService;
     private final PaymentGateway paymentGateway;
@@ -124,6 +128,11 @@ public class PaymentReconcileService {
         // 이 호출이 실제로 상태를 전이시켰을 때만 발행한다 — 청구 후확정이 먼저 확정했다면(조건부 UPDATE 0건) 중복 발행하지 않는다.
         if (result.applied()) {
             publishResolved(result.payment());
+        } else if (RECONCILE_STUCK.equals(outcome.failureReason())) {
+            // 상태 전이는 없지만(PENDING 유지) 오래 미확정으로 STUCK 확정된 경우 — 보호자 무음을 해소하기 위해
+            // "결제 확인 중" 안내를 발행한다. 최초/일시적 PENDING(RECONCILE_UNCONFIRMED 등)은 여기 오지 않는다.
+            // 정산이 여러 사이클 돌아도 발행 구현이 결제당 1회만 저장한다(멱등). 상태·정산 로직은 바꾸지 않는다.
+            publishStuckNotice(target);
         }
         return outcome.type();
     }
@@ -152,7 +161,7 @@ public class PaymentReconcileService {
         // (#34 리뷰 교정과 동일 원칙). max-attempts는 자동 OFFLINE 전환이 아니라 재시도 상한·운영 알림 임계로만 쓴다 —
         // 초과분은 RECONCILE_STUCK 사유로 표시해 운영자가 PortOne에서 직접 확인·수납하도록 남긴다(재시도 수는 더 올리지 않음).
         if (target.getRetryCount() >= properties.getMaxAttempts()) {
-            return ChargeOutcome.pending(target.getRetryCount(), "RECONCILE_STUCK");
+            return ChargeOutcome.pending(target.getRetryCount(), RECONCILE_STUCK);
         }
         return ChargeOutcome.pending(target.getRetryCount() + 1, "RECONCILE_UNCONFIRMED");
     }
@@ -166,9 +175,27 @@ public class PaymentReconcileService {
         }
         try {
             notificationPublisher.publishChargeResult(
-                    guardianMemberId, finalized.getReservationId(), finalized.getId(), finalized.getStatus());
+                    guardianMemberId, finalized.getReservationId(), finalized.getId(),
+                    finalized.getStatus(), finalized.getAmount());
         } catch (RuntimeException e) {
             log.warn("결제 정산 알림 발행 실패(정산은 확정됨): paymentId={}", finalized.getId(), e);
+        }
+    }
+
+    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 구현이 멱등이라
+    // 정산 사이클마다 호출돼도 결제당 1회만 저장된다. 발행 실패는 격리한다 — 정산 상태는 이미 확정(유지)됐다.
+    private void publishStuckNotice(Payment target) {
+        Long guardianMemberId = reservationLookupPort.findForCharge(target.getReservationId())
+                .map(ReservationChargeView::guardianMemberId)
+                .orElse(null);
+        if (guardianMemberId == null) {
+            return;
+        }
+        try {
+            notificationPublisher.publishPendingNotice(
+                    guardianMemberId, target.getReservationId(), target.getId(), target.getAmount());
+        } catch (RuntimeException e) {
+            log.warn("결제 확인 중 안내 발행 실패(정산 상태는 유지): paymentId={}", target.getId(), e);
         }
     }
 

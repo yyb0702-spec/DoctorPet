@@ -31,7 +31,8 @@ public class PaymentOfflineSettlementService {
         PaymentHistoryResponse settled = outcome.response();
         try {
             notificationPublisher.publishChargeResult(
-                    outcome.guardianMemberId(), settled.reservationId(), settled.paymentId(), settled.status());
+                    outcome.guardianMemberId(), settled.reservationId(), settled.paymentId(), settled.status(),
+                    settled.amount());
         } catch (RuntimeException e) {
             // 정산은 이미 커밋됐으므로 알림 발행 실패가 응답을 500으로 만들지 않는다(SA §9-8).
             log.warn("오프라인 정산 알림 발행 실패(정산은 확정됨): paymentId={}", settled.paymentId(), e);

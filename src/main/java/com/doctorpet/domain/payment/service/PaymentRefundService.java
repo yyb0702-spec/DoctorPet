@@ -98,7 +98,7 @@ public class PaymentRefundService {
         try {
             notificationPublisher.publishChargeResult(
                     claim.guardianMemberId(), claim.reservationId(),
-                    outcome.response().paymentId(), outcome.response().status());
+                    outcome.response().paymentId(), outcome.response().status(), outcome.response().amount());
         } catch (RuntimeException e) {
             log.warn("환불 알림 발행 실패(환불은 확정됨): paymentId={}", outcome.response().paymentId(), e);
         }

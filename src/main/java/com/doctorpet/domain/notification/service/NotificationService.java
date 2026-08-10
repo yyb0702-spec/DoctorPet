@@ -54,6 +54,24 @@ public class NotificationService {
         return saved;
     }
 
+    // 같은 (수신자·유형·리소스)의 알림이 아직 없을 때만 저장한다(멱등 발행). 결제 고도화 3.6의 "결제 확인 중"
+    // 안내가 정산 여러 사이클에도 결제당 1회만 남도록 쓴다. 정산 배치는 단일 인스턴스(ReconcileLock)로 직렬화돼
+    // 같은 결제에 동시 진입이 없으므로 존재 조회→저장 사이의 경합은 발생하지 않는다.
+    @Transactional
+    public void createIfAbsent(
+            Long memberId,
+            NotificationType type,
+            String content,
+            NotificationResourceType resourceType,
+            Long resourceId
+    ) {
+        if (notificationRepository.existsByMemberIdAndTypeAndResourceTypeAndResourceId(
+                memberId, type, resourceType, resourceId)) {
+            return;
+        }
+        create(memberId, type, content, resourceType, resourceId);
+    }
+
     // 본인 알림을 최신순으로 페이징 조회한다. isRead가 null이면 전체, true/false면 읽음/미읽음만 반환한다.
     public NotificationPageResponse getMyNotifications(
             Long memberId,

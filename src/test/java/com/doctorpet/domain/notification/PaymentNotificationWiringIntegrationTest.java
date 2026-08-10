@@ -52,10 +52,10 @@ class PaymentNotificationWiringIntegrationTest {
     }
 
     @Test
-    @DisplayName("결제 결과 발행 시 보호자에게 PAYMENT_RESULT 알림이 결제 리소스 연결로 저장된다")
+    @DisplayName("결제 결과 발행 시 보호자에게 금액을 담은 PAYMENT_RESULT 알림이 결제 리소스 연결로 저장된다")
     void publishChargeResult_persistsNotification() {
         paymentNotificationPublisher.publishChargeResult(
-                GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.PAID);
+                GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.PAID, 80_000);
 
         List<Notification> notifications = notificationRepository
                 .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
@@ -66,6 +66,27 @@ class PaymentNotificationWiringIntegrationTest {
         assertThat(saved.getType()).isEqualTo(NotificationType.PAYMENT_RESULT);
         assertThat(saved.getResourceType()).isEqualTo(NotificationResourceType.PAYMENT);
         assertThat(saved.getResourceId()).isEqualTo(PAYMENT_ID);
+        assertThat(saved.getContent()).contains("80,000원");
         assertThat(saved.isRead()).isFalse();
+    }
+
+    @Test
+    @DisplayName("결제 확인 중 안내를 여러 번 발행해도 같은 결제엔 PAYMENT_PENDING 알림이 1건만 저장된다(멱등)")
+    void publishPendingNotice_isIdempotentAcrossCycles() {
+        // 정산이 여러 사이클 돌아 같은 결제에 반복 호출되는 상황을 재현한다.
+        paymentNotificationPublisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, 80_000);
+        paymentNotificationPublisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, 80_000);
+        paymentNotificationPublisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, 80_000);
+
+        List<Notification> notifications = notificationRepository
+                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .getContent();
+
+        assertThat(notifications).hasSize(1);
+        Notification saved = notifications.get(0);
+        assertThat(saved.getType()).isEqualTo(NotificationType.PAYMENT_PENDING);
+        assertThat(saved.getResourceType()).isEqualTo(NotificationResourceType.PAYMENT);
+        assertThat(saved.getResourceId()).isEqualTo(PAYMENT_ID);
+        assertThat(saved.getContent()).contains("80,000원").contains("확인 중");
     }
 }
