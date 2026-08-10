@@ -103,11 +103,15 @@ def _run_harness() -> int:
     if not check.exists():
         print("경고: scripts/harness_check.py가 없어 검증을 건너뛴다")
         return 0
+    # 부모 프로세스의 print()는 파이프로 캡처될 때 완전 버퍼링돼, flush 없이
+    # subprocess를 띄우면 자식이 상속한 같은 stdout fd에 먼저 써서 순서가 뒤바뀐다.
+    sys.stdout.flush()
     return subprocess.run([sys.executable, str(check)]).returncode
 
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="정본 문서 버전 승격 bookkeeping")
     ap.add_argument("--sa", metavar="ENTRY", help="SA 변경 이력에 추가할 항목(마이너 +1)")
     ap.add_argument("--prd", metavar="ENTRY", help="PRD 변경 이력에 추가할 항목(마이너 +1)")
