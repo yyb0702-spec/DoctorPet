@@ -1,7 +1,9 @@
 package com.doctorpet.domain.pet.controller;
 
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
+import com.doctorpet.domain.pet.dto.request.PetImageUploadUrlRequest;
 import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
+import com.doctorpet.domain.pet.dto.response.PetImageUploadUrlResponse;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.service.PetService;
 import com.doctorpet.global.response.ApiResponse;
@@ -22,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /*
-  반려동물 프로필 API. SA §8-2 — 등록·목록 조회·상세 조회·수정·삭제.
+  반려동물 프로필 API. SA §8-2 — 등록·목록 조회·상세 조회·수정·삭제·이미지 업로드 URL 발급.
  */
 @RestController
 @RequestMapping("/api/pets")
@@ -67,6 +69,18 @@ public class PetController {
             @Valid @RequestBody PetUpdateRequest request
     ) {
         PetResponse response = petService.update(principal.memberId(), petId, request);
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/{petId}/image/upload-url")
+    public ResponseEntity<ApiResponse<PetImageUploadUrlResponse>> createImageUploadUrl(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable Long petId,
+            @Valid @RequestBody PetImageUploadUrlRequest request
+    ) {
+        PetImageUploadUrlResponse response =
+                petService.createImageUploadUrl(principal.memberId(), petId, request.contentType());
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

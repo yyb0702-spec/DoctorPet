@@ -88,7 +88,7 @@ class PetControllerSecurityTest {
         given(jwtTokenProvider.getMemberPrincipal(accessToken))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
         given(petService.register(anyLong(), any(PetCreateRequest.class)))
-                .willReturn(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true));
+                .willReturn(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true, null));
 
         PetCreateRequest request = new PetCreateRequest("초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
 
@@ -117,7 +117,7 @@ class PetControllerSecurityTest {
         given(jwtTokenProvider.getMemberPrincipal(accessToken))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
         given(petService.getMyPets(1L))
-                .willReturn(List.of(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true)));
+                .willReturn(List.of(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true, null)));
 
         mockMvc.perform(get("/api/pets").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
@@ -141,7 +141,7 @@ class PetControllerSecurityTest {
         given(jwtTokenProvider.getMemberPrincipal(accessToken))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
         given(petService.getPet(1L, 10L))
-                .willReturn(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true));
+                .willReturn(new PetResponse(10L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true, null));
 
         mockMvc.perform(get("/api/pets/{petId}", 10L).header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
@@ -151,7 +151,8 @@ class PetControllerSecurityTest {
     @Test
     @DisplayName("Authorization 헤더 없이 수정하면 401을 반환한다 — /api/pets/{petId} PATCH가 실수로 permitAll이 되면 이 테스트가 잡는다")
     void updatePet_withoutAuthorizationHeader_returnsUnauthorized() throws Exception {
-        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -169,9 +170,10 @@ class PetControllerSecurityTest {
         given(jwtTokenProvider.getMemberPrincipal(accessToken))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
         given(petService.update(anyLong(), anyLong(), any(PetUpdateRequest.class)))
-                .willReturn(new PetResponse(10L, "초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false));
+                .willReturn(new PetResponse(10L, "초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null));
 
-        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
 
         mockMvc.perform(patch("/api/pets/{petId}", 10L)
                         .header("Authorization", "Bearer " + accessToken)

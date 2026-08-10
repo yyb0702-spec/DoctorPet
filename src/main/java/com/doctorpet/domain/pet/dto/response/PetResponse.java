@@ -14,7 +14,8 @@ public record PetResponse(
         PetSpecies species,
         Integer age,
         BigDecimal weight,
-        Boolean neutered
+        Boolean neutered,
+        String imageUrl
 ) {
 
     public static PetResponse from(PetProfile petProfile) {
@@ -24,7 +25,8 @@ public record PetResponse(
                 petProfile.getSpecies(),
                 petProfile.getAge(),
                 petProfile.getWeight(),
-                petProfile.getNeutered()
+                petProfile.getNeutered(),
+                petProfile.getImageUrl()
         );
     }
 }
