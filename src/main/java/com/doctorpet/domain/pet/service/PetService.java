@@ -3,15 +3,19 @@ package com.doctorpet.domain.pet.service;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
+import com.doctorpet.domain.pet.dto.response.PetImageUploadUrlResponse;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetProfile;
 import com.doctorpet.domain.pet.exception.PetErrorCode;
 import com.doctorpet.domain.pet.repository.PetProfileRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.gateway.storage.ImageStorageGateway;
+import com.doctorpet.global.gateway.storage.PresignedUploadUrl;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +27,7 @@ public class PetService {
     private final PetProfileRepository petProfileRepository;
     // 다른 도메인의 Repository를 직접 참조하지 않는다(구현 가드레일) — Service를 경유한다.
     private final MemberService memberService;
+    private final ImageStorageGateway imageStorageGateway;
 
     /*
       반려동물 프로필 등록. SA §8-2, A 도메인 결정 #4.
@@ -111,10 +116,43 @@ public class PetService {
                 request.species(),
                 request.age(),
                 request.weight(),
-                request.neutered()
+                request.neutered(),
+                request.imageUrl()
         );
 
         return PetResponse.from(petProfile);
+    }
+
+    /*
+      반려동물 프로필 이미지 업로드용 presigned URL 발급. SA §8-2 확장 — "보호자(본인)"만 발급받을
+      수 있다. 존재 여부·소유권 판단은 getPet()·update()와 동일한 원칙을 따른다(PET_NOT_FOUND 404 /
+      FORBIDDEN 403 구분). contentType 허용 목록(jpeg/png/webp) 검증은 PetImageUploadUrlRequest의
+      @Pattern이 이미 걸러낸 뒤이므로 여기서는 신뢰한다.
+      key는 petId로 네임스페이스를 나눠 다른 반려동물의 오브젝트와 충돌하지 않게 하고, UUID로
+      파일명을 무작위화해 추측이나 덮어쓰기를 막는다. 이 메서드는 presigned URL만 발급할 뿐 아직
+      PetProfile.imageUrl을 갱신하지 않는다 — 실제 업로드가 성공했는지 서버가 확인할 수 없으므로,
+      저장 확정은 클라이언트가 업로드 완료 후 별도로 호출하는 PATCH /api/pets/{petId}(imageUrl)의
+      책임이다.
+     */
+    @Transactional(readOnly = true)
+    public PetImageUploadUrlResponse createImageUploadUrl(Long memberId, Long petId, String contentType) {
+        PetProfile petProfile = petProfileRepository.findById(petId)
+                .orElseThrow(() -> new ServiceException(PetErrorCode.PET_NOT_FOUND));
+
+        if (!petProfile.getMemberId().equals(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+
+        String extension = contentType.substring(contentType.indexOf('/') + 1);
+        String key = "pets/%d/%s.%s".formatted(petId, UUID.randomUUID(), extension);
+
+        PresignedUploadUrl presigned = imageStorageGateway.createPresignedUploadUrl(key, contentType);
+
+        return new PetImageUploadUrlResponse(
+                presigned.uploadUrl(),
+                presigned.fileUrl(),
+                presigned.expiresInSeconds()
+        );
     }
 
     /*
