@@ -53,6 +53,18 @@ class PaymentQueryServiceTest {
     }
 
     @Test
+    @DisplayName("리뷰 작성용 결제 조회는 잠금 조회 결과의 상태를 반환한다")
+    void findStatusForUpdate_returnsLockedPaymentStatus() {
+        given(paymentRepository.findByReservationIdForUpdate(RESERVATION_ID))
+                .willReturn(Optional.of(paidPayment()));
+
+        Optional<PaymentStatus> status = paymentQueryService
+                .findStatusByReservationIdForUpdate(RESERVATION_ID);
+
+        assertThat(status).contains(PaymentStatus.PAID);
+    }
+
+    @Test
     @DisplayName("보호자 본인 예약의 결제가 있으면 1건을 표시용 카드정보와 함께 반환한다")
     void guardian_success() {
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(reservation()));

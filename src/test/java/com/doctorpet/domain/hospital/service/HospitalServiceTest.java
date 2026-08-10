@@ -14,6 +14,8 @@ import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +24,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,6 +37,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -56,6 +61,9 @@ class HospitalServiceTest {
     private HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
     @Mock
+    private ReviewQueryService reviewQueryService;
+
+    @Mock
     private HospitalFavoriteService hospitalFavoriteService;
 
     private HospitalService hospitalService;
@@ -67,8 +75,11 @@ class HospitalServiceTest {
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
                 hospitalSearchCacheRepository,
-                hospitalFavoriteService
+                hospitalFavoriteService,
+                reviewQueryService
         );
+        lenient().when(reviewQueryService.getRatingSummary(anyLong()))
+                .thenReturn(ReviewRatingSummary.empty());
     }
 
     @Test
@@ -103,6 +114,37 @@ class HospitalServiceTest {
         assertThat(response.emergency()).isFalse();
         assertThat(response.capabilities())
                 .containsExactly(CapabilityValue.DOG, CapabilityValue.XRAY);
+    }
+
+    @Test
+    void 병원_상세에_리뷰_평균과_개수를_반환한다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+        given(reviewQueryService.getRatingSummary(HOSPITAL_ID))
+                .willReturn(new ReviewRatingSummary(
+                        new BigDecimal("4.3"),
+                        3L
+                ));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.averageRating()).isEqualByComparingTo("4.3");
+        assertThat(response.reviewCount()).isEqualTo(3L);
+    }
+
+    @Test
+    void 리뷰가_없는_병원은_평균_null과_개수_0을_반환한다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.averageRating()).isNull();
+        assertThat(response.reviewCount()).isZero();
     }
 
     @Test

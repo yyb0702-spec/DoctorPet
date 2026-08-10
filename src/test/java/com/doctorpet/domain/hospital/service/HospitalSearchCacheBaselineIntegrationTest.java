@@ -80,6 +80,7 @@ class HospitalSearchCacheBaselineIntegrationTest {
                 null,
                 null,
                 cacheRepository,
+                null,
                 null
         );
 
