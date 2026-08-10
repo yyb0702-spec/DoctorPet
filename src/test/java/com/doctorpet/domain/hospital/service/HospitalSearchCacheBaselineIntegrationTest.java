@@ -79,7 +79,9 @@ class HospitalSearchCacheBaselineIntegrationTest {
                 hospitalRepository,
                 null,
                 null,
-                cacheRepository
+                cacheRepository,
+                null,
+                null
         );
 
         for (int index = 0; index < WARM_UP_COUNT; index++) {

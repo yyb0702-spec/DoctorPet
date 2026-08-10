@@ -7,6 +7,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 
 import com.doctorpet.domain.member.exception.MemberErrorCode;
+import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
@@ -37,6 +38,9 @@ class MemberWithdrawalApplicationServiceTest {
     private ReservationService reservationService;
 
     @Mock
+    private HospitalFavoriteService hospitalFavoriteService;
+
+    @Mock
     private RefreshTokenRepository refreshTokenRepository;
 
     @Mock
@@ -53,6 +57,8 @@ class MemberWithdrawalApplicationServiceTest {
 
         memberWithdrawalApplicationService.withdraw(1L);
 
+        then(memberService).should().lockActiveMember(1L);
+        then(hospitalFavoriteService).should().deleteAllByMemberId(1L);
         then(memberService).should().withdraw(1L);
         then(refreshTokenRepository).should().deleteByMemberId(1L);
         then(refreshTokenRepository).should().blacklistMember(1L, Duration.ofMillis(3_600_000L));
@@ -67,7 +73,9 @@ class MemberWithdrawalApplicationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.WITHDRAWAL_BLOCKED));
+        then(memberService).should().lockActiveMember(1L);
         then(memberService).should(never()).withdraw(1L);
+        then(hospitalFavoriteService).should(never()).deleteAllByMemberId(1L);
         then(refreshTokenRepository).should(never()).deleteByMemberId(1L);
         then(refreshTokenRepository).should(never()).blacklistMember(1L, Duration.ofMillis(3_600_000L));
     }

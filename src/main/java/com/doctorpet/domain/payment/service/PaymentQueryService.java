@@ -1,6 +1,8 @@
 package com.doctorpet.domain.payment.service;
 
 import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
+import com.doctorpet.domain.payment.entity.Payment;
+import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
@@ -8,6 +10,7 @@ import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,14 @@ public class PaymentQueryService {
     private final ReservationLookupPort reservationLookupPort;
     private final StaffHospitalPort staffHospitalPort;
     private final PaymentRepository paymentRepository;
+
+    @Transactional
+    public Optional<PaymentStatus> findStatusByReservationIdForUpdate(
+            Long reservationId
+    ) {
+        return paymentRepository.findByReservationIdForUpdate(reservationId)
+                .map(Payment::getStatus);
+    }
 
     /** 보호자 본인 예약의 결제 내역. 본인 예약이 아니면 403. */
     @Transactional(readOnly = true)

@@ -44,6 +44,17 @@ public class MemberService {
         }
     }
 
+    /**
+     * 탈퇴와 회원 소유 리소스 생성을 회원 단위로 직렬화한다.
+     * 탈퇴 회원은 {@code @SQLRestriction}으로 조회되지 않으므로 신규 리소스 생성도 차단된다.
+     */
+    @Transactional
+    public void lockActiveMember(Long memberId) {
+        memberRepository.findByIdForUpdate(memberId)
+                .orElseThrow(() -> new ServiceException(
+                        MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
     /*
      * 프로필 수정(닉네임만). SA엔 아직 없는 API였으나 A 도메인 MVP 고도화 항목으로 추가한다.
      * email·password는 대상이 아니다 — Member.updateNickname() 참고.

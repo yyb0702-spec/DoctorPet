@@ -4,6 +4,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
@@ -14,6 +15,7 @@ import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,7 +25,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,6 +54,12 @@ class HospitalSearchServiceTest {
     @Mock
     private HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
+    @Mock
+    private ReviewQueryService reviewQueryService;
+
+    @Mock
+    private HospitalFavoriteService hospitalFavoriteService;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -55,7 +68,9 @@ class HospitalSearchServiceTest {
                 hospitalRepository,
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
-                hospitalSearchCacheRepository
+                hospitalSearchCacheRepository,
+                hospitalFavoriteService,
+                reviewQueryService
         );
     }
 
@@ -314,6 +329,125 @@ class HospitalSearchServiceTest {
                 .saveInitialPage(
                         org.mockito.ArgumentMatchers.any()
                 );
+    }
+
+    @Test
+    void 캐시_HIT_결과에도_인증된_보호자의_찜_여부를_별도로_결합한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.hit(
+                        new HospitalSearchCachedPage(
+                                List.of(candidate(hospital)),
+                                1L
+                        )
+                ));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+
+        HospitalSearchPageResponse response = hospitalService.hospitalSearch(
+                10L,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                20,
+                "name"
+        );
+
+        assertThat(response.content())
+                .singleElement()
+                .satisfies(result -> assertThat(result.favorite()).isTrue());
+        verifyNoInteractions(hospitalRepository);
+    }
+
+    @Test
+    void 캐시_MISS의_DB_결과에도_보호자의_찜_여부를_결합한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.miss());
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(1L);
+        given(hospitalRepository.searchPartnerFirstPage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(20)
+        )).willReturn(List.of(candidate(hospital)));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+
+        HospitalSearchPageResponse response = searchInitialPage(10L);
+
+        assertThat(response.content())
+                .singleElement()
+                .satisfies(result -> assertThat(result.favorite()).isTrue());
+        verify(hospitalSearchCacheRepository).saveInitialPage(
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void 같은_캐시_결과도_회원별_찜_상태가_서로_섞이지_않는다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        HospitalSearchCachedPage cachedPage = new HospitalSearchCachedPage(
+                List.of(candidate(hospital)),
+                1L
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.hit(cachedPage));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                20L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of());
+
+        HospitalSearchPageResponse firstMember = searchInitialPage(10L);
+        HospitalSearchPageResponse secondMember = searchInitialPage(20L);
+
+        assertThat(firstMember.content().get(0).favorite()).isTrue();
+        assertThat(secondMember.content().get(0).favorite()).isFalse();
     }
 
     @Test
@@ -612,20 +746,12 @@ class HospitalSearchServiceTest {
     }
 
     @Test
-    void 후처리_검색의_마지막_페이지보다_큰_페이지도_빈_목록을_반환한다() {
-        Hospital hospital = createHospital(
-                1L,
-                "가까운 병원",
-                BusinessStatus.OPEN,
-                false,
-                "126.9780",
-                "37.5665"
-        );
-        given(hospitalRepository.searchAll(
+    void 거리순_검색의_마지막_페이지보다_큰_페이지도_빈_목록을_반환한다() {
+        given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
-        )).willReturn(List.of(candidate(hospital)));
+        )).willReturn(1L);
 
         HospitalSearchPageResponse response =
                 hospitalService.hospitalSearch(
@@ -655,20 +781,12 @@ class HospitalSearchServiceTest {
     }
 
     @Test
-    void 후처리_검색의_페이지_오프셋이_int_범위를_넘어도_빈_목록을_반환한다() {
-        Hospital hospital = createHospital(
-                1L,
-                "가까운 병원",
-                BusinessStatus.OPEN,
-                false,
-                "126.9780",
-                "37.5665"
-        );
-        given(hospitalRepository.searchAll(
+    void 거리순_검색의_페이지_오프셋이_int_범위를_넘어도_빈_목록을_반환한다() {
+        given(hospitalRepository.count(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
                 )
-        )).willReturn(List.of(candidate(hospital)));
+        )).willReturn(1L);
 
         HospitalSearchPageResponse response =
                 hospitalService.hospitalSearch(
@@ -734,6 +852,122 @@ class HospitalSearchServiceTest {
         assertThat(response.last()).isTrue();
     }
 
+    @Test
+    void 거리순_검색은_DB에서_정렬한_페이지만_조회한다() {
+        Hospital nearby = createHospital(
+                1L,
+                "가까운 병원",
+                BusinessStatus.OPEN,
+                false,
+                "126.9780",
+                "37.5665"
+        );
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(2L);
+        given(hospitalRepository.searchDistancePage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(new BigDecimal("37.5665")),
+                org.mockito.ArgumentMatchers.eq(new BigDecimal("126.9780")),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(1)
+        )).willReturn(List.of(candidate(nearby)));
+
+        HospitalSearchPageResponse response = hospitalService.hospitalSearch(
+                null,
+                null,
+                new BigDecimal("37.5665"),
+                new BigDecimal("126.9780"),
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                1,
+                "distance"
+        );
+
+        assertThat(response.content())
+                .singleElement()
+                .extracting("hospitalId")
+                .isEqualTo(1L);
+        assertThat(response.totalElements()).isEqualTo(2L);
+        verify(hospitalRepository, never()).searchAll(
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void 현재_영업_검색은_고정_크기_배치로_후보를_조회한다() {
+        List<HospitalSearchCandidate> firstBatch = new ArrayList<>();
+        for (long id = 1; id < 200; id++) {
+            firstBatch.add(candidate(createHospital(
+                    id,
+                    "비제휴 병원 " + id,
+                    BusinessStatus.OPEN,
+                    false,
+                    null,
+                    null
+            )));
+        }
+        firstBatch.add(openCandidate(200L, "영업 병원 A"));
+
+        given(hospitalRepository.searchPage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(200)
+        )).willReturn(firstBatch);
+        given(hospitalRepository.searchPage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(200L),
+                org.mockito.ArgumentMatchers.eq(200)
+        )).willReturn(List.of(openCandidate(201L, "영업 병원 B")));
+
+        HospitalSearchPageResponse response = hospitalService.hospitalSearch(
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                true,
+                2,
+                1,
+                "name"
+        );
+
+        assertThat(response.content())
+                .singleElement()
+                .satisfies(hospital -> {
+                    assertThat(hospital.hospitalId()).isEqualTo(201L);
+                    assertThat(hospital.openNow()).isTrue();
+                });
+        assertThat(response.totalElements()).isEqualTo(2L);
+        assertThat(response.totalPages()).isEqualTo(2);
+        verify(hospitalRepository, never()).searchAll(
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
     private Hospital createHospital(
             Long id,
             String name,
@@ -786,6 +1020,28 @@ class HospitalSearchServiceTest {
         );
     }
 
+    private HospitalSearchPageResponse searchInitialPage(Long memberId) {
+        return hospitalService.hospitalSearch(
+                memberId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                20,
+                "name"
+        );
+    }
+
     private HospitalSearchCandidate candidate(Hospital hospital) {
         return new HospitalSearchCandidate(
                 hospital.getId(),
@@ -797,6 +1053,34 @@ class HospitalSearchServiceTest {
                 hospital.getBusinessStatus(),
                 hospital.getPartnershipStatus(),
                 null
+        );
+    }
+
+    private HospitalSearchCandidate openCandidate(Long id, String name) {
+        Hospital hospital = createHospital(
+                id,
+                name,
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        return new HospitalSearchCandidate(
+                hospital.getId(),
+                hospital.getName(),
+                hospital.getAddressRoad(),
+                hospital.getAddressJibun(),
+                hospital.getCoordX(),
+                hospital.getCoordY(),
+                hospital.getBusinessStatus(),
+                hospital.getPartnershipStatus(),
+                Map.of(
+                        LocalDate.now(ZoneId.of("Asia/Seoul")).getDayOfWeek(),
+                        new DailyOperatingHours(
+                                LocalTime.MIN,
+                                LocalTime.MAX
+                        )
+                )
         );
     }
 }
