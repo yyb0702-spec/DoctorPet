@@ -46,6 +46,15 @@ LIGHTWEIGHT_SUMMARIES = [
     if rel != "docs/lightweight/README.md"
 ]
 
+# 고도화 델타 레이어 — README.md뿐 아니라 도메인별 델타 문서(결제.md 등)도 전부
+# 동적으로 수집한다. 정적으로 하나만 넣으면 새 델타 문서의 깨진 링크·섹션 참조를
+# 하네스가 못 잡는다(리뷰 지적).
+ENHANCEMENT_DIR = ROOT / "docs/enhancement"
+ENHANCEMENT_DOCS = sorted(
+    path.relative_to(ROOT).as_posix()
+    for path in ENHANCEMENT_DIR.glob("*.md")
+)
+
 PRD = ROOT / "docs/product/DoctorPet-PRD.md"
 SA = ROOT / "docs/architecture/DoctorPet-SA.md"
 CODE_CONVENTION = ROOT / "docs/architecture/DoctorPet-코드컨벤션.md"
@@ -194,7 +203,7 @@ def main() -> int:
     prd_headers = headers_of(PRD)
     sa_headers = headers_of(SA)
 
-    for rel in HARNESS_DOCS + LIGHTWEIGHT_DOCS:
+    for rel in HARNESS_DOCS + LIGHTWEIGHT_DOCS + ENHANCEMENT_DOCS:
         doc = ROOT / rel
         if not doc.exists():
             errors.append(f"{rel}: 파일이 없다")
@@ -251,7 +260,8 @@ def main() -> int:
         return 1
     print(
         f"PASS — 하네스 문서 {len(HARNESS_DOCS)}개·경량 문서 "
-        f"{len(LIGHTWEIGHT_DOCS)}개 + PRD·SA 상호참조, "
+        f"{len(LIGHTWEIGHT_DOCS)}개·고도화 문서 {len(ENHANCEMENT_DOCS)}개 "
+        "+ PRD·SA 상호참조, "
         "링크·경로·섹션·정본 버전 참조 이상 없음"
     )
     return 0
