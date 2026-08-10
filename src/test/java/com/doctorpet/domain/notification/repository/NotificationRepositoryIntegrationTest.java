@@ -8,7 +8,12 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.global.config.JpaAuditingConfig;
 import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManager;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +42,9 @@ class NotificationRepositoryIntegrationTest {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     @DisplayName("연결정보(resource_type·resource_id)와 read_at·created_at이 매핑대로 저장·조회된다")
@@ -149,6 +157,39 @@ class NotificationRepositoryIntegrationTest {
         assertThat(firstPage.getTotalPages()).isEqualTo(2);
         assertThat(firstPage.isFirst()).isTrue();
         assertThat(firstPage.isLast()).isFalse();
+    }
+
+    /*
+      PR #134 리뷰 지적 — 인덱스를 추가해 놓고 실제 생성·사용 여부를 검증하는 테스트가 없어
+      인덱스가 만들어지지 않아도 다른 테스트는 그대로 통과했다. information_schema로 실제
+      생성을 확인한다. 실행계획은 possible_keys(이 조건에 실제로 쓸 수 있는 인덱스 후보)로
+      검증한다 — 최종 선택(key)은 이 로컬 MySQL이 여러 테스트·수동 실행이 공유하는 인스턴스라
+      테이블 통계·기존 데이터 분포에 따라 바뀔 수 있어 단정하면 이 테스트 자체가 데이터
+      상태에 취약해진다. "이 인덱스가 이 조건에 적용 가능한가"라는 스키마 계약만 고정한다.
+     */
+    @Test
+    @DisplayName("idx_notifications_member_read 인덱스가 실제로 생성되고, 미읽음 조회 실행계획의 후보 인덱스에 포함된다")
+    void memberReadIndex_existsAndIsUsableByUnreadQuery() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            try (PreparedStatement indexStmt = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM information_schema.statistics "
+                            + "WHERE table_schema = DATABASE() AND table_name = 'notifications' "
+                            + "AND index_name = 'idx_notifications_member_read'")) {
+                try (ResultSet rs = indexStmt.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat(rs.getInt(1)).isGreaterThan(0);
+                }
+            }
+
+            try (PreparedStatement explainStmt = connection.prepareStatement(
+                    "EXPLAIN SELECT * FROM notifications WHERE member_id = ? AND read_at IS NULL")) {
+                explainStmt.setLong(1, MEMBER_A);
+                try (ResultSet rs = explainStmt.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat(rs.getString("possible_keys")).contains("idx_notifications_member_read");
+                }
+            }
+        }
     }
 
     private Notification paymentNotification(Long memberId, Long resourceId) {
