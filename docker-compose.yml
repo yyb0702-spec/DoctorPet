@@ -7,7 +7,7 @@
 # 평소엔 활성 색 하나만 컨테이너가 떠 있고, 배포하는 짧은 구간에만 두 색이 동시에 뜬다. 서버에서는
 # 절대 대상 서비스를 지정하지 않은 `docker compose up -d`를 실행하지 않는다 — 항상 배포 스크립트가
 # `--no-deps app-<color>`로 대상 색만 지정한다(주의사항, 위 문서 7절). app-green에 profiles:
-# ["green"]을 둔 것도 같은 이유 — 바어 `docker compose up -d`(로컬 개발 등)가 실수로 green까지
+# ["green"]을 둔 것도 같은 이유 — 그냥 `docker compose up -d`(로컬 개발 등)가 실수로 green까지
 # 건드리지 않도록 기본 프로파일에서 제외한다.
 #
 # 기본 프로파일이 docker인 이유: .env.example 기본값은 payment.gateway=fake, mail.provider=
