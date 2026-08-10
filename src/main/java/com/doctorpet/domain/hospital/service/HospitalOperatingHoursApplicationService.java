@@ -18,6 +18,7 @@ import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
+import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
@@ -25,6 +26,7 @@ import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -39,6 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class HospitalOperatingHoursApplicationService {
+
+    private static final int SLOT_INTERVAL_MINUTES = 30;
 
     private final MemberService memberService;
     private final ReservationService reservationService;
@@ -122,6 +126,31 @@ public class HospitalOperatingHoursApplicationService {
         return TemporaryClosureResponse.from(closure);
     }
 
+    @Transactional
+    public int createSlots(Long hospitalId, LocalDate businessDate) {
+        if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
+            return 0;
+        }
+
+        HospitalOperatingSchedule schedule = scheduleRepository
+                .findEffectiveSchedule(hospitalId, businessDate)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.OPERATING_SCHEDULE_NOT_FOUND
+                ));
+        List<ReservationSlotCreateCommand> commands = schedule
+                .getOperatingHours()
+                .getOrDefault(businessDate.getDayOfWeek(), List.of())
+                .stream()
+                .flatMap(hours -> createSlotCommands(businessDate, hours).stream())
+                .toList();
+
+        return reservationService.createOpenSlots(
+                hospitalId,
+                businessDate,
+                commands
+        );
+    }
+
     private HospitalOperatingSchedule createSchedule(
             Long hospitalId,
             LocalDate effectiveFrom,
@@ -130,6 +159,26 @@ public class HospitalOperatingHoursApplicationService {
         Hospital hospital = hospitalRepository.findById(hospitalId)
                 .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));
         return HospitalOperatingSchedule.create(hospital, effectiveFrom, operatingHours);
+    }
+
+    private List<ReservationSlotCreateCommand> createSlotCommands(
+            LocalDate businessDate,
+            DailyOperatingHours hours
+    ) {
+        LocalDateTime periodStart = businessDate.atTime(hours.openTime());
+        LocalDateTime periodEnd = businessDate.atTime(hours.closeTime());
+        if (!periodEnd.isAfter(periodStart)) {
+            periodEnd = periodEnd.plusDays(1);
+        }
+
+        List<ReservationSlotCreateCommand> commands = new ArrayList<>();
+        LocalDateTime slotStart = periodStart;
+        while (!slotStart.plusMinutes(SLOT_INTERVAL_MINUTES).isAfter(periodEnd)) {
+            LocalDateTime slotEnd = slotStart.plusMinutes(SLOT_INTERVAL_MINUTES);
+            commands.add(new ReservationSlotCreateCommand(slotStart, slotEnd));
+            slotStart = slotEnd;
+        }
+        return commands;
     }
 
     private void validateDesiredEffectiveFrom(LocalDate desiredEffectiveFrom, LocalDate today) {

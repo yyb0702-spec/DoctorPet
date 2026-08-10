@@ -23,6 +23,7 @@ import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
+import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
@@ -40,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -270,6 +272,103 @@ class HospitalOperatingHoursApplicationServiceTest {
 
         verify(reservationService, never())
                 .removeOpenSlotsIfNoReservation(any(), any());
+    }
+
+    @Test
+    void createSlotsCreatesThirtyMinuteSlotsAndDropsRemainder() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 10);
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.empty());
+        given(scheduleRepository.findEffectiveSchedule(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(schedule));
+        given(schedule.getOperatingHours()).willReturn(Map.of(
+                businessDate.getDayOfWeek(),
+                List.of(new DailyOperatingHours(
+                        LocalTime.of(9, 0),
+                        LocalTime.of(10, 10)
+                ))
+        ));
+        given(reservationService.createOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(businessDate),
+                any()
+        )).willReturn(2);
+
+        int created = service.createSlots(HOSPITAL_ID, businessDate);
+
+        assertThat(created).isEqualTo(2);
+        ArgumentCaptor<List<ReservationSlotCreateCommand>> commands =
+                ArgumentCaptor.forClass(List.class);
+        verify(reservationService).createOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(businessDate),
+                commands.capture()
+        );
+        assertThat(commands.getValue())
+                .extracting(
+                        ReservationSlotCreateCommand::startAt,
+                        ReservationSlotCreateCommand::endAt
+                )
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                businessDate.atTime(9, 0),
+                                businessDate.atTime(9, 30)
+                        ),
+                        org.assertj.core.groups.Tuple.tuple(
+                                businessDate.atTime(9, 30),
+                                businessDate.atTime(10, 0)
+                        )
+                );
+    }
+
+    @Test
+    void createSlotsKeepsOvernightSlotsOnBusinessDate() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 10);
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.empty());
+        given(scheduleRepository.findEffectiveSchedule(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(schedule));
+        given(schedule.getOperatingHours()).willReturn(Map.of(
+                businessDate.getDayOfWeek(),
+                List.of(new DailyOperatingHours(
+                        LocalTime.of(23, 30),
+                        LocalTime.of(1, 0)
+                ))
+        ));
+
+        service.createSlots(HOSPITAL_ID, businessDate);
+
+        ArgumentCaptor<List<ReservationSlotCreateCommand>> commands =
+                ArgumentCaptor.forClass(List.class);
+        verify(reservationService).createOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(businessDate),
+                commands.capture()
+        );
+        assertThat(commands.getValue())
+                .extracting(ReservationSlotCreateCommand::startAt)
+                .containsExactly(
+                        businessDate.atTime(23, 30),
+                        businessDate.plusDays(1).atStartOfDay(),
+                        businessDate.plusDays(1).atTime(0, 30)
+                );
+    }
+
+    @Test
+    void createSlotsSkipsTemporaryClosure() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 10);
+        Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(
+                        HospitalTemporaryClosure.create(hospital, businessDate)
+                ));
+
+        assertThat(service.createSlots(HOSPITAL_ID, businessDate)).isZero();
+
+        verify(scheduleRepository, never())
+                .findEffectiveSchedule(any(), any());
+        verify(reservationService, never())
+                .createOpenSlots(any(), any(), any());
     }
 
     private OperatingHoursUpdateRequest updateRequest(LocalDate desiredEffectiveFrom) {

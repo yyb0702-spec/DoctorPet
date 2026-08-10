@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
@@ -27,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
@@ -128,6 +131,31 @@ public class ReservationService {
 
         reservationSlotRepository.deleteAll(slots);
         return true;
+    }
+
+    @Transactional
+    public int createOpenSlots(
+            Long hospitalId,
+            LocalDate businessDate,
+            List<ReservationSlotCreateCommand> commands
+    ) {
+        Set<LocalDateTime> existingStartTimes = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate)
+                .stream()
+                .map(ReservationSlot::getStartAt)
+                .collect(Collectors.toSet());
+        List<ReservationSlot> slots = commands.stream()
+                .filter(command -> !existingStartTimes.contains(command.startAt()))
+                .map(command -> ReservationSlot.create(
+                        hospitalId,
+                        command.startAt(),
+                        command.endAt(),
+                        businessDate
+                ))
+                .toList();
+
+        reservationSlotRepository.saveAll(slots);
+        return slots.size();
     }
 
     @Transactional

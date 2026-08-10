@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
  
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
@@ -148,6 +149,48 @@ class ReservationServiceTest {
         assertThat(reserved.getStatus()).isEqualTo(ReservationSlotStatus.RESERVED);
         assertThat(removed).isFalse();
         verify(reservationSlotRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    @DisplayName("슬롯 생성은 같은 영업일에 이미 존재하는 시작 시각을 제외한다")
+    void createOpenSlotsSkipsExistingStartTime() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 15);
+        ReservationSlot existing = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(9, 0),
+                businessDate.atTime(9, 30),
+                businessDate
+        );
+        given(reservationSlotRepository.findBusinessDateSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(List.of(existing));
+
+        int created = reservationService.createOpenSlots(
+                HOSPITAL_ID,
+                businessDate,
+                List.of(
+                        new ReservationSlotCreateCommand(
+                                businessDate.atTime(9, 0),
+                                businessDate.atTime(9, 30)
+                        ),
+                        new ReservationSlotCreateCommand(
+                                businessDate.atTime(9, 30),
+                                businessDate.atTime(10, 0)
+                        )
+                )
+        );
+
+        assertThat(created).isEqualTo(1);
+        var slots = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(reservationSlotRepository).saveAll(slots.capture());
+        assertThat((List<ReservationSlot>) slots.getValue())
+                .singleElement()
+                .satisfies(slot -> {
+                    assertThat(slot.getStartAt())
+                            .isEqualTo(businessDate.atTime(9, 30));
+                    assertThat(slot.getBusinessDate()).isEqualTo(businessDate);
+                });
     }
  
     @Test
