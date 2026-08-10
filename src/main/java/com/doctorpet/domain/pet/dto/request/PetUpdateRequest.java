@@ -42,9 +42,11 @@ public record PetUpdateRequest(
         Boolean neutered,
 
         // POST /api/pets/{petId}/image/upload-url로 발급받은 presigned URL에 업로드를 마친 뒤,
-        // 그 결과 fileUrl을 이 필드로 저장(확정)한다. 형식 검증은 하지 않는다 — 값은 서버가 같은
-        // 요청 흐름에서 발급한 URL을 그대로 돌려받는 용도라 임의 문자열을 걸러야 할 신뢰 경계가
-        // 아니다(길이 제한만 DB 컬럼(VARCHAR(2048))과 맞춘다).
+        // 그 결과 fileUrl을 이 필드로 저장(확정)한다. 이 값은 인증된 클라이언트가 보내는 요청
+        // 값이라 신뢰 경계 밖에 있다(리뷰 지적) — 길이는 DB 컬럼(VARCHAR(2048))과 맞춰 여기서
+        // 검증하고, 실제 스킴·호스트·petId 네임스페이스 검증은 PetService.update()가
+        // ImageStorageGateway#isManagedFileUrl()로 저장 직전에 수행한다(DTO는 형식 무관 문자열
+        // 제약만 담당).
         @Size(max = 2048, message = "이미지 URL은 2048자를 초과할 수 없습니다.")
         String imageUrl
 ) {
