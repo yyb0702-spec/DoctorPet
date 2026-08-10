@@ -83,6 +83,7 @@ class AiConsultationServiceTest {
         given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
         HospitalSearchResponse hospital = hospital();
         given(hospitalService.hospitalSearch(
+                1L,
                 null,
                 "서울",
                 null,
@@ -288,7 +289,7 @@ class AiConsultationServiceTest {
         BigDecimal latitude = new BigDecimal("37.5665");
         BigDecimal longitude = new BigDecimal("126.9780");
         given(hospitalService.hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of("BLOOD_TEST"), List.of("DOG"),
                 null, null, true, null, false, true, 1, 20, "distance"
         )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
@@ -302,7 +303,7 @@ class AiConsultationServiceTest {
         ));
 
         verify(hospitalService).hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of("BLOOD_TEST"), List.of("DOG"),
                 null, null, true, null, false, true, 1, 20, "distance"
         );
@@ -314,7 +315,7 @@ class AiConsultationServiceTest {
         AiAnalysisResult result = result(List.of("BLOOD_TEST"));
         given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of("BLOOD_TEST"), List.of("BIRD"),
                 null, null, null, null, false, false, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
@@ -325,7 +326,7 @@ class AiConsultationServiceTest {
         );
 
         verify(hospitalService).hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of("BLOOD_TEST"), List.of("BIRD"),
                 null, null, null, null, false, false, 1, 20, "name"
         );
@@ -354,7 +355,7 @@ class AiConsultationServiceTest {
         BigDecimal latitude = new BigDecimal("37.5665");
         BigDecimal longitude = new BigDecimal("126.9780");
         given(hospitalService.hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
                 true, null, false, true, 1, 20, "distance"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -373,7 +374,7 @@ class AiConsultationServiceTest {
         assertThat(response.hospitals()).containsExactly(hospital());
         assertThat(response.message()).isEqualTo("조건에 맞는 동물병원 1곳을 찾았습니다.");
         verify(hospitalService).hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
                 true, null, false, true, 1, 20, "distance"
         );
@@ -401,7 +402,7 @@ class AiConsultationServiceTest {
             );
         }).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of("XRAY", "ULTRASOUND"), List.of("DOG"), null, null,
                 null, null, false, false, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -451,7 +452,7 @@ class AiConsultationServiceTest {
             );
         }).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
                 null, true, false, true, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -466,7 +467,7 @@ class AiConsultationServiceTest {
         assertThat(response.locationRecommended()).isTrue();
         assertThat(response.hospitals()).containsExactly(hospital());
         verify(hospitalService).hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
                 null, true, false, true, 1, 20, "name"
         );
@@ -486,7 +487,7 @@ class AiConsultationServiceTest {
                 false
         )).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null,
                 null, true, false, true, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -499,7 +500,7 @@ class AiConsultationServiceTest {
         assertThat(response.message()).contains("응급 상황");
         assertThat(response.hospitals()).containsExactly(hospital());
         verify(hospitalService).hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null,
                 null, true, false, true, 1, 20, "name"
         );
@@ -537,7 +538,7 @@ class AiConsultationServiceTest {
         AiAnalysisResult result = result(List.of());
         given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                null, null, "서울", null, null, null,
                 List.of(), List.of("CAT"), null, null, null, null,
                 false, true, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
@@ -545,7 +546,7 @@ class AiConsultationServiceTest {
         service.consult(null, request("새벽인데 지금 진료 가능한 병원", PetSpecies.CAT, "서울"));
 
         verify(hospitalService).hospitalSearch(
-                null, "서울", null, null, null,
+                null, null, "서울", null, null, null,
                 List.of(), List.of("CAT"), null, null, null, null,
                 false, true, 1, 20, "name"
         );
@@ -559,7 +560,7 @@ class AiConsultationServiceTest {
                 null, null, null, null);
         given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -570,7 +571,7 @@ class AiConsultationServiceTest {
         assertThat(response.message()).contains("입력한 지역");
         assertThat(response.locationRecommended()).isTrue();
         verify(hospitalService).hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "name"
         );
@@ -581,7 +582,7 @@ class AiConsultationServiceTest {
     void consult_emergencyKeyword_bypassesGateway() {
         given(emergencyKeywordDetector.isEmergency("강아지가 호흡곤란을 보여요")).willReturn(true);
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -605,7 +606,7 @@ class AiConsultationServiceTest {
         BigDecimal latitude = new BigDecimal("37.5665");
         BigDecimal longitude = new BigDecimal("126.9780");
         given(hospitalService.hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "distance"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
@@ -624,7 +625,7 @@ class AiConsultationServiceTest {
         assertThat(response.locationRecommended()).isFalse();
         assertThat(response.message()).contains("가까운 순");
         verify(hospitalService).hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "distance"
         );
@@ -638,7 +639,7 @@ class AiConsultationServiceTest {
         given(emergencyKeywordDetector.isEmergency("강아지가 호흡곤란을 보여요"))
                 .willReturn(true);
         given(hospitalService.hospitalSearch(
-                null, null, latitude, longitude, null,
+                1L, null, null, latitude, longitude, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "distance"
         )).willThrow(new IllegalStateException("search failed"));
@@ -669,7 +670,7 @@ class AiConsultationServiceTest {
                 null, null, null, null);
         given(aiGateway.analyze(any(AiAnalysisRequest.class))).willReturn(result);
         given(hospitalService.hospitalSearch(
-                null, "서울", null, null, null,
+                1L, null, "서울", null, null, null,
                 List.of(), List.of("DOG"), null, null, null, true,
                 false, true, 1, 20, "name"
         )).willReturn(HospitalSearchPageResponse.of(List.of(), 1, 20, 0, 0));
