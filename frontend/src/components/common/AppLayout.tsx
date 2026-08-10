@@ -1,0 +1,74 @@
+// 보호자 앱 공통 레이아웃 — 헤더(네비·인증 상태) + 본문.
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { PawPrint } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/lib/auth/authStore'
+import { NotificationBell } from '@/features/notifications/NotificationBell'
+import { UserMenu } from '@/components/common/UserMenu'
+
+// 공개 라우트 — 비인증 상태에서도 진입 가능.
+const PUBLIC_NAV = [
+  { to: '/hospitals', label: '병원 찾기' },
+  { to: '/ai', label: 'AI 상담' },
+]
+// 인증 필요 — 로그인 상태에서만 노출. (펫·결제수단은 마이페이지 허브에서 접근)
+const PRIVATE_NAV = [{ to: '/reservations', label: '내 예약' }]
+
+export function AppLayout() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const navigate = useNavigate()
+
+  return (
+    <div className="min-h-svh bg-background">
+      <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4">
+          <Link to="/" className="flex items-center gap-2 font-bold text-primary">
+            <PawPrint className="h-5 w-5" />
+            DoctorPet
+          </Link>
+          <nav className="hidden items-center gap-1 sm:flex">
+            {[...PUBLIC_NAV, ...(isAuthenticated ? PRIVATE_NAV : [])].map(
+              (item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    cn(
+                      'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ),
+            )}
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
+            {isAuthenticated ? (
+              <>
+                <NotificationBell />
+                <UserMenu />
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/login')}>
+                  로그인
+                </Button>
+                <Button size="sm" onClick={() => navigate('/signup')}>
+                  회원가입
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        <Outlet />
+      </main>
+    </div>
+  )
+}

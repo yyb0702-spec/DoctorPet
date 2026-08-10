@@ -90,7 +90,7 @@ class MemberControllerTest {
     @DisplayName("내 정보 조회 성공 시 200과 회원 정보를 반환한다")
     void getMyInfo_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
-        MemberResponse response = new MemberResponse(1L, "guardian@example.com", "보호자닉네임", MemberRole.GUARDIAN, null);
+        MemberResponse response = new MemberResponse(1L, "guardian@example.com", "보호자닉네임", "010-1234-5678", MemberRole.GUARDIAN, null);
         given(memberService.getMyInfo(1L)).willReturn(response);
 
         mockMvc.perform(get("/api/members/me"))
@@ -99,6 +99,7 @@ class MemberControllerTest {
                 .andExpect(jsonPath("$.data.memberId").value(1))
                 .andExpect(jsonPath("$.data.email").value("guardian@example.com"))
                 .andExpect(jsonPath("$.data.nickname").value("보호자닉네임"))
+                .andExpect(jsonPath("$.data.phone").value("010-1234-5678"))
                 .andExpect(jsonPath("$.data.role").value("GUARDIAN"))
                 .andExpect(jsonPath("$.data.hospitalId").value(nullValue()));
     }
@@ -120,7 +121,7 @@ class MemberControllerTest {
     void updateNickname_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(1L));
         NicknameUpdateRequest request = new NicknameUpdateRequest("새닉네임");
-        MemberResponse response = new MemberResponse(1L, "guardian@example.com", "새닉네임", MemberRole.GUARDIAN, null);
+        MemberResponse response = new MemberResponse(1L, "guardian@example.com", "새닉네임", "010-1234-5678", MemberRole.GUARDIAN, null);
         given(memberService.updateNickname(1L, "새닉네임")).willReturn(response);
 
         mockMvc.perform(patch("/api/members/me")

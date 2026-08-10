@@ -64,7 +64,7 @@ public class AuthService {
         }
 
         String encodedPassword = passwordEncoder.encode(request.password());
-        Member member = Member.createGuardian(request.email(), encodedPassword, request.nickname());
+        Member member = Member.createGuardian(request.email(), encodedPassword, request.nickname(), request.phone());
 
         Member savedMember;
         try {

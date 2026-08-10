@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.global.config.JpaAuditingConfig;
 import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
@@ -25,7 +26,7 @@ import org.springframework.context.annotation.Import;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(QuerydslConfig.class)
+@Import({JpaAuditingConfig.class, QuerydslConfig.class})
 class MemberDdlIntegrationTest {
 
     @Autowired
@@ -74,6 +75,21 @@ class MemberDdlIntegrationTest {
 
         Member reloadedAfterVerify = memberRepository.findById(saved.getId()).orElseThrow();
         assertThat(reloadedAfterVerify.isEmailVerified()).isTrue();
+    }
+
+    @Test
+    @DisplayName("신규 컬럼(phone)이 매핑대로 저장·조회되고, 3-arg 팩토리로 만든 기존 회원은 null로 남는다(기능 구멍 점검 대응)")
+    void phoneColumn_persistsCorrectly_andRemainsNullForLegacyFactory() {
+        Member withPhone = Member.createGuardian("withphone@example.com", "encoded", "닉네임", "010-1234-5678");
+        Member withoutPhone = Member.createGuardian("withoutphone@example.com", "encoded", "닉네임2");
+        Long withPhoneId = memberRepository.saveAndFlush(withPhone).getId();
+        Long withoutPhoneId = memberRepository.saveAndFlush(withoutPhone).getId();
+        entityManager.clear();
+
+        assertThat(memberRepository.findById(withPhoneId).orElseThrow().getPhone())
+                .isEqualTo("010-1234-5678");
+        assertThat(memberRepository.findById(withoutPhoneId).orElseThrow().getPhone())
+                .isNull();
     }
 
     @Test

@@ -28,4 +28,20 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Member m where m.email = :email")
     Optional<Member> findByEmailForUpdate(String email);
+
+    /**
+     * 비밀번호 재설정 확인, 회원 탈퇴-병원 찜 등록 경합 직렬화에서 공용으로 사용하는 비관적 락
+     * 조회(리뷰 지적 — 재설정·로그인 직렬화). {@code findByEmailForUpdate()}와 같은 행에
+     * {@code SELECT ... FOR UPDATE}를 걸어 여러 흐름을 같은 락으로 직렬화한다 — 잠금 없이
+     * 재설정하면, 재설정 트랜잭션이 비밀번호를 아직 커밋하지 않은 사이 공격자가 옛 비밀번호로
+     * 로그인을 통과해 새 Refresh Token을 저장할 수 있고, 그 직후 재설정이 커밋돼 비밀번호는
+     * 바뀌어도 그 Refresh Token은 이미 저장된 뒤라 삭제되지 않는다(이번 보안 수정의 목적이
+     * 무력화됨). 같은 행 락을 공유하면 어느 쪽이 먼저 락을 잡았든 나머지 흐름은 앞선 트랜잭션이
+     * 커밋해 락을 놓을 때까지 대기한다 — 재설정이 먼저면 뒤이은 로그인은 이미 바뀐 비밀번호로
+     * 검증되어 실패하고, 로그인이 먼저면 재설정은 로그인이 끝난 뒤 커밋되면서 로그인이 방금
+     * 저장한 Refresh Token까지 함께 삭제한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from Member m where m.id = :id")
+    Optional<Member> findByIdForUpdate(Long id);
 }

@@ -3,10 +3,11 @@ package com.doctorpet.domain.member.dto.request;
 import com.doctorpet.global.validation.MaxUtf8Bytes;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * 회원가입 요청. SA §8-1: {@code POST /api/auth/signup { email, password, nickname }}.
+ * 회원가입 요청. SA §8-1: {@code POST /api/auth/signup { email, password, nickname, phone }}.
  * 비밀번호 규칙(8자 이상, 문자 종류 제한 없음)은 A 도메인 결정 #2를 따른다.
  *
  * 각 필드에 상한을 둔 이유: 이게 없으면 members 테이블 컬럼 길이(기본 varchar(255))를 넘는 값이
@@ -33,6 +34,15 @@ public record SignupRequest(
 
         @NotBlank(message = "닉네임은 필수입니다.")
         @Size(max = 255, message = "닉네임은 255자를 초과할 수 없습니다.")
-        String nickname
+        String nickname,
+
+        // 병원이 예약 확인·노쇼 직전 연락을 할 수단이 없던 문제(기능 구멍 점검) 대응으로 추가.
+        // 하이픈 유무 둘 다 허용하되(010-1234-5678 / 01012345678), 두 하이픈 자리가 각각
+        // 독립적인 "-?"면 "010-12345678"·"0101234-5678"처럼 한쪽만 있는 값도 통과해버린다
+        // (리뷰 지적) — 두 자리 모두 있거나 둘 다 없는 경우만 허용하도록 통째로 두 갈래로
+        // 나눴다. 010·011·016~019만 허용.
+        @NotBlank(message = "전화번호는 필수입니다.")
+        @Pattern(regexp = "^01(?:0|1|[6-9])(?:-\\d{3,4}-\\d{4}|\\d{3,4}\\d{4})$", message = "전화번호 형식이 올바르지 않습니다. (예: 010-1234-5678)")
+        String phone
 ) {
 }

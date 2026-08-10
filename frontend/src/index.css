@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+
+/* shadcn/ui 호환 토큰 (Tailwind v4). 밝은 배경 + teal/green 포인트. */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.99 0.005 180);
+  --foreground: oklch(0.18 0.02 200);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 200);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 200);
+  --primary: oklch(0.62 0.11 185);
+  --primary-foreground: oklch(0.99 0.01 180);
+  --secondary: oklch(0.96 0.02 185);
+  --secondary-foreground: oklch(0.3 0.04 195);
+  --muted: oklch(0.96 0.01 190);
+  --muted-foreground: oklch(0.52 0.02 200);
+  --accent: oklch(0.94 0.04 175);
+  --accent-foreground: oklch(0.3 0.05 190);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.99 0.01 180);
+  --border: oklch(0.9 0.01 195);
+  --input: oklch(0.9 0.01 195);
+  --ring: oklch(0.62 0.11 185);
+}
+
+.dark {
+  --background: oklch(0.16 0.02 210);
+  --foreground: oklch(0.95 0.01 180);
+  --card: oklch(0.2 0.02 210);
+  --card-foreground: oklch(0.95 0.01 180);
+  --popover: oklch(0.2 0.02 210);
+  --popover-foreground: oklch(0.95 0.01 180);
+  --primary: oklch(0.68 0.11 185);
+  --primary-foreground: oklch(0.16 0.02 210);
+  --secondary: oklch(0.28 0.03 200);
+  --secondary-foreground: oklch(0.95 0.01 180);
+  --muted: oklch(0.28 0.02 205);
+  --muted-foreground: oklch(0.7 0.02 195);
+  --accent: oklch(0.32 0.04 190);
+  --accent-foreground: oklch(0.95 0.01 180);
+  --destructive: oklch(0.62 0.2 27);
+  --destructive-foreground: oklch(0.98 0.01 180);
+  --border: oklch(0.3 0.02 205);
+  --input: oklch(0.32 0.02 205);
+  --ring: oklch(0.68 0.11 185);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family:
+      system-ui, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', Roboto,
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}

@@ -2,16 +2,18 @@
 > **이 문서는 열람용 요약이다. 구현 기준은 아래 저장소 정본을 따른다. 경량본과 정본이 다르면 PRD → SA → 코드 컨벤션 → 정책 정리본 순으로 적용한다.**
 | 정본 | 경로·버전 |
 | --- | --- |
-| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.22 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.44, REST API는 §8 |
+| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.24 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.50, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v13 |
 ## 1. 관계 요약
 ```plain text
 members 1 ── 0..N pet_profiles
 members 1 ── 0..N reservations
+members 1 ── 0..N hospital_favorites
 hospitals 1 ── 0..1 hospital_details
 hospitals 1 ── 0..N hospital_capabilities
+hospitals 1 ── 0..N hospital_favorites
 hospitals 1 ── 0..N reservation_slots
 reservation_slots 1 ── 0..N reservations
 reservations 1 ── 0..N reservation_events
@@ -88,6 +90,14 @@ members 1 ── 0..N notifications
 | `capability_type` | VARCHAR | `SPECIES`, `EXAM`, `TREATMENT`, `EQUIPMENT` |
 | `capability_value` | VARCHAR | 역량 값 |
 진료역량 검색은 `UNIQUE(hospital_id, capability_type, capability_value)`를 유지한다. `(capability_value, hospital_id)` 후보는 실행 계획상 스캔 범위를 줄였지만 전체 쿼리 개선 폭이 1ms 미만이어서 쓰기·저장 비용을 감수할 근거가 부족하므로 적용하지 않는다. 진료역량 데이터나 검색 트래픽이 유의미하게 증가하면 다시 검토한다.
+### `hospital_favorites`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `member_id` | BIGINT | 인증된 보호자 ID, 회원 도메인 논리 참조 |
+| `hospital_id` | BIGINT | 병원 FK |
+| `created_at` | DATETIME | 찜 등록 시각 |
+제약: `UNIQUE(member_id, hospital_id)`로 중복 찜을 방지한다. 내 찜 목록은 `created_at DESC, id DESC`로 안정적으로 정렬한다. 로컬 MySQL 합성 찜 5,000건에서 20회 워밍업 후 200회 조회한 결과 중앙값 2.761ms, P95 4.388ms였고 5,000행 스캔과 `Using filesort`가 확인됐다. 현재 응답시간에서는 쓰기·저장 비용을 감수할 근거가 부족해 `(member_id, created_at DESC, id DESC)` 후보를 적용하지 않으며, 회원별 찜 규모나 조회 부하가 증가하면 다시 측정한다. 회원 탈퇴 시 해당 회원의 찜은 삭제한다.
 ## 4. 예약
 ### `reservation_slots`
 | 필드 | 타입 | 제약·설명 |
@@ -216,6 +226,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
 ## 9. 설계상 필수 규칙
 - 제휴 병원은 `hospitals.partnership_status`로 판별한다.
+- 병원 찜은 제휴 여부와 관계없이 허용하며 인증된 보호자와 병원의 조합을 UNIQUE로 유지한다.
 - 공공데이터와 제휴 데이터는 `local_gov_code + mgmt_no` 복합 키로 매핑하고 복합 UNIQUE로 보장한다.
 - `pet_profiles`의 확정 필드는 `name`, `species`, `age`, `weight`, `neutered`이다.
 - 비로그인 AI 상담을 허용하므로 `ai_consultations.member_id`는 `NULL`을 허용한다.

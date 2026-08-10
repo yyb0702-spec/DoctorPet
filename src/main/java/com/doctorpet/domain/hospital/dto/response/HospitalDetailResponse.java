@@ -30,7 +30,8 @@ public record HospitalDetailResponse(
         List<HospitalBusinessHourResponse> businessHours,
         List<CapabilityValue> capabilities,
         BigDecimal averageRating,
-        long reviewCount
+        long reviewCount,
+        boolean favorite
 ) {
 
     private static final String NON_PARTNER_NOTICE =
@@ -62,7 +63,30 @@ public record HospitalDetailResponse(
                 partner ? toBusinessHours(detail) : null,
                 partner ? toCapabilities(hospitalCapabilities) : null,
                 ratingSummary.averageRating(),
-                ratingSummary.reviewCount()
+                ratingSummary.reviewCount(),
+                false
+        );
+    }
+
+    public HospitalDetailResponse withFavorite(boolean favorite) {
+        return new HospitalDetailResponse(
+                hospitalId,
+                name,
+                address,
+                phoneNumber,
+                businessStatus,
+                partnershipStatus,
+                partnershipNotice,
+                openNow,
+                surgeryAvailable,
+                hospitalizationAvailable,
+                nightCare,
+                emergency,
+                businessHours,
+                capabilities,
+                averageRating,
+                reviewCount,
+                favorite
         );
     }
 

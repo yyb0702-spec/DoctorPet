@@ -57,6 +57,9 @@ class HospitalSearchServiceTest {
     @Mock
     private ReviewQueryService reviewQueryService;
 
+    @Mock
+    private HospitalFavoriteService hospitalFavoriteService;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -66,6 +69,7 @@ class HospitalSearchServiceTest {
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
                 hospitalSearchCacheRepository,
+                hospitalFavoriteService,
                 reviewQueryService
         );
     }
@@ -325,6 +329,125 @@ class HospitalSearchServiceTest {
                 .saveInitialPage(
                         org.mockito.ArgumentMatchers.any()
                 );
+    }
+
+    @Test
+    void 캐시_HIT_결과에도_인증된_보호자의_찜_여부를_별도로_결합한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.hit(
+                        new HospitalSearchCachedPage(
+                                List.of(candidate(hospital)),
+                                1L
+                        )
+                ));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+
+        HospitalSearchPageResponse response = hospitalService.hospitalSearch(
+                10L,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                20,
+                "name"
+        );
+
+        assertThat(response.content())
+                .singleElement()
+                .satisfies(result -> assertThat(result.favorite()).isTrue());
+        verifyNoInteractions(hospitalRepository);
+    }
+
+    @Test
+    void 캐시_MISS의_DB_결과에도_보호자의_찜_여부를_결합한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.miss());
+        given(hospitalRepository.count(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                )
+        )).willReturn(1L);
+        given(hospitalRepository.searchPartnerFirstPage(
+                org.mockito.ArgumentMatchers.any(
+                        HospitalSearchCondition.class
+                ),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(20)
+        )).willReturn(List.of(candidate(hospital)));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+
+        HospitalSearchPageResponse response = searchInitialPage(10L);
+
+        assertThat(response.content())
+                .singleElement()
+                .satisfies(result -> assertThat(result.favorite()).isTrue());
+        verify(hospitalSearchCacheRepository).saveInitialPage(
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void 같은_캐시_결과도_회원별_찜_상태가_서로_섞이지_않는다() {
+        Hospital hospital = createHospital(
+                1L,
+                "제휴 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        HospitalSearchCachedPage cachedPage = new HospitalSearchCachedPage(
+                List.of(candidate(hospital)),
+                1L
+        );
+        given(hospitalSearchCacheRepository.findInitialPage())
+                .willReturn(HospitalSearchCacheLookupResult.hit(cachedPage));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of(1L));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                20L,
+                List.of(1L)
+        )).willReturn(java.util.Set.of());
+
+        HospitalSearchPageResponse firstMember = searchInitialPage(10L);
+        HospitalSearchPageResponse secondMember = searchInitialPage(20L);
+
+        assertThat(firstMember.content().get(0).favorite()).isTrue();
+        assertThat(secondMember.content().get(0).favorite()).isFalse();
     }
 
     @Test
@@ -878,6 +1001,28 @@ class HospitalSearchServiceTest {
 
     private HospitalSearchPageResponse searchInitialPage() {
         return hospitalService.hospitalSearch(
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                false,
+                1,
+                20,
+                "name"
+        );
+    }
+
+    private HospitalSearchPageResponse searchInitialPage(Long memberId) {
+        return hospitalService.hospitalSearch(
+                memberId,
                 null,
                 null,
                 null,

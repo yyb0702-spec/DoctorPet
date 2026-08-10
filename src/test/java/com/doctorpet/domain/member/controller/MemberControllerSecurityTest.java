@@ -97,7 +97,7 @@ class MemberControllerSecurityTest {
         given(jwtTokenProvider.getMemberPrincipal(accessToken))
                 .willReturn(new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN"));
         given(memberService.getMyInfo(1L))
-                .willReturn(new MemberResponse(1L, "guardian@example.com", "보호자닉네임", MemberRole.GUARDIAN, null));
+                .willReturn(new MemberResponse(1L, "guardian@example.com", "보호자닉네임", "010-1234-5678", MemberRole.GUARDIAN, null));
 
         mockMvc.perform(get("/api/members/me").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
