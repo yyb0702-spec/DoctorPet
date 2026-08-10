@@ -77,13 +77,13 @@ public class NotificationService {
         return NotificationPageResponse.from(result.map(NotificationResponse::from));
     }
 
-    // 본인의 미읽음 알림 개수를 반환한다(배지 표시용). 목록을 폴링하지 않고 개수만 조회한다(#A1).
+    // 본인의 미읽음 알림 개수를 반환한다(배지 표시용). 목록을 폴링하지 않고 개수만 조회한다.
     public NotificationUnreadCountResponse getUnreadCount(Long memberId) {
         return NotificationUnreadCountResponse.of(
                 notificationRepository.countByMemberIdAndReadAtIsNull(memberId));
     }
 
-    // 본인의 미읽음 알림을 모두 읽음 처리한다(#A2). 미읽음이 없으면 0건을 반환하고 예외 없이 멱등하다.
+    // 본인의 미읽음 알림을 모두 읽음 처리한다. 미읽음이 없으면 0건을 반환하고 예외 없이 멱등하다.
     // 읽음 시각은 markAsRead와 동일하게 주입된 공통 Clock으로 만든다(SA 시간 정책).
     @Transactional
     public NotificationReadAllResponse markAllRead(Long memberId) {

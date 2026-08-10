@@ -19,7 +19,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     Page<Notification> findByMemberIdAndReadAtIsNotNull(Long memberId, Pageable pageable);
 
-    // 미읽음 개수(#A1). 배지 표시용으로 목록을 페이징하지 않고 read_at NULL 건수만 센다(findByMemberIdAndReadAtIsNull과 동일 조건).
+    // 미읽음 개수. 배지 표시용으로 목록을 페이징하지 않고 read_at NULL 건수만 센다(findByMemberIdAndReadAtIsNull과 동일 조건).
     long countByMemberIdAndReadAtIsNull(Long memberId);
 
     /*
@@ -46,7 +46,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     );
 
     /*
-      모두 읽음 처리(#A2)의 bulk UPDATE. markReadIfUnread에서 id 조건만 뺀 형태로, 수신자(member_id)의 미읽음
+      모두 읽음 처리의 bulk UPDATE. markReadIfUnread에서 id 조건만 뺀 형태로, 수신자(member_id)의 미읽음
       전체를 WHERE read_at IS NULL 조건부 UPDATE로 한 번에 읽음 처리한다. 갱신 0건은 "이미 전부 읽음"이므로 호출부가
       멱등 처리한다. JPQL bulk UPDATE는 @LastModifiedDate(updatedAt)를 우회하므로 updatedAt도 같은 서울 기준
       시각으로 명시 갱신한다(markReadIfUnread와 동일 이유).
