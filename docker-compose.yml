@@ -122,6 +122,11 @@ services:
       # 직접 덮어쓰는 파일이라 git으로 추적하지 않는다(.gitignore 참고). 로컬 개발은
       # nginx/conf.d/upstream-active.conf.example을 복사해서 만든다.
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # access/error 로그를 컨테이너 쓰기 레이어가 아니라 영속 볼륨에 남긴다(payment-audit-logs와
+      # 같은 이유) — nginx는 blue/green과 달리 거의 재시작되지 않아 로그가 쓰기 레이어에 무기한
+      # 쌓이는 걸 막고, 컨테이너가 교체돼도 이력이 남게 한다. 로테이션은 이번 범위에 포함하지
+      # 않는다(운영 규모가 커지면 별도로 검토, 무중단 배포 문서 참고).
+      - nginx-logs:/var/log/nginx
     # app-blue/app-green을 depends_on으로 걸지 않는다 — 걸면 `docker compose up -d nginx`가
     # (기본 프로파일인) app-blue까지 같이 시작시키려 들어, 배포 스크립트가 아직 대상 색의
     # 이미지 태그를 export하기 전 타이밍에 엉뚱한 태그(local 폴백)로 기동을 시도할 수 있다.
@@ -131,3 +136,4 @@ services:
 volumes:
   mysql-data:
   payment-audit-logs:
+  nginx-logs:
