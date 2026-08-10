@@ -110,8 +110,11 @@ def _run_harness() -> int:
 
 
 def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    # Windows 콘솔(cp949) 한글 출력 보호. 파이프·리다이렉트로 stdout이 교체돼
+    # reconfigure가 없을 수 있으니 있을 때만 호출한다.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="정본 문서 버전 승격 bookkeeping")
     ap.add_argument("--sa", metavar="ENTRY", help="SA 변경 이력에 추가할 항목(마이너 +1)")
     ap.add_argument("--prd", metavar="ENTRY", help="PRD 변경 이력에 추가할 항목(마이너 +1)")
