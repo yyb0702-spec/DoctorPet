@@ -265,6 +265,7 @@ class ReviewApplicationServiceTest {
 
         assertThat(response.rating()).isEqualByComparingTo("4.5");
         assertThat(response.content()).isEqualTo("수정한 내용");
+        verify(reviewRepository).flush();
         verify(reviewRepository, never()).saveAndFlush(review);
     }
 

@@ -113,6 +113,7 @@ public class ReviewApplicationService {
             throw new ServiceException(ReviewErrorCode.NOT_REVIEW_AUTHOR);
         }
         review.update(request.rating(), request.content());
+        reviewRepository.flush();
         return ReviewResponse.from(review);
     }
 
