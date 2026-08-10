@@ -3,13 +3,13 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.43 |
+| 문서 버전 | v1.44 |
 | 작성 기준일 | 2026-08-08 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
 
-> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 인덱스 성능 검증과 직원 도착 확인 API·`NO_SHOW_PENDING` 기본 5분 추가 유예를 반영했다. v1.37: 예약 알림 저장 연동을 반영하고 실시간 알림 push를 단방향 SSE로 확정했으며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). v1.38: 이번 병합에서 병원 검색 인덱스·SSE 설계와 직원 도착 확인·노쇼 유예 정책을 하나의 정본으로 통합했다. v1.39: SSE 확정 정책과 `processed` 처리 건수 정의를 본문·경량본에 일치시켰다. v1.40: MVP+ 고도화로 진료비 **전액 환불**(이슈 #37)을 도입해 §5-2 스키마(`payments.status`에 `REFUNDED`, `refunded_at`, 신규 `payment_refunds` 이력 테이블)와 §9-4 계약을 확정했다. 선점은 `payment_refunds.UNIQUE(payment_id)`와 소유권 펜스(`claim_token`)가 담당하고 결제 상태에 환불 진행 중 중간 단계를 두지 않는다. 재시도는 `merchant_refund_id`를 재사용하며, 확정 전이 불일치는 이력까지 롤백한다. 현장 현금 수납(`OFFLINE_PAID`) 환불과 부분 환불·정정 재청구는 확장으로 유지한다. v1.41: 전국 병원 검색의 무반경 거리순 요청을 MySQL `ST_Distance_Sphere` 정렬·DB 페이징으로 전환하고, 현재 영업 필터는 정렬된 후보를 200건 단위로 읽어 애플리케이션의 최대 메모리 적재량을 제한했다. 정확한 전체 일치 건수 계산을 위해 후보 전체 스캔은 유지되며 DB 왕복이 증가할 수 있는 트레이드오프를 명시했다(이슈 #69). v1.42: 병원 리뷰 CRUD·평점 집계(이슈 #114)를 확정했다. 결제 완료 자격과 예약당 최초 1회 작성권, 0.5 단위 평점, Hard Delete, 환불 시 리뷰 삭제·작성권 초기화, 동시 작성·환불 경합 불변식을 §4·§8-3·§9-10에 반영했다. v1.43: 별도 리뷰 상세 조회를 제거하고 병원별 공개 목록 응답에서 내부 ID를 제외했다.
+> 변경 이력 — v1.4~v1.29: 각 도메인 구현과 리뷰 결과를 순차 반영했다. v1.30: 전국 공공데이터 주 1회 갱신, 다중 인스턴스 잠금, 19개 진료역량 화이트리스트와 특수동물 축종을 확정했다. v1.31: 예약 승인 마감 백필·재시도, 결제 웹훅 멱등 처리, Redis 토큰 해시 저장과 로그아웃 Access Token 무효화 설계를 병합 반영했다. v1.32: 공공데이터 적재 주기를 매주 월요일 03:00 갱신으로 일치시켰다. v1.33: 재발급 락 TTL 레이스(이슈 #100) 대응으로 `refresh-lock:{memberId}` 직렬화 락과 `refresh-fence:{memberId}` 펜싱 토큰 설계를 §6-1에 반영하고, 저장된 값의 펜싱 토큰뿐 아니라 펜싱 카운터의 현재 값까지 비교해야 함을 2차 리뷰 반영으로 보강. 경량본(§4)에 동일 계약 요약 추가(리뷰 지적, PR #101). v1.34: 관측성·API 문서 노출 범위(이슈 #105)를 §12에 확정 — 액추에이터를 `management.server.port=8081`로 앱 포트와 분리하고 전용 `SecurityFilterChain`으로 명시적 permitAll, Swagger는 `local` 프로파일에서만 노출, 관리 포트만의 헬스체크 사각지대를 막기 위해 헬스 그룹 `additional-path`로 앱 포트에도 `/healthz`를 노출(2차 리뷰 반영, PR #104). 슬라이스 테스트가 401/403만 확인해 404를 걸러내지 못한다는 지적에 실기동 검증(Level 6)을 진행하던 중 `NoResourceFoundException`이 전역 500으로 새는 버그를 발견해 함께 수정. v1.35: 관리 포트(8081) permitAll이 실제로 적용되는지에 대한 3차 리뷰 지적에 Level 6 실기동 검증 결과(Spring Security 표준 헤더 확인, spring-boot#50355 근거)를 §12에 보강. v1.36: 전국 병원 검색 인덱스 성능 검증과 직원 도착 확인 API·`NO_SHOW_PENDING` 기본 5분 추가 유예를 반영했다. v1.37: 예약 알림 저장 연동을 반영하고 실시간 알림 push를 단방향 SSE로 확정했으며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 §9-8에 반영했다(양방향 WebSocket+STOMP는 채팅 도입 시 재논의, #40). v1.38: 이번 병합에서 병원 검색 인덱스·SSE 설계와 직원 도착 확인·노쇼 유예 정책을 하나의 정본으로 통합했다. v1.39: SSE 확정 정책과 `processed` 처리 건수 정의를 본문·경량본에 일치시켰다. v1.40: MVP+ 고도화로 진료비 **전액 환불**(이슈 #37)을 도입해 §5-2 스키마(`payments.status`에 `REFUNDED`, `refunded_at`, 신규 `payment_refunds` 이력 테이블)와 §9-4 계약을 확정했다. 선점은 `payment_refunds.UNIQUE(payment_id)`와 소유권 펜스(`claim_token`)가 담당하고 결제 상태에 환불 진행 중 중간 단계를 두지 않는다. 재시도는 `merchant_refund_id`를 재사용하며, 확정 전이 불일치는 이력까지 롤백한다. 현장 현금 수납(`OFFLINE_PAID`) 환불과 부분 환불·정정 재청구는 확장으로 유지한다. v1.41: 전국 병원 검색의 무반경 거리순 요청을 MySQL `ST_Distance_Sphere` 정렬·DB 페이징으로 전환하고, 현재 영업 필터는 정렬된 후보를 200건 단위로 읽어 애플리케이션의 최대 메모리 적재량을 제한했다. 정확한 전체 일치 건수 계산을 위해 후보 전체 스캔은 유지되며 DB 왕복이 증가할 수 있는 트레이드오프를 명시했다(이슈 #69). v1.42: 보호자 병원 찜을 위한 `hospital_favorites` 스키마, 멱등 등록·해제·내 목록 API, 검색·상세의 회원별 `favorite` 결합과 공유 캐시 분리 원칙을 확정했다. v1.43: 병원 리뷰 CRUD·평점 집계(이슈 #114)를 확정했다. 결제 완료 자격과 예약당 최초 1회 작성권, 0.5 단위 평점, Hard Delete, 환불 시 리뷰 삭제·작성권 초기화, 동시 작성·환불 경합 불변식을 §4·§8-3·§9-10에 반영했다. v1.44: 별도 리뷰 상세 조회를 제거하고 병원별 공개 목록 응답에서 내부 ID를 제외했으며, 병원 찜과 리뷰 계약을 하나의 정본으로 통합했다.
 
 ---
 
@@ -89,8 +89,10 @@ erDiagram
     MEMBER ||--o{ PAYMENT_METHOD : registers
     MEMBER ||--o{ RESERVATION : requests
     MEMBER ||--o{ NOTIFICATION : receives
+    MEMBER ||--o{ HOSPITAL_FAVORITE : creates
     HOSPITAL ||--o| HOSPITAL_DETAIL : has
     HOSPITAL ||--o{ HOSPITAL_CAPABILITY : has
+    HOSPITAL ||--o{ HOSPITAL_FAVORITE : bookmarked_by
     HOSPITAL ||--o{ RESERVATION_SLOT : offers
     HOSPITAL ||--o{ RESERVATION : receives
     RESERVATION_SLOT ||--o{ RESERVATION : used_by
@@ -197,6 +199,17 @@ erDiagram
 | EQUIPMENT | `CT`, `MRI`, `ENDOSCOPE` |
 
 병원 시드, QueryDSL 검색 조건, AI의 `requiredCapabilities` 구조화 출력은 모두 이 목록을 단일 계약으로 공유한다. 새로운 값을 추가하거나 이름을 바꾸려면 병원 데이터·검색 조건·AI 프롬프트를 함께 변경한다.
+
+### hospital_favorites (보호자 병원 찜)
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| member_id | BIGINT | 인증된 보호자 ID. 회원 도메인 논리 참조 |
+| hospital_id | BIGINT | 병원 ID. 병원 도메인 내부 FK |
+| created_at | DATETIME | 찜 등록 시각 |
+
+제약은 `UNIQUE(member_id, hospital_id)`로 동일 보호자의 동일 병원 중복 찜을 DB에서도 차단한다. 내 찜 목록은 `created_at DESC, id DESC`로 안정적으로 정렬한다. 구현 후 로컬 MySQL에서 한 회원의 합성 찜 5,000건을 대상으로 20회 워밍업 뒤 200회 조회한 결과 중앙값 2.761ms, P95 4.388ms였고, 실행 계획은 5,000행 스캔과 `Using filesort`였다. 현재 응답시간에서는 별도 정렬 인덱스의 쓰기·저장 비용을 감수할 근거가 부족하므로 후보 `(member_id, created_at DESC, id DESC)`는 적용하지 않는다. 실제 회원별 찜 규모나 조회 부하가 유의미하게 증가하면 같은 조건으로 다시 측정한다. 병원은 공공데이터 갱신이나 예약 이력 때문에 하드 삭제하지 않으며, 회원 탈퇴 시 해당 회원의 찜은 개인정보·사용자 설정이므로 함께 삭제한다.
 
 ### reservation_slots (제휴 병원, 사전 생성)
 
@@ -585,12 +598,19 @@ Base Path는 `/api`, 병원 운영 API는 `/api/hospital/**`. 모든 응답은 `
 | 병원 검색 | GET | /api/hospitals | 공개 |
 | 병원 상세 | GET | /api/hospitals/{hospitalId} | 공개 |
 | 병원 슬롯 조회 | GET | /api/hospitals/{hospitalId}/slots | 공개 |
+| 병원 찜 등록 | PUT | /api/hospitals/{hospitalId}/favorite | 보호자 |
+| 병원 찜 해제 | DELETE | /api/hospitals/{hospitalId}/favorite | 보호자 |
+| 내 찜 병원 목록 | GET | /api/members/me/favorite-hospitals | 보호자 |
 
 검색은 조건 조합 동적 검색(QueryDSL)에 페이징이고 제휴/비제휴를 모두 반환한다. 쿼리 파라미터 예: `region`, `distance`, `requiredCapabilities`(복수), `supportedSpecies`(축종 화이트리스트, 복수), `surgery`, `hospitalization`, `nightCare`, `emergency`, `page`, `size`, `sort`. 응답에 `partnershipStatus`를 담고, 비제휴는 예약 버튼 비활성 플래그와 "제휴 전 병원" 배지 정보를 붙인다.
 
 병원 검색 화면 최초 진입 시에는 별도 검색 조건이 없는 기본 페이지 크기 20의 목록에서 제휴 병원을 먼저 정렬하고, 제휴 병원이 페이지 크기보다 적으면 남은 슬롯을 비제휴 병원으로 채운다. 클라이언트는 `partnerOnly=false`, `page=1`, `size=20`, `sort=name`으로 요청하며, 동일한 기본 목록에서 페이지 번호만 변경한 경우에도 제휴 우선 정렬을 유지한다. 페이지 크기를 20이 아닌 값으로 변경하면 일반 이름순 정렬을 적용한다. `partnerOnly=true`는 제휴 병원만 조회하려는 명시적 필터로 유지한다. 이 우선 정렬은 사용자가 조건을 입력한 검색 결과를 변경하는 규칙이 아니라 초기 화면의 운영 정책이며, 조건 검색 이후에는 기존 2계층 노출 규칙을 그대로 적용한다.
 
 요청한 `page`가 실제 `totalPages`보다 크면 `400` 예외 대신 `200 OK`와 빈 `content`를 반환한다. 응답에는 요청한 `page`와 실제 `totalElements`·`totalPages`를 그대로 담고 `last=true`로 표시한다.
+
+병원 검색·상세 응답에는 `favorite`을 포함한다. 유효한 보호자 인증이 있으면 인증 주체의 찜 여부를 반환하고, 비로그인 또는 병원 스태프 요청이면 `false`를 반환한다. 목록 응답은 페이지의 병원 ID들을 한 번에 조회해 찜 집합을 결합하며 병원별 존재 여부 조회로 N+1을 만들지 않는다.
+
+찜 등록과 해제는 요청 body에서 `memberId`를 받지 않고 `@AuthenticationPrincipal`의 보호자 ID를 사용한다. 등록은 이미 존재해도 성공하고 한 건만 유지하며, 해제도 대상이 없어도 성공하는 멱등 API다. 프론트는 응답의 `favorite`이 `false`인 별 버튼 클릭에는 등록 API를, `true`인 버튼 클릭에는 해제 API를 호출해 하나의 토글 UI로 표현한다. 존재하지 않는 병원은 등록할 수 없고 `HOSPITAL_NOT_FOUND`를 반환한다. 내 찜 목록은 `createdAt DESC, id DESC`로 안정적으로 페이징하며 제휴 여부와 영업상태를 함께 반환한다. 폐업 병원도 목록에서 숨기지 않아 사용자가 상태를 확인하고 찜을 해제할 수 있게 한다.
 
 #### 병원 슬롯 조회 계약
 
@@ -735,6 +755,8 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 ## 9-2. 캐싱
 
 캐시는 모든 검색 조건 조합에 적용하지 않는다. 모든 사용자가 공통으로 조회하는 병원 검색 최초 진입 기본 첫 페이지(`partnerOnly=false`, 조건 없음, `page=1`, `size=20`, `sort=name`, `openNow=false`, 제휴 우선 정렬)에만 Redis 원격 캐시를 적용한다. 위치·반경·거리순·현재 영업·조건 검색과 뒤쪽 페이지는 캐시하지 않는다.
+
+`favorite`은 회원별 파생 정보이므로 공유 검색 캐시 값과 캐시 키에 넣지 않는다. 캐시에는 회원 비종속 병원 검색 결과만 저장하고, 캐시 HIT·MISS와 관계없이 응답 직전에 현재 페이지 병원 ID의 찜 여부를 일괄 조회해 결합한다. 찜 등록·해제로 검색 캐시를 삭제하지 않는다.
 
 Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단위의 정적 `HospitalSearchCandidate` 목록과 `totalElements`를 저장한다. 캐시 HIT 후에도 `openNow` 등 동적 값은 서비스에서 현재 시각 기준으로 계산한다. 캐시는 MySQL의 파생 데이터이므로 MISS 또는 Redis 장애 시 동일 Repository 조회로 대체되어 검색 기능이 실패하지 않아야 한다. TTL과 키 세부는 구현 시 조정하며 로컬 Caffeine은 사용하지 않는다.
 
@@ -1075,6 +1097,9 @@ Redis에서 사라진 뒤라 사용자는 같은 링크로 재시도할 수 없�
 | 진료 완료와 청구 분리(외부 호출 트랜잭션 밖) | 가용성 |
 | 노쇼 자동 판정·수동 우선·정정, 정정 건 noShowCount 제외 | 노쇼 정책 |
 | 예약 요청 타임아웃 자동 거절 | 승인형 예약 |
+| 병원 찜 중복 등록·중복 해제 멱등성 + `UNIQUE(member_id, hospital_id)` | 찜 정합성 |
+| 검색 캐시 HIT·MISS에서 보호자별 `favorite` 격리 + 목록 일괄 조회 | 개인정보 격리·N+1 방지 |
+| 회원 탈퇴 시 병원 찜 삭제 | 개인정보·사용자 설정 정리 |
 | AI 장애 시 검색·예약·결제 정상 동작(Fallback) + 운영지표 기록 | 장애 격리·측정 |
 | 리드타임·취소 시한·프로필/빌링키 전제 검증 | 예약 규칙 |
 | 진료비 금액 검증(0 이하·상한 초과 거부) | 오청구 방어 |

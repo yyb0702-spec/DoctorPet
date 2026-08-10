@@ -63,6 +63,9 @@ class HospitalServiceTest {
     @Mock
     private ReviewQueryService reviewQueryService;
 
+    @Mock
+    private HospitalFavoriteService hospitalFavoriteService;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -72,6 +75,7 @@ class HospitalServiceTest {
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
                 hospitalSearchCacheRepository,
+                hospitalFavoriteService,
                 reviewQueryService
         );
         lenient().when(reviewQueryService.getRatingSummary(anyLong()))
@@ -141,6 +145,22 @@ class HospitalServiceTest {
 
         assertThat(response.averageRating()).isNull();
         assertThat(response.reviewCount()).isZero();
+    }
+
+    @Test
+    void 인증된_보호자의_병원_상세에는_찜_여부를_반환한다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+        given(hospitalFavoriteService.findFavoriteHospitalIds(
+                10L,
+                List.of(HOSPITAL_ID)
+        )).willReturn(java.util.Set.of(HOSPITAL_ID));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID, 10L);
+
+        assertThat(response.favorite()).isTrue();
     }
 
     @Test

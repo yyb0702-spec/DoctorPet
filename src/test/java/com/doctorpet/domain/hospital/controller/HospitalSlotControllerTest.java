@@ -5,6 +5,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSlotAvailabilityStatus
 import com.doctorpet.domain.hospital.dto.response.HospitalSlotLookupResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSlotResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
@@ -34,6 +35,9 @@ class HospitalSlotControllerTest {
 
     @MockitoBean
     private HospitalService hospitalService;
+
+    @MockitoBean
+    private HospitalFavoriteService hospitalFavoriteService;
 
     @MockitoBean
     private HospitalSlotApplicationService hospitalSlotApplicationService;

@@ -96,8 +96,21 @@ public class SecurityConfig {
                                 "/api/auth/password-reset/request",
                                 "/api/auth/password-reset/confirm"
                         ).permitAll()
-                        // 병원 검색 - 공개 (API 명세서 §3)
+                        // 병원 검색·상세 - 공개. 회원별 찜 상태는 응답 조립 시 별도로 결합한다.
                         .requestMatchers(HttpMethod.GET, "/api/hospitals/**").permitAll()
+                        // 병원 찜 등록·해제와 내 찜 목록 - 보호자 전용 (SA §8-3)
+                        .requestMatchers(
+                                HttpMethod.PUT,
+                                "/api/hospitals/*/favorite"
+                        ).hasRole("GUARDIAN")
+                        .requestMatchers(
+                                HttpMethod.DELETE,
+                                "/api/hospitals/*/favorite"
+                        ).hasRole("GUARDIAN")
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/members/me/favorite-hospitals"
+                        ).hasRole("GUARDIAN")
                         // AI 상담 - 공개, 비로그인 임시 상담 허용 (API 명세서 §4)
                         .requestMatchers(HttpMethod.POST, "/api/ai/consultations").permitAll()
                         // 결제 웹훅 - JWT가 아니라 웹훅 서명으로 검증한다(이슈 #48). 컨트롤러가 서명 실패를 401로 거부한다.
