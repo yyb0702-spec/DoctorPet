@@ -1,6 +1,14 @@
-# CI/CD 배포 MVP — app+MySQL+Redis를 한 번에 띄운다. 로컬 검증과 실제 서버(EC2) 배포에 그대로
-# 재사용한다. 실제 값(JWT_SECRET, DB 비밀번호 등)은 .env 파일에 채운다(.env.example 참고,
-# .env 자체는 .gitignore에 등록해 커밋하지 않는다).
+# CI/CD 배포 MVP — nginx+app-blue/green+MySQL+Redis를 한 번에 띄운다. 로컬 검증과 실제 서버
+# (EC2) 배포에 그대로 재사용한다. 실제 값(JWT_SECRET, DB 비밀번호 등)은 .env 파일에 채운다
+# (.env.example 참고, .env 자체는 .gitignore에 등록해 커밋하지 않는다).
+#
+# 무중단 배포(blue/green) 구조 — docs/architecture/DoctorPet-무중단배포.md 참고. app 서비스가
+# app-blue/app-green 둘로 나뉘고, 호스트 포트 8080은 nginx가 갖는다(예전엔 app이 직접 가졌다).
+# 평소엔 활성 색 하나만 컨테이너가 떠 있고, 배포하는 짧은 구간에만 두 색이 동시에 뜬다. 서버에서는
+# 절대 대상 서비스를 지정하지 않은 `docker compose up -d`를 실행하지 않는다 — 항상 배포 스크립트가
+# `--no-deps app-<color>`로 대상 색만 지정한다(주의사항, 위 문서 7절). app-green에 profiles:
+# ["green"]을 둔 것도 같은 이유 — 바어 `docker compose up -d`(로컬 개발 등)가 실수로 green까지
+# 건드리지 않도록 기본 프로파일에서 제외한다.
 #
 # 기본 프로파일이 docker인 이유: .env.example 기본값은 payment.gateway=fake, mail.provider=
 # fake라 결제·메일이 실제로 연동되지 않는다. ProductionSafetyGuard가 prod 프로파일 + fake
@@ -41,25 +49,27 @@ services:
       timeout: 5s
       retries: 5
 
-  app:
-    # 로컬: docker compose up --build로 Dockerfile을 직접 빌드해서 image 이름으로 태깅한다.
-    # EC2 배포: GitHub Actions가 미리 빌드해 GHCR에 push해둔 이미지를 build 없이 pull만 해서
-    # 쓴다(`docker compose pull && docker compose up -d`) — EC2에서 매번 Gradle 빌드를 돌리면
-    # 리소스가 부족해 느리고 불안정하다는 걸 이미 겪었기 때문(CI/CD 자동배포 단계).
+  # app-blue/app-green — 무중단 배포용 두 색(docs/architecture/DoctorPet-무중단배포.md). 둘은
+  # image 태그 환경변수와 서비스명(따라서 컨테이너명)만 다르고 나머지는 완전히 동일하다. 평소엔
+  # 활성 색 하나만 떠 있고, 배포 스크립트가 비활성 색에 새 이미지를 올려 헬스체크를 통과시킨 뒤
+  # nginx를 그쪽으로 reload하고 나서야 기존 색을 정지한다.
+  app-blue: &app
+    # 로컬: docker compose up --build app-blue로 Dockerfile을 직접 빌드해서 image 이름으로
+    # 태깅한다. EC2 배포: GitHub Actions가 미리 빌드해 GHCR에 push해둔 이미지를 build 없이
+    # pull만 해서 쓴다(`docker compose pull app-<color> && docker compose up -d --no-deps
+    # app-<color>`) — EC2에서 매번 Gradle 빌드를 돌리면 리소스가 부족해 느리고 불안정하다는 걸
+    # 이미 겪었기 때문(CI/CD 자동배포 단계).
     build: .
-    # APP_IMAGE_TAG는 배포 스크립트가 특정 SHA로 지정해서 띄운다(리뷰 지적 P1) — latest만
-    # 계속 쓰면 지금 실행 중인 이미지가 정확히 어느 커밋인지 알 수 없고, 롤백 대상도 특정할 수
-    # 없다. GHCR에는 더 이상 latest 태그를 push하지 않으므로(리뷰 지적 P2), 폴백 값도
-    # latest가 아닌 local로 바꿨다 — 로컬 개발은 build: .가 직접 태깅하므로 이 값 자체가
-    # 실제로 안 쓰이고, 서버에서 실수로 APP_IMAGE_TAG 없이 pull하면 존재하지 않는 태그라
-    # 곧바로 명확하게 실패한다(예전엔 latest가 실제로 있어서 조용히 과거 이미지를 받아왔다).
-    image: ghcr.io/yyb0702-spec/doctorpet:${APP_IMAGE_TAG:-local}
+    # APP_BLUE_IMAGE_TAG/APP_GREEN_IMAGE_TAG는 배포 스크립트가 대상 색에 맞춰 그때그때
+    # export한다(리뷰 지적 P1 패턴 재사용) — 두 색이 서로 다른 SHA를 동시에 돌릴 수 있어야
+    # 하므로(컷오버 전환 구간) 기존처럼 변수 하나(APP_IMAGE_TAG)를 공유하면 안 된다. latest는
+    # 쓰지 않고 폴백은 local로 둔다(로컬 개발은 build: .가 직접 태깅하므로 이 값 자체가 실제로
+    # 안 쓰이고, 서버에서 실수로 태그 없이 pull하면 존재하지 않는 태그라 곧바로 명확하게 실패한다).
+    image: ghcr.io/yyb0702-spec/doctorpet:${APP_BLUE_IMAGE_TAG:-local}
     restart: unless-stopped
-    ports:
-      - "8080:8080"
-      # 액추에이터(health/prometheus) 관리 포트 8081은 의도적으로 게시하지 않는다(이슈 #105,
-      # mysql·redis와 동일 패턴) — 컨테이너 내부(HEALTHCHECK)와 같은 compose 네트워크 안에서만
-      # 접근 가능하고, 인터넷에서는 직접 보이지 않는다.
+    # 호스트 포트를 게시하지 않는다 — mysql·redis와 동일 원칙(리뷰 지적 P2)으로, 이제 nginx만
+    # 8080을 게시하고 app-blue/app-green은 nginx가 속한 같은 compose 네트워크 안에서만
+    # app-blue:8080 / app-green:8080으로 접근된다. 액추에이터(8081)도 여전히 비공개.
     env_file:
       - .env
     environment:
@@ -77,7 +87,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       # 청구 감사 로그를 남길 디렉터리(PR #91). 아래 payment-audit-logs 볼륨을 이 경로에 마운트해,
-      # `up -d --remove-orphans`로 앱 컨테이너가 교체돼도 감사 파일이 사라지지 않게 한다.
+      # 컷오버로 어느 색이 활성이든 감사 파일이 사라지지 않게 한다. blue·green이 같은 볼륨을
+      # 공유해도 안전하다 — 파일명에 시각·요청 단위 구분자가 있어 동시에 두 색이 함께 뜬 컷오버
+      # 구간에도 서로 다른 파일에 쓴다.
       AUDIT_LOG_DIR: /app/logs
     volumes:
       # 청구 감사 로그 영속 볼륨 — 컨테이너 수명과 분리해 배포/재기동 후에도 사후 추적을 가능하게 한다.
@@ -87,6 +99,34 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  app-green:
+    <<: *app
+    # green은 기본 프로파일에서 제외한다 — 대상을 지정하지 않은 `docker compose up -d`(로컬
+    # 개발 등)가 실수로 두 색을 동시에 띄우지 않도록 하는 구조적 안전장치다(무중단 배포 문서
+    # 7절 "주의사항"). 배포 스크립트처럼 서비스명을 명시하면 프로파일과 무관하게 그대로 동작한다.
+    profiles: ["green"]
+    image: ghcr.io/yyb0702-spec/doctorpet:${APP_GREEN_IMAGE_TAG:-local}
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    # 이제 호스트 포트 8080은 nginx가 갖는다 — app-blue/app-green 중 활성 색으로만 리버스
+    # 프록시한다(docs/architecture/DoctorPet-무중단배포.md). 컷오버는 nginx 설정 파일을 바꾸고
+    # `nginx -s reload`하는 방식이라 컨테이너 재시작 없이 순간적으로 전환된다.
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # conf.d 디렉터리째 마운트한다 — 안의 upstream-active.conf는 배포 스크립트가 서버에서
+      # 직접 덮어쓰는 파일이라 git으로 추적하지 않는다(.gitignore 참고). 로컬 개발은
+      # nginx/conf.d/upstream-active.conf.example을 복사해서 만든다.
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    # app-blue/app-green을 depends_on으로 걸지 않는다 — 걸면 `docker compose up -d nginx`가
+    # (기본 프로파일인) app-blue까지 같이 시작시키려 들어, 배포 스크립트가 아직 대상 색의
+    # 이미지 태그를 export하기 전 타이밍에 엉뚱한 태그(local 폴백)로 기동을 시도할 수 있다.
+    # nginx는 컷오버 대상 색과 독립적으로 항상 떠 있어야 하는 서비스라 이 결합을 두지 않는 게
+    # 맞다 — 업스트림이 아직 안 떠 있으면 그 사이 요청은 502를 받을 뿐, nginx 자체는 정상 기동한다.
 
 volumes:
   mysql-data:
