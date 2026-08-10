@@ -98,6 +98,42 @@ class NotificationRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("미읽음 개수: 수신자별 read_at NULL 건수만 세고 읽은 것·타 사용자 알림은 제외한다")
+    void countUnread_isScopedPerMemberAndExcludesRead() {
+        notificationRepository.saveAndFlush(paymentNotification(MEMBER_A, 1L));
+        notificationRepository.saveAndFlush(paymentNotification(MEMBER_A, 2L));
+        Notification readOne = notificationRepository.saveAndFlush(paymentNotification(MEMBER_A, 3L));
+        readOne.markRead(LocalDateTime.now());
+        notificationRepository.saveAndFlush(readOne);
+        notificationRepository.saveAndFlush(paymentNotification(MEMBER_B, 4L));
+        entityManager.clear();
+
+        assertThat(notificationRepository.countByMemberIdAndReadAtIsNull(MEMBER_A)).isEqualTo(2);
+        assertThat(notificationRepository.countByMemberIdAndReadAtIsNull(MEMBER_B)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("모두 읽음: 인증 회원의 미읽음만 전부 읽음 처리하고 타 사용자 알림은 불변, 두 번째 호출은 0건(멱등)")
+    void markAllReadForMember_scopedAndIdempotent() {
+        notificationRepository.saveAndFlush(paymentNotification(MEMBER_A, 1L));
+        notificationRepository.saveAndFlush(paymentNotification(MEMBER_A, 2L));
+        notificationRepository.saveAndFlush(paymentNotification(MEMBER_B, 3L));
+        entityManager.clear();
+
+        LocalDateTime now = LocalDateTime.now();
+        int updated = notificationRepository.markAllReadForMember(MEMBER_A, now);
+        entityManager.clear();
+
+        assertThat(updated).isEqualTo(2);
+        assertThat(notificationRepository.countByMemberIdAndReadAtIsNull(MEMBER_A)).isZero();
+        // 타 사용자(MEMBER_B) 미읽음은 그대로 남는다.
+        assertThat(notificationRepository.countByMemberIdAndReadAtIsNull(MEMBER_B)).isEqualTo(1);
+
+        // 두 번째 호출은 갱신할 미읽음이 없어 0건(멱등).
+        assertThat(notificationRepository.markAllReadForMember(MEMBER_A, now.plusHours(1))).isZero();
+    }
+
+    @Test
     @DisplayName("페이징: size보다 많은 알림이 있으면 페이지 메타(totalElements·totalPages)가 올바르다")
     void paging_returnsCorrectMeta() {
         notificationRepository.saveAndFlush(paymentNotification(MEMBER_A, 1L));
