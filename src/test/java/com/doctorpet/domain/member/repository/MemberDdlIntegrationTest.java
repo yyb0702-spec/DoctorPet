@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.global.config.JpaAuditingConfig;
 import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
@@ -25,7 +26,7 @@ import org.springframework.context.annotation.Import;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(QuerydslConfig.class)
+@Import({JpaAuditingConfig.class, QuerydslConfig.class})
 class MemberDdlIntegrationTest {
 
     @Autowired

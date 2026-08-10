@@ -6,7 +6,9 @@ import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
 
+import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -26,7 +28,10 @@ public record HospitalDetailResponse(
         Boolean nightCare,
         Boolean emergency,
         List<HospitalBusinessHourResponse> businessHours,
-        List<CapabilityValue> capabilities
+        List<CapabilityValue> capabilities,
+        BigDecimal averageRating,
+        long reviewCount,
+        boolean favorite
 ) {
 
     private static final String NON_PARTNER_NOTICE =
@@ -36,7 +41,8 @@ public record HospitalDetailResponse(
             Hospital hospital,
             HospitalDetail detail,
             List<HospitalCapability> hospitalCapabilities,
-            Boolean openNow
+            Boolean openNow,
+            ReviewRatingSummary ratingSummary
     ) {
         boolean partner = hospital.getPartnershipStatus()
                 == PartnershipStatus.PARTNER;
@@ -55,7 +61,32 @@ public record HospitalDetailResponse(
                 partner ? detail.isNightCare() : null,
                 partner ? detail.isEmergency() : null,
                 partner ? toBusinessHours(detail) : null,
-                partner ? toCapabilities(hospitalCapabilities) : null
+                partner ? toCapabilities(hospitalCapabilities) : null,
+                ratingSummary.averageRating(),
+                ratingSummary.reviewCount(),
+                false
+        );
+    }
+
+    public HospitalDetailResponse withFavorite(boolean favorite) {
+        return new HospitalDetailResponse(
+                hospitalId,
+                name,
+                address,
+                phoneNumber,
+                businessStatus,
+                partnershipStatus,
+                partnershipNotice,
+                openNow,
+                surgeryAvailable,
+                hospitalizationAvailable,
+                nightCare,
+                emergency,
+                businessHours,
+                capabilities,
+                averageRating,
+                reviewCount,
+                favorite
         );
     }
 
