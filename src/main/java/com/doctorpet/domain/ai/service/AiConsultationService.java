@@ -94,7 +94,7 @@ public class AiConsultationService {
                             request.latitude(),
                             request.longitude()
                     ),
-                    call -> executeSearchTool(request, call, toolState)
+                    call -> executeSearchTool(memberId, request, call, toolState)
             );
             AiAnalysisResult result = gatewayResult.analysis();
             validateRequiredCapabilities(result.requiredCapabilities());
@@ -129,7 +129,13 @@ public class AiConsultationService {
             }
             List<HospitalSearchResponse> hospitals;
             try {
-                hospitals = searchHospitals(request, result, searchIntent, emergency);
+                hospitals = searchHospitals(
+                        memberId,
+                        request,
+                        result,
+                        searchIntent,
+                        emergency
+                );
             } catch (RuntimeException exception) {
                 log.error("병원 검색 Tool 호출에 실패했습니다.", exception);
                 return toolFallback(
@@ -240,6 +246,7 @@ public class AiConsultationService {
         List<HospitalSearchResponse> hospitals;
         try {
             hospitals = searchHospitals(
+                    memberId,
                     request,
                     result,
                     new AiHospitalSearchIntent(true, false, hasLocation(request)),
@@ -268,6 +275,7 @@ public class AiConsultationService {
     }
 
     private String executeSearchTool(
+            Long memberId,
             AiConsultationRequest request,
             AiHospitalSearchToolCall call,
             AiToolExecutionState state
@@ -296,7 +304,13 @@ public class AiConsultationService {
                 call.sort() == HospitalSearchSort.DISTANCE
         );
         try {
-            state.updateHospitals(searchHospitals(request, call.analysis(), intent, emergency));
+            state.updateHospitals(searchHospitals(
+                    memberId,
+                    request,
+                    call.analysis(),
+                    intent,
+                    emergency
+            ));
             return objectMapper.writeValueAsString(Map.of("hospitals", state.hospitals()));
         } catch (JacksonException exception) {
             throw new AiGatewayException(
@@ -321,6 +335,7 @@ public class AiConsultationService {
     }
 
     private List<HospitalSearchResponse> searchHospitals(
+            Long memberId,
             AiConsultationRequest request,
             AiAnalysisResult result,
             AiHospitalSearchIntent intent,
@@ -329,6 +344,7 @@ public class AiConsultationService {
         boolean distanceSort = hasLocation(request)
                 && (emergency || intent.distance());
         return hospitalService.hospitalSearch(
+                memberId,
                 null,
                 request.region(),
                 request.latitude(),
@@ -367,7 +383,7 @@ public class AiConsultationService {
         }
         List<HospitalSearchResponse> hospitals;
         try {
-            hospitals = searchHospitals(request, result, intent, true);
+            hospitals = searchHospitals(memberId, request, result, intent, true);
         } catch (RuntimeException exception) {
             log.error("응급 병원 검색 Tool 호출에 실패했습니다.", exception);
             aiConsultationRepository.save(AiConsultation.toolFailed(

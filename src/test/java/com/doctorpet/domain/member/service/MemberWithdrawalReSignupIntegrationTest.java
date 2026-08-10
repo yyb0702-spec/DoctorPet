@@ -62,4 +62,30 @@ class MemberWithdrawalReSignupIntegrationTest {
                     assertThat(member.getNickname()).isEqualTo("재가입닉네임");
                 });
     }
+
+    /**
+     * Level 3 — 리뷰 지적 P1: 탈퇴 시 phone이 email과 함께 실제로 지워지는지 실제 MySQL로 검증한다.
+     * 탈퇴한 회원은 {@code @SQLRestriction}에 걸려 {@code memberRepository.findById()}로는 조회되지
+     * 않으므로(정상 API로는 확인할 수 없는 상태), 원본 컬럼값을 직접 확인하기 위해 네이티브 쿼리로
+     * 우회한다 — {@code MemberDdlIntegrationTest.softDeletedMember_isExcludedFromActiveQueries()}와
+     * 같은 패턴이다.
+     */
+    @Test
+    void 탈퇴하면_이메일_익명화와_전화번호_삭제가_함께_반영된다() {
+        Member original = memberRepository.saveAndFlush(
+                Member.createGuardian("withphone@example.com", "encoded", "탈퇴전닉네임", "010-1234-5678"));
+        Long originalId = original.getId();
+
+        memberService.withdraw(originalId);
+        entityManager.flush();
+        entityManager.clear();
+
+        Object[] row = (Object[]) entityManager
+                .createNativeQuery("select email, phone from members where id = :id")
+                .setParameter("id", originalId)
+                .getSingleResult();
+
+        assertThat((String) row[0]).isEqualTo("withdrawn_" + originalId + "@deleted.doctorpet");
+        assertThat(row[1]).isNull();
+    }
 }

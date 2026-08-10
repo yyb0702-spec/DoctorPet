@@ -15,6 +15,7 @@
 | `docs/ai/context-router.md` | 작업별 읽을 문서 지도 (hot path) |
 | `docs/ai/rule-source-map.md` | 규칙 정본 지도 (충돌 시 어디를 고칠지) |
 | `docs/testing/verification-guide.md` | 검증 Level·판정 값·기록 양식 |
+| `docs/enhancement/README.md` | MVP 이후 고도화 델타 레이어(동결 SA를 도메인별 파일로 override) |
 
 문서끼리 충돌하면 PRD > SA > 코드컨벤션 순으로 따르고, 충돌 사실을 사용자에게 알린다. 정책정리본은 PRD·SA 아래다. 브랜치·커밋·PR 절차는 `docs/collaboration/github-rules.md`가 별도 영역의 정본이다. 문서 버전은 각 문서 헤더가 단일 정본이다. 규칙 중복·충돌 정리는 `docs/ai/rule-source-map.md`를 따른다.
 
@@ -41,7 +42,7 @@ Java 17, Spring Boot, Spring Data JPA, Spring Security, QueryDSL, MySQL 8.x, Red
 - 동시성: 낙관적 락(`@Version`) 실채택, 조건부 UPDATE는 비교 베이스라인. `ReservationLockStrategy` 인터페이스로 추상화. Redis 분산 락 미사용 (SA §9-3)
 - 검색 캐시: Redis 원격 캐시. Caffeine 미사용 (SA §9-2)
 - 실시간 알림: MVP는 폴링, MVP2는 단방향 SSE 확정 (예약·결제 알림, #40). `NotificationPusher` 추상화 + `SseNotificationPusher` 구현, 티켓 기반 인증·커밋 후 전송. 양방향(WebSocket+STOMP)은 채팅 도입 시에만 재논의 (SA §9-8)
-- 환불: MVP는 제외였으나 **MVP+ 고도화에서 오청구 전액 환불을 도입**(이슈 #37, SA §5-2·§9-4). 대상은 빌링키 자동결제 완료건(`PAID`·`BILLING_KEY`)뿐이고 사유만 입력받아 결제 금액 그대로 취소한다. 선점은 `payment_refunds.UNIQUE(payment_id)`가 담당하며 결제 상태에 환불 중간 단계를 두지 않는다(역방향 전이 방지). 현장 수납분 환불·부분 환불·정정 재청구는 여전히 확장이고, **환불한 예약은 재청구할 수 없다**(SA §9-4 알려진 한계). 예약 상태에 `PAYMENT_COMPLETED` 없음 — 결제완료는 예약+결제 상태 조합으로 표현 (SA §5-4)
+- 환불: MVP는 제외였으나 **MVP+ 고도화에서 오청구 전액 환불을 도입**(이슈 #37, SA §5-2·§9-4). 대상은 빌링키 자동결제 완료건(`PAID`·`BILLING_KEY`)뿐이고 사유만 입력받아 결제 금액 그대로 취소한다. 선점은 `payment_refunds.UNIQUE(payment_id)`가 담당하며 결제 상태에 환불 중간 단계를 두지 않는다(역방향 전이 방지). 현장 수납분 환불은 여전히 확장이고, **환불한 예약은 재청구할 수 없다**(SA §9-4 알려진 한계) — 이 제한을 정정 재청구로 해제하는 방향은 팀 합의됐으나(`docs/enhancement/결제.md` 3.5-a. 3.5-b 부분 환불은 재청구와 무관한 별개 계약이며 아직 미확정), 스키마·코드 변경 전까지는 이 제한이 그대로 유효하다. 그 구현 PR에서 이 줄과 SA §9-4를 함께 갱신한다. 예약 상태에 `PAYMENT_COMPLETED` 없음 — 결제완료는 예약+결제 상태 조합으로 표현 (SA §5-4)
 - 응답 포맷: `ApiResponse{ code, message, data }`, 성공 `code="SUCCESS"`, 실패는 예외 → GlobalExceptionHandler
 - ErrorCode: `{DOMAIN}_{3자리}`, 도메인별 enum 분리 (글로벌 통합 enum 금지)
 

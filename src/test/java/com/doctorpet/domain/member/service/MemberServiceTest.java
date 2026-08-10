@@ -10,6 +10,8 @@ import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.global.exception.ServiceException;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,7 +32,7 @@ class MemberServiceTest {
     @Test
     @DisplayName("존재하는 회원이면 내 정보를 반환한다")
     void getMyInfo_success() {
-        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임");
+        Member member = Member.createGuardian("guardian@example.com", "encoded-password", "보호자닉네임", "010-1234-5678");
         setId(member, 1L);
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
 
@@ -39,6 +41,7 @@ class MemberServiceTest {
         assertThat(response.memberId()).isEqualTo(1L);
         assertThat(response.email()).isEqualTo("guardian@example.com");
         assertThat(response.nickname()).isEqualTo("보호자닉네임");
+        assertThat(response.phone()).isEqualTo("010-1234-5678");
         assertThat(response.role()).isEqualTo(MemberRole.GUARDIAN);
         assertThat(response.hospitalId()).isNull();
     }
@@ -74,6 +77,32 @@ class MemberServiceTest {
     }
 
     @Test
+    @DisplayName("활성 회원 행을 쓰기 잠금으로 조회한다")
+    void lockActiveMember_success() {
+        Member member = Member.createGuardian(
+                "guardian@example.com",
+                "encoded-password",
+                "보호자닉네임"
+        );
+        given(memberRepository.findByIdForUpdate(1L))
+                .willReturn(Optional.of(member));
+
+        memberService.lockActiveMember(1L);
+    }
+
+    @Test
+    @DisplayName("탈퇴했거나 존재하지 않는 회원은 쓰기 잠금을 획득할 수 없다")
+    void lockActiveMember_memberNotFound() {
+        given(memberRepository.findByIdForUpdate(1L))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> memberService.lockActiveMember(1L))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
+                        .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
+    @Test
     @DisplayName("존재하는 회원이면 닉네임을 변경하고 변경된 정보를 반환한다")
     void updateNickname_success() {
         Member member = Member.createGuardian("guardian@example.com", "encoded-password", "옛닉네임");
@@ -96,6 +125,33 @@ class MemberServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .satisfies(e -> assertThat(((ServiceException) e).getErrorCode())
                         .isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("memberId 목록으로 전화번호를 배치 조회한다 — phone이 null인 회원도 포함되고, 존재하지 않는 id는 결과에서 빠진다(기능 구멍 점검 대응)")
+    void getPhonesByMemberIds_returnsMapIncludingNullPhones() {
+        Member withPhone = Member.createGuardian("with-phone@example.com", "encoded", "닉네임1", "010-1234-5678");
+        setId(withPhone, 1L);
+        Member withoutPhone = Member.createGuardian("without-phone@example.com", "encoded", "닉네임2");
+        setId(withoutPhone, 2L);
+        given(memberRepository.findAllById(List.of(1L, 2L, 3L)))
+                .willReturn(List.of(withPhone, withoutPhone));
+
+        Map<Long, String> phones = memberService.getPhonesByMemberIds(List.of(1L, 2L, 3L));
+
+        assertThat(phones).hasSize(2);
+        assertThat(phones.get(1L)).isEqualTo("010-1234-5678");
+        assertThat(phones.get(2L)).isNull();
+        assertThat(phones).containsKey(2L);
+        assertThat(phones).doesNotContainKey(3L);
+    }
+
+    @Test
+    @DisplayName("memberId 목록이 비어있으면 Repository를 호출하지 않고 빈 Map을 반환한다")
+    void getPhonesByMemberIds_emptyInput_returnsEmptyMapWithoutQuery() {
+        Map<Long, String> phones = memberService.getPhonesByMemberIds(List.of());
+
+        assertThat(phones).isEmpty();
     }
 
     @Test

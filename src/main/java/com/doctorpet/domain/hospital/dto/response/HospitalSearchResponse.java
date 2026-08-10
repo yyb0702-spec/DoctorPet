@@ -15,7 +15,8 @@ public record HospitalSearchResponse(
         PartnershipStatus partnershipStatus,
         boolean reservationAvailable,
         String partnershipBadge,
-        Boolean openNow
+        Boolean openNow,
+        boolean favorite
 ) {
 
     public static HospitalSearchResponse from(
@@ -40,7 +41,23 @@ public record HospitalSearchResponse(
                         : null,
                 candidate.partnershipStatus() == PartnershipStatus.PARTNER
                         ? openNow
-                        : null
+                        : null,
+                false
+        );
+    }
+
+    public HospitalSearchResponse withFavorite(boolean favorite) {
+        return new HospitalSearchResponse(
+                hospitalId,
+                name,
+                address,
+                distanceKm,
+                businessStatus,
+                partnershipStatus,
+                reservationAvailable,
+                partnershipBadge,
+                openNow,
+                favorite
         );
     }
 

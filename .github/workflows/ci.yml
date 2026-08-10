@@ -99,3 +99,41 @@ jobs:
           # 실제 LLM 제공자 미선정 단계이므로 CI에서는 테스트용 Fake Gateway를 명시한다.
           AI_GATEWAY: fake
         run: ./gradlew clean build
+
+  frontend:
+    name: Frontend Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

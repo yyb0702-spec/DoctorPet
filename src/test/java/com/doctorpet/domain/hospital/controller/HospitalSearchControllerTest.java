@@ -5,16 +5,25 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.MemberPrincipal;
+import com.doctorpet.global.config.SecurityConfig;
+import com.doctorpet.global.security.JwtAccessDeniedHandler;
+import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.context.annotation.Import;
 
 import java.util.List;
 
@@ -26,11 +35,14 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = HospitalController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
 class HospitalSearchControllerTest {
 
     @Autowired
@@ -38,6 +50,9 @@ class HospitalSearchControllerTest {
 
     @MockitoBean
     private HospitalService hospitalService;
+
+    @MockitoBean
+    private HospitalFavoriteService hospitalFavoriteService;
 
     @MockitoBean
     private HospitalSlotApplicationService hospitalSlotApplicationService;
@@ -54,6 +69,11 @@ class HospitalSearchControllerTest {
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void 검색_조건이_없으면_기본_페이지_조건으로_조회한다()
             throws Exception {
@@ -67,7 +87,8 @@ class HospitalSearchControllerTest {
                         PartnershipStatus.PARTNER,
                         true,
                         null,
-                        true
+                        true,
+                        false
                 );
         HospitalSearchPageResponse page =
                 HospitalSearchPageResponse.of(
@@ -78,6 +99,7 @@ class HospitalSearchControllerTest {
                         1
                 );
         given(hospitalService.hospitalSearch(
+                isNull(),
                 isNull(),
                 isNull(),
                 isNull(),
@@ -119,12 +141,40 @@ class HospitalSearchControllerTest {
                 isNull(),
                 isNull(),
                 isNull(),
+                isNull(),
                 eq(false),
                 eq(false),
                 eq(1),
                 eq(20),
                 eq("name")
         );
+    }
+
+    @Test
+    void 보호자는_별_버튼으로_병원을_찜하고_해제할_수_있다()
+            throws Exception {
+        MemberPrincipal principal = new MemberPrincipal(
+                1L,
+                "guardian@example.com",
+                "GUARDIAN"
+        );
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        principal,
+                        null,
+                        List.of()
+                );
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        mockMvc.perform(put("/api/hospitals/10/favorite"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        mockMvc.perform(delete("/api/hospitals/10/favorite"))
+                .andExpect(status().isNoContent());
+
+        verify(hospitalFavoriteService).addFavorite(1L, 10L);
+        verify(hospitalFavoriteService).removeFavorite(1L, 10L);
     }
 
     @Test
