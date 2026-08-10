@@ -19,6 +19,11 @@ import { ApiError } from '@/lib/api/error'
 const PORTONE_STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID as string | undefined
 const PORTONE_CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY as string | undefined
 
+// 빌링키 원본을 텍스트로 입력·표시하는 UI는 운영 빌드에 노출하지 않는다 — 로컬
+// 개발(DEV) + 명시적 옵트인 플래그를 모두 만족할 때만 렌더링한다(PR #127 리뷰).
+const ALLOW_MANUAL_BILLING_KEY =
+  import.meta.env.DEV && import.meta.env.VITE_ALLOW_MANUAL_BILLING_KEY === 'true'
+
 export function PaymentMethodsPage() {
   const methodsQuery = usePaymentMethods()
   const registerMethod = useRegisterPaymentMethod()
@@ -154,31 +159,33 @@ export function PaymentMethodsPage() {
           {!portoneReady && (
             <p className="text-xs text-muted-foreground">
               PortOne 설정이 없어 결제창 발급이 비활성화되었습니다(.env의 VITE_PORTONE_* 설정 필요).
-              아래에서 빌링키를 직접 입력해 등록할 수 있습니다.
+              {ALLOW_MANUAL_BILLING_KEY && ' 아래에서 빌링키를 직접 입력해 등록할 수 있습니다.'}
             </p>
           )}
 
-          <div className="border-t pt-4">
-            <p className="mb-2 text-xs text-muted-foreground">
-              또는 발급된 빌링키를 직접 입력(개발·목용)
-            </p>
-            <Field label="빌링키" htmlFor="billingKey">
-              <Input
-                id="billingKey"
-                value={billingKey}
-                onChange={(e) => setBillingKey(e.target.value)}
-                placeholder="billing-key-xxx"
-              />
-            </Field>
-            <Button
-              className="mt-2 w-full"
-              variant="secondary"
-              disabled={!billingKey.trim() || registerMethod.isPending}
-              onClick={handleRegisterManual}
-            >
-              {registerMethod.isPending ? '등록 중…' : '직접 입력으로 등록'}
-            </Button>
-          </div>
+          {ALLOW_MANUAL_BILLING_KEY && (
+            <div className="border-t pt-4">
+              <p className="mb-2 text-xs text-muted-foreground">
+                또는 발급된 빌링키를 직접 입력(개발·목용)
+              </p>
+              <Field label="빌링키" htmlFor="billingKey">
+                <Input
+                  id="billingKey"
+                  value={billingKey}
+                  onChange={(e) => setBillingKey(e.target.value)}
+                  placeholder="billing-key-xxx"
+                />
+              </Field>
+              <Button
+                className="mt-2 w-full"
+                variant="secondary"
+                disabled={!billingKey.trim() || registerMethod.isPending}
+                onClick={handleRegisterManual}
+              >
+                {registerMethod.isPending ? '등록 중…' : '직접 입력으로 등록'}
+              </Button>
+            </div>
+          )}
 
           {registerErrorMessage && (
             <p className="text-sm text-destructive">{registerErrorMessage}</p>
