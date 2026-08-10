@@ -132,6 +132,8 @@ springdoc:
     enabled: false
 
 reservation:
+  slot-business-date-migration:
+    enabled: ${RESERVATION_SLOT_BUSINESS_DATE_MIGRATION_ENABLED:true}
   no-show:
     interval-ms: ${RESERVATION_NO_SHOW_INTERVAL_MS:60000}
     initial-delay-ms: ${RESERVATION_NO_SHOW_INITIAL_DELAY_MS:60000}
