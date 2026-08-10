@@ -28,4 +28,13 @@ public class FakeImageStorageGateway implements ImageStorageGateway {
         String uploadUrl = fileUrl + "?fake-presigned=true";
         return new PresignedUploadUrl(uploadUrl, fileUrl, FAKE_EXPIRES_IN_SECONDS);
     }
+
+    @Override
+    public boolean isManagedFileUrl(String fileUrl, String keyPrefix) {
+        if (fileUrl == null || keyPrefix == null || !fileUrl.startsWith(FAKE_BASE_URL)) {
+            return false;
+        }
+        String key = fileUrl.substring(FAKE_BASE_URL.length());
+        return key.startsWith(keyPrefix);
+    }
 }
