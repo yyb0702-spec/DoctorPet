@@ -90,6 +90,22 @@ class HospitalOperatingScheduleDdlIntegrationTest {
                 .isInstanceOfAny(PersistenceException.class, DataIntegrityViolationException.class);
     }
 
+    @Test
+    void effectiveScheduleUsesLatestDateNotAfterToday() {
+        Hospital hospital = hospitalRepository.saveAndFlush(createHospital("SCHEDULE-EFFECTIVE"));
+        scheduleRepository.saveAndFlush(schedule(hospital, LocalDate.of(2026, 8, 1)));
+        HospitalOperatingSchedule current = scheduleRepository.saveAndFlush(
+                schedule(hospital, LocalDate.of(2026, 8, 10))
+        );
+        scheduleRepository.saveAndFlush(schedule(hospital, LocalDate.of(2026, 8, 12)));
+        entityManager.clear();
+
+        assertThat(scheduleRepository.findEffectiveSchedule(
+                hospital.getId(),
+                LocalDate.of(2026, 8, 11)
+        )).get().extracting(HospitalOperatingSchedule::getId).isEqualTo(current.getId());
+    }
+
     private HospitalOperatingSchedule schedule(Hospital hospital, LocalDate effectiveFrom) {
         return HospitalOperatingSchedule.create(
                 hospital,
