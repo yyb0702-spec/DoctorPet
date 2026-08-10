@@ -35,8 +35,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -48,6 +50,22 @@ public class HospitalReservationApplicationService {
     private static final List<ReservationStatus> AWAITING_ARRIVAL_STATUSES = List.of(
             ReservationStatus.CONFIRMED,
             ReservationStatus.NO_SHOW_PENDING
+    );
+
+    /*
+     * guardianPhone을 노출하는 예약 상태(리뷰 지적 P2, SA §6-6·§8-6). 기능 목적은 예약 확인과
+     * 노쇼 직전 연락이므로, 아직 진행 중이거나 병원이 연락할 실익이 있는 상태로만 제한한다 —
+     * REQUESTED(승인 전 확인 연락), CONFIRMED·NO_SHOW_PENDING(도착 확인·노쇼 직전 연락),
+     * CHECKED_IN·IN_TREATMENT(내원 중 연락). REJECTED·CANCELED·TREATMENT_COMPLETED·NO_SHOW처럼
+     * 이미 종료된 예약은 병원이 더 이상 연락할 이유가 없어 제외한다 — 종료 후 보존 기간을 두고
+     * 한시적으로 노출하는 방안은 이번 범위에서 다루지 않는다(추가 정책 필요 시 별도 논의).
+     */
+    private static final Set<ReservationStatus> PHONE_VISIBLE_STATUSES = EnumSet.of(
+            ReservationStatus.REQUESTED,
+            ReservationStatus.CONFIRMED,
+            ReservationStatus.NO_SHOW_PENDING,
+            ReservationStatus.CHECKED_IN,
+            ReservationStatus.IN_TREATMENT
     );
 
     private final MemberService memberService;
@@ -336,7 +354,11 @@ public class HospitalReservationApplicationService {
                     reservation.getMemberId(),
                     new ReservationHistoryResponse(0L, 0L, 0L, 0L)
             );
-            String guardianPhone = phonesByMemberId.get(reservation.getMemberId());
+            // 같은 회원이 이 페이지에 노출 가능·불가능 상태의 예약을 함께 가지고 있을 수 있어
+            // phonesByMemberId를 memberId만으로 조회하면 안 된다 — 각 예약 자신의 상태로 매번 판단한다.
+            String guardianPhone = PHONE_VISIBLE_STATUSES.contains(reservation.getStatus())
+                    ? phonesByMemberId.get(reservation.getMemberId())
+                    : null;
             return HospitalReservationListItemResponse.from(
                     reservation,
                     guardianPhone,
@@ -398,14 +420,14 @@ public class HospitalReservationApplicationService {
     private Map<Long, String> findPhonesByMemberId(
             Collection<Reservation> reservations
     ) {
-        if (reservations.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
         Collection<Long> memberIds = reservations.stream()
+                .filter(reservation -> PHONE_VISIBLE_STATUSES.contains(reservation.getStatus()))
                 .map(Reservation::getMemberId)
                 .distinct()
                 .toList();
+        if (memberIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
         return memberService.getPhonesByMemberIds(memberIds);
     }
 

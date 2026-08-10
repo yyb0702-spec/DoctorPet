@@ -796,6 +796,37 @@ class HospitalReservationApplicationServiceTest {
         );
     }
 
+    @Test
+    @DisplayName("종료된 예약(TREATMENT_COMPLETED)에는 보호자 전화번호를 노출하지 않는다(리뷰 지적 P2)")
+    void findHospitalReservations_terminalStatus_hidesGuardianPhone() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.TREATMENT_COMPLETED
+        );
+        ReservationSlot slot = slot();
+        given(reservationRepository.findByHospitalIdAndStatus(
+                any(),
+                any(),
+                any(Pageable.class)
+        ))
+                .willReturn(new PageImpl<>(List.of(reservation)));
+        given(reservationSlotRepository.findAllById(any()))
+                .willReturn(List.of(slot));
+        given(reservationRepository.findHistoryAggregates(
+                any(), any(), any(), any()
+        )).willReturn(List.of());
+
+        Page<?> result = hospitalReservationService.findHospitalReservations(
+                STAFF_ID, "TREATMENT_COMPLETED", 0, 20
+        );
+
+        assertThat(result.getContent())
+                .first()
+                .extracting("guardianPhone")
+                .isNull();
+        verify(memberService, never()).getPhonesByMemberIds(any());
+    }
+
     private Reservation reservation(Long hospitalId) {
         return reservation(hospitalId, LocalDateTime.now(SEOUL_ZONE_ID));
     }
