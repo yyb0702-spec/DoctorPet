@@ -98,4 +98,7 @@ jobs:
           RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED: "false"
           # 실제 LLM 제공자 미선정 단계이므로 CI에서는 테스트용 Fake Gateway를 명시한다.
           AI_GATEWAY: fake
+          # 반려동물 프로필 이미지 업로드(S3ImageStorageGateway) — 전체 컨텍스트 로딩에
+          # ImageStorageGateway 빈이 필요하다. 테스트는 Fake 게이트웨이를 쓴다.
+          IMAGE_STORAGE_PROVIDER: fake
         run: ./gradlew clean build
