@@ -117,6 +117,17 @@ jobs:
             set -e
             cd ~/DoctorPet
 
+            # app-green은 profiles: ["green"]이라 기본적으로 비활성 프로파일이다. up/pull은
+            # 서비스명을 명시하면 프로파일과 무관하게 동작한다고 Compose 문서에 명시돼 있지만,
+            # ps/stop/rm까지 동일하게 보장되는지는 Compose 버전마다 실제로 달라 알려진 버그
+            # 리포트도 있다(리뷰 지적) — 헬스체크 폴링의 `docker compose ps -q app-green`이
+            # 프로파일 때문에 빈 문자열을 반환하면 green이 실제로 healthy여도 배포가 매번
+            # 실패한다. green 프로파일을 스크립트 전체에서 항상 활성화해 이 경우 자체를
+            # 없앤다 — 이 스크립트는 어디서도 대상을 지정하지 않은 `docker compose up -d`를
+            # 쓰지 않으므로(위 무중단 배포 문서 7절 원칙), 프로파일을 활성화해도 green이
+            # 의도치 않게 기동되지는 않는다.
+            export COMPOSE_PROFILES=green
+
             # EC2가 GHCR private 패키지를 pull할 수 있도록 로그인한다(리뷰 지적 P1) — 빌드
             # 잡은 러너에서 GITHUB_TOKEN으로 로그인하지만, 그건 러너 세션일 뿐 이 EC2 SSH
             # 세션과는 무관하다. read:packages 권한만 있는 PAT를 GHCR_READ_TOKEN 시크릿으로
@@ -153,46 +164,35 @@ jobs:
             # 무중단 배포(blue/green) — docs/architecture/DoctorPet-무중단배포.md 참고.
             # .active_color가 없으면 이 서버에서의 최초 배포로 보고 blue를 그대로 대상으로
             # 삼는다(컷오버할 기존 색이 없으므로).
+            #
+            # FIRST_DEPLOY는 반드시 ACTIVE_COLOR(.active_color 존재 여부)만으로 판단한다
+            # (리뷰 지적) — 예전에는 nginx/conf.d/upstream-active.conf 파일 존재 여부로
+            # 판단했는데, 최초 배포 시도가 이 파일을 만든 뒤 이미지 pull이나 헬스체크
+            # 단계에서 실패하면 .active_color는 끝내 못 쓴 채로 파일만 남는다. 다음 재시도에서
+            # 파일 존재만 보고 FIRST_DEPLOY=false로 오판하면, 아직 app-blue가 없는데도 nginx를
+            # 먼저 올려 "host not found in upstream"으로 똑같이 실패한다. ACTIVE_COLOR는
+            # 실제 컷오버가 성공해야만(맨 아래) 쓰이므로 이 신호는 재시도에도 항상 정확하다.
             ACTIVE_COLOR="$(cat .active_color 2>/dev/null || true)"
             if [ -z "$ACTIVE_COLOR" ]; then
               TARGET_COLOR="blue"
+              FIRST_DEPLOY=true
             elif [ "$ACTIVE_COLOR" = "blue" ]; then
               TARGET_COLOR="green"
+              FIRST_DEPLOY=false
             else
               TARGET_COLOR="blue"
+              FIRST_DEPLOY=false
             fi
 
             # nginx가 최초로 뜰 때 읽을 업스트림 설정이 아직 없으면 만든다(최초 배포 전용
-            # 경로) — 이후 배포에서는 이미 파일이 있어 이 블록은 아무 일도 하지 않는다.
+            # 경로, 재시도에도 안전한 idempotent 생성일 뿐 FIRST_DEPLOY 판단에는 관여하지
+            # 않는다) — 이후 배포에서는 이미 파일이 있어 이 블록은 아무 일도 하지 않는다.
             # heredoc 대신 printf를 쓴다 — 이 script 블록은 YAML 리터럴 블록이라 heredoc
             # 종료 구분자에 들여쓰기가 섞이면(bash는 구분자 줄에 공백이 있으면 종료로 인식하지
             # 않는다) 스크립트 전체가 깨질 수 있어, 애초에 그 위험이 없는 방식을 쓴다.
-            #
-            # FIRST_DEPLOY(.active_color가 없던 시점) 여부를 여기서 고정해 둔다 — 이 파일이
-            # 방금 새로 만들어졌다면, 아직 존재하지 않는 app-$TARGET_COLOR:8080을 가리키는
-            # 상태다(리뷰 지적). nginx가 이 설정을 읽는 시점에 그 호스트가 실제로 없으면
-            # "호스트가 없어서 502를 반환"하는 게 아니라 nginx 자체가 "host not found in
-            # upstream"으로 설정 로드에 실패할 수 있다 — 아래에서 nginx 기동 순서를 이 플래그로
-            # 분기한다(대상 앱을 먼저 띄우고 헬스체크까지 통과한 뒤에만 nginx를 올린다).
-            FIRST_DEPLOY=false
             mkdir -p nginx/conf.d
             if [ ! -f nginx/conf.d/upstream-active.conf ]; then
-              FIRST_DEPLOY=true
               printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
-            fi
-
-            # 1회성 마이그레이션 — 이 변경 이전에는 app 컨테이너가 호스트 포트 8080을 직접
-            # 게시하고 있었다. 이제 nginx가 8080을 게시해야 하는데, 옛 app 컨테이너가 아직 그
-            # 포트를 물고 있으면 nginx가 뜨지 못하고 충돌한다. docker compose가 아니라 원시
-            # docker 명령으로 "8080을 게시 중이면서 이름에 app이 들어간" 컨테이너를 찾아
-            # 정리한다 — app-blue/app-green은 애초에 호스트 포트를 게시하지 않으므로 이 필터에
-            # 절대 걸리지 않고, 이후 배포에서는 옛 app 컨테이너 자체가 없어 이 블록은 항상
-            # 아무 일도 하지 않는다(멱등).
-            OLD_APP_CONTAINER="$(docker ps -q --filter "publish=8080" --filter "name=app")"
-            if [ -n "$OLD_APP_CONTAINER" ]; then
-              echo "이전 단일 app 컨테이너가 8080을 게시 중이라 정리합니다(1회성 마이그레이션): $OLD_APP_CONTAINER"
-              docker stop "$OLD_APP_CONTAINER"
-              docker rm "$OLD_APP_CONTAINER"
             fi
 
             # 인프라 3종(mysql/redis/nginx)만 대상으로 삼는다 — 이미지·설정이 안 바뀌는 한
@@ -242,9 +242,30 @@ jobs:
               sleep 10
             done
 
-            # FIRST_DEPLOY는 대상 앱이 healthy로 확인된 지금에서야 nginx를 올린다(리뷰 지적) —
-            # 이 시점에는 nginx/conf.d/upstream-active.conf가 가리키는 app-$TARGET_COLOR가
-            # 실제로 떠 있으므로 정적 upstream 호스트 해석이 실패하지 않는다.
+            # 1회성 마이그레이션 — 이 변경 이전에는 app 컨테이너가 호스트 포트 8080을 직접
+            # 게시하고 있었다. app-$TARGET_COLOR는 호스트 포트를 게시하지 않으므로 옛 app
+            # 컨테이너가 아직 8080을 물고 있는 채로도 방금 위에서 문제없이 기동·healthy까지
+            # 확인했다 — 그래서 이 정리를 여기, 대상 앱이 이미 healthy인 시점으로 미룬다
+            # (리뷰 지적 P2, 다운타임 단축). 예전처럼 헬스체크보다 먼저 정리하면 "옛 app 정지
+            # ~ 새 app pull·기동·헬스체크 통과"까지 8080이 통째로 비어, 다운타임이 이미지
+            # pull·부팅 시간만큼 불필요하게 길어진다. 이제는 옛 app을 내리고 nginx만 올리면
+            # 되므로 다운타임이 nginx 기동 시간(수 초) 수준으로 줄어든다.
+            #
+            # docker compose가 아니라 원시 docker 명령으로 "8080을 게시 중이면서 이름에 app이
+            # 들어간" 컨테이너를 찾아 정리한다 — app-blue/app-green은 애초에 호스트 포트를
+            # 게시하지 않으므로 이 필터에 절대 걸리지 않고, 이후 배포에서는 옛 app 컨테이너
+            # 자체가 없어 이 블록은 항상 아무 일도 하지 않는다(멱등).
+            OLD_APP_CONTAINER="$(docker ps -q --filter "publish=8080" --filter "name=app")"
+            if [ -n "$OLD_APP_CONTAINER" ]; then
+              echo "이전 단일 app 컨테이너가 8080을 게시 중이라 정리합니다(1회성 마이그레이션): $OLD_APP_CONTAINER"
+              docker stop "$OLD_APP_CONTAINER"
+              docker rm "$OLD_APP_CONTAINER"
+            fi
+
+            # FIRST_DEPLOY는 대상 앱이 healthy로 확인되고(위) 옛 app 컨테이너 정리까지 끝난
+            # 지금에서야 nginx를 올린다(리뷰 지적) — 이 시점에는 nginx/conf.d/upstream-active.conf가
+            # 가리키는 app-$TARGET_COLOR가 실제로 떠 있어 정적 upstream 호스트 해석이 실패하지
+            # 않고, 8080도 옛 app이 반납한 뒤라 포트 충돌이 없다.
             if [ "$FIRST_DEPLOY" = "true" ]; then
               docker compose up -d --no-deps nginx
             fi
@@ -256,19 +277,30 @@ jobs:
             docker compose exec -T nginx nginx -t
             docker compose exec -T nginx nginx -s reload
 
+            # reload 성공 = 실제 트래픽이 이미 TARGET_COLOR로 넘어간 시점이다(리뷰 지적).
+            # 상태 파일을 여기서 바로 갱신한다 — 아래 이전 색 정지가 실패해 set -e로
+            # 스크립트가 끝나 버리면, 실제 활성 색(TARGET_COLOR)과 상태 파일(.active_color)이
+            # 어긋난 채로 남는다. 그러면 다음 배포가 지금 서비스 중인 색을 "비활성 색"으로
+            # 오인해 대상으로 삼아 재생성하면서, 멀쩡히 트래픽을 받던 컨테이너를 내렸다 올리는
+            # 동안 다운타임이 생길 수 있다. 이전 색 정지는 상태 기록을 막지 않는 후처리로
+            # 아래에서 별도 처리한다.
+            echo "$DEPLOY_SHA" > .last_deployed_sha
+            echo "$TARGET_COLOR" > .active_color
+
             # reload는 그레이스풀해서 이미 연결된 요청은 이전 업스트림(ACTIVE_COLOR)으로 마저
             # 처리된다 — 그 요청들이 끝날 시간을 짧게 준 뒤에만 이전 색을 정지한다. 최초
-            # 배포라 ACTIVE_COLOR가 없으면 정지할 대상 자체가 없다.
+            # 배포라 ACTIVE_COLOR가 없으면 정지할 대상 자체가 없다. 상태 파일은 이미 위에서
+            # 갱신했으므로, 이 정지가 실패해도(리뷰 지적 — set -e로 배포 자체를 실패 처리하지
+            # 않는다) 활성 색 판단은 계속 정확하다 — 실패는 로그만 남기고 다음 배포나 수동
+            # 점검에서 정리하면 되는 부차적인 문제로 취급한다.
             if [ -n "$ACTIVE_COLOR" ]; then
               sleep 5
               # stop이지 rm이 아니다 — 컨테이너를 지우지 않고 정지만 해서 다음 배포 때 같은
               # 서비스를 그대로 재사용한다(재생성 오버헤드를 줄인다).
-              docker compose stop "app-$ACTIVE_COLOR"
+              docker compose stop "app-$ACTIVE_COLOR" \
+                || echo "경고: 이전 색($ACTIVE_COLOR) 정지에 실패했습니다. 활성 색은 이미 $TARGET_COLOR로 기록되어 배포는 정상 완료된 것으로 처리합니다 — $ACTIVE_COLOR 컨테이너 상태를 수동으로 확인해 주세요."
             fi
 
-            # healthy와 컷오버가 모두 확인된 뒤에만 상태를 갱신하고 dangling 이미지를 정리한다.
-            echo "$DEPLOY_SHA" > .last_deployed_sha
-            echo "$TARGET_COLOR" > .active_color
             docker image prune -f
 
       # 배포 성공/실패와 무관하게 임시로 허용했던 러너 IP는 반드시 회수한다(리뷰 지적 P1) —
