@@ -41,9 +41,23 @@ public class S3ImageStorageGateway implements ImageStorageGateway {
 
         PresignedPutObjectRequest presigned = s3Presigner.presignPutObject(presignRequest);
 
-        String fileUrl = "https://%s.s3.%s.amazonaws.com/%s"
-                .formatted(properties.getBucket(), properties.getRegion(), key);
+        String fileUrl = baseUrl() + key;
 
         return new PresignedUploadUrl(presigned.url().toString(), fileUrl, properties.getPresignTtlSeconds());
+    }
+
+    @Override
+    public boolean isManagedFileUrl(String fileUrl, String keyPrefix) {
+        if (fileUrl == null || keyPrefix == null || !fileUrl.startsWith(baseUrl())) {
+            return false;
+        }
+        String key = fileUrl.substring(baseUrl().length());
+        return key.startsWith(keyPrefix);
+    }
+
+    // createPresignedUploadUrl()이 만드는 fileUrl과 isManagedFileUrl()의 검증 기준이 어긋나지
+    // 않도록 버킷 가상 호스팅 스타일 base URL을 한 곳에서만 구성한다.
+    private String baseUrl() {
+        return "https://%s.s3.%s.amazonaws.com/".formatted(properties.getBucket(), properties.getRegion());
     }
 }
