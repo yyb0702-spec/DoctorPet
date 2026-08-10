@@ -166,6 +166,9 @@ class PetServiceTest {
         PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
         setId(petProfile, 10L);
         given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        given(imageStorageGateway.isManagedFileUrl(
+                "http://localhost:9000/fake-bucket/pets/10/uuid.jpg", "pets/10/"))
+                .willReturn(true);
         PetUpdateRequest request = new PetUpdateRequest(
                 null, null, null, null, null, "http://localhost:9000/fake-bucket/pets/10/uuid.jpg");
 
@@ -173,6 +176,29 @@ class PetServiceTest {
 
         assertThat(response.name()).isEqualTo("초코");
         assertThat(response.imageUrl()).isEqualTo("http://localhost:9000/fake-bucket/pets/10/uuid.jpg");
+    }
+
+    @Test
+    @DisplayName("이 스토리지가 발급하지 않았거나 다른 petId 네임스페이스의 imageUrl은 INVALID_IMAGE_URL을 던지고 저장하지 않는다")
+    void update_imageUrlNotManagedByGateway_throwsInvalidImageUrl() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        // 게이트웨이가 관리하지 않는 URL(예: 업로드 절차를 거치지 않은 임의 외부 URL, 또는 다른
+        // petId 네임스페이스의 오브젝트 URL)이면 isManagedFileUrl()이 false를 반환한다 — 실제
+        // 스킴·호스트·prefix 판별 로직 자체는 FakeImageStorageGatewayTest/S3ImageStorageGatewayTest에서
+        // 검증하므로, 여기서는 PetService가 그 결과에 맞춰 저장을 막는지만 확인한다.
+        given(imageStorageGateway.isManagedFileUrl("https://evil.example.com/pets/10/x.jpg", "pets/10/"))
+                .willReturn(false);
+        PetUpdateRequest request = new PetUpdateRequest(
+                null, null, null, null, null, "https://evil.example.com/pets/10/x.jpg");
+
+        assertThatThrownBy(() -> petService.update(1L, 10L, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(PetErrorCode.INVALID_IMAGE_URL);
+        // 검증에 실패하면 병합조차 하지 않아야 한다 — 엔티티에 반영되지 않았는지 확인.
+        assertThat(petProfile.getImageUrl()).isNull();
     }
 
     @Test
