@@ -2,18 +2,23 @@ package com.doctorpet.domain.hospital.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
+import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
@@ -57,6 +62,9 @@ class HospitalOperatingHoursApplicationServiceTest {
     private HospitalOperatingScheduleRepository scheduleRepository;
 
     @Mock
+    private HospitalTemporaryClosureRepository closureRepository;
+
+    @Mock
     private HospitalOperatingSchedule schedule;
 
     @InjectMocks
@@ -69,6 +77,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 reservationService,
                 hospitalRepository,
                 scheduleRepository,
+                closureRepository,
                 Clock.fixed(
                         Instant.parse("2026-08-09T15:00:00Z"),
                         TimePolicy.SEOUL_ZONE_ID
@@ -176,6 +185,91 @@ class HospitalOperatingHoursApplicationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
                         .isEqualTo(HospitalErrorCode.INVALID_OPERATING_HOURS));
+    }
+
+    @Test
+    void createTemporaryClosureStoresClosureAfterRemovingOpenSlots() {
+        LocalDate businessDate = TODAY.plusDays(5);
+        Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.empty());
+        given(reservationService.removeOpenSlotsIfNoReservation(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(true);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+        given(closureRepository.save(any(HospitalTemporaryClosure.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        var response = service.createTemporaryClosure(
+                MEMBER_ID,
+                new TemporaryClosureCreateRequest(businessDate)
+        );
+
+        assertThat(response.businessDate()).isEqualTo(businessDate);
+        verify(closureRepository).save(any(HospitalTemporaryClosure.class));
+    }
+
+    @Test
+    void createTemporaryClosureRejectsToday() {
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+
+        assertThatThrownBy(() -> service.createTemporaryClosure(
+                MEMBER_ID,
+                new TemporaryClosureCreateRequest(TODAY)
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.INVALID_TEMPORARY_CLOSURE_DATE);
+
+        verify(reservationService, never())
+                .removeOpenSlotsIfNoReservation(any(), any());
+    }
+
+    @Test
+    void createTemporaryClosureRejectsBusinessDateWithReservation() {
+        LocalDate businessDate = TODAY.plusDays(1);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.empty());
+        given(reservationService.removeOpenSlotsIfNoReservation(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(false);
+
+        assertThatThrownBy(() -> service.createTemporaryClosure(
+                MEMBER_ID,
+                new TemporaryClosureCreateRequest(businessDate)
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.TEMPORARY_CLOSURE_HAS_RESERVATION);
+
+        verify(closureRepository, never()).save(any());
+    }
+
+    @Test
+    void createTemporaryClosureRejectsDuplicateClosure() {
+        LocalDate businessDate = TODAY.plusDays(1);
+        Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(
+                        HospitalTemporaryClosure.create(hospital, businessDate)
+                ));
+
+        assertThatThrownBy(() -> service.createTemporaryClosure(
+                MEMBER_ID,
+                new TemporaryClosureCreateRequest(businessDate)
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.TEMPORARY_CLOSURE_ALREADY_EXISTS);
+
+        verify(reservationService, never())
+                .removeOpenSlotsIfNoReservation(any(), any());
     }
 
     private OperatingHoursUpdateRequest updateRequest(LocalDate desiredEffectiveFrom) {

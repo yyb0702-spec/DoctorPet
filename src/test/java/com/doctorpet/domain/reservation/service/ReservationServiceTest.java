@@ -12,6 +12,7 @@ import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.lock.ReservationLockStrategy;
@@ -91,6 +92,62 @@ class ReservationServiceTest {
         boolean result = reservationService.hasActiveReservation(1L);
  
         assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("예약된 슬롯이 없으면 영업 기준일의 열린 슬롯을 제거한다")
+    void removeOpenSlotsIfNoReservation_removesOpenSlots() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 15);
+        ReservationSlot first = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(9, 0),
+                businessDate.atTime(9, 30),
+                businessDate
+        );
+        ReservationSlot second = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(23, 30),
+                businessDate.plusDays(1).atStartOfDay(),
+                businessDate
+        );
+        given(reservationSlotRepository.findBusinessDateSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(List.of(first, second));
+
+        boolean removed = reservationService.removeOpenSlotsIfNoReservation(
+                HOSPITAL_ID,
+                businessDate
+        );
+
+        assertThat(removed).isTrue();
+        verify(reservationSlotRepository).deleteAll(List.of(first, second));
+    }
+
+    @Test
+    @DisplayName("예약된 슬롯이 하나라도 있으면 영업 기준일의 슬롯을 제거하지 않는다")
+    void removeOpenSlotsIfNoReservation_keepsSlotsWhenReservedSlotExists() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 15);
+        ReservationSlot reserved = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(9, 0),
+                businessDate.atTime(9, 30),
+                businessDate
+        );
+        reserved.reserve();
+        given(reservationSlotRepository.findBusinessDateSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(List.of(reserved));
+
+        boolean removed = reservationService.removeOpenSlotsIfNoReservation(
+                HOSPITAL_ID,
+                businessDate
+        );
+
+        assertThat(reserved.getStatus()).isEqualTo(ReservationSlotStatus.RESERVED);
+        assertThat(removed).isFalse();
+        verify(reservationSlotRepository, never()).deleteAll(any());
     }
  
     @Test

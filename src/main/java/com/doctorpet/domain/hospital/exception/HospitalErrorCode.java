@@ -26,6 +26,21 @@ public enum HospitalErrorCode implements ErrorCode {
             HttpStatus.BAD_REQUEST,
             "HOSPITAL_006",
             "요일별 진료시간이 올바르지 않습니다."
+    ),
+    INVALID_TEMPORARY_CLOSURE_DATE(
+            HttpStatus.BAD_REQUEST,
+            "HOSPITAL_007",
+            "임시 휴무는 요청일 다음 날부터 등록할 수 있습니다."
+    ),
+    TEMPORARY_CLOSURE_HAS_RESERVATION(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_008",
+            "예약이 있는 영업일은 임시 휴무로 등록할 수 없습니다."
+    ),
+    TEMPORARY_CLOSURE_ALREADY_EXISTS(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_009",
+            "이미 임시 휴무로 등록된 영업일입니다."
     );
 
     private final HttpStatus httpStatus;

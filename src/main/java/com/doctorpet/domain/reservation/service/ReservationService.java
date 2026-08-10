@@ -7,6 +7,7 @@ import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.lock.ReservationLockStrategy;
@@ -110,6 +111,23 @@ public class ReservationService {
                 .stream()
                 .map(ReservationSlotQueryResult::from)
                 .toList();
+    }
+
+    @Transactional
+    public boolean removeOpenSlotsIfNoReservation(
+            Long hospitalId,
+            LocalDate businessDate
+    ) {
+        List<ReservationSlot> slots = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate);
+        boolean hasReservedSlot = slots.stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            return false;
+        }
+
+        reservationSlotRepository.deleteAll(slots);
+        return true;
     }
 
     @Transactional

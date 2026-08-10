@@ -3,13 +3,17 @@ package com.doctorpet.domain.hospital.service;
 import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
+import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
 import com.doctorpet.domain.hospital.dto.response.OperatingHoursResponse;
+import com.doctorpet.domain.hospital.dto.response.TemporaryClosureResponse;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
@@ -40,6 +44,7 @@ public class HospitalOperatingHoursApplicationService {
     private final ReservationService reservationService;
     private final HospitalRepository hospitalRepository;
     private final HospitalOperatingScheduleRepository scheduleRepository;
+    private final HospitalTemporaryClosureRepository closureRepository;
     private final Clock applicationClock;
 
     public OperatingHoursResponse getOperatingHours(Long memberId) {
@@ -85,6 +90,38 @@ public class HospitalOperatingHoursApplicationService {
         return OperatingHoursResponse.from(scheduleRepository.save(schedule));
     }
 
+    @Transactional
+    public TemporaryClosureResponse createTemporaryClosure(
+            Long memberId,
+            TemporaryClosureCreateRequest request
+    ) {
+        Long hospitalId = getHospitalId(memberId);
+        LocalDate businessDate = request.businessDate();
+        validateTemporaryClosureDate(businessDate);
+        if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
+            throw new ServiceException(
+                    HospitalErrorCode.TEMPORARY_CLOSURE_ALREADY_EXISTS
+            );
+        }
+        if (!reservationService.removeOpenSlotsIfNoReservation(
+                hospitalId,
+                businessDate
+        )) {
+            throw new ServiceException(
+                    HospitalErrorCode.TEMPORARY_CLOSURE_HAS_RESERVATION
+            );
+        }
+
+        Hospital hospital = hospitalRepository.findById(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+        HospitalTemporaryClosure closure = closureRepository.save(
+                HospitalTemporaryClosure.create(hospital, businessDate)
+        );
+        return TemporaryClosureResponse.from(closure);
+    }
+
     private HospitalOperatingSchedule createSchedule(
             Long hospitalId,
             LocalDate effectiveFrom,
@@ -99,6 +136,15 @@ public class HospitalOperatingHoursApplicationService {
         if (!desiredEffectiveFrom.isAfter(today)) {
             throw new ServiceException(
                     HospitalErrorCode.INVALID_OPERATING_HOURS_EFFECTIVE_DATE
+            );
+        }
+    }
+
+    private void validateTemporaryClosureDate(LocalDate businessDate) {
+        LocalDate today = LocalDate.now(applicationClock);
+        if (!businessDate.isAfter(today)) {
+            throw new ServiceException(
+                    HospitalErrorCode.INVALID_TEMPORARY_CLOSURE_DATE
             );
         }
     }

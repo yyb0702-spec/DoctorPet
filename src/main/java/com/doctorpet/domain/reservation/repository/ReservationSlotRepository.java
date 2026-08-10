@@ -1,6 +1,7 @@
 package com.doctorpet.domain.reservation.repository;
 
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -21,5 +22,17 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
             @Param("hospitalId") Long hospitalId,
             @Param("rangeStart") LocalDateTime rangeStart,
             @Param("rangeEnd") LocalDateTime rangeEnd
+    );
+
+    @Query("""
+            SELECT slot
+            FROM ReservationSlot slot
+            WHERE slot.hospitalId = :hospitalId
+              AND slot.businessDate = :businessDate
+            ORDER BY slot.startAt ASC, slot.id ASC
+            """)
+    List<ReservationSlot> findBusinessDateSlots(
+            @Param("hospitalId") Long hospitalId,
+            @Param("businessDate") LocalDate businessDate
     );
 }
