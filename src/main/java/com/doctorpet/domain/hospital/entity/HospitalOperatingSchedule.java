@@ -72,6 +72,12 @@ public class HospitalOperatingSchedule extends BaseEntity {
         return new HospitalOperatingSchedule(hospital, effectiveFrom, operatingHours);
     }
 
+    public void changeOperatingHours(
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        this.operatingHours = copyOperatingHours(operatingHours);
+    }
+
     private Hospital requireHospital(Hospital hospital) {
         if (hospital == null) {
             throw new IllegalArgumentException("병원이 필요합니다.");

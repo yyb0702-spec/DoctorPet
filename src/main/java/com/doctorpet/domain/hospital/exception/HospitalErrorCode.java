@@ -16,6 +16,16 @@ public enum HospitalErrorCode implements ErrorCode {
             HttpStatus.INTERNAL_SERVER_ERROR,
             "HOSPITAL_004",
             "병원 진료시간을 불러오는 중 오류가 발생했습니다."
+    ),
+    INVALID_OPERATING_HOURS_EFFECTIVE_DATE(
+            HttpStatus.BAD_REQUEST,
+            "HOSPITAL_005",
+            "진료시간은 요청일 다음 날부터 적용할 수 있습니다."
+    ),
+    INVALID_OPERATING_HOURS(
+            HttpStatus.BAD_REQUEST,
+            "HOSPITAL_006",
+            "요일별 진료시간이 올바르지 않습니다."
     );
 
     private final HttpStatus httpStatus;

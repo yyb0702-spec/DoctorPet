@@ -1,15 +1,32 @@
 package com.doctorpet.domain.hospital.service;
 
+import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.dto.response.OperatingHoursResponse;
+import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.model.DailyOperatingHours;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
+import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
+import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class HospitalOperatingHoursApplicationService {
 
     private final MemberService memberService;
+    private final ReservationService reservationService;
+    private final HospitalRepository hospitalRepository;
     private final HospitalOperatingScheduleRepository scheduleRepository;
     private final Clock applicationClock;
 
@@ -33,6 +52,132 @@ public class HospitalOperatingHoursApplicationService {
                 ));
 
         return OperatingHoursResponse.from(schedule);
+    }
+
+    @Transactional
+    public OperatingHoursResponse updateOperatingHours(
+            Long memberId,
+            OperatingHoursUpdateRequest request
+    ) {
+        Long hospitalId = getHospitalId(memberId);
+        LocalDate today = LocalDate.now(applicationClock);
+        validateDesiredEffectiveFrom(request.desiredEffectiveFrom(), today);
+        Map<DayOfWeek, List<DailyOperatingHours>> operatingHours =
+                validateAndConvert(request.days());
+        LocalDate effectiveFrom = resolveEffectiveFrom(
+                hospitalId,
+                today,
+                request.desiredEffectiveFrom()
+        );
+
+        HospitalOperatingSchedule schedule = scheduleRepository
+                .findSchedule(hospitalId, effectiveFrom)
+                .map(existing -> {
+                    existing.changeOperatingHours(operatingHours);
+                    return existing;
+                })
+                .orElseGet(() -> createSchedule(
+                        hospitalId,
+                        effectiveFrom,
+                        operatingHours
+                ));
+
+        return OperatingHoursResponse.from(scheduleRepository.save(schedule));
+    }
+
+    private HospitalOperatingSchedule createSchedule(
+            Long hospitalId,
+            LocalDate effectiveFrom,
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        Hospital hospital = hospitalRepository.findById(hospitalId)
+                .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));
+        return HospitalOperatingSchedule.create(hospital, effectiveFrom, operatingHours);
+    }
+
+    private void validateDesiredEffectiveFrom(LocalDate desiredEffectiveFrom, LocalDate today) {
+        if (!desiredEffectiveFrom.isAfter(today)) {
+            throw new ServiceException(
+                    HospitalErrorCode.INVALID_OPERATING_HOURS_EFFECTIVE_DATE
+            );
+        }
+    }
+
+    private Map<DayOfWeek, List<DailyOperatingHours>> validateAndConvert(
+            List<DailyOperatingHoursRequest> days
+    ) {
+        Set<DayOfWeek> dayOfWeeks = new HashSet<>();
+        EnumMap<DayOfWeek, List<DailyOperatingHours>> operatingHours =
+                new EnumMap<>(DayOfWeek.class);
+
+        for (DailyOperatingHoursRequest day : days) {
+            if (!dayOfWeeks.add(day.dayOfWeek())) {
+                throw invalidOperatingHours();
+            }
+            List<DailyOperatingHours> periods = day.periods().stream()
+                    .map(this::toOperatingHours)
+                    .sorted(Comparator.comparing(DailyOperatingHours::openTime))
+                    .toList();
+            validateNoOverlap(periods);
+            operatingHours.put(day.dayOfWeek(), periods);
+        }
+
+        if (dayOfWeeks.size() != DayOfWeek.values().length) {
+            throw invalidOperatingHours();
+        }
+        return operatingHours;
+    }
+
+    private DailyOperatingHours toOperatingHours(OperatingPeriodRequest period) {
+        if (period.startTime().equals(period.endTime())) {
+            throw invalidOperatingHours();
+        }
+        return new DailyOperatingHours(period.startTime(), period.endTime());
+    }
+
+    private void validateNoOverlap(List<DailyOperatingHours> periods) {
+        LocalDate anchor = LocalDate.of(2000, 1, 1);
+        LocalDateTime previousEnd = null;
+        for (DailyOperatingHours period : periods) {
+            LocalDateTime start = anchor.atTime(period.openTime());
+            LocalDateTime end = anchor.atTime(period.closeTime());
+            if (!end.isAfter(start)) {
+                end = end.plusDays(1);
+            }
+            if (previousEnd != null && start.isBefore(previousEnd)) {
+                throw invalidOperatingHours();
+            }
+            previousEnd = end;
+        }
+    }
+
+    private LocalDate resolveEffectiveFrom(
+            Long hospitalId,
+            LocalDate today,
+            LocalDate desiredEffectiveFrom
+    ) {
+        return reservationService.findSlots(
+                        hospitalId,
+                        today.atStartOfDay(),
+                        today.plusDays(14).atStartOfDay()
+                ).stream()
+                .filter(slot -> slot.status() == ReservationSlotStatus.RESERVED)
+                .map(ReservationSlotQueryResult::startAt)
+                .map(LocalDateTime::toLocalDate)
+                .max(LocalDate::compareTo)
+                .map(lastReservedDate -> max(
+                        desiredEffectiveFrom,
+                        lastReservedDate.plusDays(1)
+                ))
+                .orElse(desiredEffectiveFrom);
+    }
+
+    private LocalDate max(LocalDate first, LocalDate second) {
+        return first.isAfter(second) ? first : second;
+    }
+
+    private ServiceException invalidOperatingHours() {
+        return new ServiceException(HospitalErrorCode.INVALID_OPERATING_HOURS);
     }
 
     private Long getHospitalId(Long memberId) {

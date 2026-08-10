@@ -25,4 +25,15 @@ public interface HospitalOperatingScheduleRepository
             @Param("hospitalId") Long hospitalId,
             @Param("today") LocalDate today
     );
+
+    @Query("""
+            SELECT schedule
+            FROM HospitalOperatingSchedule schedule
+            WHERE schedule.hospital.id = :hospitalId
+              AND schedule.effectiveFrom = :effectiveFrom
+            """)
+    Optional<HospitalOperatingSchedule> findSchedule(
+            @Param("hospitalId") Long hospitalId,
+            @Param("effectiveFrom") LocalDate effectiveFrom
+    );
 }
