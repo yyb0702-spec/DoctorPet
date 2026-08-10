@@ -3,6 +3,7 @@ package com.doctorpet.domain.pet.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
@@ -12,6 +13,7 @@ import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.pet.dto.request.PetCreateRequest;
 import com.doctorpet.domain.pet.dto.request.PetUpdateRequest;
+import com.doctorpet.domain.pet.dto.response.PetImageUploadUrlResponse;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetProfile;
 import com.doctorpet.domain.pet.entity.PetSpecies;
@@ -19,6 +21,8 @@ import com.doctorpet.domain.pet.exception.PetErrorCode;
 import com.doctorpet.domain.pet.repository.PetProfileRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.gateway.storage.ImageStorageGateway;
+import com.doctorpet.global.gateway.storage.PresignedUploadUrl;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +42,9 @@ class PetServiceTest {
 
     @Mock
     private MemberService memberService;
+
+    @Mock
+    private ImageStorageGateway imageStorageGateway;
 
     @InjectMocks
     private PetService petService;
@@ -141,7 +148,8 @@ class PetServiceTest {
         PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
         setId(petProfile, 10L);
         given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
-        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
 
         PetResponse response = petService.update(1L, 10L, request);
 
@@ -153,13 +161,28 @@ class PetServiceTest {
     }
 
     @Test
+    @DisplayName("imageUrl만 보내면 다른 필드는 유지한 채 이미지 URL만 저장된다(presigned URL 업로드 확정 흐름)")
+    void update_imageUrlOnly_savesImageAndKeepsOtherFields() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        PetUpdateRequest request = new PetUpdateRequest(
+                null, null, null, null, null, "http://localhost:9000/fake-bucket/pets/10/uuid.jpg");
+
+        PetResponse response = petService.update(1L, 10L, request);
+
+        assertThat(response.name()).isEqualTo("초코");
+        assertThat(response.imageUrl()).isEqualTo("http://localhost:9000/fake-bucket/pets/10/uuid.jpg");
+    }
+
+    @Test
     @DisplayName("부분 수정 — 생략한(null) 필드는 기존 값을 유지하고 지정한 필드만 바뀐다")
     void update_partialUpdate_onlyProvidedFieldsChange() {
         PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
         setId(petProfile, 10L);
         given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
         // weight만 보내고 나머지는 생략(null) — PATCH의 일반적인 부분 수정 형태.
-        PetUpdateRequest request = new PetUpdateRequest(null, null, null, new BigDecimal("6.0"), null);
+        PetUpdateRequest request = new PetUpdateRequest(null, null, null, new BigDecimal("6.0"), null, null);
 
         PetResponse response = petService.update(1L, 10L, request);
 
@@ -174,7 +197,8 @@ class PetServiceTest {
     @DisplayName("존재하지 않는 petId를 수정하면 PET_NOT_FOUND를 던진다")
     void update_notFound() {
         given(petProfileRepository.findById(999L)).willReturn(Optional.empty());
-        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
 
         assertThatThrownBy(() -> petService.update(1L, 999L, request))
                 .isInstanceOf(ServiceException.class)
@@ -188,12 +212,65 @@ class PetServiceTest {
         PetProfile petProfile = PetProfile.create(2L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
         setId(petProfile, 10L);
         given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
-        PetUpdateRequest request = new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false);
+        PetUpdateRequest request =
+                new PetUpdateRequest("초코2", PetSpecies.DOG, 4, new BigDecimal("6.0"), false, null);
 
         assertThatThrownBy(() -> petService.update(1L, 10L, request))
                 .isInstanceOf(ServiceException.class)
                 .extracting(exception -> ((ServiceException) exception).getErrorCode())
                 .isEqualTo(CommonErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("업로드 URL 발급 성공 시 게이트웨이가 만든 key로 presigned URL을 반환한다")
+    void createImageUploadUrl_success() {
+        PetProfile petProfile = PetProfile.create(1L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+        given(imageStorageGateway.createPresignedUploadUrl(any(), any())).willReturn(
+                new PresignedUploadUrl(
+                        "https://bucket.s3.ap-northeast-2.amazonaws.com/pets/10/uuid.jpg?sig=abc",
+                        "https://bucket.s3.ap-northeast-2.amazonaws.com/pets/10/uuid.jpg",
+                        300
+                )
+        );
+
+        PetImageUploadUrlResponse response = petService.createImageUploadUrl(1L, 10L, "image/jpeg");
+
+        assertThat(response.uploadUrl()).contains("sig=abc");
+        assertThat(response.imageUrl()).isEqualTo("https://bucket.s3.ap-northeast-2.amazonaws.com/pets/10/uuid.jpg");
+        assertThat(response.expiresInSeconds()).isEqualTo(300);
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(imageStorageGateway).createPresignedUploadUrl(keyCaptor.capture(), eq("image/jpeg"));
+        // key는 petId로 네임스페이스를 나누고 jpeg 확장자를 붙인다 — 다른 반려동물과 충돌하지 않는다.
+        assertThat(keyCaptor.getValue()).startsWith("pets/10/").endsWith(".jpeg");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 petId로 업로드 URL을 요청하면 PET_NOT_FOUND를 던진다")
+    void createImageUploadUrl_notFound() {
+        given(petProfileRepository.findById(999L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> petService.createImageUploadUrl(1L, 999L, "image/jpeg"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(PetErrorCode.PET_NOT_FOUND);
+        verify(imageStorageGateway, never()).createPresignedUploadUrl(any(), any());
+    }
+
+    @Test
+    @DisplayName("다른 회원 소유의 반려동물에 업로드 URL을 요청하면 FORBIDDEN을 던진다")
+    void createImageUploadUrl_notOwner_returnsForbidden() {
+        PetProfile petProfile = PetProfile.create(2L, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true);
+        setId(petProfile, 10L);
+        given(petProfileRepository.findById(10L)).willReturn(Optional.of(petProfile));
+
+        assertThatThrownBy(() -> petService.createImageUploadUrl(1L, 10L, "image/jpeg"))
+                .isInstanceOf(ServiceException.class)
+                .extracting(exception -> ((ServiceException) exception).getErrorCode())
+                .isEqualTo(CommonErrorCode.FORBIDDEN);
+        verify(imageStorageGateway, never()).createPresignedUploadUrl(any(), any());
     }
 
     @Test
