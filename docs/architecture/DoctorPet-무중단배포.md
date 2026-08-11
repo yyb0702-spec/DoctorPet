@@ -91,8 +91,8 @@ upstream app_upstream {
 1. 비활성 색(target)에 새 이미지로 컨테이너를 띄운다(`--no-deps`로 mysql/redis는 건드리지 않는다).
 2. target이 healthy가 될 때까지 폴링한다(기존 로직 재사용).
 3. healthy면 `upstream-active.conf`를 target 색으로 다시 쓰고 `nginx -s reload`한다. reload는 그레이스풀해서 이미 연결된 요청은 기존 업스트림(active였던 색)으로 마저 처리되고, 새 연결부터 target으로 붙는다 — 이 지점이 실제 "무중단 전환"이다.
-4. 짧은 드레인 대기 후 이전 색(old) 컨테이너를 정지한다(`stop`, `rm`이 아님 — 다음 배포 때 재사용).
-5. `.active_color`, `.last_deployed_sha`를 갱신한다.
+4. **reload 성공 직후** `.active_color`, `.last_deployed_sha`를 갱신한다(리뷰 지적, PR #136 — 예전엔 이전 색 정지 다음에 갱신했는데, 정지가 실패해 스크립트가 일찍 끝나면 실제 활성 색과 상태 파일이 어긋난 채 남는 문제가 있었다). 백업 파일 삭제·옛 단일 app 컨테이너 최종 제거처럼 실패해도 무방한 후처리는 상태 기록 *뒤*로 미룬다.
+5. 짧은 드레인 대기(5초) 후 이전 색(old) 컨테이너를 정지한다(`stop`, `rm`이 아님 — 다음 배포 때 재사용). 이 5초 자체는 안전장치가 아니다 — 실제 드레인 보장은 애플리케이션의 `server.shutdown: graceful`(`spring.lifecycle.timeout-per-shutdown-phase` 30초)과 `docker-compose.yml`의 `stop_grace_period`(35초)가 맡는다(리뷰 지적 P1, PR #136 — 예전에는 이 설정이 없어 결제·AI 상담처럼 5초를 넘기는 요청이 컷오버 도중 강제 종료될 수 있었다).
 6. target이 애초에 healthy가 되지 못하면 **nginx도 old 색도 건드리지 않은 채** target 컨테이너만 정리하고 실패 종료한다 — 운영 중인 서비스는 배포 시도 자체를 몰라도 된다. 기존의 "이전 SHA로 능동 재배포" 롤백보다 훨씬 단순하고 안전하다.
 
 ## 5. 상태 파일 (git 비추적, 서버 로컬)
@@ -131,4 +131,5 @@ upstream app_upstream {
 - [ ] 2회차 배포로 blue→green 컷오버, 컷오버 중 무중단 확인(연속 요청 스크립트로 검증) — `docker compose ps -q app-green`/`stop app-green`/`rm app-green`이 green 프로파일 상태와 무관하게 실제 컨테이너를 정상 조회·제어하는지도 이 회차에서 함께 확인(리뷰 지적, `COMPOSE_PROFILES=green` export로 방어했지만 실기동 확인 필요)
 - [ ] 컷오버 중 SSE(`/api/notifications/subscribe`) 구독 클라이언트가 연결 종료 후 자동 재연결로 정상 복구되는지 확인(리뷰 지적, 알려진 한계 재확인)
 - [ ] 의도적으로 healthcheck 실패하는 이미지로 배포해 "target만 정리되고 기존 색은 안 건드려지는지" 확인
+- [ ] `server.shutdown: graceful` + `stop_grace_period: 35s`가 실제로 진행 중인 요청을 지켜주는지 확인(리뷰 지적 P1, PR #136) — 예: 인위적으로 5초 이상 걸리는 요청(또는 테스트용 지연 엔드포인트)을 이전 색에 걸어둔 채 컷오버를 실행해, `docker compose stop`이 그 요청을 끊지 않고 응답까지 받는지 확인. 정적 설정 검토만으로는 실제 드레인 여부를 보장할 수 없다.
 - [ ] SA 문서 또는 별도 인프라 섹션에 최종 반영 여부 결정(이 문서를 정본으로 유지할지, SA에 흡수할지)
