@@ -91,7 +91,9 @@ public class HospitalOperatingHoursApplicationService {
                         operatingHours
                 ));
 
-        return OperatingHoursResponse.from(scheduleRepository.save(schedule));
+        HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
+        replacePublishedSlots(hospitalId, effectiveFrom, today, savedSchedule);
+        return OperatingHoursResponse.from(savedSchedule);
     }
 
     @Transactional
@@ -179,6 +181,41 @@ public class HospitalOperatingHoursApplicationService {
             slotStart = slotEnd;
         }
         return commands;
+    }
+
+    private void replacePublishedSlots(
+            Long hospitalId,
+            LocalDate effectiveFrom,
+            LocalDate today,
+            HospitalOperatingSchedule schedule
+    ) {
+        LocalDate publishedUntil = today.plusDays(13);
+        if (effectiveFrom.isAfter(publishedUntil)) {
+            return;
+        }
+
+        for (LocalDate businessDate = effectiveFrom;
+             !businessDate.isAfter(publishedUntil);
+             businessDate = businessDate.plusDays(1)) {
+            List<ReservationSlotCreateCommand> commands =
+                    createReplacementCommands(hospitalId, businessDate, schedule);
+            reservationService.replaceOpenSlots(hospitalId, businessDate, commands);
+        }
+    }
+
+    private List<ReservationSlotCreateCommand> createReplacementCommands(
+            Long hospitalId,
+            LocalDate businessDate,
+            HospitalOperatingSchedule schedule
+    ) {
+        if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
+            return List.of();
+        }
+        return schedule.getOperatingHours()
+                .getOrDefault(businessDate.getDayOfWeek(), List.of())
+                .stream()
+                .flatMap(hours -> createSlotCommands(businessDate, hours).stream())
+                .toList();
     }
 
     private void validateDesiredEffectiveFrom(LocalDate desiredEffectiveFrom, LocalDate today) {

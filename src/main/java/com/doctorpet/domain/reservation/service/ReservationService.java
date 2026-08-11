@@ -159,6 +159,35 @@ public class ReservationService {
     }
 
     @Transactional
+    public int replaceOpenSlots(
+            Long hospitalId,
+            LocalDate businessDate,
+            List<ReservationSlotCreateCommand> commands
+    ) {
+        List<ReservationSlot> existingSlots = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate);
+        boolean hasReservedSlot = existingSlots.stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            throw new ServiceException(SlotErrorCode.ALREADY_RESERVED);
+        }
+
+        reservationSlotRepository.deleteAll(existingSlots);
+        reservationSlotRepository.flush();
+
+        List<ReservationSlot> replacementSlots = commands.stream()
+                .map(command -> ReservationSlot.create(
+                        hospitalId,
+                        command.startAt(),
+                        command.endAt(),
+                        businessDate
+                ))
+                .toList();
+        reservationSlotRepository.saveAll(replacementSlots);
+        return replacementSlots.size();
+    }
+
+    @Transactional
     public ReservationResponse request(
             Long memberId,
             ReservationRequest request,

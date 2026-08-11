@@ -192,6 +192,93 @@ class ReservationServiceTest {
                     assertThat(slot.getBusinessDate()).isEqualTo(businessDate);
                 });
     }
+
+    @Test
+    @DisplayName("진료시간 변경 시 예약이 없는 영업일의 기존 슬롯을 모두 교체한다")
+    void replaceOpenSlotsReplacesAllSlotsWhenNoReservationExists() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 15);
+        ReservationSlot first = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(9, 0),
+                businessDate.atTime(9, 30),
+                businessDate
+        );
+        ReservationSlot second = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(10, 0),
+                businessDate.atTime(10, 30),
+                businessDate
+        );
+        given(reservationSlotRepository.findBusinessDateSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(List.of(first, second));
+
+        int created = reservationService.replaceOpenSlots(
+                HOSPITAL_ID,
+                businessDate,
+                List.of(
+                        new ReservationSlotCreateCommand(
+                                businessDate.atTime(10, 0),
+                                businessDate.atTime(10, 30)
+                        ),
+                        new ReservationSlotCreateCommand(
+                                businessDate.atTime(11, 0),
+                                businessDate.atTime(11, 30)
+                        )
+                )
+        );
+
+        assertThat(created).isEqualTo(2);
+        verify(reservationSlotRepository).deleteAll(List.of(first, second));
+        verify(reservationSlotRepository).flush();
+        var slots = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(reservationSlotRepository).saveAll(slots.capture());
+        assertThat((List<ReservationSlot>) slots.getValue())
+                .extracting(ReservationSlot::getStartAt)
+                .containsExactly(
+                        businessDate.atTime(10, 0),
+                        businessDate.atTime(11, 0)
+                );
+    }
+
+    @Test
+    @DisplayName("진료시간 변경 대상 영업일에 예약 슬롯이 있으면 슬롯을 교체하지 않는다")
+    void replaceOpenSlotsRejectsWhenReservedSlotExists() {
+        LocalDate businessDate = LocalDate.of(2026, 8, 15);
+        ReservationSlot open = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(9, 0),
+                businessDate.atTime(9, 30),
+                businessDate
+        );
+        ReservationSlot reserved = ReservationSlot.create(
+                HOSPITAL_ID,
+                businessDate.atTime(10, 0),
+                businessDate.atTime(10, 30),
+                businessDate
+        );
+        reserved.reserve();
+        given(reservationSlotRepository.findBusinessDateSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(List.of(open, reserved));
+
+        assertThatThrownBy(() -> reservationService.replaceOpenSlots(
+                HOSPITAL_ID,
+                businessDate,
+                List.of(new ReservationSlotCreateCommand(
+                        businessDate.atTime(11, 0),
+                        businessDate.atTime(11, 30)
+                ))
+        )).isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.domain.reservation.exception.SlotErrorCode.ALREADY_RESERVED);
+
+        verify(reservationSlotRepository, never()).deleteAll(any());
+        verify(reservationSlotRepository, never()).flush();
+        verify(reservationSlotRepository, never()).saveAll(any());
+    }
  
     @Test
     @DisplayName("예약 서비스는 전달받은 반려동물 스냅샷으로 예약을 생성한다")

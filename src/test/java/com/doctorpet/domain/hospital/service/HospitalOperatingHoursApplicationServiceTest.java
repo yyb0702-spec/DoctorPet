@@ -173,6 +173,65 @@ class HospitalOperatingHoursApplicationServiceTest {
     }
 
     @Test
+    void updateOperatingHoursReplacesPublishedSlotsFromEffectiveDate() {
+        LocalDate effectiveFrom = TODAY.plusDays(11);
+        OperatingHoursUpdateRequest request = updateRequest(effectiveFrom);
+        Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(reservationService.findSlots(
+                HOSPITAL_ID,
+                TODAY.atStartOfDay(),
+                TODAY.plusDays(14).atStartOfDay()
+        )).willReturn(List.of());
+        given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
+                .willReturn(Optional.empty());
+        given(hospitalRepository.findById(HOSPITAL_ID)).willReturn(Optional.of(hospital));
+        given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(closureRepository.findClosure(any(), any())).willReturn(Optional.empty());
+
+        service.updateOperatingHours(MEMBER_ID, request);
+
+        verify(reservationService).replaceOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(TODAY.plusDays(11)),
+                any()
+        );
+        verify(reservationService).replaceOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(TODAY.plusDays(12)),
+                any()
+        );
+        verify(reservationService).replaceOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(TODAY.plusDays(13)),
+                any()
+        );
+    }
+
+    @Test
+    void updateOperatingHoursDoesNotReplaceSlotsOutsidePublishedRange() {
+        LocalDate effectiveFrom = TODAY.plusDays(14);
+        OperatingHoursUpdateRequest request = updateRequest(effectiveFrom);
+        Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(reservationService.findSlots(
+                HOSPITAL_ID,
+                TODAY.atStartOfDay(),
+                TODAY.plusDays(14).atStartOfDay()
+        )).willReturn(List.of());
+        given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
+                .willReturn(Optional.empty());
+        given(hospitalRepository.findById(HOSPITAL_ID)).willReturn(Optional.of(hospital));
+        given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        service.updateOperatingHours(MEMBER_ID, request);
+
+        verify(reservationService, never()).replaceOpenSlots(any(), any(), any());
+    }
+
+    @Test
     void updateOperatingHoursRejectsOverlappingPeriods() {
         OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
                 TODAY.plusDays(1),
