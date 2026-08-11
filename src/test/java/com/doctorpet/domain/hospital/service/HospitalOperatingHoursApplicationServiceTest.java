@@ -264,6 +264,56 @@ class HospitalOperatingHoursApplicationServiceTest {
     }
 
     @Test
+    void updateOperatingHoursRejectsOverlapAcrossDayBoundary() {
+        OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
+                TODAY.plusDays(1),
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new DailyOperatingHoursRequest(
+                                day,
+                                switch (day) {
+                                    case MONDAY -> List.of(new OperatingPeriodRequest(
+                                            LocalTime.of(22, 0), LocalTime.of(2, 0)));
+                                    case TUESDAY -> List.of(new OperatingPeriodRequest(
+                                            LocalTime.of(1, 0), LocalTime.of(3, 0)));
+                                    default -> List.of();
+                                }
+                        ))
+                        .toList()
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+
+        assertThatThrownBy(() -> service.updateOperatingHours(MEMBER_ID, request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(HospitalErrorCode.INVALID_OPERATING_HOURS));
+    }
+
+    @Test
+    void updateOperatingHoursRejectsOverlapAcrossWeekBoundary() {
+        OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
+                TODAY.plusDays(1),
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new DailyOperatingHoursRequest(
+                                day,
+                                switch (day) {
+                                    case SUNDAY -> List.of(new OperatingPeriodRequest(
+                                            LocalTime.of(23, 0), LocalTime.of(2, 0)));
+                                    case MONDAY -> List.of(new OperatingPeriodRequest(
+                                            LocalTime.of(1, 0), LocalTime.of(3, 0)));
+                                    default -> List.of();
+                                }
+                        ))
+                        .toList()
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+
+        assertThatThrownBy(() -> service.updateOperatingHours(MEMBER_ID, request))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(HospitalErrorCode.INVALID_OPERATING_HOURS));
+    }
+
+    @Test
     void createTemporaryClosureStoresClosureAfterRemovingOpenSlots() {
         LocalDate businessDate = TODAY.plusDays(5);
         Hospital hospital = org.mockito.Mockito.mock(Hospital.class);

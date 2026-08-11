@@ -305,6 +305,7 @@ public class HospitalOperatingHoursApplicationService {
         if (dayOfWeeks.size() != DayOfWeek.values().length) {
             throw invalidOperatingHours();
         }
+        validateNoOverlapAcrossWeek(operatingHours);
         return operatingHours;
     }
 
@@ -329,6 +330,56 @@ public class HospitalOperatingHoursApplicationService {
             }
             previousEnd = end;
         }
+    }
+
+    private void validateNoOverlapAcrossWeek(
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        LocalDate monday = LocalDate.of(2000, 1, 3);
+        List<LocalDateTime> starts = new ArrayList<>();
+        List<LocalDateTime> ends = new ArrayList<>();
+
+        for (DayOfWeek day : DayOfWeek.values()) {
+            LocalDate businessDate = monday.plusDays(day.getValue() - 1L);
+            for (DailyOperatingHours period : operatingHours.getOrDefault(day, List.of())) {
+                LocalDateTime start = businessDate.atTime(period.openTime());
+                LocalDateTime end = businessDate.atTime(period.closeTime());
+                if (!end.isAfter(start)) {
+                    end = end.plusDays(1);
+                }
+                starts.add(start);
+                ends.add(end);
+            }
+        }
+
+        for (int first = 0; first < starts.size(); first++) {
+            for (int second = first + 1; second < starts.size(); second++) {
+                if (overlaps(starts.get(first), ends.get(first),
+                        starts.get(second), ends.get(second))) {
+                    throw invalidOperatingHours();
+                }
+            }
+        }
+
+        for (int first = 0; first < starts.size(); first++) {
+            for (int second = 0; second < starts.size(); second++) {
+                LocalDateTime nextWeekStart = starts.get(second).plusWeeks(1);
+                LocalDateTime nextWeekEnd = ends.get(second).plusWeeks(1);
+                if (overlaps(starts.get(first), ends.get(first),
+                        nextWeekStart, nextWeekEnd)) {
+                    throw invalidOperatingHours();
+                }
+            }
+        }
+    }
+
+    private boolean overlaps(
+            LocalDateTime firstStart,
+            LocalDateTime firstEnd,
+            LocalDateTime secondStart,
+            LocalDateTime secondEnd
+    ) {
+        return firstStart.isBefore(secondEnd) && secondStart.isBefore(firstEnd);
     }
 
     private LocalDate resolveEffectiveFrom(
