@@ -269,7 +269,8 @@ class ReservationApplicationServiceTest {
                 species,
                 5,
                 BigDecimal.valueOf(4.8),
-                true
+                true,
+                null
         );
     }
 

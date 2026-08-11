@@ -105,4 +105,31 @@ class PetProfileDdlIntegrationTest {
         // POST 응답과 이후 GET 응답의 weight 값이 어긋나지 않는다.
         assertThat(reloaded.getWeight()).isEqualByComparingTo("999.99");
     }
+
+    @Test
+    @DisplayName("image_url 컬럼은 등록 시 null이며 update() 이후 실제 MySQL 저장·재조회 시 값이 그대로 유지된다")
+    void imageUrlColumn_startsNullThenPersistsAndReloadsAfterUpdate() {
+        PetProfile saved = petProfileRepository.saveAndFlush(
+                PetProfile.create(MEMBER_ID, "초코", PetSpecies.DOG, 3, new BigDecimal("5.4"), true));
+        entityManager.clear();
+
+        // 등록 시점에는 값이 없다(PetProfile 주석의 계약) — Hibernate가 만든 실제 컬럼이 NOT NULL이
+        // 아니라는 것도 이 조회가 예외 없이 통과하는 것으로 함께 확인된다.
+        PetProfile beforeUpdate = petProfileRepository.findById(saved.getId()).orElseThrow();
+        assertThat(beforeUpdate.getImageUrl()).isNull();
+
+        // saved.getId()의 자릿수에 따라 prefix 길이가 달라질 수 있어(자동증가 PK), 패딩 길이를
+        // prefix 길이 기준으로 계산해 정확히 2048자를 맞춘다(하드코딩된 매직넘버로 인한 오차 방지).
+        String prefix = "https://doctorpet-bucket.s3.ap-northeast-2.amazonaws.com/pets/%d/"
+                .formatted(saved.getId());
+        String imageUrl = prefix + "a".repeat(2048 - prefix.length());
+        beforeUpdate.update(null, null, null, null, null, imageUrl);
+        petProfileRepository.saveAndFlush(beforeUpdate);
+        entityManager.clear();
+
+        PetProfile afterUpdate = petProfileRepository.findById(saved.getId()).orElseThrow();
+
+        // VARCHAR(2048) 경계값(정확히 2048자)이 잘리거나 예외 없이 그대로 저장·조회된다.
+        assertThat(afterUpdate.getImageUrl()).hasSize(2048).isEqualTo(imageUrl);
+    }
 }

@@ -11,7 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.notification.dto.response.NotificationPageResponse;
+import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
+import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
 import com.doctorpet.domain.notification.service.NotificationService;
 import com.doctorpet.global.config.SecurityConfig;
@@ -103,6 +105,36 @@ class NotificationControllerTest {
                 .andExpect(status().isOk());
 
         verify(notificationService).getMyNotifications(MEMBER_ID, true, 1, 5);
+    }
+
+    @Test
+    @DisplayName("미읽음 개수: 인증 memberId로 위임하고 unreadCount를 SUCCESS로 반환한다")
+    void getUnreadCount_returnsCount() throws Exception {
+        authenticateAs(MEMBER_ID);
+        given(notificationService.getUnreadCount(MEMBER_ID))
+                .willReturn(new NotificationUnreadCountResponse(3L));
+
+        mockMvc.perform(get("/api/notifications/unread-count"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.unreadCount").value(3));
+
+        verify(notificationService).getUnreadCount(MEMBER_ID);
+    }
+
+    @Test
+    @DisplayName("모두 읽음: 인증 memberId로 위임하고 updatedCount를 SUCCESS로 반환한다")
+    void markAllRead_returnsUpdatedCount() throws Exception {
+        authenticateAs(MEMBER_ID);
+        given(notificationService.markAllRead(MEMBER_ID))
+                .willReturn(new NotificationReadAllResponse(4));
+
+        mockMvc.perform(patch("/api/notifications/read-all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.updatedCount").value(4));
+
+        verify(notificationService).markAllRead(MEMBER_ID);
     }
 
     @Test
