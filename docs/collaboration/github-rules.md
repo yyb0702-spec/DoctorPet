@@ -6,6 +6,7 @@
 - 각 기능 작업은 `feature/도메인명` 브랜치에서 진행한다.
 - PR merge는 **2명 이상 승인** 시 가능하며, 승인 조건이 충족되면 **팀원 누구나** merge 할 수 있다(특정 인물 고정 아님).
 - PR 작성자는 본인 PR을 직접 merge하지 않는다.
+- **예외:** 문서 버전 승격 bookkeeping 커밋(`scripts/promote_docs.py` 산출물)은 `develop`에 직접 push할 수 있다(2인 승인·PR 예외). 조건·근거는 §3 "문서 버전 승격 예외".
 
 ## 1. 브랜치 구조
 
@@ -209,6 +210,17 @@ Closes #
 - **2명 이상**의 Approve를 받은 후 merge한다.
 - 리뷰 의견 반영 후 merge한다.
 - 승인 조건이 충족되면 **팀원 누구나** merge할 수 있다(특정 인물 고정 아님).
+
+### 문서 버전 승격 예외 (직접 push 허용)
+
+정본 문서(SA·PRD)의 **버전 헤더·`> 변경 이력`·경량본 버전 참조 동기**는 모든 승격이 동시에 건드리는 단일 전역 상태라, feature PR에서 하면 병렬 PR끼리 반드시 충돌한다(배경은 `docs/enhancement/README.md` 규칙 1). 그래서 이 bookkeeping은 feature PR에서 빼고, **아래 조건을 모두 만족할 때 `develop`에 직접 push할 수 있다**(2인 승인·PR 예외).
+
+- feature PR이 `develop`에 merge된 **직후**, 그 merge를 수행한 사람이 최신 `develop`에서 실행한다.
+- 커밋 내용은 `scripts/promote_docs.py` 산출물 **그대로**여야 한다(수작업 편집 금지).
+- `python scripts/harness_check.py`가 PASS여야 한다.
+- 커밋은 버전 헤더·변경 이력·경량본 버전 참조 동기 **외 다른 변경을 섞지 않는다**.
+
+근거: 이 커밋은 스크립트가 만든 기계적 산출물이고 harness_check로 검증되며 설계 판단이 없어 코드 리뷰가 더할 것이 없다. 또 `develop`으로의 push는 git이 직렬화하므로(뒤선 push는 non-fast-forward로 거부 → pull 후 재실행하면 다음 버전 번호가 자동 정정) 승격끼리 충돌하지 않는다 — 별도 승격 PR로 하면 동시 두 PR이 같은 다음 번호를 계산해 충돌이 재발하므로 직접 push가 오히려 안전하다. 더 견고한 자동화(merge 직후 단일 CI job이 실행·commit)는 후속 과제로 둔다.
 
 ## 4. 코드 리뷰 규칙
 
