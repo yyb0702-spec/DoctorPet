@@ -8,17 +8,22 @@ MVP가 끝난 뒤의 고도화·신규 작업 설계를 모으는 곳이다. **�
 
 1. **동결(델타 작성 단계).** 델타 문서를 쓰는 동안은 `docs/product/`·`docs/architecture/`의 MVP 정본을 편집하지 않는다. "현재 코드가 이렇게 돈다"의 스냅샷으로 둔다. **예외:** 도메인 문서가 선언한 override 범위를 실제로 구현하는 PR은 그 PR 안에서 해당 SA·PRD 절만 갱신할 수 있다(각 도메인 문서의 "완료 기준"이 이를 요구한다) — 이건 동결 위반이 아니라 승격(규칙 5)의 일부다. 그 구현 PR이 정본 갱신 책임을 진다.
    - **버전 bookkeeping은 feature PR에서 하지 않는다.** 구현 PR이 갱신하는 것은 **해당 SA·PRD 절의 내용뿐**이다. 버전 헤더(`| 문서 버전 |`)·`> 변경 이력` 줄·경량본 4개의 정본 버전 참조 — 이 셋은 **모든 승격이 동시에 건드리는 단일 전역 상태**라 병렬 feature PR끼리 반드시 충돌한다(버전 번호는 원리상 둘이 못 나눠 가지고, 한 줄 changelog·경량본 참조도 같은 줄을 고침). 그래서 feature PR은 이 셋을 손대지 않는다.
-   - **승격 실행(직렬화 방식).** feature PR이 develop에 merge된 **직후**, merge한 사람이 최신 develop에서 [`scripts/promote_docs.py`](../../scripts/promote_docs.py)를 실행하고 그 bookkeeping 커밋을 **develop에 바로 push**한다. 별도 승격 PR을 만들지 않는 이유: 동시에 열린 두 승격 PR은 같은 현재 버전에서 같은 다음 번호를 계산해 충돌이 그대로 재발한다. 반면 **develop로의 push는 git이 직렬화**한다 — 두 승격이 경합하면 뒤선 push가 non-fast-forward로 거부된다. 이때 **로컬 승격 커밋을 pull·merge·rebase로 합치려 하면 버전 헤더와 한 줄 변경 이력이 다시 충돌한다.** 그러니 합치지 말고 **로컬 승격 커밋을 폐기한 뒤 최신 develop에서 스크립트를 재실행**한다:
+   - **승격 실행(직렬화 방식).** feature PR이 develop에 merge된 **직후**, merge한 사람이 최신 develop에서 [`scripts/promote_docs.py`](../../scripts/promote_docs.py)를 `--commit`으로 실행하고 그 커밋을 **develop에 바로 push**한다. `--commit`은 **파일을 쓰기 전에 clean 워킹트리를 강제**하고 **산출 파일만 명시적으로 stage**해 커밋하므로, 승격과 무관한 변경이 섞이거나 유실되지 않는다(`git commit -am`은 쓰지 말 것 — 무관한 tracked 변경까지 커밋된다).
 
      ```
-     git status --porcelain   # 반드시 비어있는지 확인 (승격 커밋 하나만 있어야 함)
+     # 정상 승격
+     python scripts/promote_docs.py --sa "..." --commit   # clean tree 강제·산출 파일만 stage
+     git push
+
+     # push가 거부되면(다른 승격이 먼저 오름): 로컬 승격 커밋을 폐기하고 재생성
      git fetch origin develop
-     git reset --hard origin/develop   # 로컬 승격 커밋 폐기 (merge/rebase 아님)
-     python scripts/promote_docs.py --sa "..."   # 새 develop 기준으로 재생성
-     git commit -am "docs: SA vX.Y 승격" && git push
+     git diff --name-only origin/develop...HEAD   # 승격 파일(SA/PRD/경량본)만 나와야 함
+     git reset --hard origin/develop              # 폐기 (merge/rebase 아님)
+     python scripts/promote_docs.py --sa "..." --commit
+     git push
      ```
 
-     승격 커밋은 (최신 develop 상태 + 항목 텍스트)의 순수 함수라 폐기·재생성이 안전하고, 이렇게 하면 다음 번호가 항상 올바르게 매겨져 승격끼리 충돌하지 않는다. **주의:** `git reset --hard`는 워킹트리의 모든 미커밋 변경을 지운다 — 승격 커밋 외에 다른 tracked 변경이 남아 있으면 그것도 함께 유실된다(리뷰 지적). 그래서 `git status --porcelain`이 비어있는지(승격 커밋 하나만 있는지) 먼저 확인하고, 비어있지 않으면 그 변경을 `git stash`로 따로 빼두거나 별도 커밋한 뒤에 진행한다.
+     별도 승격 PR을 만들지 않는 이유: 동시에 열린 두 승격 PR은 같은 현재 버전에서 같은 다음 번호를 계산해 충돌이 재발한다. 반면 **develop로의 push는 git이 직렬화**하고, 뒤선 push가 거부되면 위처럼 로컬 승격 커밋을 **폐기·재생성**한다(pull·merge로 합치면 헤더·한 줄 이력이 재충돌). 승격 커밋은 (최신 develop + 항목)의 순수 함수라 폐기·재생성이 안전하며, `--commit`이 clean tree를 강제하고 승격 파일만 stage하므로 폐기 대상 커밋에도 승격 파일만 들어 있어 `reset --hard`가 무관한 작업을 지우지 않는다.
    - **2인 승인 예외.** 이 bookkeeping 커밋은 스크립트가 만든 기계적 산출물이고 `harness_check.py`로 검증되며 설계 판단이 없다. 따라서 `feature/* → develop` PR·2인 승인 규칙의 **명시적 예외**로 develop 직접 push를 허용한다 — 조건·근거는 브랜치·PR 정본인 [`docs/collaboration/github-rules.md`](../collaboration/github-rules.md) §3 "문서 버전 승격 예외"에 명문화돼 있다(이 규칙 자체는 그 PR 승인으로 팀이 비준한다). 더 견고한 대안은 merge 직후 단일 CI job이 자동 실행·commit하는 것으로, 후속 고도화로 둔다.
 2. **한 파일 한 소유자.** 도메인별로 파일 1개(`결제.md`, `알림.md`, ...)를 두고, 그 파일은 담당자 1명만 편집한다. 두 사람이 같은 도메인을 건드려야 하면 파일을 나누기 전에 인덱스에서 소유자를 조정한다.
 3. **자기선언 읽기 범위.** 각 문서는 헤더에 `전제(동결 baseline)`를 스스로 선언한다. AI·사람은 **그 문서 + 전제에 적힌 SA·PRD 절만** 읽고, 나머지 MVP 문서는 읽지 않는다.

@@ -12,24 +12,33 @@
 즉:
   - feature PR — 자기 SA/PRD 도메인 '절(내용)'만 수정한다. 버전 헤더·이력·경량본 참조는 손대지 않는다.
   - 승격 — 그 PR이 develop에 merge된 뒤, 오너가 develop에서 이 스크립트를 실행하고 develop에 바로 push한다.
-  - push 거부 시(다른 승격이 먼저 오름) — git status --porcelain이 비어있는지(승격 커밋 하나만
-    있는지) 먼저 확인한 뒤, 로컬 승격 커밋을 merge/rebase하지 말고 폐기하고
-    (git reset --hard origin/develop) 최신 develop에서 이 스크립트를 재실행한다. 승격 커밋은
-    (최신 develop + 항목)의 순수 함수라 폐기·재생성이 안전하다. pull·merge로 합치면 헤더·이력이 재충돌한다.
-    주의: git reset --hard는 워킹트리의 모든 미커밋 변경을 지운다 — 승격 커밋 외 다른 tracked
-    변경이 남아 있으면 먼저 stash하거나 별도 커밋해 둔다.
+  - push 거부 시(다른 승격이 먼저 오름) — 로컬 승격 커밋을 merge/rebase하지 말고 폐기하고
+    최신 develop에서 이 스크립트를 재실행한다. 승격 커밋은 (최신 develop + 항목)의 순수
+    함수라 폐기·재생성이 안전하다. pull·merge로 합치면 헤더·이력이 재충돌한다.
+      git fetch origin develop
+      git diff --name-only origin/develop...HEAD   # 승격 파일(SA/PRD/경량본)만 나와야 함
+      git status --porcelain                        # 비어 있어야 함(다른 미커밋 작업 없음)
+      git reset --hard origin/develop               # 위 둘 확인 후에만
+      python scripts/promote_docs.py --sa "..." --commit
+      git push
+    --commit이 clean tree를 강제하고 산출 파일만 stage하므로, 폐기 대상 승격 커밋에는 승격
+    파일만 들어 있어 reset --hard가 무관한 작업을 지우지 않는다.
 
 사용:
-  python scripts/promote_docs.py --sa "PR #134 리뷰 지적 — 알림 배지 API를 §8-8에 반영했다."
-  python scripts/promote_docs.py --prd "반려동물 사진 업로드를 §8에 추가했다." --sa "§8-2·§9-11 신설."
+  # 실제 승격: clean tree에서 산출 파일만 stage해 커밋까지 한다(권장).
+  python scripts/promote_docs.py --sa "PR #134 리뷰 지적 — 알림 배지 API를 §8-8에 반영했다." --commit
+  python scripts/promote_docs.py --prd "반려동물 사진 업로드를 §8에 추가했다." --sa "§8-2·§9-11 신설." --commit
   python scripts/promote_docs.py --sa "..." --dry-run    # 미리보기만(파일 미변경)
+  # --commit 없이 실행하면 파일만 편집한다(미리보기·검토용). 이때 `git commit -am`으로 직접
+  # 커밋하지 말 것 — 승격과 무관한 tracked 변경까지 섞여 develop에 새거나 유실될 수 있다.
 
 동작(대상별로 SA/PRD 각각):
   1. 정본 헤더에서 현재 버전을 읽어 마이너 +1을 다음 버전으로 삼는다.
   2. 헤더를 다음 버전으로 바꾼다.
-  3. `> 변경 이력` 줄 끝에 ` v{다음}: {항목}`을 이어붙인다.
+  3. `> 변경 이력` 줄 끝에 ` v{다음}: {항목}`을 이어붙인다(항목은 반드시 한 줄 — 개행 거부).
   4. 경량본 4개의 해당 정본 버전 참조를 다음 버전으로 동기한다.
 끝나면 scripts/harness_check.py로 정합성을 검증한다(PASS라야 성공).
+--commit이면 검증 통과 후 산출 파일만 명시적으로 stage해 커밋한다(clean tree 전제).
 """
 
 from __future__ import annotations
@@ -58,6 +67,42 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _git(*args: str, capture: bool = False) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(ROOT), *args],
+        capture_output=capture, text=True, encoding="utf-8", errors="replace")
+
+
+def _ensure_git_clean() -> None:
+    """--commit 전제: git 저장소 + clean 워킹트리.
+
+    깨끗하지 않으면 승격 산출물과 무관한 tracked 변경까지 커밋되고, 이후 push
+    거부 시 reset --hard로 그 변경이 유실될 수 있다(리뷰 지적). 그래서 파일을
+    쓰기 전에 clean tree를 강제하고, 커밋도 산출 파일만 명시 stage한다.
+    """
+    inside = _git("rev-parse", "--is-inside-work-tree", capture=True)
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        raise PromoteError("git 저장소가 아니어서 --commit할 수 없다")
+    st = _git("status", "--porcelain", capture=True)
+    if st.stdout.strip():
+        raise PromoteError(
+            "워킹트리에 미커밋 변경이 있다 — 승격은 clean tree에서만 안전하다.\n"
+            "먼저 `git stash` 또는 별도 커밋으로 정리한 뒤 재실행한다:\n"
+            + st.stdout.rstrip())
+
+
+def _validate_entry(entry: str, label: str) -> None:
+    """변경 이력 항목은 반드시 '한 줄'이고 비어 있지 않아야 한다.
+
+    개행이 섞이면 한 줄이어야 할 `> 변경 이력`이 쪼개지는데, harness_check는
+    이력 형식을 검사하지 않아 그대로 PASS할 수 있다(리뷰 지적). 여기서 막는다.
+    """
+    if "\n" in entry or "\r" in entry:
+        raise PromoteError(f"{label}: 변경 이력 항목은 한 줄이어야 한다(개행 불가)")
+    if not entry.strip():
+        raise PromoteError(f"{label}: 변경 이력 항목이 비어 있다")
+
+
 def _next_version(text: str, label: str) -> tuple[str, str]:
     """헤더에서 현재 버전을 읽어 (현재, 다음마이너) 문자열을 반환한다."""
     m = HEADER_RE.search(text)
@@ -71,6 +116,7 @@ def _next_version(text: str, label: str) -> tuple[str, str]:
 def _bump_canonical(path: Path, label: str, entry: str,
                     lightweight_path_token: str) -> tuple[str, str, dict[Path, str]]:
     """정본 헤더·이력을 갱신하고, 경량본 참조까지 동기한 새 텍스트들을 반환한다(파일 미기록)."""
+    _validate_entry(entry, label)
     text = _read(path)
     cur, nxt = _next_version(text, label)
 
@@ -125,19 +171,25 @@ def main() -> int:
     ap.add_argument("--sa", metavar="ENTRY", help="SA 변경 이력에 추가할 항목(마이너 +1)")
     ap.add_argument("--prd", metavar="ENTRY", help="PRD 변경 이력에 추가할 항목(마이너 +1)")
     ap.add_argument("--dry-run", action="store_true", help="파일을 바꾸지 않고 미리보기만")
+    ap.add_argument("--commit", action="store_true",
+                    help="clean tree를 강제하고 산출 파일만 stage해 커밋한다")
     args = ap.parse_args()
 
     if not args.sa and not args.prd:
         ap.error("--sa 또는 --prd 중 하나 이상을 지정한다")
+    if args.commit and args.dry_run:
+        ap.error("--commit과 --dry-run은 함께 쓸 수 없다")
 
     pending: dict[Path, str] = {}
     summary: list[str] = []
+    bumps: list[str] = []  # 커밋 메시지용: ["SA v1.52", "PRD v3.25"]
     try:
         if args.sa:
             cur, nxt, files = _bump_canonical(
                 SA, "SA", args.sa, "docs/architecture/DoctorPet-SA.md")
             pending.update(files)
             summary.append(f"SA {cur} → {nxt} (경량본 {len(files) - 1}개 참조 동기)")
+            bumps.append(f"SA {nxt}")
         if args.prd:
             cur, nxt, files = _bump_canonical(
                 PRD, "PRD", args.prd, "docs/product/DoctorPet-PRD.md")
@@ -150,6 +202,10 @@ def main() -> int:
                 else:
                     pending[p] = t
             summary.append(f"PRD {cur} → {nxt} (경량본 참조 동기)")
+            bumps.append(f"PRD {nxt}")
+        # --commit이면 파일을 쓰기 '전에' clean tree를 강제한다(무관한 변경 혼입·유실 방지)
+        if args.commit and not args.dry_run:
+            _ensure_git_clean()
     except PromoteError as e:
         print(f"실패 — {e}")
         return 1
@@ -158,7 +214,8 @@ def main() -> int:
     for line in summary:
         print(f"  - {line}")
     print("변경 파일:")
-    for p in sorted(pending, key=lambda x: x.as_posix()):
+    written = sorted(pending, key=lambda x: x.as_posix())
+    for p in written:
         print(f"  - {p.relative_to(ROOT).as_posix()}")
 
     if args.dry_run:
@@ -173,6 +230,22 @@ def main() -> int:
     if rc != 0:
         print("실패 — harness_check가 FAIL. 변경을 되돌리거나 원인을 확인한다.")
         return 1
+
+    if args.commit:
+        rels = [p.relative_to(ROOT).as_posix() for p in written]
+        add = _git("add", "--", *rels, capture=True)
+        if add.returncode != 0:
+            print(f"실패 — git add: {add.stderr.strip()}")
+            return 1
+        msg = "docs: " + "·".join(bumps) + " 승격"
+        commit = _git("commit", "-m", msg, capture=True)
+        if commit.returncode != 0:
+            print(f"실패 — git commit: {commit.stdout.strip()} {commit.stderr.strip()}")
+            return 1
+        print(f"\n커밋 완료: {msg} (산출 파일 {len(rels)}개만 stage). `git push`로 올린다.")
+    else:
+        print("\n파일만 편집했다. 커밋은 --commit으로 실행할 것 "
+              "(clean tree 강제·산출 파일만 stage). `git commit -am`은 쓰지 말 것.")
     return 0
 
 

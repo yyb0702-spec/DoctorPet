@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -157,6 +158,96 @@ class PromoteDocsTest(unittest.TestCase):
         # 헤더 치환은 메모리에서만 일어났고 실제 파일은 안 써야 한다
         self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
         self.assertIn("v1.51, REST API는 §8", self.lw.read_text(encoding="utf-8"))
+
+    # --- 엔트리 검증: 개행·빈 문자열 거부(한 줄 이력 보장) ---
+    def test_entry_with_newline_rejected(self):
+        rc = self._run("--sa", "첫째 줄\n둘째 줄")
+        self.assertEqual(rc, 1)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_entry_with_cr_rejected(self):
+        self.assertEqual(self._run("--sa", "캐리지리턴\r포함"), 1)
+
+    def test_entry_empty_rejected(self):
+        self.assertEqual(self._run("--sa", "   "), 1)
+
+    def test_validate_entry_unit(self):
+        with self.assertRaises(pd.PromoteError):
+            pd._validate_entry("a\nb", "SA")
+        with self.assertRaises(pd.PromoteError):
+            pd._validate_entry("   ", "SA")
+        pd._validate_entry("정상 한 줄.", "SA")  # 예외 없어야 한다
+
+
+class PromoteCommitTest(unittest.TestCase):
+    """--commit: clean tree 강제 + 산출 파일만 stage(무관한 변경 혼입·유실 방지)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "docs/architecture").mkdir(parents=True)
+        (self.tmp / "docs/product").mkdir(parents=True)
+        (self.tmp / "docs/lightweight").mkdir(parents=True)
+        self.sa = self.tmp / "docs/architecture/DoctorPet-SA.md"
+        self.prd = self.tmp / "docs/product/DoctorPet-PRD.md"
+        self.lw = self.tmp / "docs/lightweight/DB-경량본.md"
+        self.other = self.tmp / "docs/unrelated.md"
+        self.sa.write_text(SA_DOC, encoding="utf-8")
+        self.prd.write_text(PRD_DOC, encoding="utf-8")
+        self.lw.write_text(LW_DOC, encoding="utf-8")
+        self.other.write_text("무관한 파일.\n", encoding="utf-8")
+
+        self._g("init", "-q")
+        self._g("config", "user.email", "t@example.com")
+        self._g("config", "user.name", "test")
+        self._g("config", "core.quotepath", "false")  # 한글 경로를 따옴표 없이 출력
+        self._g("add", "-A")
+        self._g("commit", "-qm", "init")
+
+        self._orig = (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness)
+        pd.ROOT = self.tmp
+        pd.SA = self.sa
+        pd.PRD = self.prd
+        pd.LIGHTWEIGHT_DIR = self.tmp / "docs/lightweight"
+        pd._run_harness = lambda: 0
+
+    def tearDown(self):
+        (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness) = self._orig
+
+    def _g(self, *a: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.tmp), *a],
+                              capture_output=True, text=True, encoding="utf-8")
+
+    def _run(self, *argv: str) -> int:
+        old = sys.argv
+        sys.argv = ["promote_docs.py", *argv]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return pd.main()
+        finally:
+            sys.argv = old
+
+    def test_commit_stages_only_promotion_files(self):
+        rc = self._run("--sa", "승격 테스트.", "--commit")
+        self.assertEqual(rc, 0)
+        files = self._g("show", "--name-only", "--pretty=format:", "HEAD").stdout.split()
+        self.assertIn("docs/architecture/DoctorPet-SA.md", files)
+        self.assertIn("docs/lightweight/DB-경량본.md", files)
+        self.assertNotIn("docs/unrelated.md", files)  # 무관한 파일은 안 들어감
+        self.assertEqual(self._g("status", "--porcelain").stdout.strip(), "")  # 다시 clean
+
+    def test_commit_refuses_dirty_tree(self):
+        self.other.write_text("승격과 무관하게 수정됨.\n", encoding="utf-8")
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        # 커밋도 안 생기고, 정본 파일도 안 써짐(쓰기 전에 거부)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_with_dry_run_is_arg_error(self):
+        with self.assertRaises(SystemExit) as cm:
+            self._run("--sa", "x", "--commit", "--dry-run")
+        self.assertNotEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":

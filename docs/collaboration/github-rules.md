@@ -216,10 +216,10 @@ Closes #
 정본 문서(SA·PRD)의 **버전 헤더·`> 변경 이력`·경량본 버전 참조 동기**는 모든 승격이 동시에 건드리는 단일 전역 상태라, feature PR에서 하면 병렬 PR끼리 반드시 충돌한다(배경은 `docs/enhancement/README.md` 규칙 1). 그래서 이 bookkeeping은 feature PR에서 빼고, **아래 조건을 모두 만족할 때 `develop`에 직접 push할 수 있다**(2인 승인·PR 예외).
 
 - feature PR이 `develop`에 merge된 **직후**, 그 merge를 수행한 사람이 최신 `develop`에서 실행한다.
-- 커밋 내용은 `scripts/promote_docs.py` 산출물 **그대로**여야 한다(수작업 편집 금지).
-- `python scripts/harness_check.py`가 PASS여야 한다.
-- 커밋은 버전 헤더·변경 이력·경량본 버전 참조 동기 **외 다른 변경을 섞지 않는다**.
-- **push가 거부되면**(다른 승격이 먼저 오른 경우) 로컬 승격 커밋을 merge/rebase로 합치지 말고 **폐기한 뒤 최신 `develop`에서 스크립트를 재실행**한다: `git status --porcelain`이 비어있는지(승격 커밋 하나만 있는지) 먼저 확인 → `git fetch origin develop && git reset --hard origin/develop` → `promote_docs.py` 재실행 → commit → push. 로컬 커밋을 pull·merge로 합치려 하면 버전 헤더와 한 줄 변경 이력이 다시 충돌하므로, 반드시 폐기·재생성한다. `git reset --hard`는 워킹트리의 모든 미커밋 변경을 지우므로, 승격 커밋 외 다른 tracked 변경이 남아 있다면 먼저 stash하거나 별도로 커밋해 둔다(그 상태로 reset하면 함께 유실된다).
+- 커밋은 `scripts/promote_docs.py`를 **`--commit`으로 실행**해 만든다. `--commit`은 파일을 쓰기 전에 clean 워킹트리를 강제하고 산출 파일만 명시적으로 stage하므로, 승격과 무관한 tracked 변경이 섞이거나(→ PR 없이 develop 반영) 유실되지 않는다. `git commit -am`으로 직접 커밋하지 않는다(무관한 변경까지 커밋됨).
+- `python scripts/harness_check.py` PASS를 만족해야 한다(`--commit`이 커밋 전에 자동 실행하며, FAIL이면 커밋하지 않는다).
+- 결과 커밋은 버전 헤더·변경 이력·경량본 버전 참조 동기 **외 다른 변경을 담지 않는다**(위 `--commit`이 보장).
+- **push가 거부되면**(다른 승격이 먼저 오른 경우) 로컬 승격 커밋을 merge/rebase로 합치지 말고 **폐기한 뒤 최신 `develop`에서 재실행**한다: `git fetch origin develop` → `git diff --name-only origin/develop...HEAD`로 승격 파일(SA/PRD/경량본)만 있는지 확인 → `git reset --hard origin/develop` → `promote_docs.py ... --commit` 재실행 → push. 로컬 커밋을 pull·merge로 합치면 버전 헤더와 한 줄 변경 이력이 다시 충돌하므로 반드시 폐기·재생성한다. `--commit`이 clean tree를 강제하므로 폐기 대상 커밋에는 승격 파일만 들어 있어 `reset --hard`가 무관한 작업을 지우지 않는다.
 
 근거: 이 커밋은 스크립트가 만든 기계적 산출물이고 harness_check로 검증되며 설계 판단이 없어 코드 리뷰가 더할 것이 없다. 또 `develop`으로의 push는 git이 직렬화하므로 승격끼리 충돌하지 않는다 — 별도 승격 PR로 하면 동시 두 PR이 같은 다음 번호를 계산해 충돌이 재발하지만, 직접 push는 뒤선 작업자가 위 "폐기·재생성"으로 최신 상태에서 다음 번호를 다시 계산하므로 헤더·이력 충돌이 남지 않는다. 더 견고한 자동화(merge 직후 단일 CI job이 실행·commit)는 후속 과제로 둔다.
 
