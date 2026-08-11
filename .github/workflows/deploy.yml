@@ -204,10 +204,17 @@ jobs:
             # FIRST_DEPLOY면 nginx는 여기서 올리지 않는다(리뷰 지적) — 방금 써둔
             # upstream-active.conf가 가리키는 app-$TARGET_COLOR가 아직 존재하지 않아 nginx가
             # 설정 로드에 실패할 수 있다. 대상 앱을 기동·헬스체크로 검증한 뒤 아래에서 올린다.
+            #
+            # --wait를 붙인다(리뷰 지적 P2) — 바로 아래에서 app-$TARGET_COLOR를
+            # `--no-deps`로 올리는데, `--no-deps`는 depends_on(mysql/redis
+            # condition: service_healthy)까지 건너뛴다. mysql/redis 자체를 여기서 healthy가
+            # 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅 직후처럼 mysql이 아직
+            # 초기화 중인 상태에서 대상 앱이 DB 연결 실패로 헛되이 크래시루프를 도는 상황을
+            # 피할 수 있다. --wait는 healthcheck가 없는 nginx는 running 상태만 확인한다.
             if [ "$FIRST_DEPLOY" = "true" ]; then
-              docker compose up -d mysql redis
+              docker compose up -d --wait mysql redis
             else
-              docker compose up -d mysql redis nginx
+              docker compose up -d --wait mysql redis nginx
             fi
 
             # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 대상 색에만 지정해서 띄운다
@@ -267,19 +274,23 @@ jobs:
             # nginx 기동·설정 검증·reload 중 하나라도 실패하면 호출하는 공통 복구 루틴
             # (리뷰 지적 P1 2건) — ① 업스트림 설정 백업이 있으면 원래 값으로 되돌리고 nginx에
             # 다시 반영해, 디스크 설정과 실제 서비스 중인 색이 어긋난 채 남지 않게 한다(다음
-            # nginx 재시작 때 검증 안 된 target으로 조용히 튀는 것을 막는다). ② 지금 막 올린
-            # target 컨테이너를 정리한다(기존 헬스체크 실패 처리와 동일 원칙, 무중단 배포 문서
-            # 4-3절). ③ 최초 배포에서 정지만 해 둔 옛 단일 app 컨테이너가 있으면 되살려 8080이
-            # 계속 비어 있지 않게 한다 — 이게 없으면 최초 배포에서 nginx가 못 뜨는 순간 전체
-            # 서비스가 수동 복구 전까지 중단된다.
+            # nginx 재시작 때 검증 안 된 target으로 조용히 튀는 것을 막는다). ② 최초 배포에서
+            # 정지만 해 둔 옛 단일 app 컨테이너가 있으면 되살려 8080이 계속 비어 있지 않게
+            # 한다 — 이게 없으면 최초 배포에서 nginx가 못 뜨는 순간 전체 서비스가 수동 복구
+            # 전까지 중단된다.
+            #
+            # target(app-$TARGET_COLOR) 컨테이너는 여기서 정리하지 않는다(리뷰 지적 P3) —
+            # 여기로 오는 실패는 전부 nginx 쪽 문제이지 target 자체는 이미 pull·기동·헬스체크
+            # (최대 180초)까지 통과한 정상 상태다. 지워버리면 다음 재시도에서 이 시간을 통째로
+            # 반복해야 한다. 어차피 nginx가 아직 target을 보게 컷오버되지 않았으니(이 함수가
+            # 실행되는 시점은 항상 reload 성공 이전) target이 계속 떠 있어도 트래픽에는
+            # 영향이 없고, 다음 재시도가 healthcheck를 사실상 즉시 통과하며 이어받는다.
             abort_cutover() {
-              echo "$1 — 배포를 중단하고 이전 상태로 복구합니다."
+              echo "$1 — 배포를 중단하고 이전 상태로 복구합니다(target은 정리하지 않고 다음 재시도가 이어받습니다)."
               if [ -f nginx/conf.d/upstream-active.conf.bak ]; then
                 mv nginx/conf.d/upstream-active.conf.bak nginx/conf.d/upstream-active.conf
                 docker compose exec -T nginx nginx -s reload 2>/dev/null || true
               fi
-              docker compose stop "app-$TARGET_COLOR" 2>/dev/null || true
-              docker compose rm -f "app-$TARGET_COLOR" 2>/dev/null || true
               if [ -n "$OLD_APP_CONTAINER" ]; then
                 echo "이전 단일 app 컨테이너($OLD_APP_CONTAINER)를 다시 시작해 8080 서비스를 복구합니다."
                 docker start "$OLD_APP_CONTAINER"
