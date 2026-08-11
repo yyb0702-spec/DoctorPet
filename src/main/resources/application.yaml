@@ -52,6 +52,8 @@ public-data:
     source-crs: EPSG:5174
 
 hospital:
+  slot-generation:
+    cron: ${HOSPITAL_SLOT_GENERATION_CRON:0 5 0 * * *}
   # 병원 컬럼 보정과 검색 인덱스를 DB 잠금·개별 마커로 순서대로 적용한다.
   schema-migration:
     enabled: ${HOSPITAL_SCHEMA_MIGRATION_ENABLED:true}
