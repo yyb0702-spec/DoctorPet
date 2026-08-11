@@ -213,6 +213,8 @@ Closes #
 
 ### 문서 버전 승격 예외 (직접 push 허용)
 
+> 승격 절차·git 명령·조건의 **정본은 이 절 한 곳**이다. `docs/enhancement/README.md` 규칙 1과 `scripts/promote_docs.py` docstring은 여기를 가리키기만 한다 — 명령을 다시 적어 복제하지 말 것(한 사본만 갱신돼 어긋난 리뷰 지적이 있었다).
+
 정본 문서(SA·PRD)의 **버전 헤더·`> 변경 이력`·경량본 버전 참조 동기**는 모든 승격이 동시에 건드리는 단일 전역 상태라, feature PR에서 하면 병렬 PR끼리 반드시 충돌한다(배경은 `docs/enhancement/README.md` 규칙 1). 그래서 이 bookkeeping은 feature PR에서 빼고, **아래 조건을 모두 만족할 때 `develop`에 직접 push할 수 있다**(2인 승인·PR 예외).
 
 - feature PR이 `develop`에 merge된 **직후**, 그 merge를 수행한 사람이 최신 `develop`에서 실행한다.

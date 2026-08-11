@@ -13,16 +13,10 @@
   - feature PR — 자기 SA/PRD 도메인 '절(내용)'만 수정한다. 버전 헤더·이력·경량본 참조는 손대지 않는다.
   - 승격 — 그 PR이 develop에 merge된 뒤, 오너가 develop에서 이 스크립트를 실행하고 develop에 바로 push한다.
   - push 거부 시(다른 승격이 먼저 오름) — 로컬 승격 커밋을 merge/rebase하지 말고 폐기하고
-    최신 develop에서 이 스크립트를 재실행한다. 승격 커밋은 (최신 develop + 항목)의 순수
-    함수라 폐기·재생성이 안전하다. pull·merge로 합치면 헤더·이력이 재충돌한다.
-      git fetch origin develop
-      git diff --name-only origin/develop...HEAD   # 승격 파일(SA/PRD/경량본)만 나와야 함
-      git status --porcelain                        # 비어 있어야 함(다른 미커밋 작업 없음)
-      git reset --hard origin/develop               # 위 둘 확인 후에만
-      python scripts/promote_docs.py --sa "..." --commit
-      git push
-    --commit이 clean tree를 강제하고 산출 파일만 stage하므로, 폐기 대상 승격 커밋에는 승격
-    파일만 들어 있어 reset --hard가 무관한 작업을 지우지 않는다.
+    최신 develop에서 재실행한다(폐기·재생성). 승격 커밋은 (최신 develop + 항목)의 순수
+    함수라 안전하고, pull·merge로 합치면 헤더·이력이 재충돌한다. **구체 git 명령·확인 단계·조건의
+    정본은 docs/collaboration/github-rules.md §3 "문서 버전 승격 예외"** 한 곳이다 — 절차를 여러
+    곳에 복제하면 한 사본만 바뀌어 어긋나므로(실제로 그랬다), 명령 시퀀스는 §3에서만 관리한다.
 
 사용:
   # 실제 승격: clean tree에서 산출 파일만 stage해 커밋까지 한다(권장).
