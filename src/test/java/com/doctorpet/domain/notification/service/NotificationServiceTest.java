@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.entity.Notification;
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
@@ -37,7 +38,10 @@ class NotificationServiceTest {
 
     private static final Long OWNER_ID = 7L;
     private static final Long OTHER_ID = 8L;
+    private static final Long HOSPITAL_ID = 20L;
     private static final Long NOTIFICATION_ID = 100L;
+    private static final NotificationRecipient OWNER = NotificationRecipient.member(OWNER_ID);
+    private static final NotificationRecipient HOSPITAL = NotificationRecipient.hospital(HOSPITAL_ID);
     // 고정 Clock — 읽음 시각이 공통 applicationClock을 통해 계산되는지 검증하기 위함(PR #87 P2).
     private static final Clock FIXED_CLOCK =
             Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), TimePolicy.SEOUL_ZONE_ID);
@@ -61,38 +65,54 @@ class NotificationServiceTest {
     void markAsRead_notFound() {
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID))
+        assertThatThrownBy(() -> notificationService.markAsRead(OWNER, NOTIFICATION_ID))
                 .isInstanceOf(ServiceException.class)
                 .extracting(e -> ((ServiceException) e).getErrorCode())
                 .isEqualTo(NotificationErrorCode.NOTIFICATION_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("읽음 처리: 타 사용자 알림이면 NOTIFICATION_ACCESS_DENIED(403)이고 조건부 UPDATE를 호출하지 않는다")
+    @DisplayName("읽음 처리: 타 수신자 알림이면 NOTIFICATION_ACCESS_DENIED(403)이고 조건부 UPDATE를 호출하지 않는다")
     void markAsRead_notOwner_forbidden() {
-        Notification notification = paymentNotification(OTHER_ID);
+        Notification notification = memberNotification(OTHER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
 
-        assertThatThrownBy(() -> notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID))
+        assertThatThrownBy(() -> notificationService.markAsRead(OWNER, NOTIFICATION_ID))
                 .isInstanceOf(ServiceException.class)
                 .extracting(e -> ((ServiceException) e).getErrorCode())
                 .isEqualTo(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
         assertThat(notification.isRead()).isFalse();
-        verify(notificationRepository, never()).markReadIfUnread(any(), any(), any());
+        verify(notificationRepository, never()).markReadIfUnread(any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("읽음 처리: 본인 알림이면 소유자·id·공통 Clock 기준 시각으로 조건부 UPDATE(markReadIfUnread)를 호출한다")
+    @DisplayName("격리: 회원은 병원(HOSPITAL) 알림에 접근하면 403이고 조건부 UPDATE를 호출하지 않는다")
+    void markAsRead_memberCannotReadHospitalNotification() {
+        Notification hospitalNotification = hospitalNotification();
+        given(notificationRepository.findById(NOTIFICATION_ID))
+                .willReturn(Optional.of(hospitalNotification));
+
+        assertThatThrownBy(() -> notificationService.markAsRead(OWNER, NOTIFICATION_ID))
+                .isInstanceOf(ServiceException.class)
+                .extracting(e -> ((ServiceException) e).getErrorCode())
+                .isEqualTo(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
+        verify(notificationRepository, never()).markReadIfUnread(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("읽음 처리: 본인 알림이면 수신자·id·공통 Clock 기준 시각으로 조건부 UPDATE(markReadIfUnread)를 호출한다")
     void markAsRead_invokesConditionalUpdate() {
-        Notification notification = paymentNotification(OWNER_ID);
+        Notification notification = memberNotification(OWNER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
-        given(notificationRepository.markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any()))
+        given(notificationRepository.markReadIfUnread(
+                eq(NOTIFICATION_ID), eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any()))
                 .willReturn(1);
 
-        notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
+        notificationService.markAsRead(OWNER, NOTIFICATION_ID);
 
         ArgumentCaptor<LocalDateTime> readAt = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), readAt.capture());
+        verify(notificationRepository).markReadIfUnread(
+                eq(NOTIFICATION_ID), eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), readAt.capture());
         // 읽음 시각은 TimePolicy 직접 계산이 아니라 주입된 공통 Clock으로 만들어진다.
         assertThat(readAt.getValue()).isEqualTo(LocalDateTime.now(FIXED_CLOCK));
     }
@@ -100,35 +120,52 @@ class NotificationServiceTest {
     @Test
     @DisplayName("읽음 처리 멱등: 이미 읽은 알림이라 갱신 0건이어도 예외 없이 멱등하게 처리한다")
     void markAsRead_isIdempotentWhenNoRowUpdated() {
-        Notification notification = paymentNotification(OWNER_ID);
+        Notification notification = memberNotification(OWNER_ID);
         given(notificationRepository.findById(NOTIFICATION_ID)).willReturn(Optional.of(notification));
-        given(notificationRepository.markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any()))
+        given(notificationRepository.markReadIfUnread(
+                eq(NOTIFICATION_ID), eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any()))
                 .willReturn(0);
 
-        notificationService.markAsRead(OWNER_ID, NOTIFICATION_ID);
+        notificationService.markAsRead(OWNER, NOTIFICATION_ID);
 
-        verify(notificationRepository).markReadIfUnread(eq(NOTIFICATION_ID), eq(OWNER_ID), any());
+        verify(notificationRepository).markReadIfUnread(
+                eq(NOTIFICATION_ID), eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any());
     }
 
     @Test
-    @DisplayName("미읽음 개수: 인증 회원의 read_at NULL 건수만 세어 DTO로 반환한다")
+    @DisplayName("미읽음 개수: 인증 수신자의 read_at NULL 건수만 세어 DTO로 반환한다")
     void getUnreadCount_countsUnreadOnly() {
-        given(notificationRepository.countByMemberIdAndReadAtIsNull(OWNER_ID)).willReturn(3L);
+        given(notificationRepository.countByRecipientTypeAndRecipientIdAndReadAtIsNull(
+                NotificationRecipientType.MEMBER, OWNER_ID)).willReturn(3L);
 
-        assertThat(notificationService.getUnreadCount(OWNER_ID).unreadCount()).isEqualTo(3L);
-        verify(notificationRepository).countByMemberIdAndReadAtIsNull(OWNER_ID);
+        assertThat(notificationService.getUnreadCount(OWNER).unreadCount()).isEqualTo(3L);
+        verify(notificationRepository).countByRecipientTypeAndRecipientIdAndReadAtIsNull(
+                NotificationRecipientType.MEMBER, OWNER_ID);
     }
 
     @Test
-    @DisplayName("모두 읽음: 인증 회원의 미읽음을 공통 Clock 시각으로 bulk 갱신하고 갱신 건수를 반환한다")
-    void markAllRead_updatesWithClockAndReturnsCount() {
-        given(notificationRepository.markAllReadForMember(eq(OWNER_ID), any())).willReturn(4);
+    @DisplayName("미읽음 개수: 병원 수신자는 (HOSPITAL, hospitalId) 기준으로 센다")
+    void getUnreadCount_hospitalRecipient() {
+        given(notificationRepository.countByRecipientTypeAndRecipientIdAndReadAtIsNull(
+                NotificationRecipientType.HOSPITAL, HOSPITAL_ID)).willReturn(5L);
 
-        NotificationReadAllResponse response = notificationService.markAllRead(OWNER_ID);
+        assertThat(notificationService.getUnreadCount(HOSPITAL).unreadCount()).isEqualTo(5L);
+        verify(notificationRepository).countByRecipientTypeAndRecipientIdAndReadAtIsNull(
+                NotificationRecipientType.HOSPITAL, HOSPITAL_ID);
+    }
+
+    @Test
+    @DisplayName("모두 읽음: 인증 수신자의 미읽음을 공통 Clock 시각으로 bulk 갱신하고 갱신 건수를 반환한다")
+    void markAllRead_updatesWithClockAndReturnsCount() {
+        given(notificationRepository.markAllReadForRecipient(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any())).willReturn(4);
+
+        NotificationReadAllResponse response = notificationService.markAllRead(OWNER);
 
         assertThat(response.updatedCount()).isEqualTo(4);
         ArgumentCaptor<LocalDateTime> readAt = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(notificationRepository).markAllReadForMember(eq(OWNER_ID), readAt.capture());
+        verify(notificationRepository).markAllReadForRecipient(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), readAt.capture());
         // 읽음 시각은 markAsRead와 동일하게 주입된 공통 Clock으로 만들어진다.
         assertThat(readAt.getValue()).isEqualTo(LocalDateTime.now(FIXED_CLOCK));
     }
@@ -136,22 +173,26 @@ class NotificationServiceTest {
     @Test
     @DisplayName("모두 읽음 멱등: 미읽음이 없어 갱신 0건이면 예외 없이 0을 반환한다")
     void markAllRead_isIdempotentWhenNothingUnread() {
-        given(notificationRepository.markAllReadForMember(eq(OWNER_ID), any())).willReturn(0);
+        given(notificationRepository.markAllReadForRecipient(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any())).willReturn(0);
 
-        assertThat(notificationService.markAllRead(OWNER_ID).updatedCount()).isZero();
-        verify(notificationRepository).markAllReadForMember(eq(OWNER_ID), any());
+        assertThat(notificationService.markAllRead(OWNER).updatedCount()).isZero();
+        verify(notificationRepository).markAllReadForRecipient(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any());
     }
 
     @Test
     @DisplayName("목록 조회: isRead=null이면 전체를, 최신순(createdAt desc)으로 조회한다")
     void getMyNotifications_all() {
-        given(notificationRepository.findByMemberId(eq(OWNER_ID), any(Pageable.class)))
+        given(notificationRepository.findByRecipientTypeAndRecipientId(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any(Pageable.class)))
                 .willReturn(Page.empty());
 
-        notificationService.getMyNotifications(OWNER_ID, null, 0, 20);
+        notificationService.getMyNotifications(OWNER, null, 0, 20);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(notificationRepository).findByMemberId(eq(OWNER_ID), captor.capture());
+        verify(notificationRepository).findByRecipientTypeAndRecipientId(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), captor.capture());
         assertThat(captor.getValue().getSort().getOrderFor("createdAt")).isNotNull();
         assertThat(captor.getValue().getSort().getOrderFor("createdAt").isDescending()).isTrue();
     }
@@ -159,29 +200,33 @@ class NotificationServiceTest {
     @Test
     @DisplayName("목록 조회: isRead=true이면 읽은 알림만(read_at NOT NULL) 조회한다")
     void getMyNotifications_readOnly() {
-        given(notificationRepository.findByMemberIdAndReadAtIsNotNull(eq(OWNER_ID), any(Pageable.class)))
+        given(notificationRepository.findByRecipientTypeAndRecipientIdAndReadAtIsNotNull(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any(Pageable.class)))
                 .willReturn(Page.empty());
 
-        notificationService.getMyNotifications(OWNER_ID, true, 0, 20);
+        notificationService.getMyNotifications(OWNER, true, 0, 20);
 
-        verify(notificationRepository).findByMemberIdAndReadAtIsNotNull(eq(OWNER_ID), any(Pageable.class));
+        verify(notificationRepository).findByRecipientTypeAndRecipientIdAndReadAtIsNotNull(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any(Pageable.class));
     }
 
     @Test
     @DisplayName("목록 조회: isRead=false이면 미읽음 알림만(read_at NULL) 조회한다")
     void getMyNotifications_unreadOnly() {
-        given(notificationRepository.findByMemberIdAndReadAtIsNull(eq(OWNER_ID), any(Pageable.class)))
+        given(notificationRepository.findByRecipientTypeAndRecipientIdAndReadAtIsNull(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any(Pageable.class)))
                 .willReturn(Page.empty());
 
-        notificationService.getMyNotifications(OWNER_ID, false, 0, 20);
+        notificationService.getMyNotifications(OWNER, false, 0, 20);
 
-        verify(notificationRepository).findByMemberIdAndReadAtIsNull(eq(OWNER_ID), any(Pageable.class));
+        verify(notificationRepository).findByRecipientTypeAndRecipientIdAndReadAtIsNull(
+                eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("생성: 알림을 저장하고, 커밋 이후 실시간 전송을 위한 NotificationCreatedEvent를 발행한다")
-    void create_savesAndPublishesEvent() {
-        Notification saved = paymentNotification(OWNER_ID);
+    @DisplayName("생성(회원): 호환 오버로드는 (MEMBER, memberId) 수신으로 저장하고 그 수신자로 이벤트를 발행한다")
+    void create_memberOverload_savesAndPublishesEvent() {
+        Notification saved = memberNotification(OWNER_ID);
         given(notificationRepository.save(any(Notification.class))).willReturn(saved);
 
         notificationService.create(
@@ -196,18 +241,53 @@ class NotificationServiceTest {
         ArgumentCaptor<NotificationCreatedEvent> event =
                 ArgumentCaptor.forClass(NotificationCreatedEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
-        assertThat(event.getValue().recipientMemberId()).isEqualTo(OWNER_ID);
+        assertThat(event.getValue().recipientType()).isEqualTo(NotificationRecipientType.MEMBER);
+        assertThat(event.getValue().recipientId()).isEqualTo(OWNER_ID);
         assertThat(event.getValue().payload().type())
                 .isEqualTo(NotificationType.PAYMENT_RESULT.name());
     }
 
-    private Notification paymentNotification(Long memberId) {
+    @Test
+    @DisplayName("생성(병원): (HOSPITAL, hospitalId) 수신으로 저장하고 그 수신자로 이벤트를 발행한다")
+    void create_hospitalRecipient_savesAndPublishesEvent() {
+        Notification saved = hospitalNotification();
+        given(notificationRepository.save(any(Notification.class))).willReturn(saved);
+
+        notificationService.create(
+                NotificationRecipientType.HOSPITAL,
+                HOSPITAL_ID,
+                NotificationType.RESERVATION_CONFIRMED,
+                "새 예약 요청이 접수되었습니다.",
+                NotificationResourceType.RESERVATION,
+                77L
+        );
+
+        ArgumentCaptor<NotificationCreatedEvent> event =
+                ArgumentCaptor.forClass(NotificationCreatedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().recipientType()).isEqualTo(NotificationRecipientType.HOSPITAL);
+        assertThat(event.getValue().recipientId()).isEqualTo(HOSPITAL_ID);
+    }
+
+    private Notification memberNotification(Long memberId) {
         return Notification.create(
+                NotificationRecipientType.MEMBER,
                 memberId,
                 NotificationType.PAYMENT_RESULT,
                 "진료비 결제가 완료되었습니다.",
                 NotificationResourceType.PAYMENT,
                 55L
+        );
+    }
+
+    private Notification hospitalNotification() {
+        return Notification.create(
+                NotificationRecipientType.HOSPITAL,
+                HOSPITAL_ID,
+                NotificationType.RESERVATION_CONFIRMED,
+                "새 예약 요청이 접수되었습니다.",
+                NotificationResourceType.RESERVATION,
+                77L
         );
     }
 }

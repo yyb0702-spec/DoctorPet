@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.doctorpet.domain.notification.adapter.StoringPaymentNotificationPublisher;
 import com.doctorpet.domain.notification.entity.Notification;
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
@@ -39,7 +40,8 @@ class PaymentNotificationWiringIntegrationTest {
     @AfterEach
     void cleanUp() {
         List<Notification> created = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 100))
+                .findByRecipientTypeAndRecipientId(
+                        NotificationRecipientType.MEMBER, GUARDIAN_ID, PageRequest.of(0, 100))
                 .getContent();
         notificationRepository.deleteAll(created);
     }
@@ -58,7 +60,9 @@ class PaymentNotificationWiringIntegrationTest {
                 GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.PAID);
 
         List<Notification> notifications = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .findByRecipientTypeAndRecipientId(
+                        NotificationRecipientType.MEMBER, GUARDIAN_ID,
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
                 .getContent();
 
         assertThat(notifications).hasSize(1);
