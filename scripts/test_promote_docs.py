@@ -249,6 +249,17 @@ class PromoteCommitTest(unittest.TestCase):
             self._run("--sa", "x", "--commit", "--dry-run")
         self.assertNotEqual(cm.exception.code, 0)
 
+    def test_commit_reverts_written_files_on_harness_failure(self):
+        # --commit + harness FAIL이면, 방금 쓴 산출 파일을 되돌려 워킹트리를 다시 clean으로 복구해야 한다
+        # (안 그러면 이후 push 거부 복구 절차의 reset --hard가 그 편집을 지울 위험).
+        pd._run_harness = lambda: 1  # 검증 실패 강제
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)  # 커밋 없음
+        self.assertEqual(self._g("status", "--porcelain").stdout.strip(), "")       # 워킹트리 clean 복구
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))  # 버전도 원복
+
 
 if __name__ == "__main__":
     unittest.main()

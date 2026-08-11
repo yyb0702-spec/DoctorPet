@@ -228,7 +228,19 @@ def main() -> int:
     print("\n검증(harness_check):")
     rc = _run_harness()
     if rc != 0:
-        print("실패 — harness_check가 FAIL. 변경을 되돌리거나 원인을 확인한다.")
+        if args.commit:
+            # --commit은 clean tree in/out이 계약이다(_ensure_git_clean으로 실행 전 clean 보장). 검증 실패 시
+            # 방금 쓴 산출 파일을 커밋 전(index) 상태로 되돌려 워킹트리를 다시 clean으로 복구한다 — 안 되돌리면
+            # 실패 후 워킹트리에 승격 편집이 남아, 이후 push 거부 복구 절차의 reset --hard가 지울 위험이 생긴다.
+            rels = [p.relative_to(ROOT).as_posix() for p in written]
+            restore = _git("restore", "--", *rels, capture=True)
+            if restore.returncode == 0:
+                print("실패 — harness_check가 FAIL. 산출 파일을 되돌려 워킹트리를 clean으로 복구했다. 원인을 확인한다.")
+            else:
+                print("실패 — harness_check가 FAIL. 산출 파일 복구도 실패했으니 `git restore`로 직접 되돌린다: "
+                      + restore.stderr.strip())
+        else:
+            print("실패 — harness_check가 FAIL. 변경을 되돌리거나(`git restore`) 원인을 확인한다.")
         return 1
 
     if args.commit:
