@@ -104,6 +104,12 @@ services:
     # 안 쓰이고, 서버에서 실수로 태그 없이 pull하면 존재하지 않는 태그라 곧바로 명확하게 실패한다).
     image: ghcr.io/yyb0702-spec/doctorpet:${APP_BLUE_IMAGE_TAG:-local}
     restart: unless-stopped
+    # 컷오버 시 이전 색을 정지할 때(deploy.yml, docker compose stop) Docker가 SIGTERM 이후
+    # 기다려주는 시간(리뷰 지적 P1, PR #136) — 기본값 10초는 application.yaml의
+    # spring.lifecycle.timeout-per-shutdown-phase(30초)보다 짧아서, Spring Boot가 진행 중인
+    # 요청(결제·AI 상담 등)을 다 처리하기 전에 Docker가 먼저 SIGKILL을 보내버릴 수 있었다.
+    # 30초보다 여유를 둬 Spring Boot의 graceful shutdown이 항상 먼저 끝나도록 한다.
+    stop_grace_period: 35s
     # 호스트 포트를 게시하지 않는다 — mysql·redis와 동일 원칙(리뷰 지적 P2)으로, 이제 nginx만
     # 8080을 게시하고 app-blue/app-green은 nginx가 속한 같은 compose 네트워크 안에서만
     # app-blue:8080 / app-green:8080으로 접근된다. 액추에이터(8081)도 여전히 비공개.
