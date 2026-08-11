@@ -16,6 +16,8 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -111,12 +113,14 @@ class HospitalSlotGenerationBatchIntegrationTest {
         );
         closureIds.add(closure.getId());
 
-        var first = batchService.generate(businessDate);
-        var second = batchService.generate(businessDate);
+        var first = batchService.generateRange(businessDate, businessDate);
+        var second = batchService.generateRange(businessDate, businessDate);
 
-        assertThat(first.targetHospitals()).isEqualTo(2);
-        assertThat(first.succeededHospitals()).isEqualTo(2);
-        assertThat(first.failedHospitals()).isZero();
+        assertThat(first.locked()).isTrue();
+        assertThat(first.targetDates()).isEqualTo(1);
+        assertThat(first.targetTasks()).isEqualTo(2);
+        assertThat(first.succeededTasks()).isEqualTo(2);
+        assertThat(first.failedTasks()).isZero();
         assertThat(first.createdSlots()).isEqualTo(2);
         assertThat(second.createdSlots()).isZero();
         assertThat(slotRepository.findBusinessDateSlots(
@@ -135,6 +139,48 @@ class HospitalSlotGenerationBatchIntegrationTest {
                 nonPartnerHospital.getId(),
                 businessDate
         )).isEmpty();
+    }
+
+    @Test
+    void generateRangeFillsAllFourteenDaysAndRecoversMissingDates() {
+        LocalDate fromDate = LocalDate.of(2026, 8, 11);
+        LocalDate toDate = fromDate.plusDays(13);
+        LocalDate existingDate = fromDate.plusDays(5);
+        Hospital hospital = saveHospital("SLOT-BATCH-RANGE");
+        saveSchedule(HospitalOperatingSchedule.create(
+                hospital,
+                fromDate.minusDays(1),
+                allDays(new DailyOperatingHours(
+                        LocalTime.of(9, 0),
+                        LocalTime.of(10, 0)
+                ))
+        ));
+
+        var existing = batchService.generateRange(existingDate, existingDate);
+        var recovered = batchService.generateRange(fromDate, toDate);
+        var repeated = batchService.generateRange(fromDate, toDate);
+
+        assertThat(existing.createdSlots()).isEqualTo(2);
+        assertThat(recovered.locked()).isTrue();
+        assertThat(recovered.targetDates()).isEqualTo(14);
+        assertThat(recovered.targetTasks()).isEqualTo(14);
+        assertThat(recovered.failedTasks()).isZero();
+        assertThat(recovered.createdSlots()).isEqualTo(26);
+        assertThat(repeated.createdSlots()).isZero();
+        assertThat(slotRepository.findSlotsInRange(
+                hospital.getId(),
+                fromDate.atStartOfDay(),
+                toDate.plusDays(1).atStartOfDay()
+        )).hasSize(28);
+
+        for (LocalDate businessDate = fromDate;
+             !businessDate.isAfter(toDate);
+             businessDate = businessDate.plusDays(1)) {
+            assertThat(slotRepository.findBusinessDateSlots(
+                    hospital.getId(),
+                    businessDate
+            )).hasSize(2);
+        }
     }
 
     private Hospital saveHospital(String managementNumber) {
@@ -181,5 +227,15 @@ class HospitalSlotGenerationBatchIntegrationTest {
 
     private void saveSchedule(HospitalOperatingSchedule schedule) {
         scheduleIds.add(scheduleRepository.saveAndFlush(schedule).getId());
+    }
+
+    private Map<DayOfWeek, List<DailyOperatingHours>> allDays(
+            DailyOperatingHours operatingHours
+    ) {
+        EnumMap<DayOfWeek, List<DailyOperatingHours>> result =
+                new EnumMap<>(DayOfWeek.class);
+        Arrays.stream(DayOfWeek.values())
+                .forEach(day -> result.put(day, List.of(operatingHours)));
+        return result;
     }
 }

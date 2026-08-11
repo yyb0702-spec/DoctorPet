@@ -22,17 +22,24 @@ public class HospitalSlotGenerationScheduler {
             cron = "${hospital.slot-generation.cron:0 5 0 * * *}",
             zone = "Asia/Seoul"
     )
-    public void generatePublishedRangeLastDay() {
-        LocalDate businessDate = LocalDate.now(applicationClock)
-                .plusDays(PUBLISHED_RANGE_LAST_DAY_OFFSET);
-        HospitalSlotGenerationSummary summary = batchService.generate(businessDate);
+    public void maintainPublishedRange() {
+        LocalDate fromDate = LocalDate.now(applicationClock);
+        LocalDate toDate = fromDate.plusDays(PUBLISHED_RANGE_LAST_DAY_OFFSET);
+        HospitalSlotGenerationSummary summary = batchService.generateRange(fromDate, toDate);
+
+        if (!summary.locked()) {
+            log.info("병원 예약 슬롯 일일 생성 건너뜀: 다른 인스턴스 실행 중");
+            return;
+        }
 
         log.info(
-                "병원 예약 슬롯 일일 생성 완료: businessDate={}, targets={}, succeeded={}, failed={}, createdSlots={}",
-                businessDate,
-                summary.targetHospitals(),
-                summary.succeededHospitals(),
-                summary.failedHospitals(),
+                "병원 예약 슬롯 공개 범위 보정 완료: fromDate={}, toDate={}, targetDates={}, tasks={}, succeeded={}, failed={}, createdSlots={}",
+                fromDate,
+                toDate,
+                summary.targetDates(),
+                summary.targetTasks(),
+                summary.succeededTasks(),
+                summary.failedTasks(),
                 summary.createdSlots()
         );
     }

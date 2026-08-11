@@ -24,18 +24,19 @@ class HospitalSlotGenerationSchedulerTest {
     private HospitalSlotGenerationScheduler scheduler;
 
     @Test
-    void generatePublishedRangeLastDayCreatesTodayPlusThirteen() {
+    void maintainPublishedRangeProcessesTodayThroughTodayPlusThirteen() {
         Clock clock = Clock.fixed(
                 Instant.parse("2026-08-10T15:00:00Z"),
                 TimePolicy.SEOUL_ZONE_ID
         );
         scheduler = new HospitalSlotGenerationScheduler(batchService, clock);
-        LocalDate businessDate = LocalDate.of(2026, 8, 24);
-        given(batchService.generate(businessDate))
-                .willReturn(new HospitalSlotGenerationSummary(1, 1, 0, 2));
+        LocalDate fromDate = LocalDate.of(2026, 8, 11);
+        LocalDate toDate = LocalDate.of(2026, 8, 24);
+        given(batchService.generateRange(fromDate, toDate))
+                .willReturn(new HospitalSlotGenerationSummary(true, 14, 1, 1, 0, 2));
 
-        scheduler.generatePublishedRangeLastDay();
+        scheduler.maintainPublishedRange();
 
-        verify(batchService).generate(businessDate);
+        verify(batchService).generateRange(fromDate, toDate);
     }
 }

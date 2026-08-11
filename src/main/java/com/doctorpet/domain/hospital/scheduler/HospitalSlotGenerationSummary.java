@@ -1,9 +1,22 @@
 package com.doctorpet.domain.hospital.scheduler;
 
 public record HospitalSlotGenerationSummary(
-        int targetHospitals,
-        int succeededHospitals,
-        int failedHospitals,
+        boolean locked,
+        int targetDates,
+        int targetTasks,
+        int succeededTasks,
+        int failedTasks,
         int createdSlots
 ) {
+
+    public static HospitalSlotGenerationSummary lockSkipped(int targetDates) {
+        return new HospitalSlotGenerationSummary(
+                false,
+                targetDates,
+                0,
+                0,
+                0,
+                0
+        );
+    }
 }
