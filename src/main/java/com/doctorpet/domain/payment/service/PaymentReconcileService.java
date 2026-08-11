@@ -186,9 +186,9 @@ public class PaymentReconcileService {
         }
     }
 
-    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 구현이 존재조회로
-    // 반복 사이클에도 사실상 결제당 1회만 저장한다(락 밖 동시 경로의 드문 중복 예외는 publishPendingNotice 계약 참고).
-    // 발행 실패는 격리한다 — 정산 상태는 이미 확정(유지)됐다.
+    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 구현이 dedup_key UNIQUE로
+    // 반복 사이클·락 밖 동시 경로(웹훅)에서도 결제당 정확히 1회만 저장한다(멱등). 발행 실패는 격리한다 — 정산 상태는
+    // 이미 확정(유지)됐다.
     private void publishStuckNotice(Payment target) {
         Long guardianMemberId = reservationLookupPort.findForCharge(target.getReservationId())
                 .map(ReservationChargeView::guardianMemberId)

@@ -9,7 +9,12 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -88,5 +93,44 @@ class PaymentNotificationWiringIntegrationTest {
         assertThat(saved.getResourceType()).isEqualTo(NotificationResourceType.PAYMENT);
         assertThat(saved.getResourceId()).isEqualTo(PAYMENT_ID);
         assertThat(saved.getContent()).contains("80,000원").contains("확인 중");
+    }
+
+    @Test
+    @DisplayName("결제 확인 중 안내를 동시에 여러 스레드가 발행해도 dedup_key UNIQUE로 1건만 저장된다(동시 호출 멱등)")
+    void publishPendingNotice_isIdempotentUnderConcurrency() throws Exception {
+        // 락 밖 경로(웹훅 단건 트리거)가 배치와 겹쳐 같은 결제를 동시에 처리하는 경합을 재현한다. 존재조회→저장이
+        // 원자적이지 않아 여러 스레드가 모두 "없음"을 읽어도, dedup_key UNIQUE가 실제 저장을 1건으로 제한해야 한다.
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    paymentNotificationPublisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, 80_000);
+                    return null;
+                }));
+            }
+            ready.await();
+            start.countDown(); // 모든 스레드를 동시에 출발시켜 경합을 최대화한다.
+            for (Future<?> f : futures) {
+                f.get();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        List<Notification> pendings = notificationRepository
+                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .getContent()
+                .stream()
+                .filter(n -> n.getType() == NotificationType.PAYMENT_PENDING)
+                .toList();
+
+        assertThat(pendings).hasSize(1);
+        assertThat(pendings.get(0).getResourceId()).isEqualTo(PAYMENT_ID);
     }
 }

@@ -17,12 +17,15 @@ import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -36,6 +39,9 @@ public class NotificationService {
     private final Clock clock;
     // 저장 커밋 이후 실시간 전송(SSE)을 트리거한다. AFTER_COMMIT 리스너가 받아 처리하므로 롤백 시 전송되지 않는다(SA §9-8).
     private final ApplicationEventPublisher eventPublisher;
+    // 멱등 저장(saveIdempotent)을 프록시 경유로 호출해 REQUIRES_NEW 트랜잭션 경계를 적용하기 위한 자기참조.
+    // 같은 빈 내부 호출은 프록시를 우회해 @Transactional이 무시되므로, 순환 초기화 없는 ObjectProvider로 지연 주입한다.
+    private final ObjectProvider<NotificationService> selfProvider;
 
     // 상태 전이 이벤트 수신자에게 알림을 저장한다. 수신자(memberId)는 이벤트 발행 도메인이 서버에서 확정해 전달한다.
     @Transactional
@@ -56,13 +62,14 @@ public class NotificationService {
         return saved;
     }
 
-    // 같은 (수신자·유형·리소스)의 알림이 아직 없을 때만 저장한다(멱등 발행). 결제 고도화 3.6의 "결제 확인 중"
-    // 안내가 정산 여러 사이클에도 결제당 1회만 남도록 쓴다. 정산 배치는 단일 인스턴스(ReconcileLock)로 직렬화되므로
-    // 반복 사이클에서는 존재 조회→저장이 사실상 직렬화돼 중복되지 않는다. 다만 이 검사-후-저장은 원자적이지 않아,
-    // 락 밖 경로(웹훅 단건 트리거)가 배치와 동시에 같은 결제를 처리하면 둘 다 "없음"을 읽어 드물게 중복 저장될 수 있다.
-    // 안내 알림에 한정된 무해한 중복이라 DB UNIQUE로 강제하지 않는다 — (수신자·유형·리소스)가 같은 PAYMENT_RESULT가
-    // 정정 발행(예: PAID 후 REFUNDED)으로 정상 중복되므로 그 4개 컬럼 UNIQUE는 정상 발행을 막는다(마이그레이션도 회피).
-    @Transactional
+    // 같은 (수신자·유형·리소스)의 알림을 결제당 1건으로만 남기는 멱등 발행. 결제 고도화 3.6의 "결제 확인 중" 안내에 쓴다.
+    // 존재 조회는 반복 사이클의 흔한 경우를 값싸게 걸러내는 빠른 경로일 뿐 원자적 보장은 아니다 — 락 밖 경로(웹훅 단건
+    // 트리거)가 배치와 동시에 같은 결제를 처리하면 둘 다 "없음"을 읽을 수 있다. 최종 보장은 dedup_key UNIQUE 제약이
+    // 하며, 동시 삽입 중 진 트랜잭션은 DataIntegrityViolationException으로 떨어지므로 "이미 발행됨"으로 간주해 삼킨다.
+    // saveIdempotent는 프록시(REQUIRES_NEW)로 호출해, 유니크 충돌 롤백이 이 메서드/호출자 트랜잭션을 오염시키지 않게 한다.
+    // 이 메서드 자체는 트랜잭션을 열지 않는다(NOT_SUPPORTED) — 클래스 기본 readOnly 트랜잭션에 삽입이 묶여 catch가
+    // UnexpectedRollbackException으로 번지는 것을 막는다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void createIfAbsent(
             Long memberId,
             NotificationType type,
@@ -74,7 +81,30 @@ public class NotificationService {
                 memberId, type, resourceType, resourceId)) {
             return;
         }
-        create(memberId, type, content, resourceType, resourceId);
+        try {
+            selfProvider.getObject().saveIdempotent(memberId, type, content, resourceType, resourceId);
+        } catch (DataIntegrityViolationException e) {
+            // 동시 호출이 먼저 같은 dedup_key를 저장함 — 결제당 1건 계약을 지키기 위해 이미 처리된 것으로 취급한다.
+        }
+    }
+
+    // 멱등 발행의 실제 저장. dedup_key(UNIQUE)로 동시 삽입을 원자적으로 1건으로 제한한다. 바깥과 독립적으로 커밋·롤백하도록
+    // REQUIRES_NEW로 열어, 유니크 충돌 롤백이 호출자 트랜잭션을 오염시키지 않게 한다(createIfAbsent의 catch가 흡수).
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void saveIdempotent(
+            Long memberId,
+            NotificationType type,
+            String content,
+            NotificationResourceType resourceType,
+            Long resourceId
+    ) {
+        Notification saved = notificationRepository.save(
+                Notification.createIdempotent(memberId, type, content, resourceType, resourceId)
+        );
+        // 커밋 이후에만 실시간 전송하도록 이벤트를 등록한다(롤백 시 전송되지 않음, create와 동일).
+        eventPublisher.publishEvent(
+                new NotificationCreatedEvent(saved.getMemberId(), NotificationResponse.from(saved))
+        );
     }
 
     // 본인 알림을 최신순으로 페이징 조회한다. isRead가 null이면 전체, true/false면 읽음/미읽음만 반환한다.
