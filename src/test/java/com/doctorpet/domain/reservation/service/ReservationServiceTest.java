@@ -111,17 +111,19 @@ class ReservationServiceTest {
                 businessDate.plusDays(1).atStartOfDay(),
                 businessDate
         );
-        given(reservationSlotRepository.findBusinessDateSlots(
+        given(reservationSlotRepository.findBusinessDateSlotsForUpdate(
                 HOSPITAL_ID,
                 businessDate
         )).willReturn(List.of(first, second));
+        given(reservationSlotRepository.deleteOpenSlots(HOSPITAL_ID, businessDate))
+                .willReturn(2);
         boolean removed = reservationService.removeOpenSlotsIfNoReservation(
                 HOSPITAL_ID,
                 businessDate
         );
 
         assertThat(removed).isTrue();
-        verify(reservationSlotRepository).deleteAll(List.of(first, second));
+        verify(reservationSlotRepository).deleteOpenSlots(HOSPITAL_ID, businessDate);
     }
 
     @Test
@@ -135,7 +137,7 @@ class ReservationServiceTest {
                 businessDate
         );
         reserved.reserve();
-        given(reservationSlotRepository.findBusinessDateSlots(
+        given(reservationSlotRepository.findBusinessDateSlotsForUpdate(
                 HOSPITAL_ID,
                 businessDate
         )).willReturn(List.of(reserved));
@@ -147,7 +149,7 @@ class ReservationServiceTest {
 
         assertThat(reserved.getStatus()).isEqualTo(ReservationSlotStatus.RESERVED);
         assertThat(removed).isFalse();
-        verify(reservationSlotRepository, never()).deleteAll(any());
+        verify(reservationSlotRepository, never()).deleteOpenSlots(any(), any());
     }
 
     @Test

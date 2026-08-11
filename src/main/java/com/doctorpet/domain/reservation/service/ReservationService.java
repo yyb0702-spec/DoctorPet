@@ -122,15 +122,18 @@ public class ReservationService {
             LocalDate businessDate
     ) {
         List<ReservationSlot> slots = reservationSlotRepository
-                .findBusinessDateSlots(hospitalId, businessDate);
+                .findBusinessDateSlotsForUpdate(hospitalId, businessDate);
         boolean hasReservedSlot = slots.stream()
                 .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
         if (hasReservedSlot) {
             return false;
         }
 
-        reservationSlotRepository.deleteAll(slots);
-        return true;
+        int deletedSlotCount = reservationSlotRepository.deleteOpenSlots(
+                hospitalId,
+                businessDate
+        );
+        return deletedSlotCount == slots.size();
     }
 
     @Transactional

@@ -219,6 +219,70 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
     }
 
     @Test
+    @DisplayName("동일 슬롯의 예약과 임시 휴무용 슬롯 제거가 경합하면 정확히 한 작업만 성공한다")
+    void concurrentReservationAndTemporaryClosureSlotRemoval_onlyOneSucceeds()
+            throws InterruptedException {
+        for (int attempt = 0; attempt < RACE_ATTEMPTS; attempt++) {
+            long hospitalId = System.nanoTime();
+            LocalDate businessDate = LocalDate.now().plusDays(8 + attempt);
+            ReservationSlot original = saveSlot(hospitalId, businessDate, 10);
+            ReservationRequest request = new ReservationRequest(
+                    petId,
+                    original.getId(),
+                    paymentMethodId
+            );
+            AtomicBoolean reservationSucceeded = new AtomicBoolean();
+            AtomicBoolean removalSucceeded = new AtomicBoolean();
+            List<Throwable> unexpected = new CopyOnWriteArrayList<>();
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
+            CountDownLatch done = new CountDownLatch(2);
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+
+            executor.submit(() -> runConcurrent(
+                    ready,
+                    start,
+                    done,
+                    () -> {
+                        reservationApplicationService.request(memberId, request);
+                        reservationSucceeded.set(true);
+                    },
+                    unexpected
+            ));
+            executor.submit(() -> runConcurrent(
+                    ready,
+                    start,
+                    done,
+                    () -> removalSucceeded.set(
+                            reservationService.removeOpenSlotsIfNoReservation(
+                                    hospitalId,
+                                    businessDate
+                            )
+                    ),
+                    unexpected
+            ));
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+            executor.shutdown();
+
+            assertThat(unexpected).isEmpty();
+            assertThat(reservationSucceeded.get() ^ removalSucceeded.get()).isTrue();
+            if (reservationSucceeded.get()) {
+                assertThat(reservationRepository.countBySlotId(original.getId())).isEqualTo(1);
+                assertThat(reservationSlotRepository.findById(original.getId()))
+                        .get()
+                        .extracting(ReservationSlot::getStatus)
+                        .isEqualTo(ReservationSlotStatus.RESERVED);
+            } else {
+                assertThat(reservationRepository.countBySlotId(original.getId())).isZero();
+                assertThat(reservationSlotRepository.findById(original.getId())).isEmpty();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("공개 범위를 잠그면 아직 재배치하지 않은 날짜에도 예약이 끼어들 수 없다")
     void replacementRangeLock_blocksReservationOnLaterDate() throws Exception {
         long hospitalId = System.nanoTime();

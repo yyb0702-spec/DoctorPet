@@ -44,6 +44,19 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
             SELECT slot
             FROM ReservationSlot slot
             WHERE slot.hospitalId = :hospitalId
+              AND slot.businessDate = :businessDate
+            ORDER BY slot.startAt ASC, slot.id ASC
+            """)
+    List<ReservationSlot> findBusinessDateSlotsForUpdate(
+            @Param("hospitalId") Long hospitalId,
+            @Param("businessDate") LocalDate businessDate
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT slot
+            FROM ReservationSlot slot
+            WHERE slot.hospitalId = :hospitalId
               AND slot.startAt >= :rangeStart
               AND slot.startAt < :rangeEnd
             ORDER BY slot.startAt ASC, slot.id ASC
