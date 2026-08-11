@@ -9,6 +9,6 @@ import java.util.List;
 public record OperatingHoursUpdateRequest(
         @NotNull LocalDate desiredEffectiveFrom,
         @NotNull @Size(min = 7, max = 7)
-        List<@Valid DailyOperatingHoursRequest> days
+        List<@NotNull @Valid DailyOperatingHoursRequest> days
 ) {
 }

@@ -1,8 +1,10 @@
 package com.doctorpet.domain.hospital.controller;
 
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.hospital.service.HospitalOperatingHoursApplicationService;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -71,6 +74,58 @@ class HospitalOperatingHoursControllerTest {
                         businessDate
                 ).with(authentication(guardianAuthentication())))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void operatingHoursDaysRejectNullElement() throws Exception {
+        String requestBody = """
+                {
+                  "desiredEffectiveFrom": "2026-08-15",
+                  "days": [
+                    null,
+                    {"dayOfWeek":"TUESDAY","periods":[]},
+                    {"dayOfWeek":"WEDNESDAY","periods":[]},
+                    {"dayOfWeek":"THURSDAY","periods":[]},
+                    {"dayOfWeek":"FRIDAY","periods":[]},
+                    {"dayOfWeek":"SATURDAY","periods":[]},
+                    {"dayOfWeek":"SUNDAY","periods":[]}
+                  ]
+                }
+                """;
+
+        mockMvc.perform(put("/api/hospital/operating-hours")
+                        .with(authentication(hospitalStaffAuthentication()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void operatingHoursPeriodsRejectNullElement() throws Exception {
+        String requestBody = """
+                {
+                  "desiredEffectiveFrom": "2026-08-15",
+                  "days": [
+                    {"dayOfWeek":"MONDAY","periods":[null]},
+                    {"dayOfWeek":"TUESDAY","periods":[]},
+                    {"dayOfWeek":"WEDNESDAY","periods":[]},
+                    {"dayOfWeek":"THURSDAY","periods":[]},
+                    {"dayOfWeek":"FRIDAY","periods":[]},
+                    {"dayOfWeek":"SATURDAY","periods":[]},
+                    {"dayOfWeek":"SUNDAY","periods":[]}
+                  ]
+                }
+                """;
+
+        mockMvc.perform(put("/api/hospital/operating-hours")
+                        .with(authentication(hospitalStaffAuthentication()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(service);
     }
 
     private UsernamePasswordAuthenticationToken hospitalStaffAuthentication() {

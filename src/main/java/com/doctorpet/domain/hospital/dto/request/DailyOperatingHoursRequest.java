@@ -7,6 +7,6 @@ import java.util.List;
 
 public record DailyOperatingHoursRequest(
         @NotNull DayOfWeek dayOfWeek,
-        @NotNull List<@Valid OperatingPeriodRequest> periods
+        @NotNull List<@NotNull @Valid OperatingPeriodRequest> periods
 ) {
 }
