@@ -134,7 +134,11 @@ public class HospitalReservationApplicationService {
 
         ReservationSlot slot = findSlot(reservation.getSlotId());
         slot.open();
-        notificationPublisher.publishRejected(reservation.getMemberId(), reservationId);
+        notificationPublisher.publishRejected(
+                reservation.getMemberId(),
+                reservationId,
+                rejectReason.value()
+        );
     }
 
     /**

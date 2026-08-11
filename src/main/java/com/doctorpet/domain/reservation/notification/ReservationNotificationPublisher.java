@@ -16,7 +16,11 @@ public interface ReservationNotificationPublisher {
     void publishConfirmed(Long guardianMemberId, Long reservationId);
 
     /** 병원 스태프가 예약 요청을 수동으로 거절했다(REQUESTED → REJECTED). */
-    void publishRejected(Long guardianMemberId, Long reservationId);
+    void publishRejected(
+            Long guardianMemberId,
+            Long reservationId,
+            String rejectReason
+    );
 
     /** 승인 데드라인 경과로 스케줄러가 예약 요청을 자동 거절했다(REQUESTED → REJECTED, TIMEOUT_REJECTED). */
     void publishAutoRejected(Long guardianMemberId, Long reservationId);
