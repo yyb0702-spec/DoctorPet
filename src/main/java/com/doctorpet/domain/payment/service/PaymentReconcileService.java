@@ -128,10 +128,14 @@ public class PaymentReconcileService {
         // 이 호출이 실제로 상태를 전이시켰을 때만 발행한다 — 청구 후확정이 먼저 확정했다면(조건부 UPDATE 0건) 중복 발행하지 않는다.
         if (result.applied()) {
             publishResolved(result.payment());
-        } else if (RECONCILE_STUCK.equals(outcome.failureReason())) {
+        } else if (RECONCILE_STUCK.equals(outcome.failureReason())
+                && result.payment().getStatus() == PaymentStatus.PENDING) {
             // 상태 전이는 없지만(PENDING 유지) 오래 미확정으로 STUCK 확정된 경우 — 보호자 무음을 해소하기 위해
             // "결제 확인 중" 안내를 발행한다. 최초/일시적 PENDING(RECONCILE_UNCONFIRMED 등)은 여기 오지 않는다.
-            // 정산이 여러 사이클 돌아도 발행 구현이 결제당 1회만 저장한다(멱등). 상태·정산 로직은 바꾸지 않는다.
+            // 단, outcome은 과거 조회 시점의 STUCK이라, 경합으로 다른 경로(청구 후확정·웹훅)가 그 사이 PAID/OFFLINE로
+            // 확정했다면 result.payment()는 더 이상 PENDING이 아니다 — 그 경우 완료 알림 뒤 뒤늦은 "확인 중" 중복이
+            // 나가지 않도록 현재 상태가 PENDING일 때만 발행한다. 정산이 여러 사이클 돌아도 발행 구현이 결제당 1회만
+            // 저장한다(멱등). 상태·정산 로직은 바꾸지 않는다.
             publishStuckNotice(target);
         }
         return outcome.type();
@@ -182,8 +186,9 @@ public class PaymentReconcileService {
         }
     }
 
-    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 구현이 멱등이라
-    // 정산 사이클마다 호출돼도 결제당 1회만 저장된다. 발행 실패는 격리한다 — 정산 상태는 이미 확정(유지)됐다.
+    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 구현이 존재조회로
+    // 반복 사이클에도 사실상 결제당 1회만 저장한다(락 밖 동시 경로의 드문 중복 예외는 publishPendingNotice 계약 참고).
+    // 발행 실패는 격리한다 — 정산 상태는 이미 확정(유지)됐다.
     private void publishStuckNotice(Payment target) {
         Long guardianMemberId = reservationLookupPort.findForCharge(target.getReservationId())
                 .map(ReservationChargeView::guardianMemberId)

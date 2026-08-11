@@ -189,6 +189,26 @@ class PaymentReconcileServiceTest {
     }
 
     @Test
+    @DisplayName("STUCK 조회지만 그 사이 다른 경로가 PAID로 확정했으면(applied=false·현재 PAID) '결제 확인 중'을 발행하지 않는다")
+    void queryStuck_butAlreadyConfirmed_doesNotPublishStuckNotice() {
+        // resolveByQuery는 과거 조회 시점 기준 STUCK을 돌려주지만, 경합으로 청구 후확정·웹훅이 먼저 PAID로 전이하면
+        // finalizeOutcome은 applied=false와 현재 확정 상태(PAID)의 payment를 반환한다. 이때 완료 알림 뒤에 뒤늦은
+        // "결제 확인 중"이 중복으로 나가면 안 된다(Codex P2) — 현재 상태가 PENDING이 아니므로 안내를 발행하지 않는다.
+        lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS)));
+        given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(resolved(PaymentStatus.PAID)));
+
+        ReconcileSummary summary = service.reconcile();
+
+        assertThat(summary.stillPending()).isEqualTo(1);
+        ChargeOutcome outcome = captureOutcome();
+        assertThat(outcome.failureReason()).isEqualTo("RECONCILE_STUCK");
+        // 상태가 이미 PAID라 "결제 확인 중"은 물론, 이 경로에선 완료 알림(applied=false)도 발행하지 않는다.
+        verify(notificationPublisher, never()).publishPendingNotice(anyLong(), anyLong(), any(), anyInt());
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), anyInt());
+    }
+
+    @Test
     @DisplayName("단건조회 FAILED면 OFFLINE_REQUIRED로 확정한다")
     void queryFailed_offlineRequired() {
         lockAcquired(List.of(pendingTarget(0)));
