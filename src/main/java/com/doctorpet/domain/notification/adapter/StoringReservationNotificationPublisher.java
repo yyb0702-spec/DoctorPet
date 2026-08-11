@@ -30,11 +30,15 @@ public class StoringReservationNotificationPublisher
     }
 
     @Override
-    public void publishRejected(Long guardianMemberId, Long reservationId) {
+    public void publishRejected(
+            Long guardianMemberId,
+            Long reservationId,
+            String rejectReason
+    ) {
         notificationService.create(
                 guardianMemberId,
                 NotificationType.RESERVATION_REJECTED,
-                "병원이 예약 요청을 거절했습니다.",
+                "병원이 예약 요청을 거절했습니다. 사유: " + rejectReason,
                 NotificationResourceType.RESERVATION,
                 reservationId
         );

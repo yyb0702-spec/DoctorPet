@@ -111,6 +111,8 @@ class HospitalReservationNotificationIntegrationTest {
         assertThat(notificationCount(data.reservationId(), NotificationType.RESERVATION_REJECTED))
                 .isEqualTo(1);
         assertThat(notificationRecipient(data.reservationId())).isEqualTo(data.guardianMemberId());
+        assertThat(notificationContent(data.reservationId()))
+                .isEqualTo("병원이 예약 요청을 거절했습니다. 사유: 직원 부족");
     }
 
     @Test
@@ -216,6 +218,14 @@ class HospitalReservationNotificationIntegrationTest {
                 "select member_id from notifications "
                         + "where resource_type = 'RESERVATION' and resource_id = ?",
                 Long.class,
+                reservationId);
+    }
+
+    private String notificationContent(Long reservationId) {
+        return jdbcTemplate.queryForObject(
+                "select content from notifications "
+                        + "where resource_type = 'RESERVATION' and resource_id = ?",
+                String.class,
                 reservationId);
     }
 
