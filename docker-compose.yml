@@ -38,13 +38,20 @@ x-app-common-env: &app-common-env
   SPRING_DATA_REDIS_HOST: redis
   SPRING_DATA_REDIS_PORT: "6379"
   # nginx 리버스 프록시 도입 후 request.getRemoteAddr()는 실제 사용자가 아니라 nginx
-  # 컨테이너 IP가 된다(리뷰 지적). AiClientIpResolver는 remoteAddr가 이 목록에 있을
-  # 때만 X-Forwarded-For를 신뢰하므로, 비워두면 익명 AI 상담 요청이 모두 nginx IP
-  # 하나로 집계돼 서로 다른 사용자가 서버 전체 공유 한도(분당 3회·일 30회)로 429를
-  # 받는다. nginx 컨테이너에 아래 networks.default.ipv4_address로 고정 IP를 부여하고
-  # 그 값을 그대로 신뢰 프록시로 등록한다 — 비밀값이 아니라 내부 네트워크 토폴로지라
-  # SPRING_DATASOURCE_URL과 같은 이유로 .env가 아니라 여기 하드코딩한다.
-  AI_RATE_LIMIT_TRUSTED_PROXIES: 172.28.0.10
+  # 컨테이너 IP가 된다. AiClientIpResolver는 remoteAddr가 이 목록에 있을 때만
+  # X-Forwarded-For를 신뢰하므로, 비워두면 익명 AI 상담 요청이 모두 nginx IP 하나로
+  # 집계돼 서로 다른 사용자가 서버 전체 공유 한도(분당 3회·일 30회)로 429를 받는다.
+  #
+  # (리뷰 지적 P1, 재수정) 처음에는 nginx에 networks.default.ipam.config로 고정 IP를
+  # 부여하고 그 IP를 여기 하드코딩했었다. 그런데 mysql/redis는 이 PR 이전부터 서브넷
+  # 지정 없는 기존 default 네트워크에 이미 붙어 있는 채로 EC2에 이 PR이 배포되므로,
+  # docker compose가 네트워크 설정 변경(서브넷 신규 지정)을 감지해 네트워크를 재생성하려
+  # 시도하다 "network has active endpoints"로 실패할 위험이 있었다 — 무중단 배포
+  # 파이프라인 자체가 최초 실행에서 막히는 문제였다. 고정 IP 대신 컴포즈가 항상 제공하는
+  # 서비스명 DNS("nginx")를 그대로 신뢰 대상으로 등록한다 — AiClientIpResolver가 이제
+  # 호스트명을 해석해 비교하므로(리뷰 지적 대응) 네트워크 토폴로지를 전혀 바꾸지 않고도
+  # 같은 보호를 얻는다.
+  AI_RATE_LIMIT_TRUSTED_PROXIES: nginx
 
 services:
   mysql:
@@ -143,12 +150,6 @@ services:
     # `nginx -s reload`하는 방식이라 컨테이너 재시작 없이 순간적으로 전환된다.
     ports:
       - "8080:8080"
-    # AI Rate Limit 신뢰 프록시 등록(리뷰 지적)과 짝이다 — 컨테이너를 재생성해도 IP가
-    # 바뀌지 않아야 app-blue/app-green의 AI_RATE_LIMIT_TRUSTED_PROXIES 하드코딩 값이
-    # 계속 유효하다. 아래 networks.default.ipam.config의 서브넷 안에서 고정한다.
-    networks:
-      default:
-        ipv4_address: 172.28.0.10
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # conf.d 디렉터리째 마운트한다 — 안의 upstream-active.conf는 배포 스크립트가 서버에서
@@ -170,13 +171,3 @@ volumes:
   mysql-data:
   payment-audit-logs:
   nginx-logs:
-
-# nginx에 고정 IP(172.28.0.10)를 주기 위해 기본 네트워크의 서브넷을 명시한다(리뷰 지적,
-# AI Rate Limit 신뢰 프록시). 다른 서비스는 여기 없이도 자동으로 이 default 네트워크에
-# 붙으며, 별도 ipv4_address를 지정하지 않았으니 이 서브넷 안에서 평소처럼 동적 IP를 받는다.
-networks:
-  default:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/24
