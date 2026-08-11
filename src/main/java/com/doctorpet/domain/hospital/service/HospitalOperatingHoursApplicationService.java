@@ -127,8 +127,35 @@ public class HospitalOperatingHoursApplicationService {
     }
 
     @Transactional
+    public void cancelTemporaryClosure(Long memberId, LocalDate businessDate) {
+        Long hospitalId = getHospitalId(memberId);
+        LocalDate today = LocalDate.now(applicationClock);
+        validateTemporaryClosureCancellationDate(businessDate, today);
+        lockHospital(hospitalId);
+
+        HospitalTemporaryClosure closure = closureRepository
+                .findClosure(hospitalId, businessDate)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.TEMPORARY_CLOSURE_NOT_FOUND
+                ));
+        closureRepository.delete(closure);
+        closureRepository.flush();
+
+        if (!businessDate.isAfter(today.plusDays(13))) {
+            createSlotsAfterHospitalLock(hospitalId, businessDate);
+        }
+    }
+
+    @Transactional
     public int createSlots(Long hospitalId, LocalDate businessDate) {
         lockHospital(hospitalId);
+        return createSlotsAfterHospitalLock(hospitalId, businessDate);
+    }
+
+    private int createSlotsAfterHospitalLock(
+            Long hospitalId,
+            LocalDate businessDate
+    ) {
         if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
             return 0;
         }
@@ -241,6 +268,17 @@ public class HospitalOperatingHoursApplicationService {
         if (!businessDate.isAfter(today)) {
             throw new ServiceException(
                     HospitalErrorCode.INVALID_TEMPORARY_CLOSURE_DATE
+            );
+        }
+    }
+
+    private void validateTemporaryClosureCancellationDate(
+            LocalDate businessDate,
+            LocalDate today
+    ) {
+        if (!businessDate.isAfter(today)) {
+            throw new ServiceException(
+                    HospitalErrorCode.TEMPORARY_CLOSURE_CANCEL_DEADLINE_PASSED
             );
         }
     }

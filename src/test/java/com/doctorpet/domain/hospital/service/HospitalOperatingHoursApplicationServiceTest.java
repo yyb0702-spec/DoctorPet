@@ -349,6 +349,86 @@ class HospitalOperatingHoursApplicationServiceTest {
     }
 
     @Test
+    void cancelTemporaryClosureRestoresSlotsInsidePublishedRange() {
+        LocalDate businessDate = TODAY.plusDays(5);
+        HospitalTemporaryClosure closure = HospitalTemporaryClosure.create(
+                lockedHospital,
+                businessDate
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(closure), Optional.empty());
+        given(scheduleRepository.findEffectiveSchedule(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(schedule));
+        given(schedule.getOperatingHours()).willReturn(Map.of(
+                businessDate.getDayOfWeek(),
+                List.of(new DailyOperatingHours(
+                        LocalTime.of(9, 0),
+                        LocalTime.of(10, 0)
+                ))
+        ));
+
+        service.cancelTemporaryClosure(MEMBER_ID, businessDate);
+
+        verify(closureRepository).delete(closure);
+        verify(closureRepository).flush();
+        verify(reservationService).createOpenSlots(
+                org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
+                org.mockito.ArgumentMatchers.eq(businessDate),
+                any()
+        );
+    }
+
+    @Test
+    void cancelTemporaryClosureOutsidePublishedRangeOnlyDeletesClosure() {
+        LocalDate businessDate = TODAY.plusDays(14);
+        HospitalTemporaryClosure closure = HospitalTemporaryClosure.create(
+                lockedHospital,
+                businessDate
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(closure));
+
+        service.cancelTemporaryClosure(MEMBER_ID, businessDate);
+
+        verify(closureRepository).delete(closure);
+        verify(closureRepository).flush();
+        verify(scheduleRepository, never()).findEffectiveSchedule(any(), any());
+        verify(reservationService, never()).createOpenSlots(any(), any(), any());
+    }
+
+    @Test
+    void cancelTemporaryClosureRejectsBusinessDateStartingToday() {
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+
+        assertThatThrownBy(() -> service.cancelTemporaryClosure(MEMBER_ID, TODAY))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(
+                                HospitalErrorCode
+                                        .TEMPORARY_CLOSURE_CANCEL_DEADLINE_PASSED
+                        ));
+
+        verify(hospitalRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void cancelTemporaryClosureRejectsMissingClosure() {
+        LocalDate businessDate = TODAY.plusDays(1);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.cancelTemporaryClosure(
+                MEMBER_ID,
+                businessDate
+        )).isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(HospitalErrorCode.TEMPORARY_CLOSURE_NOT_FOUND));
+    }
+
+    @Test
     void createSlotsCreatesThirtyMinuteSlotsAndDropsRemainder() {
         LocalDate businessDate = LocalDate.of(2026, 8, 10);
         given(closureRepository.findClosure(HOSPITAL_ID, businessDate))

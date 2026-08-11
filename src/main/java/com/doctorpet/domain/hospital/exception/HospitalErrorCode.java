@@ -41,6 +41,16 @@ public enum HospitalErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "HOSPITAL_009",
             "이미 임시 휴무로 등록된 영업일입니다."
+    ),
+    TEMPORARY_CLOSURE_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "HOSPITAL_010",
+            "임시 휴무 정보를 찾을 수 없습니다."
+    ),
+    TEMPORARY_CLOSURE_CANCEL_DEADLINE_PASSED(
+            HttpStatus.BAD_REQUEST,
+            "HOSPITAL_011",
+            "임시 휴무는 휴무 영업일 전날까지만 취소할 수 있습니다."
     );
 
     private final HttpStatus httpStatus;
