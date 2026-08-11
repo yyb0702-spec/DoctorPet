@@ -12,9 +12,12 @@
 즉:
   - feature PR — 자기 SA/PRD 도메인 '절(내용)'만 수정한다. 버전 헤더·이력·경량본 참조는 손대지 않는다.
   - 승격 — 그 PR이 develop에 merge된 뒤, 오너가 develop에서 이 스크립트를 실행하고 develop에 바로 push한다.
-  - push 거부 시(다른 승격이 먼저 오름) — 로컬 승격 커밋을 merge/rebase하지 말고 폐기하고
+  - push 거부 시(다른 승격이 먼저 오름) — git status --porcelain이 비어있는지(승격 커밋 하나만
+    있는지) 먼저 확인한 뒤, 로컬 승격 커밋을 merge/rebase하지 말고 폐기하고
     (git reset --hard origin/develop) 최신 develop에서 이 스크립트를 재실행한다. 승격 커밋은
     (최신 develop + 항목)의 순수 함수라 폐기·재생성이 안전하다. pull·merge로 합치면 헤더·이력이 재충돌한다.
+    주의: git reset --hard는 워킹트리의 모든 미커밋 변경을 지운다 — 승격 커밋 외 다른 tracked
+    변경이 남아 있으면 먼저 stash하거나 별도 커밋해 둔다.
 
 사용:
   python scripts/promote_docs.py --sa "PR #134 리뷰 지적 — 알림 배지 API를 §8-8에 반영했다."
