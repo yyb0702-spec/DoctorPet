@@ -25,9 +25,72 @@ import org.springframework.stereotype.Component;
 )
 public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRunner {
 
-    static final String MIGRATION_KEY = "reservation_slot_business_date_v1";
+    static final String COLUMN_MIGRATION_KEY = "reservation_slot_business_date_v1";
+    static final String OVERNIGHT_BACKFILL_MIGRATION_KEY =
+            "reservation_slot_overnight_business_date_v2";
     private static final String LOCK_NAME = "doctorpet:reservation_slot_business_date_v1";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
+    private static final String OVERNIGHT_SLOT_PREDICATE = """
+            slot.business_date = date(slot.start_at)
+              and json_extract(
+                      detail.open_hours,
+                      concat('$.' ,
+                             elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                 'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                             '.openTime[0]')
+                  ) is not null
+              and maketime(
+                      json_unquote(json_extract(
+                              detail.open_hours,
+                              concat('$.' ,
+                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                                     '.openTime[0]'))),
+                      json_unquote(json_extract(
+                              detail.open_hours,
+                              concat('$.' ,
+                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                                     '.openTime[1]'))),
+                      0
+                  ) > maketime(
+                      json_unquote(json_extract(
+                              detail.open_hours,
+                              concat('$.' ,
+                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                                     '.closeTime[0]'))),
+                      json_unquote(json_extract(
+                              detail.open_hours,
+                              concat('$.' ,
+                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                                     '.closeTime[1]'))),
+                      0
+                  )
+              and time(slot.start_at) < maketime(
+                      json_unquote(json_extract(
+                              detail.open_hours,
+                              concat('$.' ,
+                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                                     '.closeTime[0]'))),
+                      json_unquote(json_extract(
+                              detail.open_hours,
+                              concat('$.' ,
+                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                                     '.closeTime[1]'))),
+                      0
+                  )
+            """;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -45,23 +108,56 @@ public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRu
     }
 
     private void migrate(Connection connection) throws SQLException {
-        if (migrationApplied(connection)) {
+        if (!migrationApplied(connection, COLUMN_MIGRATION_KEY)) {
+            addColumnIfMissing(connection);
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
+                        update reservation_slots
+                           set business_date = date(start_at)
+                         where business_date is null
+                        """);
+            }
+            applyNotNull(connection);
             assertTargetSchema(connection);
-            return;
+            recordMigration(connection, COLUMN_MIGRATION_KEY);
         }
 
-        addColumnIfMissing(connection);
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("""
-                    update reservation_slots
-                       set business_date = date(start_at)
-                     where business_date is null
-                    """);
-        }
-        applyNotNull(connection);
         assertTargetSchema(connection);
-        recordMigration(connection);
-        log.info("예약 슬롯 영업 기준일 백필 및 NOT NULL 적용 완료");
+        if (!migrationApplied(connection, OVERNIGHT_BACKFILL_MIGRATION_KEY)) {
+            int corrected = correctOvernightBusinessDates(connection);
+            assertOvernightBusinessDates(connection);
+            recordMigration(connection, OVERNIGHT_BACKFILL_MIGRATION_KEY);
+            log.info("야간 예약 슬롯 영업 기준일 백필 완료: corrected={}", corrected);
+        }
+    }
+
+    private int correctOvernightBusinessDates(Connection connection)
+            throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            return statement.executeUpdate("""
+                    update reservation_slots slot
+                    join hospital_details detail
+                      on detail.hospital_id = slot.hospital_id
+                       set slot.business_date = date_sub(date(slot.start_at), interval 1 day)
+                    """ + "where " + OVERNIGHT_SLOT_PREDICATE);
+        }
+    }
+
+    private void assertOvernightBusinessDates(Connection connection)
+            throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("""
+                     select count(*)
+                       from reservation_slots slot
+                       join hospital_details detail
+                         on detail.hospital_id = slot.hospital_id
+                     """ + "where " + OVERNIGHT_SLOT_PREDICATE)) {
+            if (!resultSet.next() || resultSet.getInt(1) > 0) {
+                throw new IllegalStateException(
+                        "전날 영업일로 보정되지 않은 야간 예약 슬롯이 있습니다."
+                );
+            }
+        }
     }
 
     private void addColumnIfMissing(Connection connection) throws SQLException {
@@ -138,26 +234,28 @@ public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRu
         }
     }
 
-    private boolean migrationApplied(Connection connection) throws SQLException {
+    private boolean migrationApplied(Connection connection, String migrationKey)
+            throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 select count(*)
                   from schema_migrations
                  where migration_key = ?
                 """)) {
-            statement.setString(1, MIGRATION_KEY);
+            statement.setString(1, migrationKey);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() && resultSet.getInt(1) > 0;
             }
         }
     }
 
-    private void recordMigration(Connection connection) throws SQLException {
+    private void recordMigration(Connection connection, String migrationKey)
+            throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 insert into schema_migrations (migration_key, applied_at)
                 values (?, now())
                 on duplicate key update migration_key = migration_key
                 """)) {
-            statement.setString(1, MIGRATION_KEY);
+            statement.setString(1, migrationKey);
             statement.executeUpdate();
         }
     }
