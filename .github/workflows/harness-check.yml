@@ -10,7 +10,7 @@ on:
       - "AGENTS.md"
       - "CLAUDE.md"
       - "docs/**"
-      - "scripts/harness_check.py"
+      - "scripts/**"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/workflows/harness-check.yml"
       - ".github/pull_request_template.md"
@@ -31,3 +31,5 @@ jobs:
           python-version: "3.12"
       - name: Run harness check
         run: python scripts/harness_check.py
+      - name: Run harness unit tests
+        run: python -m unittest discover -s scripts -p "test_*.py"
