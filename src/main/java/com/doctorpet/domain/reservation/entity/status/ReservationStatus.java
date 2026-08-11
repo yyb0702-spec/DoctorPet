@@ -5,6 +5,7 @@ public enum ReservationStatus {
     CONFIRMED,
     REJECTED,
     CANCELED,
+    HOSPITAL_CANCELLED,
     NO_SHOW_PENDING,
     CHECKED_IN,
     IN_TREATMENT,

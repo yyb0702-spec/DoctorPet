@@ -142,6 +142,48 @@ public class HospitalReservationApplicationService {
     }
 
     /**
+     * 병원 스태프가 자기 병원의 CONFIRMED 예약을 병원 사유로 취소한다.
+     */
+    @Transactional
+    public void cancelConfirmedByHospital(
+            Long staffMemberId,
+            Long reservationId,
+            String reason
+    ) {
+        validateReason(reason, ReservationErrorCode.HOSPITAL_CANCEL_REASON_REQUIRED);
+
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        int updated = reservationRepository.cancelIfConfirmedByHospital(
+                reservationId,
+                hospitalId,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.HOSPITAL_CANCELLED,
+                reason,
+                now,
+                now
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+        reservationEventRepository.appendIfAbsent(
+                reservationId,
+                ReservationEventType.HOSPITAL_CANCELLED.name(),
+                reason,
+                staffMemberId,
+                now
+        );
+        notificationPublisher.publishHospitalCancelled(
+                reservation.getMemberId(),
+                reservationId,
+                reason
+        );
+    }
+
+    /**
      * 병원 스태프가 자기 병원의 CONFIRMED 예약을 체크인 처리한다(SA §5-1·§8-6).
      */
     @Transactional

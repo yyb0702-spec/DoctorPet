@@ -75,6 +75,7 @@ class HospitalReservationNotificationIntegrationTest {
             jdbcTemplate.update(
                     "delete from notifications where resource_type = 'RESERVATION' and resource_id = ?",
                     reservationId);
+            jdbcTemplate.update("delete from reservation_events where reservation_id = ?", reservationId);
             jdbcTemplate.update("delete from reservations where id = ?", reservationId);
         }
         if (slotId != null) {
@@ -113,6 +114,72 @@ class HospitalReservationNotificationIntegrationTest {
         assertThat(notificationRecipient(data.reservationId())).isEqualTo(data.guardianMemberId());
         assertThat(notificationContent(data.reservationId()))
                 .isEqualTo("병원이 예약 요청을 거절했습니다. 사유: 직원 부족");
+    }
+
+    @Test
+    @DisplayName("병원 확정 예약 취소 시 상태·사유·알림을 실제 DB에 저장한다")
+    void hospitalCancel_persistsStatusReasonAndNotification() {
+        TestReservation data = saveRequestedReservation();
+        jdbcTemplate.update(
+                "update reservations set status = 'CONFIRMED' where id = ?",
+                data.reservationId());
+
+        hospitalReservationService.cancelConfirmedByHospital(
+                data.staffMemberId(),
+                data.reservationId(),
+                "응급수술로 진료 불가"
+        );
+
+        assertThat(reservationStatus(data.reservationId()))
+                .isEqualTo(ReservationStatus.HOSPITAL_CANCELLED);
+        assertThat(jdbcTemplate.queryForObject(
+                "select hospital_cancel_reason from reservations where id = ?",
+                String.class,
+                data.reservationId()))
+                .isEqualTo("응급수술로 진료 불가");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from reservation_events where reservation_id = ? and event_type = 'HOSPITAL_CANCELLED'",
+                Integer.class,
+                data.reservationId()))
+                .isEqualTo(1);
+        assertThat(notificationCount(
+                data.reservationId(),
+                NotificationType.RESERVATION_HOSPITAL_CANCELLED
+        )).isEqualTo(1);
+        assertThat(notificationContent(data.reservationId()))
+                .isEqualTo("병원이 확정된 예약을 취소했습니다. 사유: 응급수술로 진료 불가");
+    }
+
+    @Test
+    @DisplayName("병원 취소 알림 저장 실패 시 예약 상태와 취소 사유를 함께 롤백한다")
+    void hospitalCancel_notificationFailure_rollsBackTransition() {
+        TestReservation data = saveRequestedReservation();
+        jdbcTemplate.update(
+                "update reservations set status = 'CONFIRMED' where id = ?",
+                data.reservationId());
+        doThrow(new IllegalStateException("알림 저장 실패 시뮬레이션"))
+                .when(notificationService)
+                .create(any(), any(), any(), any(), any());
+
+        assertThatThrownBy(() -> hospitalReservationService.cancelConfirmedByHospital(
+                data.staffMemberId(),
+                data.reservationId(),
+                "병원 사정"
+        )).isInstanceOf(IllegalStateException.class);
+
+        assertThat(reservationStatus(data.reservationId()))
+                .isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(jdbcTemplate.queryForObject(
+                "select hospital_cancel_reason from reservations where id = ?",
+                String.class,
+                data.reservationId()))
+                .isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from reservation_events where reservation_id = ? and event_type = 'HOSPITAL_CANCELLED'",
+                Integer.class,
+                data.reservationId()))
+                .isZero();
+        assertThat(totalNotificationCount(data.reservationId())).isZero();
     }
 
     @Test

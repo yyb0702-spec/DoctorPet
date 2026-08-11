@@ -4,6 +4,7 @@ import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -245,6 +246,90 @@ class HospitalReservationApplicationServiceTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
+                any()
+        );
+    }
+
+    @Test
+    @DisplayName("자기 병원의 CONFIRMED 예약을 병원 사유로 취소한다")
+    void cancelConfirmedByHospital_success() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservation));
+        given(reservationRepository.cancelIfConfirmedByHospital(
+                any(), any(), any(), any(), any(), any(), any()
+        )).willReturn(1);
+
+        hospitalReservationService.cancelConfirmedByHospital(
+                STAFF_ID,
+                RESERVATION_ID,
+                "응급수술로 진료 불가"
+        );
+
+        verify(reservationRepository).cancelIfConfirmedByHospital(
+                any(), any(), any(), any(), any(), any(), any()
+        );
+        verify(reservationEventRepository).appendIfAbsent(
+                eq(RESERVATION_ID),
+                eq(ReservationEventType.HOSPITAL_CANCELLED.name()),
+                eq("응급수술로 진료 불가"),
+                eq(STAFF_ID),
+                any()
+        );
+        verify(notificationPublisher).publishHospitalCancelled(
+                1L,
+                RESERVATION_ID,
+                "응급수술로 진료 불가"
+        );
+    }
+
+    @Test
+    @DisplayName("병원 취소 사유가 없으면 병원 취소를 실행하지 않는다")
+    void cancelConfirmedByHospital_withoutReason_throwsRequiredError() {
+        assertThatThrownBy(() -> hospitalReservationService.cancelConfirmedByHospital(
+                STAFF_ID,
+                RESERVATION_ID,
+                " "
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.HOSPITAL_CANCEL_REASON_REQUIRED);
+
+        verify(memberService, never()).getMyInfo(any());
+        verify(reservationRepository, never()).cancelIfConfirmedByHospital(
+                any(), any(), any(), any(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("CONFIRMED가 아닌 예약은 병원 취소 조건부 갱신에 실패한다")
+    void cancelConfirmedByHospital_whenUpdateIsZero_throwsInvalidStatus() {
+        given(reservationRepository.findById(RESERVATION_ID))
+                .willReturn(Optional.of(reservationWithStatus(
+                        HOSPITAL_ID,
+                        ReservationStatus.REQUESTED
+                )));
+        given(reservationRepository.cancelIfConfirmedByHospital(
+                any(), any(), any(), any(), any(), any(), any()
+        )).willReturn(0);
+
+        assertThatThrownBy(() -> hospitalReservationService.cancelConfirmedByHospital(
+                STAFF_ID,
+                RESERVATION_ID,
+                "병원 사정"
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.INVALID_STATUS);
+        verify(notificationPublisher, never()).publishHospitalCancelled(any(), any(), any());
+        verify(reservationEventRepository, never()).appendIfAbsent(
+                any(),
+                eq(ReservationEventType.HOSPITAL_CANCELLED.name()),
                 any(),
                 any(),
                 any()

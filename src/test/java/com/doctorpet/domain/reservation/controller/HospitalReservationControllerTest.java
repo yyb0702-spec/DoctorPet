@@ -1,6 +1,7 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
+import com.doctorpet.domain.reservation.dto.request.HospitalReservationCancelRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRestoreRequest;
 import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
@@ -50,6 +51,25 @@ class HospitalReservationControllerTest {
                 50L,
                 10L,
                 ReservationRejectReason.TREATMENT_UNAVAILABLE
+        );
+        assertThat(response.code()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void cancel_delegatesReasonAndReservationId() {
+        HospitalReservationCancelRequest request =
+                new HospitalReservationCancelRequest("응급수술로 진료 불가");
+
+        ApiResponse<Void> response = hospitalReservationController.cancel(
+                principal,
+                10L,
+                request
+        );
+
+        verify(hospitalReservationService).cancelConfirmedByHospital(
+                50L,
+                10L,
+                "응급수술로 진료 불가"
         );
         assertThat(response.code()).isEqualTo("SUCCESS");
     }

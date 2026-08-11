@@ -5,6 +5,7 @@ package com.doctorpet.domain.notification.entity.status;
 public enum NotificationType {
     RESERVATION_CONFIRMED,
     RESERVATION_REJECTED,
+    RESERVATION_HOSPITAL_CANCELLED,
     PAYMENT_RESULT,
     NO_SHOW
 }

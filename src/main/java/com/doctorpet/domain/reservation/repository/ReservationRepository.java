@@ -158,6 +158,27 @@ public interface ReservationRepository
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r
+               set r.status = :hospitalCanceledStatus,
+                   r.hospitalCancelReason = :reason,
+                   r.hospitalCanceledAt = :canceledAt,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :confirmedStatus
+            """)
+    int cancelIfConfirmedByHospital(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("hospitalCanceledStatus") ReservationStatus hospitalCanceledStatus,
+            @Param("reason") String reason,
+            @Param("canceledAt") LocalDateTime canceledAt,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
                set r.status = :checkedInStatus,
                    r.updatedAt = :updatedAt
              where r.id = :reservationId

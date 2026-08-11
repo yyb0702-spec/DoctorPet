@@ -31,7 +31,7 @@ public enum ReservationProgressStatus {
             case IN_TREATMENT -> IN_TREATMENT;
             case TREATMENT_COMPLETED -> TREATMENT_COMPLETED;
             case REJECTED -> RESERVATION_REJECTED;
-            case CANCELED -> RESERVATION_CANCELED;
+            case CANCELED, HOSPITAL_CANCELLED -> RESERVATION_CANCELED;
             case NO_SHOW_PENDING -> NO_SHOW_PENDING;
             case NO_SHOW -> NO_SHOW;
         };

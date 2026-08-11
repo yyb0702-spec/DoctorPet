@@ -118,6 +118,53 @@ class HospitalReservationAuthorizationTest {
     }
 
     @Test
+    @DisplayName("비인증 사용자는 병원 확정 예약 취소 API에 접근할 수 없다")
+    void anonymous_cannotCancelConfirmedReservation() throws Exception {
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/cancel",
+                        10L
+                )
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"병원 사정\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("보호자는 병원 확정 예약 취소 API에 접근할 수 없다")
+    void guardian_cannotCancelConfirmedReservation() throws Exception {
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/cancel",
+                        10L
+                )
+                        .with(authentication(guardianAuthentication()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"병원 사정\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 병원 확정 예약 취소 API를 호출할 수 있다")
+    void hospitalStaff_canCancelConfirmedReservation() throws Exception {
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/cancel",
+                        10L
+                ).with(authentication(memberAuthentication(
+                        50L,
+                        "HOSPITAL_STAFF"
+                )))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"응급수술로 진료 불가\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(hospitalReservationApplicationService).cancelConfirmedByHospital(
+                50L,
+                10L,
+                "응급수술로 진료 불가"
+        );
+    }
+
+    @Test
     @DisplayName("병원 스태프는 직원용 도착 확인 API를 호출할 수 있다")
     void hospitalStaff_canCheckIn() throws Exception {
         given(hospitalReservationApplicationService.checkIn(50L, 10L))
