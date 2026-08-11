@@ -219,8 +219,9 @@ Closes #
 - 커밋 내용은 `scripts/promote_docs.py` 산출물 **그대로**여야 한다(수작업 편집 금지).
 - `python scripts/harness_check.py`가 PASS여야 한다.
 - 커밋은 버전 헤더·변경 이력·경량본 버전 참조 동기 **외 다른 변경을 섞지 않는다**.
+- **push가 거부되면**(다른 승격이 먼저 오른 경우) 로컬 승격 커밋을 merge/rebase로 합치지 말고 **폐기한 뒤 최신 `develop`에서 스크립트를 재실행**한다: `git fetch origin develop && git reset --hard origin/develop` → `promote_docs.py` 재실행 → commit → push. 로컬 커밋을 pull·merge로 합치려 하면 버전 헤더와 한 줄 변경 이력이 다시 충돌하므로, 반드시 폐기·재생성한다.
 
-근거: 이 커밋은 스크립트가 만든 기계적 산출물이고 harness_check로 검증되며 설계 판단이 없어 코드 리뷰가 더할 것이 없다. 또 `develop`으로의 push는 git이 직렬화하므로(뒤선 push는 non-fast-forward로 거부 → pull 후 재실행하면 다음 버전 번호가 자동 정정) 승격끼리 충돌하지 않는다 — 별도 승격 PR로 하면 동시 두 PR이 같은 다음 번호를 계산해 충돌이 재발하므로 직접 push가 오히려 안전하다. 더 견고한 자동화(merge 직후 단일 CI job이 실행·commit)는 후속 과제로 둔다.
+근거: 이 커밋은 스크립트가 만든 기계적 산출물이고 harness_check로 검증되며 설계 판단이 없어 코드 리뷰가 더할 것이 없다. 또 `develop`으로의 push는 git이 직렬화하므로 승격끼리 충돌하지 않는다 — 별도 승격 PR로 하면 동시 두 PR이 같은 다음 번호를 계산해 충돌이 재발하지만, 직접 push는 뒤선 작업자가 위 "폐기·재생성"으로 최신 상태에서 다음 번호를 다시 계산하므로 헤더·이력 충돌이 남지 않는다. 더 견고한 자동화(merge 직후 단일 CI job이 실행·commit)는 후속 과제로 둔다.
 
 ## 4. 코드 리뷰 규칙
 
