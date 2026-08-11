@@ -116,6 +116,20 @@ public class ReservationService {
                 .toList();
     }
 
+    public Optional<LocalDate> findLatestReservedBusinessDate(
+            Long hospitalId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        return reservationSlotRepository.findLatestReservedBusinessDate(
+                hospitalId,
+                fromDate,
+                toDate,
+                fromDate.atStartOfDay(),
+                toDate.plusDays(2).atStartOfDay()
+        );
+    }
+
     @Transactional
     public boolean removeOpenSlotsIfNoReservation(
             Long hospitalId,
@@ -168,10 +182,12 @@ public class ReservationService {
             LocalDate toDate
     ) {
         boolean hasReservedSlot = reservationSlotRepository
-                .findPublishedSlotsForUpdate(
+                .findBusinessDateSlotsInRangeForUpdate(
                         hospitalId,
+                        fromDate,
+                        toDate,
                         fromDate.atStartOfDay(),
-                        toDate.plusDays(1).atStartOfDay()
+                        toDate.plusDays(2).atStartOfDay()
                 )
                 .stream()
                 .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);

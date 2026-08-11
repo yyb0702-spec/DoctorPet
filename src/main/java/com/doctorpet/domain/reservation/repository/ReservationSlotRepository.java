@@ -4,6 +4,7 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -52,17 +53,39 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
             @Param("businessDate") LocalDate businessDate
     );
 
+    @Query("""
+            SELECT MAX(slot.businessDate)
+            FROM ReservationSlot slot
+            WHERE slot.hospitalId = :hospitalId
+              AND slot.businessDate >= :fromDate
+              AND slot.businessDate <= :toDate
+              AND slot.startAt >= :rangeStart
+              AND slot.startAt < :rangeEnd
+              AND slot.status = com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus.RESERVED
+            """)
+    Optional<LocalDate> findLatestReservedBusinessDate(
+            @Param("hospitalId") Long hospitalId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate,
+            @Param("rangeStart") LocalDateTime rangeStart,
+            @Param("rangeEnd") LocalDateTime rangeEnd
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             SELECT slot
             FROM ReservationSlot slot
             WHERE slot.hospitalId = :hospitalId
+              AND slot.businessDate >= :fromDate
+              AND slot.businessDate <= :toDate
               AND slot.startAt >= :rangeStart
               AND slot.startAt < :rangeEnd
             ORDER BY slot.startAt ASC, slot.id ASC
             """)
-    List<ReservationSlot> findPublishedSlotsForUpdate(
+    List<ReservationSlot> findBusinessDateSlotsInRangeForUpdate(
             @Param("hospitalId") Long hospitalId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate,
             @Param("rangeStart") LocalDateTime rangeStart,
             @Param("rangeEnd") LocalDateTime rangeEnd
     );

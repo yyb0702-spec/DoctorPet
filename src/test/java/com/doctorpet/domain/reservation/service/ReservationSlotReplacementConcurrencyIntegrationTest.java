@@ -409,6 +409,36 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("마지막 공개 영업일의 자정 이후 야간 예약도 조회하고 잠근다")
+    void lastPublishedOvernightReservationUsesBusinessDateRange() {
+        long hospitalId = System.nanoTime();
+        LocalDate today = LocalDate.now();
+        LocalDate businessDate = today.plusDays(13);
+        ReservationSlot overnight = ReservationSlot.create(
+                hospitalId,
+                businessDate.plusDays(1).atTime(1, 0),
+                businessDate.plusDays(1).atTime(1, 30),
+                businessDate
+        );
+        overnight.reserve();
+        reservationSlotRepository.saveAndFlush(overnight);
+        slotIds.add(overnight.getId());
+
+        assertThat(reservationService.findLatestReservedBusinessDate(
+                hospitalId,
+                today,
+                businessDate
+        )).contains(businessDate);
+        assertThatThrownBy(() -> reservationService.lockOpenSlotsForReplacement(
+                hospitalId,
+                today,
+                businessDate
+        )).isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.domain.reservation.exception.SlotErrorCode.ALREADY_RESERVED);
+    }
+
     private ReservationSlot saveSlot(Long hospitalId, LocalDate businessDate, int hour) {
         ReservationSlot slot = reservationSlotRepository.saveAndFlush(ReservationSlot.create(
                 hospitalId,

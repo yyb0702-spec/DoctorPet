@@ -23,9 +23,7 @@ import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureReposito
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
-import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
-import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
@@ -133,18 +131,11 @@ class HospitalOperatingHoursApplicationServiceTest {
         Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
 
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(reservationService.findSlots(
+        given(reservationService.findLatestReservedBusinessDate(
                 HOSPITAL_ID,
-                TODAY.atStartOfDay(),
-                TODAY.plusDays(14).atStartOfDay()
-        )).willReturn(List.of(
-                new ReservationSlotQueryResult(
-                        100L,
-                        TODAY.plusDays(3).atTime(10, 0),
-                        TODAY.plusDays(3).atTime(10, 30),
-                        ReservationSlotStatus.RESERVED
-                )
-        ));
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.of(TODAY.plusDays(3)));
         given(scheduleRepository.findSchedule(HOSPITAL_ID, actualEffectiveFrom))
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
@@ -159,15 +150,44 @@ class HospitalOperatingHoursApplicationServiceTest {
     }
 
     @Test
+    void updateOperatingHoursAppliesAfterLastPublishedBusinessDateReservation() {
+        LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
+        LocalDate lastPublishedBusinessDate = TODAY.plusDays(13);
+        OperatingHoursUpdateRequest request = updateRequest(desiredEffectiveFrom);
+        Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
+
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(reservationService.findLatestReservedBusinessDate(
+                HOSPITAL_ID,
+                TODAY,
+                lastPublishedBusinessDate
+        )).willReturn(Optional.of(lastPublishedBusinessDate));
+        given(scheduleRepository.findSchedule(
+                HOSPITAL_ID,
+                TODAY.plusDays(14)
+        )).willReturn(Optional.empty());
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+        given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        var response = service.updateOperatingHours(MEMBER_ID, request);
+
+        assertThat(response.effectiveFrom()).isEqualTo(TODAY.plusDays(14));
+        verify(reservationService, never())
+                .lockOpenSlotsForReplacement(any(), any(), any());
+    }
+
+    @Test
     void updateOperatingHoursChangesScheduleWithSameEffectiveDate() {
         LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
         OperatingHoursUpdateRequest request = updateRequest(desiredEffectiveFrom);
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(reservationService.findSlots(
+        given(reservationService.findLatestReservedBusinessDate(
                 HOSPITAL_ID,
-                TODAY.atStartOfDay(),
-                TODAY.plusDays(14).atStartOfDay()
-        )).willReturn(List.of());
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.empty());
         given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(scheduleRepository.save(schedule)).willReturn(schedule);
@@ -185,11 +205,11 @@ class HospitalOperatingHoursApplicationServiceTest {
         OperatingHoursUpdateRequest request = updateRequest(effectiveFrom);
         Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(reservationService.findSlots(
+        given(reservationService.findLatestReservedBusinessDate(
                 HOSPITAL_ID,
-                TODAY.atStartOfDay(),
-                TODAY.plusDays(14).atStartOfDay()
-        )).willReturn(List.of());
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.empty());
         given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
@@ -228,11 +248,11 @@ class HospitalOperatingHoursApplicationServiceTest {
         OperatingHoursUpdateRequest request = updateRequest(effectiveFrom);
         Hospital hospital = org.mockito.Mockito.mock(Hospital.class);
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(reservationService.findSlots(
+        given(reservationService.findLatestReservedBusinessDate(
                 HOSPITAL_ID,
-                TODAY.atStartOfDay(),
-                TODAY.plusDays(14).atStartOfDay()
-        )).willReturn(List.of());
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.empty());
         given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))

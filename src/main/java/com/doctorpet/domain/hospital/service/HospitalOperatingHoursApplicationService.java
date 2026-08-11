@@ -17,9 +17,7 @@ import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureReposito
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
-import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
-import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
@@ -387,15 +385,11 @@ public class HospitalOperatingHoursApplicationService {
             LocalDate today,
             LocalDate desiredEffectiveFrom
     ) {
-        return reservationService.findSlots(
+        return reservationService.findLatestReservedBusinessDate(
                         hospitalId,
-                        today.atStartOfDay(),
-                        today.plusDays(14).atStartOfDay()
-                ).stream()
-                .filter(slot -> slot.status() == ReservationSlotStatus.RESERVED)
-                .map(ReservationSlotQueryResult::startAt)
-                .map(LocalDateTime::toLocalDate)
-                .max(LocalDate::compareTo)
+                        today,
+                        today.plusDays(13)
+                )
                 .map(lastReservedDate -> max(
                         desiredEffectiveFrom,
                         lastReservedDate.plusDays(1)
