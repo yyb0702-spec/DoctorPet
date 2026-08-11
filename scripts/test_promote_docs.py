@@ -148,6 +148,16 @@ class PromoteDocsTest(unittest.TestCase):
         # 실패 시 파일을 쓰지 않았는지(경량본 불변)
         self.assertIn("v1.51, REST API는 §8", self.lw.read_text(encoding="utf-8"))
 
+    # --- 헤더는 있지만 '> 변경 이력' 줄이 없으면 실패(rc=1), 파일 불변 ---
+    def test_missing_changelog_returns_error(self):
+        self.sa.write_text("| 문서 버전 | v1.51 |\n\n본문만 있고 변경 이력 줄이 없다.\n",
+                           encoding="utf-8")
+        rc = self._run("--sa", "항목")
+        self.assertEqual(rc, 1)
+        # 헤더 치환은 메모리에서만 일어났고 실제 파일은 안 써야 한다
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+        self.assertIn("v1.51, REST API는 §8", self.lw.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
