@@ -351,6 +351,15 @@ jobs:
             # 갱신했으므로, 이 정지가 실패해도(리뷰 지적 — set -e로 배포 자체를 실패 처리하지
             # 않는다) 활성 색 판단은 계속 정확하다 — 실패는 로그만 남기고 다음 배포나 수동
             # 점검에서 정리하면 되는 부차적인 문제로 취급한다.
+            #
+            # 이 5초는 "이미 끝났을 요청을 위한 여유"일 뿐, 실제 안전장치가 아니다(리뷰 지적 P1,
+            # PR #136) — 결제·AI 상담처럼 5초를 넘기는 요청은 예전에는 이 sleep이 끝나자마자
+            # docker compose stop이 컨테이너를 그대로 끊어버렸다. 지금은 애플리케이션이
+            # server.shutdown: graceful로 SIGTERM을 받아도 진행 중인 요청을
+            # spring.lifecycle.timeout-per-shutdown-phase(30초)까지 마저 처리하고, 아래
+            # docker compose stop이 보내는 SIGTERM 이후에도 docker-compose.yml의
+            # stop_grace_period(35초)가 그 30초보다 여유 있게 기다려주므로, 실제 드레인은
+            # 이 sleep이 아니라 그 두 설정이 보장한다.
             if [ -n "$ACTIVE_COLOR" ]; then
               sleep 5
               # stop이지 rm이 아니다 — 컨테이너를 지우지 않고 정지만 해서 다음 배포 때 같은
