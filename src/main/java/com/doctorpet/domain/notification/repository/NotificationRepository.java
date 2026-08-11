@@ -3,6 +3,8 @@ package com.doctorpet.domain.notification.repository;
 // 알림 저장·조회 리포지토리. 수신자별 최신순 페이징과 읽음여부 필터(read_at NULL/NOT NULL)를 제공한다.
 
 import com.doctorpet.domain.notification.entity.Notification;
+import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
+import com.doctorpet.domain.notification.entity.status.NotificationType;
 import java.time.LocalDateTime;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -18,6 +20,15 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     Page<Notification> findByMemberIdAndReadAtIsNull(Long memberId, Pageable pageable);
 
     Page<Notification> findByMemberIdAndReadAtIsNotNull(Long memberId, Pageable pageable);
+
+    // 특정 리소스에 대해 같은 유형의 알림이 이미 저장됐는지 판별한다. 결제 고도화 3.6에서 "결제 확인 중"
+    // 안내(RECONCILE_STUCK)의 멱등 마커로 쓴다 — 정산이 여러 사이클 돌아도 같은 결제엔 1회만 저장하게 한다.
+    boolean existsByMemberIdAndTypeAndResourceTypeAndResourceId(
+            Long memberId,
+            NotificationType type,
+            NotificationResourceType resourceType,
+            Long resourceId
+    );
 
     // 미읽음 개수. 배지 표시용으로 목록을 페이징하지 않고 read_at NULL 건수만 센다(findByMemberIdAndReadAtIsNull과 동일 조건).
     long countByMemberIdAndReadAtIsNull(Long memberId);
