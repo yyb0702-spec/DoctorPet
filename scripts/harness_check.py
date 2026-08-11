@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DoctorPet 하네스 무결성 검사.
 
-검사 범위 (의도적으로 5가지로 제한한다 — 검사기가 장애물이 되지 않게):
+검사 범위 (의도적으로 최소로 제한한다 — 검사기가 장애물이 되지 않게):
   1. 하네스·경량 문서의 마크다운 상대 링크가 실제 파일을 가리키는가
   2. rule-source-map.md 표의 정본 경로가 실존하는가
   3. `PRD §X-Y` / `SA §X-Y` / `SA 부록 A·B` 참조가 실제 문서 헤더에 존재하는가
@@ -9,6 +9,10 @@
   4. PR 템플릿(.github/pull_request_template.md)이 github-rules.md의
      "### PR 템플릿" 코드블록과 일치하는가 (정본-사본 동기)
   5. 경량본의 정본 경로·버전 표기가 현재 정본과 일치하는가
+  6. 프로즈에 `#Foo`·`#A1`처럼 정의 없는 참조 태그가 새지 않았는가
+     (실제 이슈·PR은 `#숫자`, 섹션은 `§N-M`·`부록 A/B`, 파일은 마크다운 링크로만
+      표기한다. #뒤에 영문자가 붙은 토큰은 대응 대상이 없는 AI 잔여물로 본다.
+      PR #134에서 리뷰 반영 커밋이 흘린 `(#A1·#A2)`가 이 사각지대로 샜다.)
 
 사용: python scripts/harness_check.py   (성공 시 exit 0, 결함 발견 시 exit 1)
 """
@@ -64,6 +68,45 @@ MD_LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)")
 BACKTICK_PATH = re.compile(r"`((?:docs|scripts|\.github)/[^`\s]+\.(?:md|py|yml))`")
 SECTION_REF = re.compile(r"(PRD|SA)\s*§(\d+(?:-\d+)?(?:~\d+(?:-\d+)?)?)")
 APPENDIX_REF = re.compile(r"SA\s*부록\s*([AB])")
+
+# 프로즈에 새는 '정의 없는 참조 태그' 검출용.
+# 코드펜스·인라인코드·마크다운 링크 앵커를 걷어낸 뒤 남은 프로즈에서
+# `#` + 영문자로 시작하는 토큰(#A1, #Foo 등)을 찾는다. 실제 이슈·PR은 #숫자라
+# 여기 안 걸리고, 섹션(§)·부록·파일 링크도 표기가 달라 안 걸린다.
+FENCE_LINE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+LINK_TARGET = re.compile(r"\]\([^)]*\)")
+DANGLING_HASH = re.compile(r"#([A-Za-z][\w-]*)")
+
+
+def strip_code_fences(text: str) -> str:
+    """코드펜스(``` 또는 ~~~, 길이 3+) 안의 내용을 빈 줄로 지운다.
+
+    CommonMark는 백틱과 물결표 둘 다 펜스로 인정하므로 둘 다 처리한다(리뷰 지적).
+    펜스 마커는 같은 문자의 연속만 인정하고(백틱·물결표 혼합은 매치하지 않음 —
+    백틱 3개 뒤에 물결표 3개가 오면 백틱 펜스 + 정보 문자열 취급), 들여쓰기는 CommonMark
+    규칙대로 0~3칸까지만 펜스로 인정한다(4칸 이상은 들여쓰기 코드블록이라 펜스가
+    아니다 — 리뷰 지적). 닫는 펜스는 여는 펜스와 같은 문자·같거나 긴 길이여야 하고
+    뒤에 정보 문자열이 없어야 한다. 백틱 여는 줄의 정보 문자열에는 백틱이 올 수
+    없다(그건 인라인 코드다). 줄 수는 보존한다(다른 검사의 줄 기준을 흔들지 않기 위함).
+    """
+    out: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        m = FENCE_LINE.match(line)
+        if fence is None:
+            if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
+                fence = (m.group(2)[0], len(m.group(2)))
+                out.append("")  # 여는 펜스 줄 제거
+            else:
+                out.append(line)
+        else:
+            fchar, flen = fence
+            if (m and m.group(2)[0] == fchar
+                    and len(m.group(2)) >= flen and m.group(3).strip() == ""):
+                fence = None  # 닫는 펜스
+            out.append("")  # 펜스 내부·펜스 줄 모두 제거
+    return "\n".join(out)
 
 
 def load(path: Path) -> str:
@@ -190,6 +233,24 @@ def check_section_refs(rel: str, text: str, prd_headers: set[str],
             errors.append(f"{rel}: SA 부록 {m.group(1)} 헤더가 실제 문서에 없다")
 
 
+def check_dangling_hash_refs(rel: str, text: str, errors: list[str]) -> None:
+    """`#A1`·`#Foo`처럼 대응 대상이 없는 참조 태그가 프로즈에 샜는지 검사한다.
+
+    코드펜스(``` 또는 ~~~)·인라인코드·마크다운 링크 앵커(`](path#anchor)`)를 먼저 걷어낸다 —
+    셸 주석(`#!/usr/bin/env`)·CSS 색(`#fff`)·파일 앵커 링크는 정상이므로 검사 대상이 아니다.
+    남은 프로즈에서 `#`+영문자 토큰만 결함으로 본다. `#숫자`(이슈·PR), `§`(섹션),
+    `부록 A/B`, 한글 뒤 `#`은 매치되지 않아 오탐이 없다.
+    """
+    scrubbed = strip_code_fences(text)
+    scrubbed = INLINE_CODE.sub(" ", scrubbed)
+    scrubbed = LINK_TARGET.sub(" ", scrubbed)
+    for m in DANGLING_HASH.finditer(scrubbed):
+        errors.append(
+            f"{rel}: 정의 없는 참조 태그 → #{m.group(1)} "
+            "(이슈·PR은 #숫자, 섹션은 §N-M·부록 A/B, 파일은 마크다운 링크로 표기한다)"
+        )
+
+
 def main() -> int:
     # Windows 콘솔(cp949)에서도 한글·특수문자 출력이 깨지지 않게 강제
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -227,11 +288,16 @@ def main() -> int:
         # 3. 섹션 참조
         check_section_refs(rel, text, prd_headers, sa_headers, errors)
 
+        # 6. 정의 없는 참조 태그(#A1 등)
+        check_dangling_hash_refs(rel, text, errors)
+
     # PRD·SA 자체의 상호 §참조도 검증한다 (예: PRD가 "SA §9-6"을, SA가 "PRD §7"을 가리키는 경우).
     # 링크·백틱 경로 검사는 제외한다 — 프로즈·표가 많아 오탐이 나므로 섹션 참조만 본다.
     for doc in (PRD, SA):
         rel = doc.relative_to(ROOT).as_posix()
-        check_section_refs(rel, load(doc), prd_headers, sa_headers, errors)
+        doc_text = load(doc)
+        check_section_refs(rel, doc_text, prd_headers, sa_headers, errors)
+        check_dangling_hash_refs(rel, doc_text, errors)
 
     # 4. PR 템플릿 ↔ github-rules 코드블록 동기 (정본-사본 diff 0)
     tpl = ROOT / ".github/pull_request_template.md"
@@ -262,7 +328,7 @@ def main() -> int:
         f"PASS — 하네스 문서 {len(HARNESS_DOCS)}개·경량 문서 "
         f"{len(LIGHTWEIGHT_DOCS)}개·고도화 문서 {len(ENHANCEMENT_DOCS)}개 "
         "+ PRD·SA 상호참조, "
-        "링크·경로·섹션·정본 버전 참조 이상 없음"
+        "링크·경로·섹션·정본 버전·참조 태그 이상 없음"
     )
     return 0
 
