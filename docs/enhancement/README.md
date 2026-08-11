@@ -17,13 +17,14 @@ MVP가 끝난 뒤의 고도화·신규 작업 설계를 모으는 곳이다. **�
 
      # push가 거부되면(다른 승격이 먼저 오름): 로컬 승격 커밋을 폐기하고 재생성
      git fetch origin develop
-     git diff --name-only origin/develop...HEAD   # 승격 파일(SA/PRD/경량본)만 나와야 함
-     git reset --hard origin/develop              # 폐기 (merge/rebase 아님)
+     git diff --name-only origin/develop...HEAD   # 승격 파일(SA/PRD/경량본)만 나와야 함(커밋 간 변경)
+     git status --porcelain                       # 비어 있어야 함 — 미커밋 작업이 있으면 stash/커밋 후 진행
+     git reset --hard origin/develop              # 위 둘 확인 후에만 (폐기, merge/rebase 아님)
      python scripts/promote_docs.py --sa "..." --commit
      git push
      ```
 
-     별도 승격 PR을 만들지 않는 이유: 동시에 열린 두 승격 PR은 같은 현재 버전에서 같은 다음 번호를 계산해 충돌이 재발한다. 반면 **develop로의 push는 git이 직렬화**하고, 뒤선 push가 거부되면 위처럼 로컬 승격 커밋을 **폐기·재생성**한다(pull·merge로 합치면 헤더·한 줄 이력이 재충돌). 승격 커밋은 (최신 develop + 항목)의 순수 함수라 폐기·재생성이 안전하며, `--commit`이 clean tree를 강제하고 승격 파일만 stage하므로 폐기 대상 커밋에도 승격 파일만 들어 있어 `reset --hard`가 무관한 작업을 지우지 않는다.
+     `git diff --name-only`은 **커밋 간** 변경만 보여 주므로(리뷰 지적 P1) 승격 커밋 이후 새로 생긴 **미커밋 tracked 변경**은 드러나지 않는다 — 그대로 `reset --hard`하면 그 작업까지 삭제되므로, reset 전에 `git status --porcelain`이 비어 있는지 반드시 확인한다(`promote_docs.py` 상단 복구 절차와 동일). 별도 승격 PR을 만들지 않는 이유: 동시에 열린 두 승격 PR은 같은 현재 버전에서 같은 다음 번호를 계산해 충돌이 재발한다. 반면 **develop로의 push는 git이 직렬화**하고, 뒤선 push가 거부되면 위처럼 로컬 승격 커밋을 **폐기·재생성**한다(pull·merge로 합치면 헤더·한 줄 이력이 재충돌). 승격 커밋은 (최신 develop + 항목)의 순수 함수라 폐기·재생성이 안전하며, `--commit`이 clean tree를 강제하고 승격 파일만 stage하므로 폐기 대상 커밋에도 승격 파일만 들어 있어 `reset --hard`가 무관한 커밋을 지우지 않는다.
    - **2인 승인 예외.** 이 bookkeeping 커밋은 스크립트가 만든 기계적 산출물이고 `harness_check.py`로 검증되며 설계 판단이 없다. 따라서 `feature/* → develop` PR·2인 승인 규칙의 **명시적 예외**로 develop 직접 push를 허용한다 — 조건·근거는 브랜치·PR 정본인 [`docs/collaboration/github-rules.md`](../collaboration/github-rules.md) §3 "문서 버전 승격 예외"에 명문화돼 있다(이 규칙 자체는 그 PR 승인으로 팀이 비준한다). 더 견고한 대안은 merge 직후 단일 CI job이 자동 실행·commit하는 것으로, 후속 고도화로 둔다.
 2. **한 파일 한 소유자.** 도메인별로 파일 1개(`결제.md`, `알림.md`, ...)를 두고, 그 파일은 담당자 1명만 편집한다. 두 사람이 같은 도메인을 건드려야 하면 파일을 나누기 전에 인덱스에서 소유자를 조정한다.
 3. **자기선언 읽기 범위.** 각 문서는 헤더에 `전제(동결 baseline)`를 스스로 선언한다. AI·사람은 **그 문서 + 전제에 적힌 SA·PRD 절만** 읽고, 나머지 MVP 문서는 읽지 않는다.
