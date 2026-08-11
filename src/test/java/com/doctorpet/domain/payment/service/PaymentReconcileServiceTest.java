@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -60,6 +62,9 @@ class PaymentReconcileServiceTest {
     @Mock private PaymentNotificationPublisher notificationPublisher;
     @Mock private ReservationLookupPort reservationLookupPort;
     @Mock private ReconcileLock reconcileLock;
+    // publishStuckNoticeIfPending(@Transactional, 행 락)을 프록시 경유로 호출하기 위한 자기참조. 단위 테스트에는
+    // 프록시가 없으므로 getObject()가 실제 service를 돌려주게 해, 그 메서드가 findByIdForUpdate로 현재 상태를 재확인한다.
+    @Mock private ObjectProvider<PaymentReconcileService> self;
 
     // JVM 기본 시간대에 의존하지 않도록 테스트도 고정 Clock을 주입한다(운영은 서울 기준 applicationClock).
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC);
@@ -74,7 +79,8 @@ class PaymentReconcileServiceTest {
         properties.setMaxAttempts(MAX_ATTEMPTS);
         service = new PaymentReconcileService(
                 paymentRepository, paymentChargeService, paymentGateway, notificationPublisher,
-                reservationLookupPort, reconcileLock, FIXED_CLOCK, properties);
+                reservationLookupPort, reconcileLock, FIXED_CLOCK, properties, self);
+        lenient().when(self.getObject()).thenReturn(service);
     }
 
     private PaymentChargeService.FinalizeResult applied(Payment payment) {
@@ -174,6 +180,8 @@ class PaymentReconcileServiceTest {
         lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
         given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(MAX_ATTEMPTS)));
+        // 발행 여부는 행 락 아래 현재 상태를 다시 읽어 판단한다 — 여전히 PENDING이라 발행한다.
+        given(paymentRepository.findByIdForUpdate(anyLong())).willReturn(Optional.of(pendingTarget(MAX_ATTEMPTS)));
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
                 new ReservationChargeView(RESERVATION_ID, 1L, GUARDIAN_ID, 7L, true)));
 
@@ -189,23 +197,24 @@ class PaymentReconcileServiceTest {
     }
 
     @Test
-    @DisplayName("STUCK 조회지만 그 사이 다른 경로가 PAID로 확정했으면(applied=false·현재 PAID) '결제 확인 중'을 발행하지 않는다")
+    @DisplayName("STUCK 조회지만 행 락으로 다시 읽었을 때 이미 PAID로 확정됐으면 '결제 확인 중'을 발행하지 않는다")
     void queryStuck_butAlreadyConfirmed_doesNotPublishStuckNotice() {
-        // resolveByQuery는 과거 조회 시점 기준 STUCK을 돌려주지만, 경합으로 청구 후확정·웹훅이 먼저 PAID로 전이하면
-        // finalizeOutcome은 applied=false와 현재 확정 상태(PAID)의 payment를 반환한다. 이때 완료 알림 뒤에 뒤늦은
-        // "결제 확인 중"이 중복으로 나가면 안 된다(Codex P2) — 현재 상태가 PENDING이 아니므로 안내를 발행하지 않는다.
+        // resolveByQuery는 과거 조회 시점 기준 STUCK을 돌려주지만, 발행 직전 결제 행을 잠그고 현재 상태를 다시 읽는다.
+        // 그 사이 청구 후확정·웹훅이 먼저 PAID로 전이했다면 findByIdForUpdate가 PAID를 보므로, 완료 알림 뒤에 뒤늦은
+        // "결제 확인 중"이 나가지 않는다(리뷰 P1 — check-then-act 구간 제거).
         lockAcquired(List.of(pendingTarget(MAX_ATTEMPTS)));
         given(paymentGateway.query(MERCHANT_ID)).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
-        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(resolved(PaymentStatus.PAID)));
+        given(paymentChargeService.finalizeOutcome(anyLong(), any())).willReturn(notApplied(pendingTarget(MAX_ATTEMPTS)));
+        // 행 락으로 다시 읽으니 이미 PAID — 발행하지 않는다.
+        given(paymentRepository.findByIdForUpdate(anyLong())).willReturn(Optional.of(resolved(PaymentStatus.PAID)));
 
         ReconcileSummary summary = service.reconcile();
 
         assertThat(summary.stillPending()).isEqualTo(1);
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.failureReason()).isEqualTo("RECONCILE_STUCK");
-        // 상태가 이미 PAID라 "결제 확인 중"은 물론, 이 경로에선 완료 알림(applied=false)도 발행하지 않는다.
+        // 잠그고 보니 이미 PAID라 "결제 확인 중"을 발행하지 않는다.
         verify(notificationPublisher, never()).publishPendingNotice(anyLong(), anyLong(), any(), anyInt());
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), anyInt());
     }
 
     @Test

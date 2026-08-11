@@ -15,6 +15,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -27,7 +28,10 @@ import lombok.NoArgsConstructor;
                 @Index(name = "idx_notifications_member_created", columnList = "member_id, created_at"),
                 // 미읽음 개수·모두 읽음(PR #134 리뷰)이 매 요청 member_id = ? AND read_at IS NULL로 훑는다.
                 @Index(name = "idx_notifications_member_read", columnList = "member_id, read_at")
-        }
+        },
+        // 멱등 발행 전용 중복 방지 제약. 이름을 고정해, createIfAbsent가 이 제약의 중복 키 위반(DuplicateKeyException)만
+        // 흡수하고 NOT NULL·길이 등 다른 무결성 오류는 전파하도록 근거로 삼는다(PR #139 리뷰 P2).
+        uniqueConstraints = @UniqueConstraint(name = "uk_notifications_dedup_key", columnNames = "dedup_key")
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -57,8 +61,9 @@ public class Notification extends BaseEntity {
     // 멱등 발행 전용 중복 방지 키. createIfAbsent로 저장하는 알림에만 (type:resourceType:resourceId:memberId)로 채우고
     // 일반 create는 null로 둔다. MySQL은 UNIQUE 인덱스에서 NULL을 서로 다르게 취급하므로, null인 일반 알림끼리는
     // 충돌하지 않고(예: PAID 후 REFUNDED의 PAYMENT_RESULT 정상 중복 허용) 멱등 발행만 (수신자·유형·리소스)당 1건으로
-    // DB가 원자적으로 강제한다 — 존재조회→저장의 경합(락 밖 웹훅 vs 배치)에서도 중복 저장을 막는다.
-    @Column(name = "dedup_key", unique = true, length = 200)
+    // DB가 원자적으로 강제한다 — 존재조회→저장의 경합(락 밖 웹훅 vs 배치)에서도 중복 저장을 막는다. UNIQUE 제약은
+    // @Table.uniqueConstraints에 uk_notifications_dedup_key로 이름을 붙였다(중복 키 위반만 선별 흡수하기 위함).
+    @Column(name = "dedup_key", length = 200)
     private String dedupKey;
 
     @Column(name = "read_at")

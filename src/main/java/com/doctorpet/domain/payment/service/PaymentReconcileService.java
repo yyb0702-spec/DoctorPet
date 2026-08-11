@@ -18,8 +18,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /*
   결제 정산(reconcile) 배치(#35, SA §9-7·§9-4). 타임아웃 등으로 PENDING에 남은 결제를 주기적으로 단건조회해
@@ -56,6 +58,9 @@ public class PaymentReconcileService {
     // 아니라 이 Clock으로 계산해, 운영·CI JVM이 UTC여도 updatedAt과 임계값의 시간대가 어긋나지 않게 한다.
     private final Clock clock;
     private final PaymentReconcileProperties properties;
+    // publishStuckNoticeIfPending(@Transactional, 행 락)을 프록시 경유로 호출하기 위한 자기참조. 같은 빈 내부 호출은
+    // 프록시를 우회해 @Transactional이 무시되므로, 순환 초기화 없는 ObjectProvider로 지연 주입한다.
+    private final ObjectProvider<PaymentReconcileService> self;
 
     public PaymentReconcileService(
             PaymentRepository paymentRepository,
@@ -65,7 +70,8 @@ public class PaymentReconcileService {
             ReservationLookupPort reservationLookupPort,
             ReconcileLock reconcileLock,
             Clock clock,
-            PaymentReconcileProperties properties
+            PaymentReconcileProperties properties,
+            ObjectProvider<PaymentReconcileService> self
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentChargeService = paymentChargeService;
@@ -75,6 +81,7 @@ public class PaymentReconcileService {
         this.reconcileLock = reconcileLock;
         this.clock = clock;
         this.properties = properties;
+        this.self = self;
     }
 
     /** 정산 배치 1회 실행. 다른 인스턴스가 실행 중이면 스킵한다. */
@@ -128,15 +135,13 @@ public class PaymentReconcileService {
         // 이 호출이 실제로 상태를 전이시켰을 때만 발행한다 — 청구 후확정이 먼저 확정했다면(조건부 UPDATE 0건) 중복 발행하지 않는다.
         if (result.applied()) {
             publishResolved(result.payment());
-        } else if (RECONCILE_STUCK.equals(outcome.failureReason())
-                && result.payment().getStatus() == PaymentStatus.PENDING) {
+        } else if (RECONCILE_STUCK.equals(outcome.failureReason())) {
             // 상태 전이는 없지만(PENDING 유지) 오래 미확정으로 STUCK 확정된 경우 — 보호자 무음을 해소하기 위해
             // "결제 확인 중" 안내를 발행한다. 최초/일시적 PENDING(RECONCILE_UNCONFIRMED 등)은 여기 오지 않는다.
-            // 단, outcome은 과거 조회 시점의 STUCK이라, 경합으로 다른 경로(청구 후확정·웹훅)가 그 사이 PAID/OFFLINE로
-            // 확정했다면 result.payment()는 더 이상 PENDING이 아니다 — 그 경우 완료 알림 뒤 뒤늦은 "확인 중" 중복이
-            // 나가지 않도록 현재 상태가 PENDING일 때만 발행한다. 정산이 여러 사이클 돌아도 발행 구현이 결제당 1회만
-            // 저장한다(멱등). 상태·정산 로직은 바꾸지 않는다.
-            publishStuckNotice(target);
+            // outcome은 과거 조회 시점의 STUCK이라 그 사이 다른 경로가 PAID/OFFLINE로 확정했을 수 있으므로, 발행 여부는
+            // 결제 행을 잠그고 현재 상태를 다시 확인하는 트랜잭션(publishStuckNoticeIfPending) 안에서 원자적으로 판단한다.
+            // self 프록시로 호출해 @Transactional(행 락) 경계가 적용되게 한다.
+            self.getObject().publishStuckNoticeIfPending(target.getId());
         }
         return outcome.type();
     }
@@ -186,11 +191,19 @@ public class PaymentReconcileService {
         }
     }
 
-    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 구현이 dedup_key UNIQUE로
-    // 반복 사이클·락 밖 동시 경로(웹훅)에서도 결제당 정확히 1회만 저장한다(멱등). 발행 실패는 격리한다 — 정산 상태는
-    // 이미 확정(유지)됐다.
-    private void publishStuckNotice(Payment target) {
-        Long guardianMemberId = reservationLookupPort.findForCharge(target.getReservationId())
+    // 오래 미확정으로 STUCK 확정된 결제에 "결제 확인 중"을 안내한다(결제 고도화 3.6). 발행 결정과 저장을 한 트랜잭션에서
+    // 결제 행 락(findByIdForUpdate) 아래 처리해 "현재도 PENDING인지 확인"과 "안내 저장" 사이의 경합을 없앤다(PR #139
+    // 리뷰 P1) — 그 사이 다른 경로가 PAID/OFFLINE로 확정했다면 락을 잡고 다시 읽었을 때 PENDING이 아니므로 발행하지
+    // 않고, 완료를 확정하는 조건부 UPDATE(WHERE id=..., PENDING→...)는 같은 행 락에 직렬화되어 완료 알림 뒤에 뒤늦은
+    // 안내가 저장되지 않는다. 반복 사이클·동시 발행의 결제당 1건은 dedup_key UNIQUE가 보장한다. 발행 실패는 격리한다 —
+    // 정산 상태는 이미 확정(유지)됐다. public+@Transactional은 self 프록시 호출로 트랜잭션 경계를 적용하기 위함이다.
+    @Transactional
+    public void publishStuckNoticeIfPending(Long paymentId) {
+        Payment locked = paymentRepository.findByIdForUpdate(paymentId).orElse(null);
+        if (locked == null || locked.getStatus() != PaymentStatus.PENDING) {
+            return;
+        }
+        Long guardianMemberId = reservationLookupPort.findForCharge(locked.getReservationId())
                 .map(ReservationChargeView::guardianMemberId)
                 .orElse(null);
         if (guardianMemberId == null) {
@@ -198,9 +211,9 @@ public class PaymentReconcileService {
         }
         try {
             notificationPublisher.publishPendingNotice(
-                    guardianMemberId, target.getReservationId(), target.getId(), target.getAmount());
+                    guardianMemberId, locked.getReservationId(), locked.getId(), locked.getAmount());
         } catch (RuntimeException e) {
-            log.warn("결제 확인 중 안내 발행 실패(정산 상태는 유지): paymentId={}", target.getId(), e);
+            log.warn("결제 확인 중 안내 발행 실패(정산 상태는 유지): paymentId={}", locked.getId(), e);
         }
     }
 

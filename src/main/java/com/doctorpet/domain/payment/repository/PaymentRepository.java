@@ -34,6 +34,17 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             @Param("reservationId") Long reservationId
     );
 
+    // 결제 행 락. "결제 확인 중" 안내를 STUCK 결제에 발행할 때, 현재도 PENDING인지 확인과 안내 저장을 한 트랜잭션에서
+    // 원자적으로 처리하기 위해 행을 잠근다 — 그 사이 청구 후확정·웹훅이 PAID로 확정하는 조건부 UPDATE(markPaidIfPending
+    // 등, WHERE id=...)를 같은 행 락에 직렬화해, 완료 알림 뒤에 뒤늦은 안내가 저장되는 경합을 막는다(PR #139 리뷰 P1).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+              from Payment p
+             where p.id = :id
+            """)
+    Optional<Payment> findByIdForUpdate(@Param("id") Long id);
+
     Optional<Payment> findByMerchantPaymentId(String merchantPaymentId);
 
     /*
