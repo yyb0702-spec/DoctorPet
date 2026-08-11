@@ -161,7 +161,7 @@ public class HospitalReservationApplicationService {
                 reservationId,
                 hospitalId,
                 ReservationStatus.CONFIRMED,
-                ReservationStatus.HOSPITAL_CANCELLED,
+                ReservationStatus.HOSPITAL_CANCELED,
                 reason,
                 now,
                 now
@@ -169,9 +169,11 @@ public class HospitalReservationApplicationService {
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
+        ReservationSlot slot = findSlot(reservation.getSlotId());
+        slot.open();
         reservationEventRepository.appendIfAbsent(
                 reservationId,
-                ReservationEventType.HOSPITAL_CANCELLED.name(),
+                ReservationEventType.HOSPITAL_CANCELED.name(),
                 reason,
                 staffMemberId,
                 now

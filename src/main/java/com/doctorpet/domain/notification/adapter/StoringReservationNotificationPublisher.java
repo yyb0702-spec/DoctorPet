@@ -52,7 +52,7 @@ public class StoringReservationNotificationPublisher
     ) {
         notificationService.create(
                 guardianMemberId,
-                NotificationType.RESERVATION_HOSPITAL_CANCELLED,
+                NotificationType.RESERVATION_HOSPITAL_CANCELED,
                 "병원이 확정된 예약을 취소했습니다. 사유: " + reason,
                 NotificationResourceType.RESERVATION,
                 reservationId

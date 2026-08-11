@@ -44,7 +44,7 @@ class ReservationProgressStatusTest {
     @DisplayName("병원 취소 예약은 보호자 진행 상태에서 취소로 표시한다")
     void hospitalCancelled_isExposedAsCanceled() {
         assertThat(ReservationProgressStatus.from(
-                ReservationStatus.HOSPITAL_CANCELLED,
+                ReservationStatus.HOSPITAL_CANCELED,
                 null
         )).isEqualTo(ReservationProgressStatus.RESERVATION_CANCELED);
     }

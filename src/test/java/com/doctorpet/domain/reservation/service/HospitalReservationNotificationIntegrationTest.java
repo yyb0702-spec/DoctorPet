@@ -131,20 +131,21 @@ class HospitalReservationNotificationIntegrationTest {
         );
 
         assertThat(reservationStatus(data.reservationId()))
-                .isEqualTo(ReservationStatus.HOSPITAL_CANCELLED);
+                .isEqualTo(ReservationStatus.HOSPITAL_CANCELED);
+        assertThat(slotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.OPEN);
         assertThat(jdbcTemplate.queryForObject(
                 "select hospital_cancel_reason from reservations where id = ?",
                 String.class,
                 data.reservationId()))
                 .isEqualTo("응급수술로 진료 불가");
         assertThat(jdbcTemplate.queryForObject(
-                "select count(*) from reservation_events where reservation_id = ? and event_type = 'HOSPITAL_CANCELLED'",
+                "select count(*) from reservation_events where reservation_id = ? and event_type = 'HOSPITAL_CANCELED'",
                 Integer.class,
                 data.reservationId()))
                 .isEqualTo(1);
         assertThat(notificationCount(
                 data.reservationId(),
-                NotificationType.RESERVATION_HOSPITAL_CANCELLED
+                NotificationType.RESERVATION_HOSPITAL_CANCELED
         )).isEqualTo(1);
         assertThat(notificationContent(data.reservationId()))
                 .isEqualTo("병원이 확정된 예약을 취소했습니다. 사유: 응급수술로 진료 불가");
@@ -175,10 +176,11 @@ class HospitalReservationNotificationIntegrationTest {
                 data.reservationId()))
                 .isNull();
         assertThat(jdbcTemplate.queryForObject(
-                "select count(*) from reservation_events where reservation_id = ? and event_type = 'HOSPITAL_CANCELLED'",
+                "select count(*) from reservation_events where reservation_id = ? and event_type = 'HOSPITAL_CANCELED'",
                 Integer.class,
                 data.reservationId()))
                 .isZero();
+        assertThat(slotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.RESERVED);
         assertThat(totalNotificationCount(data.reservationId())).isZero();
     }
 

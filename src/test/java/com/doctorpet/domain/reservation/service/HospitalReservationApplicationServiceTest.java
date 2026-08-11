@@ -264,6 +264,9 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.cancelIfConfirmedByHospital(
                 any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
+        ReservationSlot reservedSlot = slot();
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(reservedSlot));
 
         hospitalReservationService.cancelConfirmedByHospital(
                 STAFF_ID,
@@ -274,9 +277,11 @@ class HospitalReservationApplicationServiceTest {
         verify(reservationRepository).cancelIfConfirmedByHospital(
                 any(), any(), any(), any(), any(), any(), any()
         );
+        verify(reservationSlotRepository).findById(SLOT_ID);
+        assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
         verify(reservationEventRepository).appendIfAbsent(
                 eq(RESERVATION_ID),
-                eq(ReservationEventType.HOSPITAL_CANCELLED.name()),
+                eq(ReservationEventType.HOSPITAL_CANCELED.name()),
                 eq("응급수술로 진료 불가"),
                 eq(STAFF_ID),
                 any()
@@ -329,7 +334,7 @@ class HospitalReservationApplicationServiceTest {
         verify(notificationPublisher, never()).publishHospitalCancelled(any(), any(), any());
         verify(reservationEventRepository, never()).appendIfAbsent(
                 any(),
-                eq(ReservationEventType.HOSPITAL_CANCELLED.name()),
+                eq(ReservationEventType.HOSPITAL_CANCELED.name()),
                 any(),
                 any(),
                 any()

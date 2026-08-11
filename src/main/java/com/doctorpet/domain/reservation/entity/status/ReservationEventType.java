@@ -7,5 +7,5 @@ public enum ReservationEventType {
     MANUAL_NO_SHOW,
     NO_SHOW_CORRECTED,
     TIMEOUT_REJECTED,
-    HOSPITAL_CANCELLED
+    HOSPITAL_CANCELED
 }
