@@ -20,10 +20,17 @@ import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
         "ai.openai.api-key=test-key",
@@ -50,6 +57,12 @@ class HospitalSlotGenerationBatchIntegrationTest {
 
     @Autowired
     private ReservationSlotRepository slotRepository;
+
+    @Autowired
+    private HospitalOperatingHoursApplicationService operatingHoursService;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private final List<Long> hospitalIds = new ArrayList<>();
     private final List<Long> scheduleIds = new ArrayList<>();
@@ -180,6 +193,133 @@ class HospitalSlotGenerationBatchIntegrationTest {
                     hospital.getId(),
                     businessDate
             )).hasSize(2);
+        }
+    }
+
+    @Test
+    void slotGenerationWaitsForTemporaryClosureAndLeavesNoOpenSlot() throws Exception {
+        LocalDate businessDate = LocalDate.of(2026, 8, 20);
+        Hospital hospital = saveHospital("SLOT-CLOSURE-RACE");
+        saveSchedule(schedule(
+                hospital,
+                businessDate.minusDays(1),
+                businessDate.getDayOfWeek(),
+                new DailyOperatingHours(LocalTime.of(9, 0), LocalTime.of(10, 0))
+        ));
+        CountDownLatch closureStored = new CountDownLatch(1);
+        CountDownLatch commitClosure = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> closureFuture = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(status -> {
+                        Hospital lockedHospital = hospitalRepository
+                                .findByIdForUpdate(hospital.getId())
+                                .orElseThrow();
+                        HospitalTemporaryClosure closure = closureRepository.saveAndFlush(
+                                HospitalTemporaryClosure.create(
+                                        lockedHospital,
+                                        businessDate
+                                )
+                        );
+                        closureIds.add(closure.getId());
+                        closureStored.countDown();
+                        await(commitClosure);
+                    })
+            );
+
+            assertThat(closureStored.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Integer> generationFuture = executor.submit(() ->
+                    operatingHoursService.createSlots(hospital.getId(), businessDate)
+            );
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> generationFuture.get(300, TimeUnit.MILLISECONDS)
+            ).isInstanceOf(TimeoutException.class);
+            commitClosure.countDown();
+
+            closureFuture.get(30, TimeUnit.SECONDS);
+            assertThat(generationFuture.get(30, TimeUnit.SECONDS)).isZero();
+            assertThat(slotRepository.findBusinessDateSlots(
+                    hospital.getId(),
+                    businessDate
+            )).isEmpty();
+        } finally {
+            commitClosure.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void slotGenerationWaitsForScheduleChangeAndUsesChangedHours() throws Exception {
+        LocalDate businessDate = LocalDate.of(2026, 8, 21);
+        Hospital hospital = saveHospital("SLOT-SCHEDULE-RACE");
+        HospitalOperatingSchedule schedule = schedule(
+                hospital,
+                businessDate.minusDays(1),
+                businessDate.getDayOfWeek(),
+                new DailyOperatingHours(LocalTime.of(9, 0), LocalTime.of(10, 0))
+        );
+        saveSchedule(schedule);
+        CountDownLatch scheduleChanged = new CountDownLatch(1);
+        CountDownLatch commitSchedule = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> updateFuture = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(status -> {
+                        hospitalRepository.findByIdForUpdate(hospital.getId())
+                                .orElseThrow();
+                        HospitalOperatingSchedule lockedSchedule = scheduleRepository
+                                .findSchedule(hospital.getId(), schedule.getEffectiveFrom())
+                                .orElseThrow();
+                        lockedSchedule.changeOperatingHours(Map.of(
+                                businessDate.getDayOfWeek(),
+                                List.of(new DailyOperatingHours(
+                                        LocalTime.of(11, 0),
+                                        LocalTime.of(12, 0)
+                                ))
+                        ));
+                        scheduleRepository.saveAndFlush(lockedSchedule);
+                        scheduleChanged.countDown();
+                        await(commitSchedule);
+                    })
+            );
+
+            assertThat(scheduleChanged.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Integer> generationFuture = executor.submit(() ->
+                    operatingHoursService.createSlots(hospital.getId(), businessDate)
+            );
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> generationFuture.get(300, TimeUnit.MILLISECONDS)
+            ).isInstanceOf(TimeoutException.class);
+            commitSchedule.countDown();
+
+            updateFuture.get(30, TimeUnit.SECONDS);
+            assertThat(generationFuture.get(30, TimeUnit.SECONDS)).isEqualTo(2);
+            assertThat(slotRepository.findBusinessDateSlots(
+                    hospital.getId(),
+                    businessDate
+            )).extracting(ReservationSlot::getStartAt)
+                    .containsExactly(
+                            businessDate.atTime(11, 0),
+                            businessDate.atTime(11, 30)
+                    );
+        } finally {
+            commitSchedule.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("동시성 테스트 대기 시간이 초과되었습니다.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("동시성 테스트 대기 중 중단되었습니다.", exception);
         }
     }
 

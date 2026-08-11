@@ -78,6 +78,7 @@ public class HospitalOperatingHoursApplicationService {
                 today,
                 request.desiredEffectiveFrom()
         );
+        Hospital hospital = lockHospital(hospitalId);
 
         HospitalOperatingSchedule schedule = scheduleRepository
                 .findSchedule(hospitalId, effectiveFrom)
@@ -86,7 +87,7 @@ public class HospitalOperatingHoursApplicationService {
                     return existing;
                 })
                 .orElseGet(() -> createSchedule(
-                        hospitalId,
+                        hospital,
                         effectiveFrom,
                         operatingHours
                 ));
@@ -104,6 +105,7 @@ public class HospitalOperatingHoursApplicationService {
         Long hospitalId = getHospitalId(memberId);
         LocalDate businessDate = request.businessDate();
         validateTemporaryClosureDate(businessDate);
+        Hospital hospital = lockHospital(hospitalId);
         if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
             throw new ServiceException(
                     HospitalErrorCode.TEMPORARY_CLOSURE_ALREADY_EXISTS
@@ -118,10 +120,6 @@ public class HospitalOperatingHoursApplicationService {
             );
         }
 
-        Hospital hospital = hospitalRepository.findById(hospitalId)
-                .orElseThrow(() -> new ServiceException(
-                        HospitalErrorCode.HOSPITAL_NOT_FOUND
-                ));
         HospitalTemporaryClosure closure = closureRepository.save(
                 HospitalTemporaryClosure.create(hospital, businessDate)
         );
@@ -130,6 +128,7 @@ public class HospitalOperatingHoursApplicationService {
 
     @Transactional
     public int createSlots(Long hospitalId, LocalDate businessDate) {
+        lockHospital(hospitalId);
         if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
             return 0;
         }
@@ -154,13 +153,18 @@ public class HospitalOperatingHoursApplicationService {
     }
 
     private HospitalOperatingSchedule createSchedule(
-            Long hospitalId,
+            Hospital hospital,
             LocalDate effectiveFrom,
             Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
     ) {
-        Hospital hospital = hospitalRepository.findById(hospitalId)
-                .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));
         return HospitalOperatingSchedule.create(hospital, effectiveFrom, operatingHours);
+    }
+
+    private Hospital lockHospital(Long hospitalId) {
+        return hospitalRepository.findByIdForUpdate(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
     }
 
     private List<ReservationSlotCreateCommand> createSlotCommands(

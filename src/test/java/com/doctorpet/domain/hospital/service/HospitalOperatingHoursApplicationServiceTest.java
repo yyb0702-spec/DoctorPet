@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -69,6 +70,9 @@ class HospitalOperatingHoursApplicationServiceTest {
     @Mock
     private HospitalOperatingSchedule schedule;
 
+    @Mock
+    private Hospital lockedHospital;
+
     @InjectMocks
     private HospitalOperatingHoursApplicationService service;
 
@@ -85,6 +89,8 @@ class HospitalOperatingHoursApplicationServiceTest {
                         TimePolicy.SEOUL_ZONE_ID
                 )
         );
+        lenient().when(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .thenReturn(Optional.of(lockedHospital));
     }
 
     @Test
@@ -141,7 +147,8 @@ class HospitalOperatingHoursApplicationServiceTest {
         ));
         given(scheduleRepository.findSchedule(HOSPITAL_ID, actualEffectiveFrom))
                 .willReturn(Optional.empty());
-        given(hospitalRepository.findById(HOSPITAL_ID)).willReturn(Optional.of(hospital));
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
         given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -185,7 +192,8 @@ class HospitalOperatingHoursApplicationServiceTest {
         )).willReturn(List.of());
         given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
-        given(hospitalRepository.findById(HOSPITAL_ID)).willReturn(Optional.of(hospital));
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
         given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
                 .willAnswer(invocation -> invocation.getArgument(0));
         given(closureRepository.findClosure(any(), any())).willReturn(Optional.empty());
@@ -227,7 +235,8 @@ class HospitalOperatingHoursApplicationServiceTest {
         )).willReturn(List.of());
         given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
-        given(hospitalRepository.findById(HOSPITAL_ID)).willReturn(Optional.of(hospital));
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
         given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -265,7 +274,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 HOSPITAL_ID,
                 businessDate
         )).willReturn(true);
-        given(hospitalRepository.findById(HOSPITAL_ID))
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));
         given(closureRepository.save(any(HospitalTemporaryClosure.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
