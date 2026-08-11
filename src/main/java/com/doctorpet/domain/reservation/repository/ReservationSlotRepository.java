@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -32,6 +33,18 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
             ORDER BY slot.startAt ASC, slot.id ASC
             """)
     List<ReservationSlot> findBusinessDateSlots(
+            @Param("hospitalId") Long hospitalId,
+            @Param("businessDate") LocalDate businessDate
+    );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            DELETE FROM ReservationSlot slot
+            WHERE slot.hospitalId = :hospitalId
+              AND slot.businessDate = :businessDate
+              AND slot.status = com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus.OPEN
+            """)
+    int deleteOpenSlots(
             @Param("hospitalId") Long hospitalId,
             @Param("businessDate") LocalDate businessDate
     );

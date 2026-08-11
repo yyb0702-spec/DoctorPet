@@ -115,7 +115,6 @@ class ReservationServiceTest {
                 HOSPITAL_ID,
                 businessDate
         )).willReturn(List.of(first, second));
-
         boolean removed = reservationService.removeOpenSlotsIfNoReservation(
                 HOSPITAL_ID,
                 businessDate
@@ -213,6 +212,10 @@ class ReservationServiceTest {
                 HOSPITAL_ID,
                 businessDate
         )).willReturn(List.of(first, second));
+        given(reservationSlotRepository.deleteOpenSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(2);
 
         int created = reservationService.replaceOpenSlots(
                 HOSPITAL_ID,
@@ -230,8 +233,7 @@ class ReservationServiceTest {
         );
 
         assertThat(created).isEqualTo(2);
-        verify(reservationSlotRepository).deleteAll(List.of(first, second));
-        verify(reservationSlotRepository).flush();
+        verify(reservationSlotRepository).deleteOpenSlots(HOSPITAL_ID, businessDate);
         var slots = org.mockito.ArgumentCaptor.forClass(List.class);
         verify(reservationSlotRepository).saveAll(slots.capture());
         assertThat((List<ReservationSlot>) slots.getValue())
@@ -263,6 +265,10 @@ class ReservationServiceTest {
                 HOSPITAL_ID,
                 businessDate
         )).willReturn(List.of(open, reserved));
+        given(reservationSlotRepository.deleteOpenSlots(
+                HOSPITAL_ID,
+                businessDate
+        )).willReturn(1);
 
         assertThatThrownBy(() -> reservationService.replaceOpenSlots(
                 HOSPITAL_ID,
@@ -275,8 +281,7 @@ class ReservationServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(com.doctorpet.domain.reservation.exception.SlotErrorCode.ALREADY_RESERVED);
 
-        verify(reservationSlotRepository, never()).deleteAll(any());
-        verify(reservationSlotRepository, never()).flush();
+        verify(reservationSlotRepository).deleteOpenSlots(HOSPITAL_ID, businessDate);
         verify(reservationSlotRepository, never()).saveAll(any());
     }
  
