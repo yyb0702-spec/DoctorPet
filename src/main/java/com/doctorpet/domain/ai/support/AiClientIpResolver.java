@@ -23,9 +23,8 @@ public class AiClientIpResolver {
 
     public String resolve(HttpServletRequest request) {
         String remoteAddress = request.getRemoteAddr();
-        Set<String> trustedProxies = Set.copyOf(
-                properties.getTrustedProxies());
-        if (!trustedProxies.contains(remoteAddress)) {
+        Set<String> trustedProxies = Set.copyOf(properties.getTrustedProxies());
+        if (!isTrustedProxy(remoteAddress, trustedProxies)) {
             return remoteAddress;
         }
 
@@ -47,7 +46,7 @@ public class AiClientIpResolver {
                 invalidAddressCount++;
                 continue;
             }
-            if (!trustedProxies.contains(address)) {
+            if (!isTrustedProxy(address, trustedProxies)) {
                 return address;
             }
         }
@@ -59,6 +58,46 @@ public class AiClientIpResolver {
                 invalidAddressCount
         );
         return remoteAddress;
+    }
+
+    // trustedProxies 항목은 리터럴 IP뿐 아니라 호스트명(예: 컴포즈 서비스명 "nginx")도 허용한다
+    // (리뷰 지적 P1). 이전에는 nginx에 docker-compose.yml networks.default.ipam.config로
+    // 고정 IP를 부여하고 그 IP를 여기 신뢰 목록에 하드코딩했는데, 그러면 이미 운영 중인
+    // EC2에서(이 PR 배포가 최초 적용될 때) mysql/redis가 서브넷 지정 없던 기존 default
+    // 네트워크에 이미 붙어 있어, docker compose가 네트워크 설정 변경을 감지해 재생성을
+    // 시도하다 "network has active endpoints"로 실패할 위험이 있었다(무중단 배포 파이프라인
+    // 자체가 최초 실행에서 막힘). 고정 IP 대신 컴포즈가 항상 제공하는 서비스명 DNS(예:
+    // "nginx")를 신뢰 대상으로 등록하면 네트워크 토폴로지를 전혀 바꾸지 않고도 같은 보호를
+    // 얻을 수 있다.
+    private boolean isTrustedProxy(String candidate, Set<String> trustedProxies) {
+        if (trustedProxies.contains(candidate)) {
+            return true;
+        }
+        for (String trustedProxy : trustedProxies) {
+            if (matchesResolvedHostname(trustedProxy, candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // trustedProxy 항목이 이미 리터럴 IP와 정확히 일치했다면 위 contains에서 먼저 걸러지므로
+    // 여기까지 오는 건 실제로 호스트명인 경우뿐이다(순수 IP 문자열은 DNS 조회 없이 그대로
+    // 반환되므로 이 호출 자체는 안전하지만 항상 불일치라 결과에 영향이 없다). DNS 해석
+    // 실패(UnknownHostException)는 신뢰하지 않음으로 처리한다(fail-closed) — 일시적 DNS 문제로
+    // 아무 IP나 통과시키는 쪽보다, 신뢰 판단을 건너뛰고 remoteAddress를 그대로 쓰는 쪽이
+    // 안전하다.
+    private boolean matchesResolvedHostname(String trustedProxy, String candidate) {
+        try {
+            for (InetAddress resolved : InetAddress.getAllByName(trustedProxy)) {
+                if (resolved.getHostAddress().equals(candidate)) {
+                    return true;
+                }
+            }
+        } catch (UnknownHostException exception) {
+            log.warn("신뢰 프록시 호스트명을 해석하지 못했습니다. trustedProxy={}", trustedProxy);
+        }
+        return false;
     }
 
     private boolean isValidIpAddress(String address) {

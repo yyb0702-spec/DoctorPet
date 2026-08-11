@@ -120,7 +120,7 @@ class PaymentApplicationServiceTest {
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
         assertThat(paymentGateway.receivedMerchantPaymentIds()).containsExactly(MERCHANT_ID);
-        verify(notificationPublisher).publishChargeResult(GUARDIAN_ID, RESERVATION_ID, null, PaymentStatus.PAID);
+        verify(notificationPublisher).publishChargeResult(GUARDIAN_ID, RESERVATION_ID, null, PaymentStatus.PAID, AMOUNT);
     }
 
     @Test

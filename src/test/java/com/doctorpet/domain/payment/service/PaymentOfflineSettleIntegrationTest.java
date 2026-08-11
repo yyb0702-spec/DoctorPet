@@ -85,7 +85,8 @@ class PaymentOfflineSettleIntegrationTest {
         // JPQL bulk UPDATE는 @LastModifiedDate를 우회하므로, updatedAt도 정산 시각으로 명시 갱신됐는지 확인한다(PR #80 P2 후속).
         assertThat(settled.getUpdatedAt()).isEqualTo(settled.getOfflineSettledAt());
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.OFFLINE_PAID));
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.OFFLINE_PAID),
+                        org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -97,7 +98,7 @@ class PaymentOfflineSettleIntegrationTest {
         PaymentHistoryResponse second = paymentOfflineSettlementService.settle(paymentId, STAFF_MEMBER_ID);
 
         assertThat(second.status()).isEqualTo(PaymentStatus.OFFLINE_PAID);
-        verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -152,7 +153,8 @@ class PaymentOfflineSettleIntegrationTest {
         assertThat(responses).hasSize(CONCURRENT_REQUESTS).containsOnly(PaymentStatus.OFFLINE_PAID);
         // 실제 정산(알림 발행)은 정확히 1회여야 한다 — 중복 정산 없음.
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.OFFLINE_PAID));
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.OFFLINE_PAID),
+                        org.mockito.ArgumentMatchers.anyInt());
         Payment settled = paymentRepository.findById(paymentId).orElseThrow();
         assertThat(settled.getStatus()).isEqualTo(PaymentStatus.OFFLINE_PAID);
         assertThat(settled.getOfflineSettledBy()).isEqualTo(STAFF_MEMBER_ID);
