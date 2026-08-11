@@ -318,24 +318,32 @@ jobs:
             printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
             docker compose exec -T nginx nginx -t || abort_cutover "nginx 설정 검증 실패"
             docker compose exec -T nginx nginx -s reload || abort_cutover "nginx reload 실패"
-            rm -f nginx/conf.d/upstream-active.conf.bak
+
+            # reload 성공 = 실제 트래픽이 이미 TARGET_COLOR로 넘어간 시점이다(리뷰 지적 P1).
+            # 상태 파일을 다른 어떤 후처리보다도 먼저, reload 성공 직후 갱신한다 — 예전에는
+            # 이 아래의 백업 파일 삭제·옛 단일 app 컨테이너 최종 제거를 먼저 실행했는데, 그중
+            # 하나라도 실패해 set -e로 스크립트가 끝나 버리면 실제 활성 색(TARGET_COLOR)과
+            # 상태 파일(.active_color)이 어긋난 채로 남는다. 그러면 다음 배포가 지금 서비스
+            # 중인 색을 "비활성 색"으로 오인해 대상으로 삼아 재생성하면서, 멀쩡히 트래픽을
+            # 받던 컨테이너를 내렸다 올리는 동안 다운타임이 생길 수 있다.
+            echo "$DEPLOY_SHA" > .last_deployed_sha
+            echo "$TARGET_COLOR" > .active_color
+
+            # 상태 기록 이후의 후처리(백업 파일 삭제, 옛 단일 app 컨테이너 최종 제거, 이전
+            # 색 정지)는 실패해도 배포 자체를 실패 처리하지 않는다(리뷰 지적 P1) — 상태
+            # 파일은 이미 정확하게 기록됐으므로, 여기서 어느 하나가 실패해 스크립트가 일찍
+            # 끝나도 다음 배포의 판단에는 영향이 없다. 실패는 로그만 남기고 수동 점검으로
+            # 넘긴다.
+            rm -f nginx/conf.d/upstream-active.conf.bak \
+              || echo "경고: 업스트림 백업 파일(nginx/conf.d/upstream-active.conf.bak) 삭제에 실패했습니다. 다음 배포 시 정리해 주세요."
 
             # 여기까지 왔다는 건 nginx가 target 색을 정상적으로 서비스한다는 뜻이다 — 이제야
             # 옛 단일 app 컨테이너를 최종 제거한다(리뷰 지적 P1, 위에서 정지만 해 둔 이유).
             if [ -n "$OLD_APP_CONTAINER" ]; then
               echo "nginx가 대상 색을 정상 서비스하는 것을 확인해 이전 단일 app 컨테이너를 최종 정리합니다: $OLD_APP_CONTAINER"
-              docker rm "$OLD_APP_CONTAINER"
+              docker rm "$OLD_APP_CONTAINER" \
+                || echo "경고: 이전 단일 app 컨테이너($OLD_APP_CONTAINER) 최종 제거에 실패했습니다. 상태 파일은 이미 $TARGET_COLOR로 기록되어 배포는 정상 완료된 것으로 처리합니다 — 수동으로 컨테이너를 정리해 주세요."
             fi
-
-            # reload 성공 = 실제 트래픽이 이미 TARGET_COLOR로 넘어간 시점이다(리뷰 지적).
-            # 상태 파일을 여기서 바로 갱신한다 — 아래 이전 색 정지가 실패해 set -e로
-            # 스크립트가 끝나 버리면, 실제 활성 색(TARGET_COLOR)과 상태 파일(.active_color)이
-            # 어긋난 채로 남는다. 그러면 다음 배포가 지금 서비스 중인 색을 "비활성 색"으로
-            # 오인해 대상으로 삼아 재생성하면서, 멀쩡히 트래픽을 받던 컨테이너를 내렸다 올리는
-            # 동안 다운타임이 생길 수 있다. 이전 색 정지는 상태 기록을 막지 않는 후처리로
-            # 아래에서 별도 처리한다.
-            echo "$DEPLOY_SHA" > .last_deployed_sha
-            echo "$TARGET_COLOR" > .active_color
 
             # reload는 그레이스풀해서 이미 연결된 요청은 이전 업스트림(ACTIVE_COLOR)으로 마저
             # 처리된다 — 그 요청들이 끝날 시간을 짧게 준 뒤에만 이전 색을 정지한다. 최초
