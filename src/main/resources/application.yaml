@@ -58,6 +58,10 @@ hospital:
   schema-migration:
     enabled: ${HOSPITAL_SCHEMA_MIGRATION_ENABLED:true}
     lock-timeout-seconds: ${HOSPITAL_SCHEMA_MIGRATION_LOCK_TIMEOUT_SECONDS:30}
+  # 기존 제휴 병원의 상세 운영시간을 최초 운영 스케줄로 한 번만 옮긴다.
+  # schema_migrations 마커와 DB 잠금으로 재실행과 다중 인스턴스 중복을 막는다.
+  operating-schedule-migration:
+    enabled: ${HOSPITAL_OPERATING_SCHEDULE_MIGRATION_ENABLED:true}
   search:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
