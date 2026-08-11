@@ -194,6 +194,12 @@ public class HospitalOperatingHoursApplicationService {
             return;
         }
 
+        reservationService.lockOpenSlotsForReplacement(
+                hospitalId,
+                effectiveFrom,
+                publishedUntil
+        );
+
         for (LocalDate businessDate = effectiveFrom;
              !businessDate.isAfter(publishedUntil);
              businessDate = businessDate.plusDays(1)) {

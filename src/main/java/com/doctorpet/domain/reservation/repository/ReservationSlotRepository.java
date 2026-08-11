@@ -4,7 +4,9 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -35,6 +37,21 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
     List<ReservationSlot> findBusinessDateSlots(
             @Param("hospitalId") Long hospitalId,
             @Param("businessDate") LocalDate businessDate
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT slot
+            FROM ReservationSlot slot
+            WHERE slot.hospitalId = :hospitalId
+              AND slot.startAt >= :rangeStart
+              AND slot.startAt < :rangeEnd
+            ORDER BY slot.startAt ASC, slot.id ASC
+            """)
+    List<ReservationSlot> findPublishedSlotsForUpdate(
+            @Param("hospitalId") Long hospitalId,
+            @Param("rangeStart") LocalDateTime rangeStart,
+            @Param("rangeEnd") LocalDateTime rangeEnd
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

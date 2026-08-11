@@ -192,6 +192,11 @@ class HospitalOperatingHoursApplicationServiceTest {
 
         service.updateOperatingHours(MEMBER_ID, request);
 
+        verify(reservationService).lockOpenSlotsForReplacement(
+                HOSPITAL_ID,
+                TODAY.plusDays(11),
+                TODAY.plusDays(13)
+        );
         verify(reservationService).replaceOpenSlots(
                 org.mockito.ArgumentMatchers.eq(HOSPITAL_ID),
                 org.mockito.ArgumentMatchers.eq(TODAY.plusDays(11)),
@@ -228,6 +233,7 @@ class HospitalOperatingHoursApplicationServiceTest {
 
         service.updateOperatingHours(MEMBER_ID, request);
 
+        verify(reservationService, never()).lockOpenSlotsForReplacement(any(), any(), any());
         verify(reservationService, never()).replaceOpenSlots(any(), any(), any());
     }
 

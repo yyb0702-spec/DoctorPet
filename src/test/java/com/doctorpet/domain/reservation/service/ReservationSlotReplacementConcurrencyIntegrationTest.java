@@ -26,7 +26,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -217,6 +219,85 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
     }
 
     @Test
+    @DisplayName("공개 범위를 잠그면 아직 재배치하지 않은 날짜에도 예약이 끼어들 수 없다")
+    void replacementRangeLock_blocksReservationOnLaterDate() throws Exception {
+        long hospitalId = System.nanoTime();
+        LocalDate fromDate = LocalDate.now().plusDays(4);
+        LocalDate toDate = fromDate.plusDays(2);
+        List<ReservationSlot> originalSlots = List.of(
+                saveSlot(hospitalId, fromDate, 9),
+                saveSlot(hospitalId, fromDate.plusDays(1), 9),
+                saveSlot(hospitalId, toDate, 9)
+        );
+        ReservationSlot laterSlot = originalSlots.get(2);
+        ReservationRequest request = new ReservationRequest(
+                petId,
+                laterSlot.getId(),
+                paymentMethodId
+        );
+        CountDownLatch rangeLocked = new CountDownLatch(1);
+        CountDownLatch continueReplacement = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        Future<Throwable> replacementFuture = executor.submit(() -> {
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    reservationService.lockOpenSlotsForReplacement(
+                            hospitalId,
+                            fromDate,
+                            toDate
+                    );
+                    rangeLocked.countDown();
+                    await(continueReplacement);
+                    for (LocalDate businessDate = fromDate;
+                         !businessDate.isAfter(toDate);
+                         businessDate = businessDate.plusDays(1)) {
+                        reservationService.replaceOpenSlots(
+                                hospitalId,
+                                businessDate,
+                                replacementAt(businessDate, 11)
+                        );
+                    }
+                });
+                return null;
+            } catch (Throwable throwable) {
+                return throwable;
+            }
+        });
+
+        assertThat(rangeLocked.await(10, TimeUnit.SECONDS)).isTrue();
+        Future<Throwable> reservationFuture = executor.submit(() -> {
+            try {
+                reservationApplicationService.request(memberId, request);
+                return null;
+            } catch (Throwable throwable) {
+                return throwable;
+            }
+        });
+
+        assertThatThrownBy(() -> reservationFuture.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        continueReplacement.countDown();
+
+        assertThat(replacementFuture.get(30, TimeUnit.SECONDS)).isNull();
+        assertThat(reservationFuture.get(30, TimeUnit.SECONDS))
+                .isInstanceOf(ServiceException.class);
+        assertThat(reservationRepository.countBySlotId(laterSlot.getId())).isZero();
+        assertThat(reservationSlotRepository.findById(laterSlot.getId())).isEmpty();
+
+        for (LocalDate businessDate = fromDate;
+             !businessDate.isAfter(toDate);
+             businessDate = businessDate.plusDays(1)) {
+            ReservationSlot replacement = reservationSlotRepository
+                    .findBusinessDateSlots(hospitalId, businessDate)
+                    .get(0);
+            slotIds.add(replacement.getId());
+            assertThat(replacement.getStartAt()).isEqualTo(businessDate.atTime(11, 0));
+        }
+        executor.shutdown();
+    }
+
+    @Test
     @DisplayName("적용일부터 공개 마지막 날까지 재배치 중 한 날짜에 예약이 있으면 전체 범위를 롤백한다")
     void replacementRange_reservedDate_rollsBackEntireRange() {
         long hospitalId = System.nanoTime();
@@ -299,6 +380,17 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
             unexpected.add(throwable);
         } finally {
             done.countDown();
+        }
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("재배치 계속 신호를 기다리다 시간 초과했습니다.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("재배치 대기 중 인터럽트가 발생했습니다.", exception);
         }
     }
 }

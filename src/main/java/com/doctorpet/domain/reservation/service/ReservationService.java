@@ -159,6 +159,25 @@ public class ReservationService {
     }
 
     @Transactional
+    public void lockOpenSlotsForReplacement(
+            Long hospitalId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        boolean hasReservedSlot = reservationSlotRepository
+                .findPublishedSlotsForUpdate(
+                        hospitalId,
+                        fromDate.atStartOfDay(),
+                        toDate.plusDays(1).atStartOfDay()
+                )
+                .stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            throw new ServiceException(SlotErrorCode.ALREADY_RESERVED);
+        }
+    }
+
+    @Transactional
     public int replaceOpenSlots(
             Long hospitalId,
             LocalDate businessDate,
