@@ -77,21 +77,44 @@ class DanglingHashNegative(unittest.TestCase):
         )
         self.assertEqual(_errors(text), [])
 
-    def test_longer_and_indented_fence(self):
-        # 길이 4 펜스 + 들여쓴 펜스도 인식해야 한다
+    def test_longer_fence(self):
+        # 길이 4+ 펜스도 인식해야 한다
         text = (
             "설명.\n\n"
             "````text\n"
             "#Bad1 안에 있음\n"
             "````\n\n"
-            "리스트 안:\n\n"
-            "    setup\n"
-            "- 항목\n\n"
             "~~~~\n"
             "#Bad2 안에 있음\n"
             "~~~~\n"
         )
         self.assertEqual(_errors(text), [])
+
+    def test_indented_fence_within_commonmark_limit(self):
+        # CommonMark는 펜스를 0~3칸 들여쓰기까지 인정한다
+        text = (
+            "설명.\n\n"
+            "   ```\n"
+            "#Bad3 안에 있음\n"
+            "   ```\n"
+        )
+        self.assertEqual(_errors(text), [])
+
+    def test_mixed_fence_markers_treated_as_info_string(self):
+        # ```~~~ 는 백틱 3개 펜스 + 정보 문자열 '~~~'로 취급해야 한다(리뷰 지적 —
+        # 백틱·물결표 혼합을 하나의 펜스 길이로 계산하면 순수 백틱 3개로 된 정상
+        # 닫는 펜스를 인식하지 못해 이후 문서 전체가 계속 펜스 안으로 취급된다).
+        text = (
+            "설명.\n\n"
+            "```~~~\n"
+            "#InFence 안이라 안 잡힘\n"
+            "```\n\n"
+            "펜스 밖 태그(#Outside2) 는 잡혀야 한다.\n"
+        )
+        errs = _errors(text)
+        joined = " ".join(errs)
+        self.assertIn("#Outside2", joined)
+        self.assertNotIn("#InFence", joined)
 
 
 class DanglingHashFenceBoundary(unittest.TestCase):
@@ -108,6 +131,19 @@ class DanglingHashFenceBoundary(unittest.TestCase):
         joined = " ".join(errs)
         self.assertIn("#Outside", joined)
         self.assertNotIn("#InFence", joined)
+
+    def test_over_indented_backtick_is_not_a_fence(self):
+        # CommonMark는 펜스를 0~3칸 들여쓰기까지만 인정한다. 4칸 이상 들여쓴 ```는
+        # 들여쓰기 코드블록이라 펜스가 아니므로, 펜스로 오인해 이후 프로즈를
+        # 숨기면 안 된다(리뷰 지적).
+        text = (
+            "설명.\n\n"
+            "    ```\n"
+            "#A1 실제로는 펜스 안이 아니다\n"
+            "    ```\n"
+            "끝.\n"
+        )
+        self.assertIn("#A1", " ".join(_errors(text)))
 
 
 if __name__ == "__main__":
