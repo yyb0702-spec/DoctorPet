@@ -23,7 +23,7 @@ public interface ReservationNotificationPublisher {
     );
 
     /** 병원이 확정 예약을 취소했다(CONFIRMED → HOSPITAL_CANCELED). */
-    void publishHospitalCancelled(
+    void publishHospitalCanceled(
             Long guardianMemberId,
             Long reservationId,
             String reason

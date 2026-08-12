@@ -286,7 +286,7 @@ class HospitalReservationApplicationServiceTest {
                 eq(STAFF_ID),
                 any()
         );
-        verify(notificationPublisher).publishHospitalCancelled(
+        verify(notificationPublisher).publishHospitalCanceled(
                 1L,
                 RESERVATION_ID,
                 "응급수술로 진료 불가"
@@ -331,7 +331,7 @@ class HospitalReservationApplicationServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(ReservationErrorCode.INVALID_STATUS);
-        verify(notificationPublisher, never()).publishHospitalCancelled(any(), any(), any());
+        verify(notificationPublisher, never()).publishHospitalCanceled(any(), any(), any());
         verify(reservationEventRepository, never()).appendIfAbsent(
                 any(),
                 eq(ReservationEventType.HOSPITAL_CANCELED.name()),

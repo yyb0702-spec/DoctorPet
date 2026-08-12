@@ -45,7 +45,7 @@ public class StoringReservationNotificationPublisher
     }
 
     @Override
-    public void publishHospitalCancelled(
+    public void publishHospitalCanceled(
             Long guardianMemberId,
             Long reservationId,
             String reason

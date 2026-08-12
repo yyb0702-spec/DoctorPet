@@ -165,6 +165,34 @@ class HospitalReservationAuthorizationTest {
     }
 
     @Test
+    @DisplayName("병원 취소 사유가 빈 문자열이면 400으로 거부한다")
+    void cancel_blankReason_returnsBadRequest() throws Exception {
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/cancel",
+                        10L
+                ).with(authentication(memberAuthentication(50L, "HOSPITAL_STAFF")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("병원 취소 사유가 255자를 초과하면 400으로 거부한다")
+    void cancel_reasonTooLong_returnsBadRequest() throws Exception {
+        String reason = "가".repeat(256);
+
+        mockMvc.perform(patch(
+                        "/api/hospital/reservations/{reservationId}/cancel",
+                        10L
+                ).with(authentication(memberAuthentication(50L, "HOSPITAL_STAFF")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UnsupportedCancelReason(reason)
+                        )))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("병원 스태프는 직원용 도착 확인 API를 호출할 수 있다")
     void hospitalStaff_canCheckIn() throws Exception {
         given(hospitalReservationApplicationService.checkIn(50L, 10L))
@@ -311,5 +339,8 @@ class HospitalReservationAuthorizationTest {
     }
 
     private record UnsupportedRejectReason(String rejectReason) {
+    }
+
+    private record UnsupportedCancelReason(String reason) {
     }
 }

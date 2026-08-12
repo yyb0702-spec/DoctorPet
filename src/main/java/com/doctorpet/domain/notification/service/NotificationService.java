@@ -24,6 +24,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Service
 @RequiredArgsConstructor
@@ -38,7 +39,9 @@ public class NotificationService {
     private final ApplicationEventPublisher eventPublisher;
 
     // 상태 전이 이벤트 수신자에게 알림을 저장한다. 수신자(memberId)는 이벤트 발행 도메인이 서버에서 확정해 전달한다.
-    @Transactional
+    // REQUIRED로 예약 상태 변경 트랜잭션에 참여한다. create에서 발생한 unchecked 예외는
+    // 호출 트랜잭션까지 전파되어 예약 상태·슬롯·이력과 알림 저장을 함께 롤백한다.
+    @Transactional(propagation = Propagation.REQUIRED)
     public Notification create(
             Long memberId,
             NotificationType type,

@@ -155,6 +155,9 @@ public interface ReservationRepository
             @Param("updatedAt") LocalDateTime updatedAt
     );
 
+    // 예약 상태는 CONFIRMED 조건부 UPDATE로 한 번만 전이한다. flush 후 영속성 컨텍스트를
+    // clear해 동시 요청이 보유한 오래된 Reservation을 재사용하지 않도록 하며, 호출부는
+    // clear 전 필요한 memberId·slotId를 로컬 변수로 보관하거나 전이 후 재조회해야 한다.
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Reservation r

@@ -22,6 +22,8 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
     static final String MIGRATION_KEY = "reservation_hospital_canceled_status_v3";
     private static final String LOCK_NAME = "doctorpet:reservation_hospital_canceled_status_v3";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
+    private static final String REASON_COLUMN = "hospital_cancel_reason";
+    private static final String CANCELED_AT_COLUMN = "hospital_canceled_at";
 
     private static final String STATUS_ENUM_WITH_LEGACY =
             "enum('CANCELED','CHECKED_IN','CONFIRMED','HOSPITAL_CANCELLED',"
@@ -63,6 +65,9 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
     private void migrate(Connection connection) throws SQLException {
         if (migrationApplied(connection)) {
             assertStatusColumn(connection);
+            assertEventTypeColumn(connection);
+            assertNotificationTypeColumn(connection);
+            assertHospitalCancelColumns(connection);
             return;
         }
 
@@ -114,6 +119,8 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         assertStatusColumn(connection);
         assertEventTypeColumn(connection);
         assertNotificationTypeColumn(connection);
+        ensureHospitalCancelColumns(connection);
+        assertHospitalCancelColumns(connection);
         recordMigration(connection);
         log.info("병원 취소 예약 상태 명칭 마이그레이션 완료");
     }
@@ -155,6 +162,46 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
             throw new IllegalStateException(
                     "notifications.type enum에 RESERVATION_HOSPITAL_CANCELED가 올바르게 반영되지 않았습니다."
             );
+        }
+    }
+
+    private void ensureHospitalCancelColumns(Connection connection) throws SQLException {
+        if (!columnExists(connection, REASON_COLUMN)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        "alter table reservations add column hospital_cancel_reason varchar(255) null"
+                );
+            }
+        }
+        if (!columnExists(connection, CANCELED_AT_COLUMN)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        "alter table reservations add column hospital_canceled_at datetime(6) null"
+                );
+            }
+        }
+    }
+
+    private void assertHospitalCancelColumns(Connection connection) throws SQLException {
+        if (!columnExists(connection, REASON_COLUMN) || !columnExists(connection, CANCELED_AT_COLUMN)) {
+            throw new IllegalStateException(
+                    "reservations 병원 취소 컬럼이 올바르게 반영되지 않았습니다."
+            );
+        }
+    }
+
+    private boolean columnExists(Connection connection, String columnName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*)
+                  from information_schema.columns
+                 where table_schema = database()
+                   and table_name = 'reservations'
+                   and column_name = ?
+                """)) {
+            statement.setString(1, columnName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getInt(1) > 0;
+            }
         }
     }
 
