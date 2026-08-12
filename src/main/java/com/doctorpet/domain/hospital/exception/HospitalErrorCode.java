@@ -66,6 +66,11 @@ public enum HospitalErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "HOSPITAL_014",
             "현재 병원에는 예약을 요청할 수 없습니다."
+    ),
+    HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_015",
+            "현재 병원은 예약을 승인할 수 없습니다."
     );
 
     private final HttpStatus httpStatus;

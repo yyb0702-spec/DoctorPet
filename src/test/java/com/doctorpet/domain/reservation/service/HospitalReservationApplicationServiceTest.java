@@ -12,6 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
@@ -60,6 +61,9 @@ class HospitalReservationApplicationServiceTest {
     private MemberService memberService;
 
     @Mock
+    private HospitalService hospitalService;
+
+    @Mock
     private ReservationRepository reservationRepository;
 
     @Mock
@@ -80,6 +84,7 @@ class HospitalReservationApplicationServiceTest {
         noShowProperties.setPendingGraceMinutes(5);
         hospitalReservationService = new HospitalReservationApplicationService(
                 memberService,
+                hospitalService,
                 reservationRepository,
                 reservationSlotRepository,
                 reservationEventRepository,
@@ -954,6 +959,31 @@ class HospitalReservationApplicationServiceTest {
                 1L,
                 RESERVATION_ID,
                 "공공데이터에서 병원 휴업이 확인되었습니다."
+        );
+    }
+
+    @Test
+    @DisplayName("휴업 또는 폐업한 병원은 예약을 승인할 수 없다")
+    void approve_inactiveHospital_throwsApprovalNotAvailable() {
+        org.mockito.Mockito.doThrow(new ServiceException(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+                ))
+                .when(hospitalService)
+                .assertReservationApprovalAvailable(HOSPITAL_ID);
+
+        assertThatThrownBy(() -> hospitalReservationService.approve(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+                );
+
+        verify(reservationRepository, never()).findById(any());
+        verify(reservationRepository, never()).approveIfRequested(
+                any(), any(), any(), any(), any(), any()
         );
     }
 

@@ -3,6 +3,7 @@ package com.doctorpet.domain.reservation.service;
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
@@ -70,6 +71,7 @@ public class HospitalReservationApplicationService {
     );
 
     private final MemberService memberService;
+    private final HospitalService hospitalService;
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
@@ -82,6 +84,7 @@ public class HospitalReservationApplicationService {
     @Transactional
     public void approve(Long staffMemberId, Long reservationId) {
         Long hospitalId = requireHospitalId(staffMemberId);
+        hospitalService.assertReservationApprovalAvailable(hospitalId);
         Reservation reservation = findReservation(reservationId);
         assertHospitalOwnership(reservation, hospitalId);
 
