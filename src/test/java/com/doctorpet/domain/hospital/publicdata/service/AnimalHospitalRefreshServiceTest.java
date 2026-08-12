@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalSeedData;
 import com.doctorpet.domain.hospital.partnership.infrastructure.PartnerHospitalSeedLoader;
@@ -31,7 +32,32 @@ class AnimalHospitalRefreshServiceTest {
     private HospitalSearchCacheRepository searchCacheRepository;
 
     @Test
-    void 공공데이터_수집_후_제휴_보강을_다시_적용한다() {
+    void weeklyRefreshUpdatesOnlyPublicDataAndEvictsCache() {
+        AnimalHospitalCollectionResult collection =
+                new AnimalHospitalCollectionResult(3, 250);
+        given(collectionService.collectNationwide()).willReturn(collection);
+        AnimalHospitalRefreshService service = new AnimalHospitalRefreshService(
+                collectionService,
+                partnerHospitalSeedLoader,
+                partnerHospitalSeedService,
+                searchCacheRepository
+        );
+
+        AnimalHospitalRefreshResult result = service.refresh();
+
+        assertThat(result.collection()).isEqualTo(collection);
+        assertThat(result.appliedPartnerCount()).isZero();
+        InOrder order = inOrder(
+                collectionService,
+                searchCacheRepository
+        );
+        then(collectionService).should(order).collectNationwide();
+        then(searchCacheRepository).should(order).evictInitialPage();
+        verifyNoInteractions(partnerHospitalSeedLoader, partnerHospitalSeedService);
+    }
+
+    @Test
+    void initialSeedAppliesPartnerJsonAfterPublicDataCollection() {
         AnimalHospitalCollectionResult collection =
                 new AnimalHospitalCollectionResult(3, 250);
         List<PartnerHospitalSeedData> partnerData = List.of();
@@ -45,7 +71,7 @@ class AnimalHospitalRefreshServiceTest {
                 searchCacheRepository
         );
 
-        AnimalHospitalRefreshResult result = service.refresh();
+        AnimalHospitalRefreshResult result = service.seed();
 
         assertThat(result.collection()).isEqualTo(collection);
         assertThat(result.appliedPartnerCount()).isEqualTo(2);

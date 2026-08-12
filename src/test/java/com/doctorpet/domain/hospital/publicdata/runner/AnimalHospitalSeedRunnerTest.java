@@ -19,7 +19,7 @@ class AnimalHospitalSeedRunnerTest {
 
     @Test
     void 실행되면_공공데이터_적재_후_제휴_데이터를_적용한다() {
-        given(refreshService.refresh()).willReturn(
+        given(refreshService.seed()).willReturn(
                 new AnimalHospitalRefreshResult(
                         new AnimalHospitalCollectionResult(2, 150),
                         1
@@ -30,6 +30,6 @@ class AnimalHospitalSeedRunnerTest {
         // 제휴 대상 병원이 존재하도록 공공데이터 수집이 항상 먼저 실행되는지 확인합니다.
         runner.run(null);
 
-        then(refreshService).should().refresh();
+        then(refreshService).should().seed();
     }
 }
