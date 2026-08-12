@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.56 |
+| 문서 버전 | v1.57 |
 | 작성 기준일 | 2026-08-12 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
@@ -245,7 +245,9 @@ erDiagram
 | approval_deadline_at | DATETIME NOT NULL | 생성 시 계산한 병원 승인 마감 시각 |
 | approval_timeout_next_retry_at | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | confirmed_at | DATETIME NULL | |
-| canceled_at | DATETIME NULL | |
+| canceled_at | DATETIME NULL | 보호자 취소 시각 |
+| hospital_cancel_reason | VARCHAR(255) NULL | 병원 확정 예약 취소 사유 |
+| hospital_canceled_at | DATETIME(6) NULL | 병원 확정 예약 취소 시각 |
 | no_show_pending_at | DATETIME NULL | 자동 노쇼 추가 유예 진입 시각 |
 | no_show_at | DATETIME NULL | |
 | reviewed_at | DATETIME NULL | 현재 리뷰 작성권을 사용한 시각. 사용자 직접 삭제 시 유지하고 환불 확정 시 NULL로 초기화 |
@@ -277,7 +279,7 @@ erDiagram
 | --- | --- | --- |
 | id | BIGINT PK | |
 | reservation_id | BIGINT FK | |
-| event_type | VARCHAR | CHECKED_IN / AUTO_NO_SHOW_PENDING / AUTO_NO_SHOW / MANUAL_NO_SHOW / NO_SHOW_CORRECTED / TIMEOUT_REJECTED |
+| event_type | VARCHAR | CHECKED_IN / AUTO_NO_SHOW_PENDING / AUTO_NO_SHOW / MANUAL_NO_SHOW / HOSPITAL_CANCELED / NO_SHOW_CORRECTED / TIMEOUT_REJECTED |
 | memo | VARCHAR NULL | |
 | processed_by | BIGINT NULL | 수동 처리자 회원 ID. 자동 처리면 NULL |
 | occurred_at | DATETIME | |
@@ -381,7 +383,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | recipient_type | VARCHAR | 수신자 종류 — MEMBER / HOSPITAL (고도화 3.10) |
 | recipient_id | BIGINT | 수신자 id(논리 참조) — MEMBER면 memberId, HOSPITAL면 hospitalId |
 | member_id | BIGINT NULL | 하위호환/백필용 — MEMBER 행만 채우고 HOSPITAL 행은 NULL. 신규 로직은 recipient_* 사용 |
-| type | VARCHAR | RESERVATION_CONFIRMED / RESERVATION_REJECTED / PAYMENT_RESULT / PAYMENT_PENDING / NO_SHOW |
+| type | VARCHAR | RESERVATION_CONFIRMED / RESERVATION_REJECTED / RESERVATION_HOSPITAL_CANCELED / PAYMENT_RESULT / PAYMENT_PENDING / NO_SHOW |
 | content | VARCHAR | 알림 문구 스냅샷 |
 | resource_type | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
 | resource_id | BIGINT NULL | 연결 리소스 id(논리 참조) |
@@ -432,6 +434,7 @@ stateDiagram-v2
     REQUESTED --> CANCELED : 사용자 취소(예약 2시간 전까지)
     CONFIRMED --> CHECKED_IN : 직원 도착 확인(+15분 내)
     CONFIRMED --> CANCELED : 사용자 취소(예약 2시간 전까지)
+    CONFIRMED --> HOSPITAL_CANCELED : 병원 취소(사유 필수)
     CONFIRMED --> NO_SHOW_PENDING : +10분 초과 자동 대기
     NO_SHOW_PENDING --> CHECKED_IN : 추가 유예 5분 내 직원 도착 확인
     NO_SHOW_PENDING --> NO_SHOW : +15분 초과 자동 최종 판정
@@ -441,6 +444,7 @@ stateDiagram-v2
     NO_SHOW --> CHECKED_IN : 병원 정정("사실 도착") + 이력 append
     REJECTED --> [*]
     CANCELED --> [*]
+    HOSPITAL_CANCELED --> [*]
     TREATMENT_COMPLETED --> [*]
 ```
 
@@ -449,6 +453,7 @@ stateDiagram-v2
 - REQUESTED 진입 전제: 프로필 + 빌링키 등록, 예약시각 4시간 전까지.
 - REJECTED: 병원 거절, 또는 승인 데드라인 경과 시 스케줄러 자동 거절(이력 `TIMEOUT_REJECTED`). 슬롯 반환, 후불이라 환불 불필요. 데드라인 = `min(요청시각+1시간, 예약시각−2시간)`.
 - CANCELED: 사용자 취소. REQUESTED·CONFIRMED 두 상태 모두 예약시각 2시간 전까지. 슬롯 반환.
+- HOSPITAL_CANCELED: 병원 스태프가 자병원의 `CONFIRMED` 예약을 진료 불가 사유와 함께 취소한다. `hospital_cancel_reason`와 `hospital_canceled_at`을 저장하고 슬롯을 `OPEN`으로 반환한다. `REQUESTED`는 병원 거절 API를 사용하며, `CHECKED_IN` 이후 상태와 종료 상태는 병원 취소 대상이 아니다. 취소 완료 후 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
 - NO_SHOW_PENDING: 예약시각 +10분 초과 시 자동 진입하며 기본 5분 동안 직원 도착 확인을 허용한다. 이 단계에서는 최종 노쇼 알림을 만들지 않는다.
 - NO_SHOW: 병원은 예약 시작 시각부터 수동 확정할 수 있고, 자동 처리는 +15분 초과 시 최종 판정한다(수동 판단 우선). 정정 시 CHECKED_IN 재전이.
 - `PAYMENT_COMPLETED`는 예약 상태에 두지 않는다. 진료 종료가 종착이고, 결제 완료 여부는 Payment 상태로 표현한다.
@@ -478,7 +483,7 @@ stateDiagram-v2
 
 ## 5-3. 예약 슬롯 상태 (SlotStatus)
 
-`OPEN → RESERVED`(예약 요청 성립) / `RESERVED → OPEN`(거절·취소 시 반환). NO_SHOW 시엔 슬롯을 반환하지 않는다 — 예약시각이 이미 지나 재판매 가치가 없으므로 `RESERVED`(소비)로 유지한다. 정정(NO_SHOW→CHECKED_IN) 때도 슬롯 상태는 그대로다.
+`OPEN → RESERVED`(예약 요청 성립) / `RESERVED → OPEN`(거절·보호자 취소·병원 확정 예약 취소 시 반환). NO_SHOW 시엔 슬롯을 반환하지 않는다 — 예약시각이 이미 지나 재판매 가치가 없으므로 `RESERVED`(소비)로 유지한다. 정정(NO_SHOW→CHECKED_IN) 때도 슬롯 상태는 그대로다. 병원 취소와 슬롯 반환은 동일 트랜잭션에서 처리하며, 동시 상태 전이에서는 하나만 성공해야 한다.
 
 ## 5-4. 전체 진행 상태 (조합 계산)
 
@@ -730,12 +735,13 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 진료 완료 | PATCH | /api/hospital/reservations/{reservationId}/complete | IN_TREATMENT → TREATMENT_COMPLETED |
 | 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | CONFIRMED/NO_SHOW_PENDING → NO_SHOW (자동보다 우선) |
 | 노쇼 정정 | PATCH | /api/hospital/reservations/{reservationId}/restore | NO_SHOW → CHECKED_IN, 이력 append |
+| 확정 예약 병원 취소 | PATCH | /api/hospital/reservations/{reservationId}/cancel | CONFIRMED → HOSPITAL_CANCELED, 슬롯 반환·보호자 알림 |
 
 보호자 예약 목록·상세의 진행 상태에는 `NO_SHOW_PENDING`을 포함해 대기 중임을 노출하고, 최종 `NO_SHOW` 전이에만 보호자 알림을 생성한다.
 
-`ReservationProgressStatus` 응답 값은 `RESERVATION_REQUESTED`, `RESERVATION_CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT`, `TREATMENT_COMPLETED`, `PAYMENT_COMPLETED`, `RESERVATION_REJECTED`, `RESERVATION_CANCELED`, `NO_SHOW`이다. `PAYMENT_COMPLETED`는 예약 상태가 `TREATMENT_COMPLETED`이고 결제 상태가 `PAID` 또는 `OFFLINE_PAID`일 때만 파생한다.
+`ReservationProgressStatus` 응답 값은 `RESERVATION_REQUESTED`, `RESERVATION_CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT`, `TREATMENT_COMPLETED`, `PAYMENT_COMPLETED`, `RESERVATION_REJECTED`, `RESERVATION_CANCELED`, `NO_SHOW`이다. 내부 예약 상태 `HOSPITAL_CANCELED`는 보호자 진행 상태에서 `RESERVATION_CANCELED`로 매핑하며, 병원 취소 사유는 예약 상세의 취소 사유 필드로 제공한다. `PAYMENT_COMPLETED`는 예약 상태가 `TREATMENT_COMPLETED`이고 결제 상태가 `PAID` 또는 `OFFLINE_PAID`일 때만 파생한다.
 
-권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null이고, `REJECTED`·`CANCELED`·`TREATMENT_COMPLETED`·`NO_SHOW`처럼 이미 종료된 예약이면 phone 보유 여부와 무관하게 항상 null이다(리뷰 지적 P2 — §6-6 노출 범위 참고). `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
+권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 병원 취소는 인증된 스태프의 소속 병원과 예약의 `hospital_id`가 일치해야 하며 요청 body의 병원 ID를 신뢰하지 않는다. 취소 요청은 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. `CONFIRMED`에서만 `HOSPITAL_CANCELED`로 전이하고, 동일 예약에 대한 재요청·다른 상태와의 경합은 조건부 UPDATE 결과로 차단한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null이고, `REJECTED`·`CANCELED`·`HOSPITAL_CANCELED`·`TREATMENT_COMPLETED`·`NO_SHOW`처럼 이미 종료된 예약이면 phone 보유 여부와 무관하게 항상 null이다(§6-6 노출 범위 참고). `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
 
 ### 8-7. 결제
 
