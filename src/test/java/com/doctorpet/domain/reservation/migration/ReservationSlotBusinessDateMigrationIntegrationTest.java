@@ -101,8 +101,8 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
                  where hospital_id = ?
                 """,
                 """
-                {"MONDAY":{"openTime":[20,0],"closeTime":[2,0]},
-                 "TUESDAY":{"openTime":[9,0],"closeTime":[18,0]}}
+                {"MONDAY":{"openTime":"20:00","closeTime":"02:00"},
+                 "TUESDAY":{"openTime":"09:00","closeTime":"18:00"}}
                 """,
                 hospital.getId()
         );
