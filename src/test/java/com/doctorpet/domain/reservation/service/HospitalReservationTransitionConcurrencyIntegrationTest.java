@@ -187,6 +187,32 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
         );
     }
 
+    @Test
+    @DisplayName("동일 CONFIRMED 예약의 병원 취소와 보호자 취소는 정확히 하나만 성공하고 슬롯을 반환한다")
+    void hospitalCancelAndGuardianCancel_onlyOneSucceedsAndOpensSlot()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        RaceResult result = runRace(
+                () -> hospitalReservationService.cancelConfirmedByHospital(
+                        data.staffMemberId(),
+                        data.reservationId(),
+                        "응급수술로 진료 불가"
+                ),
+                () -> reservationService.cancel(
+                        data.guardianMemberId(),
+                        data.reservationId()
+                )
+        );
+
+        assertThat(result.successCount()).isEqualTo(1);
+        assertThat(result.unexpectedErrors()).isEmpty();
+        assertThat(findReservationStatus(data.reservationId())).isIn(
+                ReservationStatus.HOSPITAL_CANCELED,
+                ReservationStatus.CANCELED
+        );
+        assertThat(findSlotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.OPEN);
+    }
+
     private TestReservation saveRequestedReservation() {
         long hospitalId = System.nanoTime();
         long guardianMemberId = hospitalId + 1;
