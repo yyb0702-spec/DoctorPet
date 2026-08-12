@@ -21,8 +21,13 @@ import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.review.dto.response.HospitalReviewEvidence;
+import com.doctorpet.domain.review.dto.response.ReviewExcerpt;
+import com.doctorpet.domain.review.model.ReviewRatingBand;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.global.gateway.ai.AiGateway;
 import com.doctorpet.global.gateway.ai.AiGatewayException;
@@ -35,7 +40,10 @@ import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,6 +68,9 @@ class AiConsultationServiceTest {
     @Mock
     private EmergencyKeywordDetector emergencyKeywordDetector;
 
+    @Mock
+    private ReviewQueryService reviewQueryService;
+
     private AiConsultationService service;
 
     @BeforeEach
@@ -72,6 +83,7 @@ class AiConsultationServiceTest {
                 hospitalService,
                 new AiHospitalSearchIntentExtractor(),
                 emergencyKeywordDetector,
+                reviewQueryService,
                 new ObjectMapper()
         );
     }
@@ -336,15 +348,16 @@ class AiConsultationServiceTest {
     @DisplayName("Tool Calling Gateway가 선택한 조건으로 병원을 검색하고 서버 안내를 반환한다")
     void consult_toolCallingGateway_executesModelSelectedSearch() {
         AiAnalysisResult result = result(List.of("XRAY"));
+        AtomicReference<String> toolOutput = new AtomicReference<>();
         doAnswer(invocation -> {
             AiToolExecutor executor = invocation.getArgument(1);
-            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+            toolOutput.set(executor.searchNearbyVets(new AiHospitalSearchToolCall(
                     result,
                     null,
                     true,
                     true,
                     HospitalSearchSort.DISTANCE
-            ));
+            )));
             return new AiGatewayConsultationResult(
                     result,
                     false,
@@ -359,6 +372,27 @@ class AiConsultationServiceTest {
                 List.of("XRAY"), List.of("DOG"), null, null,
                 true, null, false, true, 1, 20, "distance"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+        given(hospitalService.getCapabilitiesByHospitalIds(List.of(10L)))
+                .willReturn(Map.of(
+                        10L,
+                        List.of(CapabilityValue.DOG, CapabilityValue.XRAY)
+                ));
+        given(reviewQueryService.getEvidenceByHospitalIds(List.of(10L)))
+                .willReturn(Map.of(10L, new HospitalReviewEvidence(
+                        10L,
+                        new BigDecimal("4.5"),
+                        10L,
+                        8L,
+                        1L,
+                        1L,
+                        List.of(new ReviewExcerpt(
+                                11L,
+                                new BigDecimal("5.0"),
+                                ReviewRatingBand.POSITIVE,
+                                "친절하고 설명이 자세해요",
+                                LocalDateTime.of(2026, 8, 12, 10, 0)
+                        ))
+                )));
 
         AiConsultationResponse response = service.consult(
                 1L,
@@ -372,6 +406,13 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.hospitals()).containsExactly(hospital());
+        assertThat(toolOutput.get()).contains(
+                "\"supportedSpecies\":[\"DOG\"]",
+                "\"capabilities\":[\"XRAY\"]",
+                "\"averageRating\":4.5",
+                "\"positiveReviewCount\":8",
+                "친절하고 설명이 자세해요"
+        );
         assertThat(response.message()).isEqualTo("조건에 맞는 동물병원 1곳을 찾았습니다.");
         verify(hospitalService).hospitalSearch(
                 1L, null, null, latitude, longitude, null,

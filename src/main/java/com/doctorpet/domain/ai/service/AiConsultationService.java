@@ -1,5 +1,6 @@
 package com.doctorpet.domain.ai.service;
 
+import com.doctorpet.domain.ai.dto.AiHospitalCandidateEvidence;
 import com.doctorpet.domain.ai.dto.request.AiConsultationRequest;
 import com.doctorpet.domain.ai.dto.response.AiConsultationResponse;
 import com.doctorpet.domain.ai.entity.AiConsultation;
@@ -14,6 +15,8 @@ import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.review.dto.response.HospitalReviewEvidence;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import com.doctorpet.global.gateway.ai.AiGateway;
 import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
@@ -74,6 +77,7 @@ public class AiConsultationService {
     private final HospitalService hospitalService;
     private final AiHospitalSearchIntentExtractor searchIntentExtractor;
     private final EmergencyKeywordDetector emergencyKeywordDetector;
+    private final ReviewQueryService reviewQueryService;
     private final ObjectMapper objectMapper;
 
     public AiConsultationResponse consult(Long memberId, AiConsultationRequest request) {
@@ -311,7 +315,10 @@ public class AiConsultationService {
                     intent,
                     emergency
             ));
-            return objectMapper.writeValueAsString(Map.of("hospitals", state.hospitals()));
+            return objectMapper.writeValueAsString(Map.of(
+                    "hospitals",
+                    buildCandidateEvidence(state.hospitals())
+            ));
         } catch (JacksonException exception) {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,
@@ -325,6 +332,50 @@ public class AiConsultationService {
                     exception
             );
         }
+    }
+
+    private List<AiHospitalCandidateEvidence> buildCandidateEvidence(
+            List<HospitalSearchResponse> hospitals
+    ) {
+        if (hospitals.isEmpty()) {
+            return List.of();
+        }
+        List<Long> hospitalIds = hospitals.stream()
+                .map(HospitalSearchResponse::hospitalId)
+                .toList();
+        Map<Long, List<CapabilityValue>> capabilitiesByHospitalId =
+                hospitalService.getCapabilitiesByHospitalIds(hospitalIds);
+        Map<Long, HospitalReviewEvidence> reviewsByHospitalId =
+                reviewQueryService.getEvidenceByHospitalIds(hospitalIds);
+
+        return hospitals.stream()
+                .map(hospital -> toCandidateEvidence(
+                        hospital,
+                        capabilitiesByHospitalId.getOrDefault(hospital.hospitalId(), List.of()),
+                        reviewsByHospitalId.getOrDefault(
+                                hospital.hospitalId(),
+                                HospitalReviewEvidence.empty(hospital.hospitalId())
+                        )
+                ))
+                .toList();
+    }
+
+    private AiHospitalCandidateEvidence toCandidateEvidence(
+            HospitalSearchResponse hospital,
+            List<CapabilityValue> capabilityValues,
+            HospitalReviewEvidence reviews
+    ) {
+        Map<Boolean, List<CapabilityValue>> partitionedCapabilities =
+                capabilityValues.stream()
+                        .collect(Collectors.partitioningBy(
+                                value -> value.getType() == CapabilityType.SPECIES
+                        ));
+        return new AiHospitalCandidateEvidence(
+                hospital,
+                partitionedCapabilities.get(true),
+                partitionedCapabilities.get(false),
+                reviews
+        );
     }
 
     private String hospitalSearchMessage(List<HospitalSearchResponse> hospitals) {

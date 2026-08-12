@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
@@ -70,6 +71,26 @@ public class HospitalService {
     @Transactional(readOnly = true)
     public boolean exists(Long hospitalId) {
         return hospitalRepository.existsById(hospitalId);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, List<CapabilityValue>> getCapabilitiesByHospitalIds(
+            Collection<Long> hospitalIds
+    ) {
+        List<Long> distinctHospitalIds = hospitalIds.stream()
+                .distinct()
+                .toList();
+        if (distinctHospitalIds.isEmpty()) {
+            return Map.of();
+        }
+        return hospitalCapabilityRepository.findAllByHospitalIdIn(distinctHospitalIds).stream()
+                .collect(Collectors.groupingBy(
+                        capability -> capability.getHospital().getId(),
+                        Collectors.mapping(
+                                HospitalCapability::getCapabilityValue,
+                                Collectors.toUnmodifiableList()
+                        )
+                ));
     }
 
     @Transactional(readOnly = true)

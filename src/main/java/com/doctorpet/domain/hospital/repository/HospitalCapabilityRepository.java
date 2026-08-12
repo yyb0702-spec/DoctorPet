@@ -4,6 +4,7 @@ import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -13,4 +14,6 @@ public interface HospitalCapabilityRepository
         extends JpaRepository<HospitalCapability, Long> {
 
     List<HospitalCapability> findAllByHospital(Hospital hospital);
+
+    List<HospitalCapability> findAllByHospitalIdIn(Collection<Long> hospitalIds);
 }
