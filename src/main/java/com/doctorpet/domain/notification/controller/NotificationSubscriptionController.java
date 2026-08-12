@@ -7,6 +7,7 @@ import com.doctorpet.domain.notification.dto.response.SubscribeTicketResponse;
 import com.doctorpet.domain.notification.service.NotificationSubscriptionService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -39,7 +40,12 @@ public class NotificationSubscriptionController {
     // produces로 매핑을 제약하면 EventSource가 보내는 Accept: text/event-stream 요청에서 오류가 났을 때
     // GlobalExceptionHandler의 ApiResponse(JSON)를 협상하지 못해 401·429가 클라이언트에 전달되지 않는다.
     @GetMapping("/subscribe")
-    public SseEmitter subscribe(@RequestParam @NotBlank String ticket) {
+    public SseEmitter subscribe(@RequestParam @NotBlank String ticket, HttpServletResponse response) {
+        // nginx의 기본 proxy_buffering을 이 헤더로도 끈다(리뷰 지적) — nginx.conf의
+        // /api/notifications/subscribe 전용 location에서 proxy_buffering off를 이미
+        // 걸어뒀지만, 그 location 매칭이 나중에 바뀌거나 다른 리버스 프록시 뒤에서 돌 때도
+        // 실시간 전달이 깨지지 않도록 애플리케이션 쪽에서도 명시한다.
+        response.setHeader("X-Accel-Buffering", "no");
         return subscriptionService.subscribe(ticket);
     }
 }

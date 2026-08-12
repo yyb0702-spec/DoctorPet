@@ -16,13 +16,18 @@ import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
 
@@ -31,12 +36,19 @@ import org.springframework.transaction.annotation.Propagation;
 @Transactional(readOnly = true)
 public class NotificationService {
 
+    // 멱등 발행 전용 dedup_key UNIQUE 제약 이름(Notification 엔티티 @Table.uniqueConstraints와 일치). 이 제약의
+    // 위반만 골라 흡수하기 위한 판별 기준이다(소문자 비교로 contains 판정).
+    private static final String DEDUP_KEY_CONSTRAINT = "uk_notifications_dedup_key";
+
     private final NotificationRepository notificationRepository;
     // JPA 감사 시각(createdAt/updatedAt)과 같은 서울 기준 Clock(applicationClock). 읽음 시각도 이 Clock으로 만들어
     // 업무 시각과 감사 시각이 같은 시계를 쓰게 한다(SA 시간 정책, PR #87 P2 리뷰 반영).
     private final Clock clock;
     // 저장 커밋 이후 실시간 전송(SSE)을 트리거한다. AFTER_COMMIT 리스너가 받아 처리하므로 롤백 시 전송되지 않는다(SA §9-8).
     private final ApplicationEventPublisher eventPublisher;
+    // 멱등 저장(saveIdempotent)을 프록시 경유로 호출해 REQUIRES_NEW 트랜잭션 경계를 적용하기 위한 자기참조.
+    // 같은 빈 내부 호출은 프록시를 우회해 @Transactional이 무시되므로, 순환 초기화 없는 ObjectProvider로 지연 주입한다.
+    private final ObjectProvider<NotificationService> selfProvider;
 
     // 상태 전이 이벤트 수신자에게 알림을 저장한다. 수신자(memberId)는 이벤트 발행 도메인이 서버에서 확정해 전달한다.
     // REQUIRED로 예약 상태 변경 트랜잭션에 참여한다. create에서 발생한 unchecked 예외는
@@ -57,6 +69,73 @@ public class NotificationService {
                 new NotificationCreatedEvent(saved.getMemberId(), NotificationResponse.from(saved))
         );
         return saved;
+    }
+
+    // 같은 (수신자·유형·리소스)의 알림을 결제당 1건으로만 남기는 멱등 발행. 결제 고도화 3.6의 "결제 확인 중" 안내에 쓴다.
+    // 존재 조회는 반복 사이클의 흔한 경우를 값싸게 걸러내는 빠른 경로일 뿐 원자적 보장은 아니다 — 락 밖 경로(웹훅 단건
+    // 트리거)가 배치와 동시에 같은 결제를 처리하면 둘 다 "없음"을 읽을 수 있다. 최종 보장은 dedup_key UNIQUE 제약
+    // (uk_notifications_dedup_key)이 하며, 동시 삽입 중 진 트랜잭션은 그 제약 위반으로 떨어지므로 "이미 발행됨"으로
+    // 간주해 삼킨다. JPA/Hibernate는 유니크 위반도 DuplicateKeyException이 아니라 DataIntegrityViolationException으로
+    // 번역하므로, 예외 타입만으로는 NOT NULL·길이 등 다른 무결성 오류와 구분되지 않는다 — 그래서 제약 이름이
+    // uk_notifications_dedup_key인 위반만 골라 삼키고 나머지는 그대로 전파해 실제 오류가 무음 유실되지 않게 한다(PR #139 리뷰 P2).
+    // saveIdempotent는 프록시(REQUIRES_NEW)로 호출해, 유니크 충돌 롤백이 이 메서드/호출자 트랜잭션을 오염시키지 않게 한다.
+    // 이 메서드 자체는 트랜잭션을 열지 않는다(NOT_SUPPORTED) — 클래스 기본 readOnly 트랜잭션에 삽입이 묶여 catch가
+    // UnexpectedRollbackException으로 번지는 것을 막는다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void createIfAbsent(
+            Long memberId,
+            NotificationType type,
+            String content,
+            NotificationResourceType resourceType,
+            Long resourceId
+    ) {
+        if (notificationRepository.existsByMemberIdAndTypeAndResourceTypeAndResourceId(
+                memberId, type, resourceType, resourceId)) {
+            return;
+        }
+        try {
+            selfProvider.getObject().saveIdempotent(memberId, type, content, resourceType, resourceId);
+        } catch (DataIntegrityViolationException e) {
+            if (!isDedupKeyViolation(e)) {
+                throw e; // 다른 무결성 오류(NOT NULL·길이·FK 등)는 무음 유실하지 않고 전파한다.
+            }
+            // 동시 호출이 먼저 같은 dedup_key(uk_notifications_dedup_key)를 저장함 — 결제당 1건 계약을 지키기 위해
+            // 이 중복 키 위반만 이미 처리된 것으로 간주해 삼킨다.
+        }
+    }
+
+    // 무결성 위반이 dedup_key UNIQUE(uk_notifications_dedup_key) 위반인지 판별한다. Hibernate ConstraintViolationException의
+    // 제약 이름을 우선 보고, 못 얻으면 메시지로 보조 판별한다(드라이버마다 형식이 달라 최후 수단).
+    private boolean isDedupKeyViolation(DataIntegrityViolationException e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException hce) {
+                String name = hce.getConstraintName();
+                if (name != null) {
+                    return name.toLowerCase(Locale.ROOT).contains(DEDUP_KEY_CONSTRAINT);
+                }
+            }
+        }
+        String message = e.getMessage();
+        return message != null && message.toLowerCase(Locale.ROOT).contains(DEDUP_KEY_CONSTRAINT);
+    }
+
+    // 멱등 발행의 실제 저장. dedup_key(UNIQUE)로 동시 삽입을 원자적으로 1건으로 제한한다. 바깥과 독립적으로 커밋·롤백하도록
+    // REQUIRES_NEW로 열어, 유니크 충돌 롤백이 호출자 트랜잭션을 오염시키지 않게 한다(createIfAbsent의 catch가 흡수).
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void saveIdempotent(
+            Long memberId,
+            NotificationType type,
+            String content,
+            NotificationResourceType resourceType,
+            Long resourceId
+    ) {
+        Notification saved = notificationRepository.save(
+                Notification.createIdempotent(memberId, type, content, resourceType, resourceId)
+        );
+        // 커밋 이후에만 실시간 전송하도록 이벤트를 등록한다(롤백 시 전송되지 않음, create와 동일).
+        eventPublisher.publishEvent(
+                new NotificationCreatedEvent(saved.getMemberId(), NotificationResponse.from(saved))
+        );
     }
 
     // 본인 알림을 최신순으로 페이징 조회한다. isRead가 null이면 전체, true/false면 읽음/미읽음만 반환한다.

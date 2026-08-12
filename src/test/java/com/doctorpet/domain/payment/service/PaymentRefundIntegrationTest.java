@@ -150,7 +150,8 @@ class PaymentRefundIntegrationTest {
 
         assertThat(fakePaymentGateway.cancelCallCount()).isEqualTo(1);
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED));
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED),
+                        org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -307,7 +308,7 @@ class PaymentRefundIntegrationTest {
         assertThat(second.status()).isEqualTo(PaymentStatus.REFUNDED);
         // 두 번째 요청은 선점 전에 REFUNDED로 걸러지므로 PG 취소가 한 번만 일어난다(이중 환불 금지).
         assertThat(fakePaymentGateway.cancelCallCount()).isEqualTo(1);
-        verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), any());
+        verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -329,7 +330,7 @@ class PaymentRefundIntegrationTest {
         assertThat(refund.getStatus()).isEqualTo(RefundStatus.FAILED);
         assertThat(refund.getFailureReason()).isEqualTo(GatewayFailureReason.NON_RETRIABLE.name());
         // 환불이 성립하지 않았으므로 보호자에게 알리지 않는다.
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), anyLong(), any());
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), anyLong(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -358,7 +359,8 @@ class PaymentRefundIntegrationTest {
         assertThat(refund.getReason()).isEqualTo("재시도");
         assertThat(refund.getFailureReason()).isNull();
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED));
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED),
+                        org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -430,7 +432,8 @@ class PaymentRefundIntegrationTest {
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
                 .isEqualTo(PaymentStatus.REFUNDED);
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED));
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED),
+                        org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -480,7 +483,7 @@ class PaymentRefundIntegrationTest {
         PaymentRefund refund = paymentRefundRepository.findByPaymentId(paymentId).orElseThrow();
         assertThat(refund.getStatus()).isEqualTo(RefundStatus.FAILED);
         assertThat(refund.getFailureReason()).isEqualTo("REFUND_AMOUNT_MISMATCH");
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), anyLong(), any());
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), anyLong(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -520,7 +523,7 @@ class PaymentRefundIntegrationTest {
         Long paymentId = persistPayment(PaymentStatus.PAID);
         org.mockito.BDDMockito.willThrow(new RuntimeException("알림 저장 실패"))
                 .given(notificationPublisher)
-                .publishChargeResult(anyLong(), anyLong(), anyLong(), any());
+                .publishChargeResult(anyLong(), anyLong(), anyLong(), any(), org.mockito.ArgumentMatchers.anyInt());
 
         PaymentHistoryResponse response = paymentRefundService.refund(paymentId, STAFF_MEMBER_ID, REASON);
 
@@ -581,7 +584,8 @@ class PaymentRefundIntegrationTest {
         assertThat(paymentRefundRepository.findAll().stream()
                 .filter(r -> r.getPaymentId().equals(paymentId)).toList()).hasSize(1);
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED));
+                .publishChargeResult(eq(GUARDIAN_ID), anyLong(), eq(paymentId), eq(PaymentStatus.REFUNDED),
+                        org.mockito.ArgumentMatchers.anyInt());
         Payment refunded = paymentRepository.findById(paymentId).orElseThrow();
         assertThat(refunded.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
     }
@@ -603,7 +607,7 @@ class PaymentRefundIntegrationTest {
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
         assertThat(payment.getRefundedAt()).isNotNull();
         // 알림도 환불 1회로 유지된다 — 웹훅이 상태를 재확정했다면 여기서 2회가 된다.
-        verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), any());
+        verify(notificationPublisher, times(1)).publishChargeResult(anyLong(), anyLong(), anyLong(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test

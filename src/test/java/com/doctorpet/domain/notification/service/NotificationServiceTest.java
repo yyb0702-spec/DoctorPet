@@ -28,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -48,12 +49,17 @@ class NotificationServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    // createIfAbsent가 멱등 저장을 프록시(REQUIRES_NEW)로 위임할 때 쓰는 자기참조. 이 클래스의 다른 테스트는
+    // 사용하지 않으므로 mock만 주입한다(createIfAbsent 동시성·멱등은 Level 3 통합 테스트가 검증).
+    @Mock
+    private ObjectProvider<NotificationService> selfProvider;
+
     private NotificationService notificationService;
 
     @BeforeEach
     void setUp() {
         notificationService = new NotificationService(
-                notificationRepository, FIXED_CLOCK, eventPublisher);
+                notificationRepository, FIXED_CLOCK, eventPublisher, selfProvider);
     }
 
     @Test

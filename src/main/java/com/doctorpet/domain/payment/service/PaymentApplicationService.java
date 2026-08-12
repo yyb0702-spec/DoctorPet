@@ -99,7 +99,7 @@ public class PaymentApplicationService {
         if (result.applied()) {
             try {
                 notificationPublisher.publishChargeResult(
-                        pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus());
+                        pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus(), payment.getAmount());
             } catch (RuntimeException e) {
                 log.warn("결제 알림 발행 실패(결제는 확정됨): paymentId={}, status={}", payment.getId(), payment.getStatus(), e);
             }
