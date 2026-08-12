@@ -51,7 +51,24 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
 
     @Override
     public void run(ApplicationArguments args) {
+        executeMigration(false);
+    }
+
+    /**
+     * 기존 DB의 legacy enum 값을 Hibernate ddl-auto가 enum 정의를 갱신하기 전에 정규화한다.
+     * 빈 DB는 아직 대상 테이블이 없으므로 건너뛰고, JPA 초기화 뒤 ApplicationRunner가 최종 검증한다.
+     */
+    void migrateBeforeJpa() {
+        executeMigration(true);
+    }
+
+    private void executeMigration(boolean skipWhenSchemaIsAbsent) {
         jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
+            if (skipWhenSchemaIsAbsent && !tableExists(connection, "reservations")) {
+                log.info("병원 취소 선행 마이그레이션 생략: 신규 DB라 reservations 테이블이 없습니다.");
+                return null;
+            }
+            ensureSchemaMigrationsTable(connection);
             acquireLock(connection);
             try {
                 migrate(connection);
@@ -60,6 +77,17 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
             }
             return null;
         });
+    }
+
+    private void ensureSchemaMigrationsTable(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    create table if not exists schema_migrations (
+                        migration_key varchar(100) not null primary key,
+                        applied_at datetime(6) not null
+                    )
+                    """);
+        }
     }
 
     private void migrate(Connection connection) throws SQLException {
@@ -202,6 +230,20 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
                    and column_name = ?
                 """)) {
             statement.setString(1, columnName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getInt(1) > 0;
+            }
+        }
+    }
+
+    private boolean tableExists(Connection connection, String tableName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*)
+                  from information_schema.tables
+                 where table_schema = database()
+                   and table_name = ?
+                """)) {
+            statement.setString(1, tableName);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() && resultSet.getInt(1) > 0;
             }
