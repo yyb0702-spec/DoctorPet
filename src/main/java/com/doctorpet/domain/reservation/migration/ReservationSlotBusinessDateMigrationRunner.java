@@ -30,10 +30,8 @@ public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRu
             "reservation_slot_overnight_business_date_v2";
     private static final String LOCK_NAME = "doctorpet:reservation_slot_business_date_v1";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
-    // open_hours의 openTime/closeTime은 "HH:MM" 문자열 하나다(배열 아님, PartnerHospitalOperatingHoursSeedData
-    // 참조). json_extract(...)[0]로 배열 인덱싱을 하면 스칼라 문자열도 [0]엔 그 값 전체가 그대로 매칭되어
-    // maketime("09:00", ...)에 문자열을 그대로 넘기게 되고, strict SQL 모드에서 "Truncated incorrect INTEGER
-    // value"로 예외가 난다(리뷰 지적 — 로컬 실 데이터로 재현). "HH:MM"을 TIME으로 직접 캐스팅해 고쳤다.
+    // open_hours에는 제휴 시드의 "HH:MM" 문자열과 JPA JSON 직렬화의 [hour, minute] 배열이
+    // 함께 존재할 수 있다. JSON 타입에 따라 TIME 변환 방식을 나눠 기존 두 형식을 모두 백필한다.
     private static final String OVERNIGHT_SLOT_PREDICATE = """
             slot.business_date = date(slot.start_at)
               and json_extract(
@@ -44,27 +42,72 @@ public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRu
                                  'FRIDAY', 'SATURDAY', 'SUNDAY'),
                              '.openTime')
                   ) is not null
-              and cast(json_unquote(json_extract(
+              and case json_type(json_extract(
                       detail.open_hours,
                       concat('$.' ,
                              elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
                                  'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
                                  'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                             '.openTime'))) as time)
-                  > cast(json_unquote(json_extract(
+                             '.openTime')))
+                    when 'ARRAY' then maketime(
+                        json_extract(detail.open_hours, concat('$.' ,
+                            elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                'FRIDAY', 'SATURDAY', 'SUNDAY'), '.openTime[0]')),
+                        json_extract(detail.open_hours, concat('$.' ,
+                            elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                'FRIDAY', 'SATURDAY', 'SUNDAY'), '.openTime[1]')),
+                        0)
+                    else cast(json_unquote(json_extract(detail.open_hours, concat('$.' ,
+                        elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                            'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                            'FRIDAY', 'SATURDAY', 'SUNDAY'), '.openTime'))) as time)
+                  end
+                  > case json_type(json_extract(
                       detail.open_hours,
                       concat('$.' ,
                              elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
                                  'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
                                  'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                             '.closeTime'))) as time)
-              and time(slot.start_at) < cast(json_unquote(json_extract(
+                             '.closeTime')))
+                    when 'ARRAY' then maketime(
+                        json_extract(detail.open_hours, concat('$.' ,
+                            elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                'FRIDAY', 'SATURDAY', 'SUNDAY'), '.closeTime[0]')),
+                        json_extract(detail.open_hours, concat('$.' ,
+                            elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                'FRIDAY', 'SATURDAY', 'SUNDAY'), '.closeTime[1]')),
+                        0)
+                    else cast(json_unquote(json_extract(detail.open_hours, concat('$.' ,
+                        elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                            'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                            'FRIDAY', 'SATURDAY', 'SUNDAY'), '.closeTime'))) as time)
+                  end
+              and time(slot.start_at) < case json_type(json_extract(
                       detail.open_hours,
                       concat('$.' ,
                              elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
                                  'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
                                  'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                             '.closeTime'))) as time)
+                             '.closeTime')))
+                    when 'ARRAY' then maketime(
+                        json_extract(detail.open_hours, concat('$.' ,
+                            elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                'FRIDAY', 'SATURDAY', 'SUNDAY'), '.closeTime[0]')),
+                        json_extract(detail.open_hours, concat('$.' ,
+                            elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                'FRIDAY', 'SATURDAY', 'SUNDAY'), '.closeTime[1]')),
+                        0)
+                    else cast(json_unquote(json_extract(detail.open_hours, concat('$.' ,
+                        elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                            'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                            'FRIDAY', 'SATURDAY', 'SUNDAY'), '.closeTime'))) as time)
+                  end
             """;
 
     private final JdbcTemplate jdbcTemplate;
