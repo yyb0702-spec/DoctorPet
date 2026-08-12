@@ -1,6 +1,7 @@
 package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRejectRequest;
+import com.doctorpet.domain.reservation.dto.request.HospitalReservationCancelRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationNoShowRestoreRequest;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
@@ -67,6 +68,20 @@ public class HospitalReservationController {
                 principal.memberId(),
                 reservationId,
                 request.toRejectReason()
+        );
+        return ApiResponse.success();
+    }
+
+    @PatchMapping("/{reservationId}/cancel")
+    public ApiResponse<Void> cancel(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable @Positive Long reservationId,
+            @Valid @RequestBody HospitalReservationCancelRequest request
+    ) {
+        hospitalReservationService.cancelConfirmedByHospital(
+                principal.memberId(),
+                reservationId,
+                request.reason()
         );
         return ApiResponse.success();
     }

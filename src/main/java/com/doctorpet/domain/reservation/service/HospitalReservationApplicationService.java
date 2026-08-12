@@ -31,6 +31,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -138,6 +139,52 @@ public class HospitalReservationApplicationService {
                 reservation.getMemberId(),
                 reservationId,
                 rejectReason.value()
+        );
+    }
+
+    /**
+     * 병원 스태프가 자기 병원의 CONFIRMED 예약을 병원 사유로 취소한다.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void cancelConfirmedByHospital(
+            Long staffMemberId,
+            Long reservationId,
+            String reason
+    ) {
+        validateReason(reason, ReservationErrorCode.HOSPITAL_CANCEL_REASON_REQUIRED);
+
+        Long hospitalId = requireHospitalId(staffMemberId);
+        Reservation reservation = findReservation(reservationId);
+        assertHospitalOwnership(reservation, hospitalId);
+        Long guardianMemberId = reservation.getMemberId();
+        Long slotId = reservation.getSlotId();
+
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        int updated = reservationRepository.cancelIfConfirmedByHospital(
+                reservationId,
+                hospitalId,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.HOSPITAL_CANCELED,
+                reason,
+                now,
+                now
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+        ReservationSlot slot = findSlot(slotId);
+        slot.open();
+        reservationEventRepository.appendIfAbsent(
+                reservationId,
+                ReservationEventType.HOSPITAL_CANCELED.name(),
+                reason,
+                staffMemberId,
+                now
+        );
+        notificationPublisher.publishHospitalCanceled(
+                guardianMemberId,
+                reservationId,
+                reason
         );
     }
 
