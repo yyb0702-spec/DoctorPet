@@ -188,6 +188,19 @@ class ReservationControllerTest {
     }
 
     @Test
+    @DisplayName("병원 스태프는 보호자 예약의 결제수단을 재지정할 수 없다")
+    void changePaymentMethod_hospitalStaff_returnsForbidden() throws Exception {
+        ReservationPaymentMethodUpdateRequest request = new ReservationPaymentMethodUpdateRequest(8L);
+
+        mockMvc.perform(patch("/api/reservations/{reservationId}/payment-method", 10L)
+                        .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
     @DisplayName("결제수단 재지정 요청에서 paymentMethodId가 없으면 400을 반환한다")
     void changePaymentMethod_missingPaymentMethodId_returnsBadRequest() throws Exception {
         mockMvc.perform(patch("/api/reservations/{reservationId}/payment-method", 10L)

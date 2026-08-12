@@ -129,6 +129,16 @@ public class PaymentMethodService {
             String billingKeyEnc,
             BillingKeyIssueResult result
     ) {
+        // 기존 활성 결제수단이 있으나 기본값이 비어 있는 레거시 회원에게 신규 카드를 기본값으로
+        // 부여하지 않는다. 기본값의 부재가 "첫 등록"을 뜻하지는 않는다.
+        if (paymentMethodRepository.existsByMemberIdAndStatus(memberId, PaymentMethodStatus.ACTIVE)) {
+            return paymentMethodRepository.save(PaymentMethod.issue(
+                    memberId,
+                    billingKeyEnc,
+                    result.cardBrand(),
+                    result.cardLast4()
+            ));
+        }
         try {
             return paymentMethodRepository.save(PaymentMethod.issueAsDefault(
                     memberId,

@@ -79,6 +79,26 @@ class PaymentMethodServiceTest {
     }
 
     @Test
+    @DisplayName("기존 활성 결제수단이 있고 기본값이 비어 있어도 신규 등록분을 기본값으로 만들지 않는다")
+    void register_existingActivePaymentMethod_doesNotAssignDefault() {
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");
+        given(paymentGateway.verifyBillingKey("valid_billing_key"))
+                .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234"));
+        given(billingKeyCryptor.encrypt("valid_billing_key")).willReturn("v1:encrypted");
+        given(paymentMethodRepository.existsByMemberIdAndStatus(MEMBER_ID, PaymentMethodStatus.ACTIVE))
+                .willReturn(true);
+        given(paymentMethodRepository.save(any(PaymentMethod.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentMethodResponse response = paymentMethodService.register(MEMBER_ID, request);
+
+        ArgumentCaptor<PaymentMethod> captor = ArgumentCaptor.forClass(PaymentMethod.class);
+        verify(paymentMethodRepository).save(captor.capture());
+        assertThat(captor.getValue().isDefaultPaymentMethod()).isFalse();
+        assertThat(response.isDefault()).isFalse();
+    }
+
+    @Test
     @DisplayName("등록 과정에서 결제 승인(approve)은 호출되지 않는다 — 금액 이동 없음 보장")
     void register_doesNotTriggerPayment() {
         PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");
@@ -131,6 +151,8 @@ class PaymentMethodServiceTest {
         given(paymentGateway.verifyBillingKey("valid_billing_key"))
                 .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234"));
         given(billingKeyCryptor.encrypt("valid_billing_key")).willReturn("v1:encrypted");
+        given(paymentMethodRepository.existsByMemberIdAndStatus(MEMBER_ID, PaymentMethodStatus.ACTIVE))
+                .willReturn(false, true);
         given(paymentMethodRepository.save(any(PaymentMethod.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
 

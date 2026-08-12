@@ -3,6 +3,7 @@ package com.doctorpet.domain.payment.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.doctorpet.domain.payment.dto.request.PaymentMethodRegisterRequest;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import java.util.ArrayList;
@@ -76,6 +77,29 @@ class PaymentMethodDefaultIntegrationTest {
                 .filter(PaymentMethod::isDefaultPaymentMethod)
                 .count();
         assertThat(defaultCount).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("기존 활성 카드가 있고 기본값이 비어 있는 회원의 신규 등록은 기본값이 아니다")
+    void register_withExistingActivePaymentMethod_doesNotAssignDefault() {
+        long memberId = System.nanoTime();
+        save(memberId, "1111");
+
+        var response = paymentMethodService.register(
+                memberId,
+                new PaymentMethodRegisterRequest("billing-key"));
+        paymentMethodIds.add(response.id());
+
+        assertThat(response.isDefault()).isFalse();
+        long defaultCount = paymentMethodRepository
+                .findByMemberIdAndStatusOrderByCreatedAtDesc(
+                        memberId,
+                        com.doctorpet.domain.payment.entity.PaymentMethodStatus.ACTIVE
+                )
+                .stream()
+                .filter(PaymentMethod::isDefaultPaymentMethod)
+                .count();
+        assertThat(defaultCount).isZero();
     }
 
     private void setDefaultAfterStart(
