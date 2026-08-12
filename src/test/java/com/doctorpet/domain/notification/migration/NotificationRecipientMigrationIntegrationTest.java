@@ -3,6 +3,7 @@ package com.doctorpet.domain.notification.migration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.Connection;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -155,6 +157,50 @@ class NotificationRecipientMigrationIntegrationTest {
         assertThat(indexHasColumns(CREATED_INDEX, "recipient_type,recipient_id,created_at")).isTrue();
         assertThat(recipientType(legacyNotificationId)).isEqualTo("MEMBER");
         assertThat(recipientId(legacyNotificationId)).isEqualTo(memberId);
+    }
+
+    @Test
+    @DisplayName("첫 백필과 트리거 설치 사이에 구버전 INSERT가 끼어들어도(blue/green 경합, 리뷰 지적 P1) "
+            + "두 번째 백필이 잡아 NOT NULL 적용을 막지 않는다")
+    void legacyInsertRacingBetweenBackfillAndTrigger_isCaughtBySecondBackfill() {
+        NotificationRecipientMigrationRunner runner = new NotificationRecipientMigrationRunner(jdbcTemplate);
+        long raceMemberId = Math.abs(System.nanoTime());
+        Long[] raceNotificationId = new Long[1];
+
+        jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
+            // migrate()가 하는 첫 백필까지만 재현한다 — 이 시점 트리거는 아직 없다.
+            runner.backfillMissingRecipients(connection);
+            runner.verifyNoMissingRecipients(connection);
+
+            // 트리거 설치 전의 좁은 창 — 구버전 앱의 member_id-only INSERT가 지금 도착한다고 가정한다.
+            insertRacingLegacyNotification(raceMemberId);
+            raceNotificationId[0] = jdbcTemplate.queryForObject(
+                    "select id from notifications where member_id = ? order by id desc limit 1",
+                    Long.class, raceMemberId);
+
+            // 수정 전이었다면 여기서 끝나 이 행이 NULL로 남았을 것이다 — 경합 재현 확인.
+            assertThat(recipientType(raceNotificationId[0])).isNull();
+
+            runner.applyRecipientBackfillTrigger(connection);
+
+            // 수정 — 트리거가 서 있는 지금 다시 백필하면 경합으로 들어온 행까지 잡는다. 여기서 예외가 나지
+            // 않아야 하고(=NOT NULL 적용 전 남은 NULL 없음), 수정 전이었다면 이 검증에서 막혀야 했다.
+            runner.backfillMissingRecipients(connection);
+            runner.verifyNoMissingRecipients(connection);
+            return null;
+        });
+
+        assertThat(recipientType(raceNotificationId[0])).isEqualTo("MEMBER");
+        assertThat(recipientId(raceNotificationId[0])).isEqualTo(raceMemberId);
+        jdbcTemplate.update("delete from notifications where id = ?", raceNotificationId[0]);
+    }
+
+    private void insertRacingLegacyNotification(long memberId) {
+        jdbcTemplate.update("""
+                insert into notifications
+                       (member_id, type, content, resource_type, resource_id, created_at, updated_at)
+                values (?, 'PAYMENT_RESULT', '경합 중 도착한 알림', 'PAYMENT', 88, now(6), now(6))
+                """, memberId);
     }
 
     @Test

@@ -61,29 +61,21 @@ public class NotificationRecipientMigrationRunner implements ApplicationRunner {
             return;
         }
 
-        int backfilled;
-        try (Statement statement = connection.createStatement()) {
-            // 기존 행은 모두 회원(보호자) 수신이었다 — recipient를 (MEMBER, member_id)로 채운다.
-            backfilled = statement.executeUpdate("""
-                    update notifications
-                       set recipient_type = 'MEMBER',
-                           recipient_id = member_id
-                     where recipient_type is null
-                        or recipient_id is null
-                    """);
-        }
-
-        int missing = countMissingRecipients(connection);
-        if (missing > 0) {
-            throw new IllegalStateException(
-                    "recipient 백필 누락 알림이 " + missing + "건 있습니다."
-            );
-        }
+        int backfilled = backfillMissingRecipients(connection);
+        verifyNoMissingRecipients(connection);
 
         // NOT NULL을 걸기 전에 호환 트리거를 먼저 만든다 — blue/green 배포 중 아직 활성인 구버전(recipient_*를
         // 모르는 코드)이 member_id만으로 INSERT해도 트리거가 (MEMBER, member_id)로 채워 NOT NULL을 만족시키고
         // recipient 조회에도 보이게 한다(리뷰 지적 P1). 순서가 중요하다: 트리거 → NOT NULL.
         applyRecipientBackfillTrigger(connection);
+
+        // 위 백필과 이 트리거 설치 사이에는 잠금이 없어(get_lock은 이 러너끼리만 직렬화한다), 그 좁은 창에
+        // 구버전 INSERT가 recipient_* NULL로 끼어들 수 있다(후속 리뷰 지적 P1) — 트리거가 서 있는 지금 한 번
+        // 더 백필·검증해 그 창에서 들어온 행까지 잡는다. 트리거 커밋 이후로는 신규 INSERT가 트리거로 채워지므로
+        // 이 두 번째 백필이면 NOT NULL 적용 전 남은 NULL이 없음을 보장한다.
+        backfillMissingRecipients(connection);
+        verifyNoMissingRecipients(connection);
+
         applyNotNull(connection, "recipient_type", "varchar(20)");
         applyNotNull(connection, "recipient_id", "bigint");
         relaxMemberIdNullable(connection);
@@ -100,12 +92,37 @@ public class NotificationRecipientMigrationRunner implements ApplicationRunner {
         );
     }
 
+    // 기존 행은 모두 회원(보호자) 수신이었다 — recipient가 비어 있으면 (MEMBER, member_id)로 채운다. migrate()가
+    // 트리거 설치 전·후 두 번 호출한다(리뷰 지적 P1) — 패키지 접근으로 둬 테스트가 같은 순서를 직접 구동해 경합을
+    // 재현할 수 있게 한다.
+    int backfillMissingRecipients(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            return statement.executeUpdate("""
+                    update notifications
+                       set recipient_type = 'MEMBER',
+                           recipient_id = member_id
+                     where recipient_type is null
+                        or recipient_id is null
+                    """);
+        }
+    }
+
+    void verifyNoMissingRecipients(Connection connection) throws SQLException {
+        int missing = countMissingRecipients(connection);
+        if (missing > 0) {
+            throw new IllegalStateException(
+                    "recipient 백필 누락 알림이 " + missing + "건 있습니다."
+            );
+        }
+    }
+
     // blue/green 호환 BEFORE INSERT 트리거를 (재)생성한다(리뷰 지적 P1). recipient_type/recipient_id가 비어 있으면
     // (MEMBER, member_id)로 채운다 — 구버전 코드의 member_id-only INSERT를 NOT NULL 위반 없이 흡수하고 recipient
     // 조회에도 보이게 한다. 신규 코드는 recipient_*를 직접 채우므로 COALESCE가 기존 값을 유지해 no-op이며, HOSPITAL
     // 수신(member_id=NULL)도 recipient_*가 이미 채워져 영향받지 않는다. 구버전이 사라진 뒤엔 상시 no-op이라 무해하다.
     // SET 한 문장짜리 트리거라 BEGIN/END·DELIMITER가 필요 없어 JDBC로 그대로 실행된다. 재실행 대비 DROP IF EXISTS 선행.
-    private void applyRecipientBackfillTrigger(Connection connection) throws SQLException {
+    // 패키지 접근 — 테스트가 트리거 설치 전후 경합 시나리오를 직접 구동한다(리뷰 지적 P1).
+    void applyRecipientBackfillTrigger(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute("drop trigger if exists " + BACKFILL_TRIGGER);
             statement.execute(
