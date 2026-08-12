@@ -6,10 +6,12 @@ import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.payment.service.PaymentMethodService;
+import com.doctorpet.domain.payment.service.PaymentQueryService;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.service.PetService;
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
 import com.doctorpet.domain.reservation.dto.response.ReservationDetailResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationPageResponse;
@@ -38,6 +40,7 @@ public class ReservationApplicationService {
     private final MemberService memberService;
     private final PetService petService;
     private final PaymentMethodService paymentMethodService;
+    private final PaymentQueryService paymentQueryService;
     private final HospitalService hospitalService;
 
     @Transactional
@@ -73,6 +76,21 @@ public class ReservationApplicationService {
     public void cancel(Long memberId, Long reservationId) {
         memberService.assertActiveMember(memberId);
         reservationService.cancel(memberId, reservationId);
+    }
+
+    @Transactional
+    public void changePaymentMethod(
+            Long memberId,
+            Long reservationId,
+            ReservationPaymentMethodUpdateRequest request
+    ) {
+        memberService.assertActiveMember(memberId);
+        Reservation reservation = reservationService.findMyReservationForUpdate(memberId, reservationId);
+        paymentMethodService.assertActiveAndOwnedBy(memberId, request.paymentMethodId());
+        if (paymentQueryService.existsByReservationId(reservationId)) {
+            throw new ServiceException(ReservationErrorCode.PAYMENT_ALREADY_STARTED);
+        }
+        reservation.changePaymentMethod(request.paymentMethodId());
     }
 
     public ReservationDetailResponse getMyReservation(

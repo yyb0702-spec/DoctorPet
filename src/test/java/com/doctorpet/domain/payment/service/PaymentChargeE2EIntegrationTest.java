@@ -15,7 +15,9 @@ import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
+import com.doctorpet.domain.reservation.service.ReservationApplicationService;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
@@ -48,11 +50,13 @@ class PaymentChargeE2EIntegrationTest {
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private MemberRepository memberRepository;
     @Autowired private BillingKeyCryptor billingKeyCryptor;
+    @Autowired private ReservationApplicationService reservationApplicationService;
 
     private Long staffMemberId;
     private Long guardianMemberId;
     private Long paymentMethodId;
     private final List<Long> reservationIds = new ArrayList<>();
+    private final List<Long> additionalPaymentMethodIds = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -77,6 +81,7 @@ class PaymentChargeE2EIntegrationTest {
             reservationRepository.deleteById(reservationId);
         }
         paymentMethodRepository.deleteById(paymentMethodId);
+        additionalPaymentMethodIds.forEach(paymentMethodRepository::deleteById);
         memberRepository.deleteById(staffMemberId);
         memberRepository.deleteById(guardianMemberId);
     }
@@ -109,6 +114,37 @@ class PaymentChargeE2EIntegrationTest {
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
 
         assertThat(paymentRepository.findByReservationId(reservationId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("진료 전 재지정한 결제수단으로 최초 청구하고 카드 스냅샷을 남긴다")
+    void changedReservationPaymentMethod_isUsedForFirstCharge() {
+        Long reservationId = persistReservation(false);
+        Long replacementPaymentMethodId = paymentMethodRepository.saveAndFlush(
+                PaymentMethod.issue(
+                        guardianMemberId,
+                        billingKeyCryptor.encrypt("replacement-billing-key"),
+                        "MASTER",
+                        "5678"
+                )).getId();
+        additionalPaymentMethodIds.add(replacementPaymentMethodId);
+
+        reservationApplicationService.changePaymentMethod(
+                guardianMemberId,
+                reservationId,
+                new ReservationPaymentMethodUpdateRequest(replacementPaymentMethodId)
+        );
+        Reservation reservation = reservationRepository.findById(reservationId).orElseThrow();
+        assertThat(reservation.getPaymentMethodId()).isEqualTo(replacementPaymentMethodId);
+        ReflectionTestUtils.setField(reservation, "status", ReservationStatus.TREATMENT_COMPLETED);
+        reservationRepository.saveAndFlush(reservation);
+
+        paymentApplicationService.charge(reservationId, staffMemberId, AMOUNT);
+
+        Payment payment = paymentRepository.findByReservationId(reservationId).orElseThrow();
+        assertThat(payment.getPaymentMethodId()).isEqualTo(replacementPaymentMethodId);
+        assertThat(payment.getCardBrandSnapshot()).isEqualTo("MASTER");
+        assertThat(payment.getCardLast4Snapshot()).isEqualTo("5678");
     }
 
     /** 예약을 생성해 진료완료(true) 또는 승인 상태(false)까지 전이시키고 저장한 뒤 id를 반환한다. */

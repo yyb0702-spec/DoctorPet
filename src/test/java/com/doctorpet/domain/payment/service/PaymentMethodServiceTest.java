@@ -30,6 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Level 1 — 결제수단 서비스 단위 검증(Mockito). 게이트웨이·암호화·저장소는 목으로 대체한다.
@@ -74,6 +75,7 @@ class PaymentMethodServiceTest {
         assertThat(response.cardBrand()).isEqualTo("SHINHAN");
         assertThat(response.cardLast4()).isEqualTo("1234");
         assertThat(response.status()).isEqualTo("ACTIVE");
+        assertThat(response.isDefault()).isTrue();
     }
 
     @Test
@@ -190,5 +192,42 @@ class PaymentMethodServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("기본 결제수단을 변경하면 기존 기본값은 해제되고 대상만 기본값이 된다")
+    void setDefault_changesOnlyTarget() {
+        PaymentMethod previous = paymentMethod(10L, "1111");
+        previous.markDefault();
+        PaymentMethod target = paymentMethod(11L, "2222");
+        given(paymentMethodRepository.findActiveByMemberIdForUpdate(MEMBER_ID))
+                .willReturn(List.of(previous, target));
+
+        PaymentMethodResponse response = paymentMethodService.setDefault(MEMBER_ID, 11L);
+
+        assertThat(previous.isDefaultPaymentMethod()).isFalse();
+        assertThat(target.isDefaultPaymentMethod()).isTrue();
+        assertThat(response.id()).isEqualTo(11L);
+        assertThat(response.isDefault()).isTrue();
+    }
+
+    @Test
+    @DisplayName("삭제된 결제수단은 기본값으로 지정할 수 없다")
+    void setDefault_deletedPaymentMethod_throws() {
+        PaymentMethod deleted = paymentMethod(10L, "1111");
+        deleted.markDeleted();
+        given(paymentMethodRepository.findActiveByMemberIdForUpdate(MEMBER_ID)).willReturn(List.of());
+        given(paymentMethodRepository.findByIdAndMemberId(10L, MEMBER_ID)).willReturn(Optional.of(deleted));
+
+        assertThatThrownBy(() -> paymentMethodService.setDefault(MEMBER_ID, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_ACTIVE);
+    }
+
+    private PaymentMethod paymentMethod(Long id, String last4) {
+        PaymentMethod paymentMethod = PaymentMethod.issue(MEMBER_ID, "v1:" + id, "SHINHAN", last4);
+        ReflectionTestUtils.setField(paymentMethod, "id", id);
+        return paymentMethod;
     }
 }

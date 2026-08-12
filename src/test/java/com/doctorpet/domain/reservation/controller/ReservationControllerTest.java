@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.response.ReservationDetailResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationListItemResponse;
@@ -169,6 +170,32 @@ class ReservationControllerTest {
                         .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
+
+    @Test
+    @DisplayName("보호자는 본인 예약의 결제수단을 재지정할 수 있다")
+    void changePaymentMethod_guardian_returnsSuccess() throws Exception {
+        ReservationPaymentMethodUpdateRequest request = new ReservationPaymentMethodUpdateRequest(8L);
+
+        mockMvc.perform(patch("/api/reservations/{reservationId}/payment-method", 10L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(reservationApplicationService).changePaymentMethod(eq(1L), eq(10L), any());
+    }
+
+    @Test
+    @DisplayName("결제수단 재지정 요청에서 paymentMethodId가 없으면 400을 반환한다")
+    void changePaymentMethod_missingPaymentMethodId_returnsBadRequest() throws Exception {
+        mockMvc.perform(patch("/api/reservations/{reservationId}/payment-method", 10L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
     }
 
     @Test

@@ -64,7 +64,7 @@ class PaymentChargeConcurrencyTest {
                 PaymentMethod.issue(GUARDIAN_ID, billingKeyCryptor.encrypt("test-billing-key"), "VISA", "1234")).getId();
 
         given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
-        given(reservationLookupPort.findForCharge(reservationId)).willReturn(Optional.of(
+        given(reservationLookupPort.findForChargeForUpdate(reservationId)).willReturn(Optional.of(
                 new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, paymentMethodId, true)));
     }
 

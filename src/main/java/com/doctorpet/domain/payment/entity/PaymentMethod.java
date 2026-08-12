@@ -47,21 +47,50 @@ public class PaymentMethod extends BaseEntity {
     @Column(nullable = false, length = 20)
     private PaymentMethodStatus status;
 
-    private PaymentMethod(Long memberId, String billingKeyEnc, String cardBrand, String cardLast4) {
+    @Column(name = "is_default", nullable = false, columnDefinition = "boolean not null default false")
+    private boolean defaultPaymentMethod;
+
+    private PaymentMethod(
+            Long memberId,
+            String billingKeyEnc,
+            String cardBrand,
+            String cardLast4,
+            boolean defaultPaymentMethod
+    ) {
         this.memberId = memberId;
         this.billingKeyEnc = billingKeyEnc;
         this.cardBrand = cardBrand;
         this.cardLast4 = cardLast4;
         this.status = PaymentMethodStatus.ACTIVE;
+        this.defaultPaymentMethod = defaultPaymentMethod;
     }
 
     /** 검증된 빌링키로 결제수단을 등록한다(status=ACTIVE). */
     public static PaymentMethod issue(Long memberId, String billingKeyEnc, String cardBrand, String cardLast4) {
-        return new PaymentMethod(memberId, billingKeyEnc, cardBrand, cardLast4);
+        return new PaymentMethod(memberId, billingKeyEnc, cardBrand, cardLast4, false);
+    }
+
+    /** 첫 결제수단 후보로 저장한다. DB UNIQUE 제약이 회원당 최종 1건만 기본값으로 확정한다. */
+    public static PaymentMethod issueAsDefault(
+            Long memberId,
+            String billingKeyEnc,
+            String cardBrand,
+            String cardLast4
+    ) {
+        return new PaymentMethod(memberId, billingKeyEnc, cardBrand, cardLast4, true);
     }
 
     /** 소프트 삭제. 물리 삭제하지 않고 상태만 DELETED로 전이한다(SA §4-2). */
     public void markDeleted() {
         this.status = PaymentMethodStatus.DELETED;
+        this.defaultPaymentMethod = false;
+    }
+
+    public void markDefault() {
+        this.defaultPaymentMethod = true;
+    }
+
+    public void clearDefault() {
+        this.defaultPaymentMethod = false;
     }
 }

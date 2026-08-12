@@ -4,6 +4,9 @@ import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentMethodStatus;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /*
@@ -16,6 +19,15 @@ public interface PaymentMethodRepository extends JpaRepository<PaymentMethod, Lo
 
     // 소유권 검증 겸 단건 로드. 상태와 무관하게 로드해 #34가 status==ACTIVE 여부를 직접 판단하게 한다.
     Optional<PaymentMethod> findByIdAndMemberId(Long id, Long memberId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+              from PaymentMethod p
+             where p.memberId = :memberId
+               and p.status = com.doctorpet.domain.payment.entity.PaymentMethodStatus.ACTIVE
+            """)
+    List<PaymentMethod> findActiveByMemberIdForUpdate(Long memberId);
 
     boolean existsByIdAndMemberIdAndStatus(
             Long id,

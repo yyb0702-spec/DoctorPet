@@ -207,6 +207,14 @@ public class Reservation extends BaseEntity {
         return this.memberId.equals(memberId);
     }
 
+    /** 진료 전인 REQUESTED·CONFIRMED 예약만 결제수단을 다시 지정할 수 있다. */
+    public void changePaymentMethod(Long paymentMethodId) {
+        if (status != ReservationStatus.REQUESTED && status != ReservationStatus.CONFIRMED) {
+            throw new ServiceException(ReservationErrorCode.PAYMENT_METHOD_CHANGE_NOT_ALLOWED);
+        }
+        this.paymentMethodId = paymentMethodId;
+    }
+
     private void validateStatus(ReservationStatus expectedStatus) {
         if (this.status != expectedStatus) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);

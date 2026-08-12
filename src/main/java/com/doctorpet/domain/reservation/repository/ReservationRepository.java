@@ -26,6 +26,26 @@ public interface ReservationRepository
             Long memberId
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r
+              from Reservation r
+             where r.id = :reservationId
+               and r.memberId = :memberId
+            """)
+    Optional<Reservation> findByIdAndMemberIdForUpdate(
+            @Param("reservationId") Long reservationId,
+            @Param("memberId") Long memberId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r
+              from Reservation r
+             where r.id = :reservationId
+            """)
+    Optional<Reservation> findByIdForUpdate(@Param("reservationId") Long reservationId);
+
     Optional<Reservation> findByIdAndHospitalId(
             Long reservationId,
             Long hospitalId
