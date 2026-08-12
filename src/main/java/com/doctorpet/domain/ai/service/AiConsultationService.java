@@ -262,8 +262,12 @@ public class AiConsultationService {
                         candidate -> candidate.hospital().hospitalId(),
                         candidate -> candidate
                 ));
-        if (recommendations.size() > 3) {
-            throw invalidRecommendation("AI 추천 병원은 최대 3개여야 합니다.");
+        int expectedRecommendationCount = Math.min(3, candidates.size());
+        if (recommendations.size() != expectedRecommendationCount) {
+            throw invalidRecommendation(
+                    "AI 추천 병원 수는 검색 후보 수에 맞게 %d개여야 합니다."
+                            .formatted(expectedRecommendationCount)
+            );
         }
         Set<Long> uniqueHospitalIds = recommendations.stream()
                 .map(AiHospitalRecommendationResult::hospitalId)

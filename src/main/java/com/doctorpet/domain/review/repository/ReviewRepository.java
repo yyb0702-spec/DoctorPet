@@ -73,6 +73,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
                            ) AS rating_rank
                       FROM reviews r
                      WHERE r.hospital_id IN (:hospitalIds)
+                       AND CHAR_LENGTH(r.content) <= 300
                    ) ranked
              WHERE ranked.rating_rank <= 2
              ORDER BY ranked.hospital_id, ranked.created_at DESC, ranked.id DESC

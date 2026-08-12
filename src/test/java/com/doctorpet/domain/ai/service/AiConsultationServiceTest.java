@@ -483,6 +483,35 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    void 검색_후보가_있는데_추천_개수가_부족하면_거부한다() {
+        List<AiHospitalCandidateEvidence> candidates = List.of(
+                candidate(hospital(10L, "첫 병원", "1.0")),
+                candidate(hospital(20L, "둘째 병원", "2.0"))
+        );
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(recommendation(10L, 5)),
+                candidates
+        )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
+                assertThat(exception.getFailureReason())
+                        .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
+    }
+
+    @Test
+    void 검색_후보가_없으면_빈_추천을_허용한다() {
+        List<AiHospitalRecommendationResponse> result = ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(),
+                List.of()
+        );
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     void 추천은_점수_내림차순이고_동점이면_거리순으로_정렬한다() {
         HospitalSearchResponse first = hospital(10L, "첫 병원", "2.0");
         HospitalSearchResponse second = hospital(20L, "둘째 병원", "1.0");
@@ -525,7 +554,8 @@ class AiConsultationServiceTest {
                     finalAnalysis,
                     false,
                     true,
-                    true
+                    true,
+                    List.of(businessStatusRecommendation(10L, 5))
             );
         }).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
@@ -575,7 +605,8 @@ class AiConsultationServiceTest {
                     finalAnalysis,
                     false,
                     true,
-                    true
+                    true,
+                    List.of(businessStatusRecommendation(10L, 5))
             );
         }).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
@@ -590,7 +621,7 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.structured().urgencyLevel()).isEqualTo(UrgencyLevel.HIGH);
-        assertThat(response.message()).contains("응급 상황");
+        assertThat(response.message()).contains("응급 가능성");
         assertThat(response.locationRecommended()).isTrue();
         assertThat(response.hospitals()).isEmpty();
         verify(hospitalService).hospitalSearch(
@@ -955,6 +986,20 @@ class AiConsultationServiceTest {
                 List.of(new AiRecommendationEvidenceResult(
                         AiRecommendationEvidenceType.CAPABILITY,
                         "XRAY"
+                ))
+        );
+    }
+
+    private AiHospitalRecommendationResult businessStatusRecommendation(
+            Long hospitalId,
+            int score
+    ) {
+        return new AiHospitalRecommendationResult(
+                hospitalId,
+                score,
+                List.of(new AiRecommendationEvidenceResult(
+                        AiRecommendationEvidenceType.BUSINESS_STATUS,
+                        "OPEN"
                 ))
         );
     }

@@ -108,6 +108,7 @@ class ReviewDdlIntegrationTest {
         saveReview(91108L, firstHospitalId, 93108L, "2.0", "부정 중간");
         saveReview(91109L, firstHospitalId, 93109L, "1.0", "부정 최신");
         saveReview(91110L, secondHospitalId, 93110L, "5.0", "다른 병원 리뷰");
+        saveReview(91111L, firstHospitalId, 93111L, "5.0", "가".repeat(301));
 
         List<HospitalReviewStatisticsProjection> statistics =
                 reviewRepository.findStatisticsByHospitalIds(
@@ -120,8 +121,8 @@ class ReviewDdlIntegrationTest {
                 .filter(item -> item.getHospitalId().equals(firstHospitalId))
                 .findFirst()
                 .orElseThrow();
-        assertThat(firstStatistics.getReviewCount()).isEqualTo(9L);
-        assertThat(firstStatistics.getPositiveReviewCount()).isEqualTo(3L);
+        assertThat(firstStatistics.getReviewCount()).isEqualTo(10L);
+        assertThat(firstStatistics.getPositiveReviewCount()).isEqualTo(4L);
         assertThat(firstStatistics.getNeutralReviewCount()).isEqualTo(3L);
         assertThat(firstStatistics.getNegativeReviewCount()).isEqualTo(3L);
         assertThat(excerpts.stream()
@@ -135,6 +136,8 @@ class ReviewDdlIntegrationTest {
                         "부정 중간",
                         "부정 최신"
                 );
+        assertThat(excerpts)
+                .noneMatch(item -> item.getContent().length() > 300);
         assertThat(excerpts.stream()
                 .filter(item -> item.getHospitalId().equals(secondHospitalId)))
                 .singleElement()
