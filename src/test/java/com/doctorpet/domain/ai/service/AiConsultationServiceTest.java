@@ -500,6 +500,61 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    void 추천_후검증_실패는_OpenAI_사용량과_Tool_성공을_보존한다() {
+        AiAnalysisResult result = new AiAnalysisResult(
+                List.of(),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of(),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v8",
+                180,
+                50
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    result,
+                    null,
+                    null,
+                    null,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    result,
+                    false,
+                    true,
+                    true,
+                    List.of()
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("검사 가능한 병원을 알려줘", PetSpecies.DOG, "서울")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        AiConsultation saved = captor.getValue();
+        assertThat(response.fallback()).isTrue();
+        assertThat(saved.getStatus()).isEqualTo(AiConsultationStatus.FAILED);
+        assertThat(saved.getErrorType()).isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE);
+        assertThat(saved.getModel()).isEqualTo("gpt-4.1-mini");
+        assertThat(saved.getPromptVersion()).isEqualTo("doctorpet-ai-v8");
+        assertThat(saved.getPromptTokens()).isEqualTo(180);
+        assertThat(saved.getCompletionTokens()).isEqualTo(50);
+        assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.SUCCESS);
+        assertThat(saved.isSchemaParseSuccess()).isFalse();
+    }
+
+    @Test
     void 검색_후보가_없으면_빈_추천을_허용한다() {
         List<AiHospitalRecommendationResponse> result = ReflectionTestUtils.invokeMethod(
                 service,

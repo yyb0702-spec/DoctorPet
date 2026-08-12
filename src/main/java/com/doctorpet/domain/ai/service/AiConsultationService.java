@@ -113,14 +113,27 @@ public class AiConsultationService {
                 validateSafeStructuredFields(result);
             }
             if (gatewayResult.toolCallingHandled()) {
-                return completeToolCallingConsultation(
-                        memberId,
-                        request,
-                        maskedSymptomText,
-                        gatewayResult,
-                        toolState,
-                        startedAt
-                );
+                try {
+                    return completeToolCallingConsultation(
+                            memberId,
+                            request,
+                            maskedSymptomText,
+                            gatewayResult,
+                            toolState,
+                            startedAt
+                    );
+                } catch (AiGatewayException exception) {
+                    if (gatewayResult.toolCalled()) {
+                        return responseValidationFallback(
+                                memberId,
+                                maskedSymptomText,
+                                gatewayResult.analysis(),
+                                exception.getFailureReason(),
+                                startedAt
+                        );
+                    }
+                    throw exception;
+                }
             }
             AiHospitalSearchIntent searchIntent = searchIntentExtractor.extract(maskedSymptomText);
             boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH;
@@ -800,6 +813,30 @@ public class AiConsultationService {
                 FALLBACK_MESSAGE,
                 true,
                 locationRecommended
+        );
+    }
+
+    private AiConsultationResponse responseValidationFallback(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason failureReason,
+            long startedAt
+    ) {
+        aiConsultationRepository.save(AiConsultation.responseValidationFailed(
+                memberId,
+                maskedSymptomText,
+                result,
+                failureReason,
+                elapsedMillis(startedAt)
+        ));
+        return new AiConsultationResponse(
+                null,
+                List.of(),
+                DISCLAIMER,
+                FALLBACK_MESSAGE,
+                true,
+                false
         );
     }
 
