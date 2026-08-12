@@ -1,0 +1,221 @@
+package com.doctorpet.domain.hospital.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
+import com.doctorpet.domain.hospital.model.DailyOperatingHours;
+import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
+import com.doctorpet.domain.member.dto.response.MemberResponse;
+import com.doctorpet.domain.member.entity.MemberRole;
+import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.global.time.TimePolicy;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
+
+@SpringBootTest(properties = {
+        "ai.openai.api-key=test-key",
+        "payment.gateway=fake",
+        "payment.billing-key.enc-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "mail.provider=fake",
+        "mail.verification.base-url=http://localhost/verify-email",
+        "mail.password-reset.base-url=http://localhost/reset-password",
+        "member.email-verified-backfill.enabled=false"
+})
+class TemporaryClosureCancellationIntegrationTest {
+
+    private static final Long MEMBER_ID = 10L;
+    private static final LocalDate TODAY = LocalDate.of(2026, 8, 11);
+
+    @Autowired
+    private HospitalOperatingHoursApplicationService service;
+
+    @Autowired
+    private HospitalRepository hospitalRepository;
+
+    @Autowired
+    private HospitalOperatingScheduleRepository scheduleRepository;
+
+    @Autowired
+    private HospitalTemporaryClosureRepository closureRepository;
+
+    @Autowired
+    private ReservationSlotRepository slotRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @MockitoBean
+    private MemberService memberService;
+
+    @MockitoBean
+    private Clock applicationClock;
+
+    private Long hospitalId;
+    private Long scheduleId;
+    private Long closureId;
+
+    @BeforeEach
+    void setUp() {
+        given(applicationClock.instant()).willReturn(
+                Instant.parse("2026-08-10T15:00:00Z")
+        );
+        given(applicationClock.getZone()).willReturn(TimePolicy.SEOUL_ZONE_ID);
+
+        Hospital hospital = hospitalRepository.saveAndFlush(createHospital());
+        hospitalId = hospital.getId();
+        HospitalOperatingSchedule schedule = scheduleRepository.saveAndFlush(
+                HospitalOperatingSchedule.create(
+                        hospital,
+                        TODAY,
+                        Map.of(
+                                TODAY.plusDays(4).getDayOfWeek(),
+                                List.of(new DailyOperatingHours(
+                                        LocalTime.of(9, 0),
+                                        LocalTime.of(10, 0)
+                                ))
+                        )
+                )
+        );
+        scheduleId = schedule.getId();
+        HospitalTemporaryClosure closure = closureRepository.saveAndFlush(
+                HospitalTemporaryClosure.create(hospital, TODAY.plusDays(4))
+        );
+        closureId = closure.getId();
+
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(new MemberResponse(
+                MEMBER_ID,
+                "staff@example.com",
+                "staff",
+                "010-0000-0000",
+                MemberRole.HOSPITAL_STAFF,
+                hospitalId
+        ));
+    }
+
+    @AfterEach
+    void cleanUp() {
+        if (hospitalId != null) {
+            List<ReservationSlot> slots = slotRepository.findSlotsInRange(
+                    hospitalId,
+                    TODAY.atStartOfDay(),
+                    TODAY.plusDays(14).atStartOfDay()
+            );
+            slotRepository.deleteAll(slots);
+            slotRepository.flush();
+        }
+        if (closureId != null) {
+            closureRepository.deleteById(closureId);
+            closureRepository.flush();
+        }
+        if (scheduleId != null) {
+            scheduleRepository.deleteById(scheduleId);
+            scheduleRepository.flush();
+        }
+        if (hospitalId != null) {
+            hospitalRepository.deleteById(hospitalId);
+            hospitalRepository.flush();
+        }
+    }
+
+    @Test
+    void cancellationWaitsForHospitalLockAndRestoresPublishedSlots() throws Exception {
+        LocalDate businessDate = TODAY.plusDays(4);
+        CountDownLatch hospitalLocked = new CountDownLatch(1);
+        CountDownLatch releaseHospital = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> lockFuture = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(status -> {
+                        hospitalRepository.findByIdForUpdate(hospitalId)
+                                .orElseThrow();
+                        hospitalLocked.countDown();
+                        await(releaseHospital);
+                    })
+            );
+            assertThat(hospitalLocked.await(10, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> cancellationFuture = executor.submit(() ->
+                    service.cancelTemporaryClosure(MEMBER_ID, businessDate)
+            );
+            assertThatThrownBy(() -> cancellationFuture.get(
+                    300,
+                    TimeUnit.MILLISECONDS
+            )).isInstanceOf(TimeoutException.class);
+
+            releaseHospital.countDown();
+            lockFuture.get(30, TimeUnit.SECONDS);
+            cancellationFuture.get(30, TimeUnit.SECONDS);
+
+            assertThat(closureRepository.findClosure(hospitalId, businessDate))
+                    .isEmpty();
+            assertThat(slotRepository.findBusinessDateSlots(hospitalId, businessDate))
+                    .extracting(ReservationSlot::getStartAt)
+                    .containsExactly(
+                            businessDate.atTime(9, 0),
+                            businessDate.atTime(9, 30)
+                    );
+        } finally {
+            releaseHospital.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private Hospital createHospital() {
+        Hospital hospital = Hospital.createFromPublicData(
+                "CLOSURE-CANCEL-" + System.nanoTime(),
+                "CLOSURE-CANCEL-GOV",
+                "임시 휴무 취소 테스트 병원",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                BusinessStatus.OPEN,
+                null,
+                null,
+                null
+        );
+        hospital.markAsPartner();
+        return hospital;
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("잠금 해제 대기 시간이 초과되었습니다.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("잠금 해제 대기 중 중단되었습니다.", exception);
+        }
+    }
+}

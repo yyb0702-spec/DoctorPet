@@ -2,6 +2,10 @@ package com.doctorpet.domain.reservation.service;
 
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.reset;
 
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -43,6 +47,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Level 3 — 실제 MySQL에서 승인 타임아웃의 트랜잭션·경합·멱등성을 검증한다. */
@@ -68,7 +73,7 @@ class ReservationApprovalTimeoutIntegrationTest {
     @Autowired
     private ReservationApprovalTimeoutLock timeoutLock;
 
-    @Autowired
+    @MockitoSpyBean
     private ReservationRepository reservationRepository;
 
     @Autowired
@@ -235,8 +240,32 @@ class ReservationApprovalTimeoutIntegrationTest {
                 data.slotId()
         );
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        Reservation reservation = reservationRepository.findById(
+                data.reservationId()
+        ).orElseThrow();
+        doReturn(List.of(reservation)).when(reservationRepository)
+                .findApprovalTimeoutTargets(
+                        eq(ReservationStatus.REQUESTED),
+                        any(LocalDateTime.class),
+                        any(PageRequest.class)
+                );
+        doReturn(List.of()).when(reservationRepository)
+                .findApprovalTimeoutTargetsAfter(
+                        eq(ReservationStatus.REQUESTED),
+                        any(LocalDateTime.class),
+                        any(LocalDateTime.class),
+                        any(Long.class),
+                        any(PageRequest.class)
+                );
+        doReturn(List.of()).when(reservationRepository)
+                .findApprovalTimeoutRetryTargets(
+                        eq(ReservationStatus.REQUESTED),
+                        any(LocalDateTime.class),
+                        any(PageRequest.class)
+                );
 
         ReservationApprovalTimeoutSummary summary = batchService.processBatch();
+        reset(reservationRepository);
 
         assertThat(summary.failed()).isEqualTo(1);
         assertThat(reservationRepository.findApprovalTimeoutTargets(

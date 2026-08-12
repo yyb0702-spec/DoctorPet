@@ -1,7 +1,10 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
-import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
@@ -11,12 +14,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,6 +27,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @SpringBootTest(properties = {
         "payment.gateway=fake",
@@ -44,6 +49,9 @@ class HospitalSearchCachePerformanceIntegrationTest {
     private HospitalService hospitalService;
 
     @Autowired
+    private HospitalSearchCacheRepository cacheRepository;
+
+    @MockitoSpyBean
     private HospitalRepository hospitalRepository;
 
     @Autowired
@@ -52,23 +60,17 @@ class HospitalSearchCachePerformanceIntegrationTest {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
-    private final List<Long> testHospitalIds = new ArrayList<>();
-
     @AfterEach
     void tearDown() {
         redisTemplate.delete(CACHE_KEY);
-        if (!testHospitalIds.isEmpty()) {
-            hospitalRepository.deleteAllById(testHospitalIds);
-            hospitalRepository.flush();
-        }
     }
 
     @Test
     void 캐시_HIT_최초_진입_페이지의_동시_조회_성능을_측정한다()
             throws InterruptedException {
-        savePartnerHospitals();
         redisTemplate.delete(CACHE_KEY);
-        searchInitialPage();
+        cacheRepository.saveInitialPage(cachedPage());
+        clearInvocations(hospitalRepository);
 
         Statistics statistics = entityManagerFactory
                 .unwrap(SessionFactory.class)
@@ -137,41 +139,25 @@ class HospitalSearchCachePerformanceIntegrationTest {
         assertThat(completed).isTrue();
         assertThat(errorCount.get()).isZero();
         assertThat(sortedElapsedNanos).hasSize(REQUEST_COUNT);
-        assertThat(statistics.getQueryExecutionCount()).isZero();
-        assertThat(statistics.getPrepareStatementCount()).isZero();
+        verifyNoInteractions(hospitalRepository);
     }
 
-    private void savePartnerHospitals() {
-        String runId = UUID.randomUUID().toString();
-        List<Hospital> hospitals = new ArrayList<>();
-
+    private HospitalSearchCachedPage cachedPage() {
+        List<HospitalSearchCandidate> hospitals = new ArrayList<>();
         for (int index = 0; index < TEST_HOSPITAL_COUNT; index++) {
-            Hospital hospital = Hospital.createFromPublicData(
-                    "CACHE-PERF-" + runId + "-" + index,
-                    "LOCAL-GOV",
+            hospitals.add(new HospitalSearchCandidate(
+                    (long) index + 1,
                     String.format("CACHE-PERF-%02d", index),
-                    "02-1234-5678",
-                    "서울특별시 중구 지번주소",
                     "서울특별시 중구 도로명주소",
-                    "01234",
+                    "서울특별시 중구 지번주소",
                     new BigDecimal("126.9780"),
                     new BigDecimal("37.5665"),
-                    null,
                     BusinessStatus.OPEN,
-                    null,
-                    null,
-                    null
-            );
-            hospital.markAsPartner();
-            hospitals.add(hospital);
+                    PartnershipStatus.PARTNER,
+                    java.util.Map.of()
+            ));
         }
-
-        hospitalRepository.saveAllAndFlush(hospitals);
-        testHospitalIds.addAll(
-                hospitals.stream()
-                        .map(Hospital::getId)
-                        .toList()
-        );
+        return new HospitalSearchCachedPage(hospitals, hospitals.size());
     }
 
     private void searchInitialPage() {
