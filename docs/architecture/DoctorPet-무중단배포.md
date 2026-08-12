@@ -120,15 +120,18 @@ upstream app_upstream {
 - 커넥션 풀 크기(HikariCP) × 2(blue+green 동시 구동 순간) 합이 mysql `max_connections`를 넘지 않는지 구현 후 확인한다(성능 저하 논의에서 지적된 부분).
 - **1회성 마이그레이션(중요, AWS 콘솔 작업 아님)**: 이 변경 이전에는 `app` 컨테이너가 호스트 포트 8080을 직접 게시하고 있었다. 이 브랜치를 develop에 머지해 처음 배포할 때, 옛 `app` 컨테이너가 여전히 8080을 물고 있으면 nginx가 그 포트를 못 가져가 충돌한다. `deploy.yml`이 `docker ps --filter publish=8080 --filter name=app`으로 옛 컨테이너를 찾아 자동으로 정지·제거하도록 이미 반영해뒀다 — 사람이 EC2에 수동으로 들어가서 지울 필요는 없다. app-blue/app-green은 애초에 호스트 포트를 게시하지 않아 이 필터에 걸리지 않고, 두 번째 배포부터는 옛 컨테이너 자체가 없어서 이 블록은 항상 아무 일도 하지 않는다. 이 정리는 대상 앱이 healthy로 확인된 뒤·nginx 기동 직전에 수행한다(리뷰 지적) — app-blue/green이 8080을 게시하지 않아 옛 컨테이너와 공존 가능하므로, 헬스체크보다 먼저 옛 컨테이너를 내리면 "옛 앱 정지 ~ 새 앱 pull·기동·헬스체크 통과"까지 불필요하게 다운타임이 늘어난다.
 - **컷오버 순간의 SSE 연결은 예외적으로 끊긴다(알려진 한계, 리뷰 지적)**: `/api/notifications/subscribe`는 최대 3600s 열려 있는 연결인데, 컷오버는 `nginx -s reload` 후 5초 드레인만 주고 이전 색을 `stop`한다. 일반 요청은 5초 안에 끝나 문제가 없지만, 드레인 시작 이전부터 열려 있던 SSE 연결은 이전 색이 정지되며 강제로 끊긴다. `EventSource`가 명세상 자동 재연결하므로 기능적으로는 새 색에 다시 붙어 복구되지만(알림 폴링과 달리 진짜 무중단은 아니다), 배포 순간에 한해 재연결 한 번이 발생한다는 점은 SSE를 쓰는 다른 기능을 추가할 때도 같이 감안한다.
+- **로컬 개발 시 `nginx/conf.d/upstream-active.conf`를 직접 만들어야 한다(실제로 겪은 문제)**: 이 파일은 git 비추적이라 저장소를 새로 클론하거나 `nginx/conf.d/upstream-active.conf.example`을 복사하지 않은 채 `docker compose up`을 실행하면, nginx가 `upstream app_upstream`을 찾지 못해 "host not found in upstream" 오류로 기동 즉시 재시작을 반복한다(`restart: unless-stopped`라 계속 재시작 루프에 빠지고, 브라우저에서는 그 사이 타이밍에 연결 거부로 보인다). EC2에서는 `deploy.yml`이 최초 배포 시 이 파일을 자동 생성해주지만, 로컬은 그 부트스트랩 로직이 없으므로 `cp nginx/conf.d/upstream-active.conf.example nginx/conf.d/upstream-active.conf`를 먼저 실행해야 한다.
 
 ## 8. 구현 체크리스트
 
 - [x] `nginx/nginx.conf`, `nginx/conf.d/` 작성 및 `.gitignore`에 `nginx/conf.d/upstream-active.conf` 추가
 - [x] `docker-compose.yml` blue/green 구조로 변경
-- [x] `.github/workflows/deploy.yml` 컷오버 로직으로 재작성 — YAML·bash 문법은 확인했으나(`python3 -c yaml.safe_load`, `bash -n`), 샌드박스에 Docker/nginx가 없어 실제 기동·컷오버 동작은 아직 실행 검증하지 못했다.
-- [ ] 로컬(`docker compose up -d`)에서 blue만으로 기존과 동일하게 뜨는지 확인
-- [ ] 실제 EC2에서 1회 배포로 부트스트랩(blue 최초 기동) 확인
-- [ ] 2회차 배포로 blue→green 컷오버, 컷오버 중 무중단 확인(연속 요청 스크립트로 검증) — `docker compose ps -q app-green`/`stop app-green`/`rm app-green`이 green 프로파일 상태와 무관하게 실제 컨테이너를 정상 조회·제어하는지도 이 회차에서 함께 확인(리뷰 지적, `COMPOSE_PROFILES=green` export로 방어했지만 실기동 확인 필요)
+- [x] `.github/workflows/deploy.yml` 컷오버 로직으로 재작성 — YAML·bash 문법 확인(`python3 -c yaml.safe_load`, `bash -n`)에 더해, 아래 로컬 Docker 실기동으로 컷오버 메커니즘 자체(이미지 기동·healthy 대기·nginx reload·이전 색 정지)를 확인했다. EC2 실기동은 별도 항목(아래) 참고.
+- [x] 로컬(`docker compose up -d`)에서 blue만으로 기존과 동일하게 뜨는지 확인 — 2026-08-11, WSL Docker에서 확인. `nginx/conf.d/upstream-active.conf`를 `.example`에서 복사해 생성한 뒤 mysql/redis/nginx/app-blue 전부 healthy로 기동됨(로컬 개발 시 이 파일을 사람이 직접 만들어야 한다는 점은 `.example` 파일 안내에 있었지만, 처음 시도에서 이 단계를 건너뛰어 nginx가 "host not found in upstream"으로 재시작 루프에 빠지는 걸 실제로 겪었다 — 로컬 신규 셋업 가이드에 이 단계를 더 눈에 띄게 남길 필요가 있다).
+- [ ] 실제 EC2에서 1회 배포로 부트스트랩(blue 최초 기동) 확인 — 로컬과 별개로 여전히 미실행.
+- [x] 2회차 배포로 blue→green 컷오버, 컷오버 중 무중단 확인(연속 요청 스크립트로 검증) — 2026-08-11, 로컬 Docker에서 확인. `COMPOSE_PROFILES=green` 상태로 `app-green`을 healthy까지 띄운 뒤 `upstream-active.conf`를 green으로 바꿔 `nginx -t && nginx -s reload`, 이어서 `docker compose stop app-blue`까지 실행하는 동안 별도 터미널에서 `while true; do curl .../healthz; sleep 0.2; done` 루프가 컷오버 전 구간 내내 200만 반환(끊김 없음).
+- [x] `docker compose ps -q app-green`이 green 프로파일 상태와 무관하게 실제 컨테이너를 정상 조회하는지 확인(리뷰 지적) — 2026-08-11, 위와 같은 세션에서 `docker compose ps -q app-green` 실행 결과 64자리 컨테이너 ID가 정상 반환됨. 우려했던 "프로파일 때문에 빈 값 반환" 문제는 이 Docker Compose 버전·환경에서는 재현되지 않았다. `stop app-green`/`rm app-green`까지는 이번엔 별도로 확인하지 않았다(현재 활성 색이라 정지시키지 않음) — 다음 컷오버(green→blue) 때 자연스럽게 확인 가능.
+- EC2의 실제 네트워크/리소스 조건에서의 컷오버는 이 로컬 확인과 별개로 여전히 미검증.
 - [ ] 컷오버 중 SSE(`/api/notifications/subscribe`) 구독 클라이언트가 연결 종료 후 자동 재연결로 정상 복구되는지 확인(리뷰 지적, 알려진 한계 재확인)
 - [ ] 의도적으로 healthcheck 실패하는 이미지로 배포해 "target만 정리되고 기존 색은 안 건드려지는지" 확인
 - [ ] `server.shutdown: graceful` + `stop_grace_period: 35s`가 실제로 진행 중인 요청을 지켜주는지 확인(리뷰 지적 P1, PR #136) — 예: 인위적으로 5초 이상 걸리는 요청(또는 테스트용 지연 엔드포인트)을 이전 색에 걸어둔 채 컷오버를 실행해, `docker compose stop`이 그 요청을 끊지 않고 응답까지 받는지 확인. 정적 설정 검토만으로는 실제 드레인 여부를 보장할 수 없다.
