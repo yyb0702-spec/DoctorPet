@@ -35,6 +35,7 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiHospitalRecommendationResult;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
@@ -362,7 +363,13 @@ class AiConsultationServiceTest {
                     result,
                     false,
                     true,
-                    true
+                    true,
+                    List.of(new AiHospitalRecommendationResult(
+                            10L,
+                            5,
+                            "필요한 X-ray 진료가 가능합니다.",
+                            List.of("XRAY 지원", "현재 영업 중")
+                    ))
             );
         }).when(aiGateway).consult(any(), any());
         BigDecimal latitude = new BigDecimal("37.5665");
@@ -406,6 +413,13 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.hospitals()).containsExactly(hospital());
+        assertThat(response.recommendations()).singleElement().satisfies(recommendation -> {
+            assertThat(recommendation.hospital()).isEqualTo(hospital());
+            assertThat(recommendation.recommendationScore()).isEqualTo(5);
+            assertThat(recommendation.recommendationReason())
+                    .isEqualTo("필요한 X-ray 진료가 가능합니다.");
+            assertThat(recommendation.evidence()).containsExactly("XRAY 지원", "현재 영업 중");
+        });
         assertThat(toolOutput.get()).contains(
                 "\"supportedSpecies\":[\"DOG\"]",
                 "\"capabilities\":[\"XRAY\"]",

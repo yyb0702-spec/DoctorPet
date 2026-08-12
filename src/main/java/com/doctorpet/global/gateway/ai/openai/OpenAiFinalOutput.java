@@ -1,6 +1,7 @@
 package com.doctorpet.global.gateway.ai.openai;
 
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
+import com.doctorpet.global.gateway.ai.dto.AiHospitalRecommendationResult;
 import java.util.List;
 
 /** OpenAI 최종 응답용 JSON Schema와 일치하는 내부 DTO. 외부 API 응답 DTO로 직접 노출하지 않는다. */
@@ -10,7 +11,8 @@ record OpenAiFinalOutput(
         UrgencyLevel urgencyLevel,
         List<String> preVisitCheckpoints,
         Boolean recommendVetVisit,
-        Boolean locationRequired
+        Boolean locationRequired,
+        List<AiHospitalRecommendationResult> recommendations
 ) {
 
     OpenAiAnalysisFields analysis() {

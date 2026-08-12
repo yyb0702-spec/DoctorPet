@@ -11,11 +11,34 @@ public record AiConsultationResponse(
         String message,
         boolean fallback,
         boolean locationRequired,
-        boolean locationRecommended
+        boolean locationRecommended,
+        List<AiHospitalRecommendationResponse> recommendations
 ) {
 
     public AiConsultationResponse {
         hospitals = List.copyOf(hospitals);
+        recommendations = List.copyOf(recommendations);
+    }
+
+    public AiConsultationResponse(
+            AiStructuredResult structured,
+            List<HospitalSearchResponse> hospitals,
+            String disclaimer,
+            String message,
+            boolean fallback,
+            boolean locationRequired,
+            boolean locationRecommended
+    ) {
+        this(
+                structured,
+                hospitals,
+                disclaimer,
+                message,
+                fallback,
+                locationRequired,
+                locationRecommended,
+                List.of()
+        );
     }
 
     public AiConsultationResponse(
@@ -33,7 +56,8 @@ public record AiConsultationResponse(
                 message,
                 fallback,
                 false,
-                locationRecommended
+                locationRecommended,
+                List.of()
         );
     }
 }

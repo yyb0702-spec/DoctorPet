@@ -3,6 +3,7 @@ package com.doctorpet.domain.ai.service;
 import com.doctorpet.domain.ai.dto.AiHospitalCandidateEvidence;
 import com.doctorpet.domain.ai.dto.request.AiConsultationRequest;
 import com.doctorpet.domain.ai.dto.response.AiConsultationResponse;
+import com.doctorpet.domain.ai.dto.response.AiHospitalRecommendationResponse;
 import com.doctorpet.domain.ai.entity.AiConsultation;
 import com.doctorpet.domain.ai.model.AiHospitalSearchIntent;
 import com.doctorpet.domain.ai.model.AiStructuredResult;
@@ -23,6 +24,7 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiHospitalRecommendationResult;
 import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
@@ -228,6 +230,8 @@ public class AiConsultationService {
         }
 
         List<HospitalSearchResponse> hospitals = toolState.hospitals();
+        List<AiHospitalRecommendationResponse> recommendations =
+                toRecommendationResponses(gatewayResult.recommendations(), hospitals);
         aiConsultationRepository.save(AiConsultation.success(
                 memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
         return new AiConsultationResponse(
@@ -236,8 +240,28 @@ public class AiConsultationService {
                 DISCLAIMER,
                 emergency ? emergencyMessage(request, hospitals) : hospitalSearchMessage(hospitals),
                 false,
-                emergency && !hasLocation(request)
+                false,
+                emergency && !hasLocation(request),
+                recommendations
         );
+    }
+
+    private List<AiHospitalRecommendationResponse> toRecommendationResponses(
+            List<AiHospitalRecommendationResult> recommendations,
+            List<HospitalSearchResponse> hospitals
+    ) {
+        Map<Long, HospitalSearchResponse> hospitalsById = hospitals.stream()
+                .collect(Collectors.toMap(HospitalSearchResponse::hospitalId, hospital -> hospital));
+        return recommendations.stream()
+                .limit(3)
+                .filter(recommendation -> hospitalsById.containsKey(recommendation.hospitalId()))
+                .map(recommendation -> new AiHospitalRecommendationResponse(
+                        hospitalsById.get(recommendation.hospitalId()),
+                        recommendation.recommendationScore(),
+                        recommendation.recommendationReason(),
+                        recommendation.evidence()
+                ))
+                .toList();
     }
 
     private AiConsultationResponse searchEmergencyAfterModel(

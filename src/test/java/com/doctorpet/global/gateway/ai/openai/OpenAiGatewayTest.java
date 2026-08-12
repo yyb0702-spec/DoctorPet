@@ -54,6 +54,11 @@ class OpenAiGatewayTest {
                         .value("GENERAL"))
                 .andExpect(jsonPath("$.text.format.schema.properties.preVisitCheckpoints.items.enum[0]")
                         .value("ONSET_TIME"))
+                .andExpect(jsonPath("$.text.format.schema.properties.recommendations.maxItems").value(3))
+                .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.recommendationScore.minimum")
+                        .value(1))
+                .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.recommendationScore.maximum")
+                        .value(5))
                 .andExpect(jsonPath("$.text.format.schema.properties.message").doesNotExist())
                 .andExpect(jsonPath("$.instructions").value(
                         org.hamcrest.Matchers.containsString("지역만 제공됐어도 병원 검색이 가능")))
@@ -66,7 +71,7 @@ class OpenAiGatewayTest {
                 .andExpect(jsonPath("$.input[1].type").value("function_call"))
                 .andExpect(jsonPath("$.input[2].type").value("function_call_output"))
                 .andExpect(jsonPath("$.input[2].call_id").value("call_1"))
-                .andRespond(withSuccess(finalResponse(false), MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(finalResponseWithRecommendation(), MediaType.APPLICATION_JSON));
         AtomicReference<AiHospitalSearchToolCall> captured = new AtomicReference<>();
 
         AiGatewayConsultationResult result = gateway.consult(
@@ -83,6 +88,12 @@ class OpenAiGatewayTest {
         assertThat(result.analysis().requiredCapabilities()).containsExactly("XRAY");
         assertThat(result.analysis().promptTokens()).isEqualTo(180);
         assertThat(result.analysis().completionTokens()).isEqualTo(50);
+        assertThat(result.recommendations()).singleElement().satisfies(recommendation -> {
+            assertThat(recommendation.hospitalId()).isEqualTo(10L);
+            assertThat(recommendation.recommendationScore()).isEqualTo(5);
+            assertThat(recommendation.recommendationReason()).isEqualTo("필요한 X-ray 진료가 가능합니다.");
+            assertThat(recommendation.evidence()).containsExactly("XRAY 지원", "현재 영업 중");
+        });
         assertThat(captured.get().openNow()).isTrue();
         assertThat(captured.get().analysis().requiredCapabilities()).containsExactly("XRAY");
         assertThat(captured.get().analysis().promptTokens()).isEqualTo(100);
@@ -207,11 +218,25 @@ class OpenAiGatewayTest {
 
     private String finalResponse(boolean locationRequired) {
         String output = """
-                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":%s}
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":%s,"recommendations":[]}
                 """.formatted(locationRequired).trim().replace("\"", "\\\"");
         return """
                 {
                   "id":"resp_2",
+                  "status":"completed",
+                  "output":[{"type":"message","content":[{"type":"output_text","text":"%s"}]}],
+                  "usage":{"input_tokens":80,"output_tokens":30}
+                }
+                """.formatted(output);
+    }
+
+    private String finalResponseWithRecommendation() {
+        String output = """
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":false,"recommendations":[{"hospitalId":10,"recommendationScore":5,"recommendationReason":"필요한 X-ray 진료가 가능합니다.","evidence":["XRAY 지원","현재 영업 중"]}]}
+                """.trim().replace("\"", "\\\"");
+        return """
+                {
+                  "id":"resp_recommendation",
                   "status":"completed",
                   "output":[{"type":"message","content":[{"type":"output_text","text":"%s"}]}],
                   "usage":{"input_tokens":80,"output_tokens":30}
