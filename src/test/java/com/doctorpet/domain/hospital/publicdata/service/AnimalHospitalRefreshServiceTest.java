@@ -12,6 +12,11 @@ import com.doctorpet.domain.hospital.partnership.service.PartnerHospitalSeedServ
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalRefreshResult;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.service.HospitalSlotGenerationBatchService;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +27,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AnimalHospitalRefreshServiceTest {
 
+    private static final Clock CLOCK = Clock.fixed(
+            Instant.parse("2026-08-11T15:00:00Z"),
+            ZoneId.of("Asia/Seoul")
+    );
+
     @Mock
     private AnimalHospitalCollectionService collectionService;
     @Mock
@@ -30,6 +40,8 @@ class AnimalHospitalRefreshServiceTest {
     private PartnerHospitalSeedService partnerHospitalSeedService;
     @Mock
     private HospitalSearchCacheRepository searchCacheRepository;
+    @Mock
+    private HospitalSlotGenerationBatchService slotGenerationBatchService;
 
     @Test
     void weeklyRefreshUpdatesOnlyPublicDataAndEvictsCache() {
@@ -40,7 +52,9 @@ class AnimalHospitalRefreshServiceTest {
                 collectionService,
                 partnerHospitalSeedLoader,
                 partnerHospitalSeedService,
-                searchCacheRepository
+                searchCacheRepository,
+                slotGenerationBatchService,
+                CLOCK
         );
 
         AnimalHospitalRefreshResult result = service.refresh();
@@ -53,7 +67,11 @@ class AnimalHospitalRefreshServiceTest {
         );
         then(collectionService).should(order).collectNationwide();
         then(searchCacheRepository).should(order).evictInitialPage();
-        verifyNoInteractions(partnerHospitalSeedLoader, partnerHospitalSeedService);
+        verifyNoInteractions(
+                partnerHospitalSeedLoader,
+                partnerHospitalSeedService,
+                slotGenerationBatchService
+        );
     }
 
     @Test
@@ -68,7 +86,9 @@ class AnimalHospitalRefreshServiceTest {
                 collectionService,
                 partnerHospitalSeedLoader,
                 partnerHospitalSeedService,
-                searchCacheRepository
+                searchCacheRepository,
+                slotGenerationBatchService,
+                CLOCK
         );
 
         AnimalHospitalRefreshResult result = service.seed();
@@ -79,11 +99,16 @@ class AnimalHospitalRefreshServiceTest {
                 collectionService,
                 partnerHospitalSeedLoader,
                 partnerHospitalSeedService,
+                slotGenerationBatchService,
                 searchCacheRepository
         );
         then(collectionService).should(order).collectNationwide();
         then(partnerHospitalSeedLoader).should(order).load();
         then(partnerHospitalSeedService).should(order).applyPartnerships(partnerData);
+        then(slotGenerationBatchService).should(order).generateRange(
+                LocalDate.of(2026, 8, 12),
+                LocalDate.of(2026, 8, 25)
+        );
         then(searchCacheRepository).should(order).evictInitialPage();
     }
 }
