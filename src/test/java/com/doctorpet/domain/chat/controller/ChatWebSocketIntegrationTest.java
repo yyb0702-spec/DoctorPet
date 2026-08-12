@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
@@ -52,6 +53,7 @@ class ChatWebSocketIntegrationTest {
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationSlotRepository reservationSlotRepository;
     @MockitoBean private HospitalService hospitalService;
+    @MockitoBean private ChatMemberProfilePort memberProfilePort;
 
     private final List<WebSocket> sockets = new ArrayList<>();
     private final List<Long> reservationIds = new ArrayList<>();
@@ -108,6 +110,14 @@ class ChatWebSocketIntegrationTest {
         String delivered = valid.awaitFrame();
         assertThat(delivered).startsWith("MESSAGE");
         assertThat(delivered).contains("실시간 메시지");
+
+        valid.send(frame("MESSAGE", List.of(
+                "destination:/topic/chat/reservations/" + fixture.reservationId(),
+                "content-type:application/json"), "{\"content\":\"위조 topic 주입\"}"));
+        assertThat(valid.awaitFrame()).startsWith("ERROR");
+        assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged()))
+                .hasSize(1);
 
         StompFrames foreignSubscribe = connect(accessToken);
         foreignSubscribe.send(frame("SUBSCRIBE", List.of(
@@ -194,6 +204,8 @@ class ChatWebSocketIntegrationTest {
         org.mockito.BDDMockito.given(hospitalService.getHospitalDetail(hospitalId))
                 .willReturn(new HospitalDetailResponse(hospitalId, "테스트동물병원", null, null, null,
                         null, null, null, null, null, null, null, null, null, null, 0L, false));
+        org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardianId))
+                .willReturn("테스트보호자");
         return new ChatFixture(reservation.getId(), guardianId);
     }
 

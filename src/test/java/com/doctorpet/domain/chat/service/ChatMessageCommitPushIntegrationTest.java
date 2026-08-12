@@ -13,6 +13,7 @@ import com.doctorpet.domain.chat.dto.response.ChatMessageResponse;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
@@ -51,6 +52,7 @@ class ChatMessageCommitPushIntegrationTest {
     @Autowired private ReservationSlotRepository reservationSlotRepository;
     @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private HospitalService hospitalService;
+    @MockitoBean private ChatMemberProfilePort memberProfilePort;
     @MockitoSpyBean private SimpMessagingTemplate messagingTemplate;
 
     private Long reservationId;
@@ -136,6 +138,8 @@ class ChatMessageCommitPushIntegrationTest {
         org.mockito.BDDMockito.given(hospitalService.getHospitalDetail(hospitalId))
                 .willReturn(new HospitalDetailResponse(hospitalId, "테스트동물병원", null, null, null,
                         null, null, null, null, null, null, null, null, null, null, 0L, false));
+        org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardianId))
+                .willReturn("테스트보호자");
         return new ChatFixture(reservation.getId(), new MemberPrincipal(
                 guardianId, "guardian@example.com", MemberRole.GUARDIAN.name()));
     }

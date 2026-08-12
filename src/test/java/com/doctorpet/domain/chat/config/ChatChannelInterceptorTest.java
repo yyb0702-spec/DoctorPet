@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.doctorpet.domain.chat.service.ChatMessageService;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.Message;
@@ -147,6 +150,20 @@ class ChatChannelInterceptorTest {
         verify(chatMessageService).assertAccessible(123L, principal);
         assertThat(((org.springframework.security.core.Authentication) StompHeaderAccessor.wrap(restored)
                 .getUser()).getPrincipal()).isEqualTo(principal);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MESSAGE", "CONNECTED", "RECEIPT", "ERROR", "ACK", "NACK", "BEGIN", "COMMIT", "ABORT"})
+    @DisplayName("서버 전용 또는 트랜잭션 STOMP 명령은 인증된 클라이언트라도 차단한다")
+    void rejectsCommandsThatCouldBypassChatSendAuthorization(String command) {
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
+                MemberRole.GUARDIAN.name());
+
+        assertThatThrownBy(() -> interceptor.preSend(authenticatedStompMessage(
+                StompCommand.valueOf(command), "/topic/chat/reservations/123", principal), null))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(chatMessageService);
     }
 
     private Message<?> stompMessage(StompCommand command, String destination, String authorization) {

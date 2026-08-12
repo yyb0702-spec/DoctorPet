@@ -7,6 +7,7 @@ import static org.mockito.BDDMockito.given;
 import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
+import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.entity.Member;
@@ -60,6 +61,7 @@ class ChatMessageConcurrencyIntegrationTest {
     @Autowired private ReservationSlotRepository reservationSlotRepository;
     @Autowired private MemberRepository memberRepository;
     @MockitoBean private HospitalService hospitalService;
+    @MockitoBean private ChatMemberProfilePort memberProfilePort;
 
     private Long reservationId;
     private Long slotId;
@@ -163,6 +165,7 @@ class ChatMessageConcurrencyIntegrationTest {
         given(hospitalService.getHospitalDetail(anyLong())).willReturn(new HospitalDetailResponse(
                 hospitalId, "테스트동물병원", null, null, null, null, null, null,
                 null, null, null, null, null, null, null, 0L, false));
+        given(memberProfilePort.getGuardianNickname(anyLong())).willReturn("테스트보호자");
         return new RaceData(reservation.getId(), staff.getId(), guardian);
     }
 

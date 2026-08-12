@@ -8,6 +8,7 @@ import com.doctorpet.domain.chat.entity.ChatSenderType;
 import com.doctorpet.domain.chat.event.ChatMessageCreatedEvent;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.port.ChatStaffHospitalPort;
+import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -21,6 +22,9 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
@@ -43,6 +47,7 @@ public class ChatMessageService {
 
     private final ReservationService reservationService;
     private final ChatStaffHospitalPort staffHospitalPort;
+    private final ChatMemberProfilePort memberProfilePort;
     private final HospitalService hospitalService;
     private final ChatMessageRepository chatMessageRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -80,8 +85,7 @@ public class ChatMessageService {
                 principal.memberId(),
                 request.content()
         ));
-        ChatMessageResponse response = ChatMessageResponse.from(
-                saved, hospitalName(reservation.getHospitalId()));
+        ChatMessageResponse response = toResponse(saved, hospitalName(reservation.getHospitalId()));
         eventPublisher.publishEvent(new ChatMessageCreatedEvent(reservationId, response));
         return response;
     }
@@ -115,8 +119,13 @@ public class ChatMessageService {
         boolean hasNext = loaded.size() > size;
         List<ChatMessage> messages = hasNext ? loaded.subList(0, size) : loaded;
         String hospitalName = hospitalName(reservation.getHospitalId());
+        Map<Long, String> guardianNicknames = messages.stream()
+                .filter(message -> message.getSenderType() == ChatSenderType.GUARDIAN)
+                .map(ChatMessage::getMemberId)
+                .distinct()
+                .collect(Collectors.toMap(Function.identity(), memberProfilePort::getGuardianNickname));
         List<ChatMessageResponse> responses = messages.stream()
-                .map(message -> ChatMessageResponse.from(message, hospitalName))
+                .map(message -> toResponse(message, hospitalName, guardianNicknames))
                 .toList();
         // 다음 페이지가 있을 때만 "next" 커서를 제공한다. 마지막/빈 페이지에서 이전 커서를
         // 되돌려 주면 nextAfterMessageId가 다음 페이지를 가리킨다는 응답 의미가 모호해진다.
@@ -166,5 +175,23 @@ public class ChatMessageService {
 
     private String hospitalName(Long hospitalId) {
         return hospitalService.getHospitalDetail(hospitalId).name();
+    }
+
+    private ChatMessageResponse toResponse(ChatMessage message, String hospitalName) {
+        String guardianNickname = message.getSenderType() == ChatSenderType.GUARDIAN
+                ? memberProfilePort.getGuardianNickname(message.getMemberId())
+                : null;
+        return ChatMessageResponse.from(message, hospitalName, guardianNickname);
+    }
+
+    private ChatMessageResponse toResponse(
+            ChatMessage message,
+            String hospitalName,
+            Map<Long, String> guardianNicknames
+    ) {
+        String guardianNickname = message.getSenderType() == ChatSenderType.GUARDIAN
+                ? guardianNicknames.get(message.getMemberId())
+                : null;
+        return ChatMessageResponse.from(message, hospitalName, guardianNickname);
     }
 }

@@ -45,7 +45,12 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
-        if (accessor.getCommand() == StompCommand.CONNECT) {
+        StompCommand command = accessor.getCommand();
+        if (command == null) {
+            // STOMP heartbeat는 command가 없다. payload·destination을 갖지 않아 메시지 주입 경로가 아니다.
+            return message;
+        }
+        if (command == StompCommand.CONNECT) {
             Authentication authentication = authenticate(accessor);
             Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
             if (sessionAttributes != null) {
@@ -56,15 +61,22 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
             // MemberPrincipal로 인가되도록 변경된 헤더의 Message를 명시적으로 반환한다.
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
-        if (accessor.getCommand() == StompCommand.SUBSCRIBE) {
+        if (command == StompCommand.SUBSCRIBE) {
             authorizeDestination(accessor, SUBSCRIBE_DESTINATION);
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
-        if (accessor.getCommand() == StompCommand.SEND) {
+        if (command == StompCommand.SEND) {
             authorizeDestination(accessor, SEND_DESTINATION);
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
-        return message;
+        if (command == StompCommand.UNSUBSCRIBE || command == StompCommand.DISCONNECT) {
+            requireAuthenticatedUser(accessor);
+            return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
+        }
+        // MESSAGE·CONNECTED·ERROR 등은 broker/server가 만드는 프레임이다. 클라이언트가
+        // SimpleBroker topic에 직접 주입하면 저장·예약 관계 인가·AFTER_COMMIT를 모두 우회하므로
+        // 명시적으로 거부한다.
+        throw new AccessDeniedException("허용되지 않은 채팅 STOMP 명령입니다.");
     }
 
     private Authentication authenticate(StompHeaderAccessor accessor) {
@@ -98,11 +110,18 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
         if (!matcher.matches()) {
             throw new AccessDeniedException("허용되지 않은 채팅 STOMP destination입니다.");
         }
+        Authentication authentication = requireAuthenticatedUser(accessor);
+        MemberPrincipal principal = (MemberPrincipal) authentication.getPrincipal();
+        chatMessageService.assertAccessible(Long.valueOf(matcher.group(1)), principal);
+    }
+
+    private Authentication requireAuthenticatedUser(StompHeaderAccessor accessor) {
+        restoreAuthenticatedUser(accessor);
         if (!(accessor.getUser() instanceof Authentication authentication)
-                || !(authentication.getPrincipal() instanceof MemberPrincipal principal)) {
+                || !(authentication.getPrincipal() instanceof MemberPrincipal)) {
             throw new AccessDeniedException("인증되지 않은 STOMP 요청입니다.");
         }
-        chatMessageService.assertAccessible(Long.valueOf(matcher.group(1)), principal);
+        return authentication;
     }
 
     private void restoreAuthenticatedUser(StompHeaderAccessor accessor) {

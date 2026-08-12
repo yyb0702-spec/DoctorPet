@@ -12,13 +12,17 @@ public record ChatMessageResponse(
         String senderName
 ) {
 
-    public static ChatMessageResponse from(ChatMessage message, String hospitalName) {
+    public static ChatMessageResponse from(
+            ChatMessage message,
+            String hospitalName,
+            String guardianNickname
+    ) {
         return new ChatMessageResponse(
                 message.getId(),
                 message.getSenderType(),
                 message.getBody(),
                 message.getCreatedAt(),
-                message.getSenderType() == ChatSenderType.HOSPITAL ? hospitalName : null
+                message.getSenderType() == ChatSenderType.HOSPITAL ? hospitalName : guardianNickname
         );
     }
 }

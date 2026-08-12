@@ -13,6 +13,7 @@ import com.doctorpet.domain.chat.entity.ChatMessage;
 import com.doctorpet.domain.chat.entity.ChatSenderType;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.port.ChatStaffHospitalPort;
+import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
@@ -53,6 +54,7 @@ class ChatMessageServiceTest {
 
     @Mock private ReservationService reservationService;
     @Mock private ChatStaffHospitalPort staffHospitalPort;
+    @Mock private ChatMemberProfilePort memberProfilePort;
     @Mock private HospitalService hospitalService;
     @Mock private ChatMessageRepository chatMessageRepository;
     @Mock private ApplicationEventPublisher eventPublisher;
@@ -64,6 +66,7 @@ class ChatMessageServiceTest {
         chatMessageService = new ChatMessageService(
                 reservationService,
                 staffHospitalPort,
+                memberProfilePort,
                 hospitalService,
                 chatMessageRepository,
                 eventPublisher,
@@ -89,6 +92,7 @@ class ChatMessageServiceTest {
         Reservation reservation = requestedReservation();
         given(reservationService.findReservationForChatForUpdate(RESERVATION_ID))
                 .willReturn(reservation);
+        given(memberProfilePort.getGuardianNickname(GUARDIAN.memberId())).willReturn("보호자");
         given(hospitalService.getHospitalDetail(HOSPITAL_ID)).willReturn(hospitalDetail());
         given(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).willAnswer(invocation -> {
             ChatMessage message = invocation.getArgument(0);
@@ -104,7 +108,7 @@ class ChatMessageServiceTest {
         verify(chatMessageRepository).saveAndFlush(messageCaptor.capture());
         assertThat(messageCaptor.getValue().getHospitalId()).isEqualTo(HOSPITAL_ID);
         assertThat(messageCaptor.getValue().getMemberId()).isEqualTo(GUARDIAN.memberId());
-        assertThat(response.senderName()).isNull();
+        assertThat(response.senderName()).isEqualTo("보호자");
     }
 
     @Test
@@ -133,6 +137,27 @@ class ChatMessageServiceTest {
         assertThat(page.nextAfterMessageId()).isNull();
         assertThat(page.messages()).singleElement().satisfies(message -> {
             assertThat(message.senderName()).isEqualTo("우리동물병원");
+        });
+    }
+
+    @Test
+    @DisplayName("보호자 메시지는 서버가 해석한 보호자 nickname만 표시한다")
+    void returnsServerResolvedGuardianNickname() {
+        Reservation reservation = requestedReservation();
+        ChatMessage guardianMessage = message(1L, RESERVATION_ID, ChatSenderType.GUARDIAN);
+        given(reservationService.findReservationForChat(RESERVATION_ID)).willReturn(reservation);
+        given(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                eq(RESERVATION_ID), any())).willReturn(List.of(guardianMessage));
+        given(hospitalService.getHospitalDetail(HOSPITAL_ID)).willReturn(hospitalDetail());
+        given(memberProfilePort.getGuardianNickname(guardianMessage.getMemberId()))
+                .willReturn("서버보호자명");
+
+        ChatMessagePageResponse page = chatMessageService.getMessages(
+                RESERVATION_ID, GUARDIAN, null, 10);
+
+        assertThat(page.messages()).singleElement().satisfies(message -> {
+            assertThat(message.senderType()).isEqualTo(ChatSenderType.GUARDIAN);
+            assertThat(message.senderName()).isEqualTo("서버보호자명");
         });
     }
 
