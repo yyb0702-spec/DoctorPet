@@ -134,11 +134,20 @@ public class NotificationRecipientMigrationRunner implements ApplicationRunner {
 
     private void applyIndex(Connection connection, String indexName, String expectedColumns)
             throws SQLException {
-        if (!indexExists(connection, indexName, expectedColumns)) {
+        if (indexExists(connection, indexName, expectedColumns)) {
+            return;
+        }
+        // 이름은 있지만 컬럼 구성이 다른 인덱스가 있으면(부분 적용 재실행, 과거 수동 생성 등) 같은 이름으로
+        // create index를 그대로 실행할 수 없다 — MySQL이 Duplicate key name으로 부팅을 중단시킨다(리뷰
+        // 지적 P1). 잘못된 정의를 먼저 지우고 올바른 정의로 다시 만들어 드리프트를 스스로 교체한다.
+        if (indexNameExists(connection, indexName)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("create index " + indexName
-                        + " on notifications (" + expectedColumns + ")");
+                statement.execute("drop index " + indexName + " on notifications");
             }
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("create index " + indexName
+                    + " on notifications (" + expectedColumns + ")");
         }
     }
 

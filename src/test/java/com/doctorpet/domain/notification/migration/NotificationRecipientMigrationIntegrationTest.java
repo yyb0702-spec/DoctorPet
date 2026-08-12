@@ -140,6 +140,24 @@ class NotificationRecipientMigrationIntegrationTest {
     }
 
     @Test
+    @DisplayName("드리프트: 같은 이름·잘못된 컬럼의 인덱스가 남아 있어도 재실행이 교체 후 성공한다")
+    void applyIndex_replacesSameNameIndexWithWrongColumns() {
+        long memberId = insertLegacyMemberNotification();
+        // 부분 적용 재시도나 과거 수동 생성으로, 목표 인덱스 이름이 잘못된 컬럼 구성으로 이미 존재하는
+        // 상태를 재현한다 — indexExists(이름+컬럼)는 이 인덱스를 못 찾지만, 그대로 create index를 하면
+        // MySQL이 Duplicate key name으로 거부한다(리뷰 지적 P1이 잡은 시나리오).
+        jdbcTemplate.execute(
+                "create index " + CREATED_INDEX + " on notifications (member_id, read_at)");
+
+        new NotificationRecipientMigrationRunner(jdbcTemplate).run(null);
+
+        assertThat(indexExists(CREATED_INDEX)).isTrue();
+        assertThat(indexHasColumns(CREATED_INDEX, "recipient_type,recipient_id,created_at")).isTrue();
+        assertThat(recipientType(legacyNotificationId)).isEqualTo("MEMBER");
+        assertThat(recipientId(legacyNotificationId)).isEqualTo(memberId);
+    }
+
+    @Test
     @DisplayName("두 인스턴스가 동시에 최초 기동해도 DB 잠금으로 한 번만 적용한다")
     void concurrentRunners_areSerializedByDatabaseLock() throws InterruptedException {
         long memberId = insertLegacyMemberNotification();
@@ -224,6 +242,22 @@ class NotificationRecipientMigrationIntegrationTest {
                    and table_name = 'notifications'
                    and index_name = ?
                 """, Integer.class, indexName);
+        return count != null && count > 0;
+    }
+
+    private boolean indexHasColumns(String indexName, String expectedColumns) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from (
+                        select index_name
+                          from information_schema.statistics
+                         where table_schema = database()
+                           and table_name = 'notifications'
+                           and index_name = ?
+                         group by index_name
+                        having group_concat(column_name order by seq_in_index) = ?
+                       ) matching_index
+                """, Integer.class, indexName, expectedColumns);
         return count != null && count > 0;
     }
 
