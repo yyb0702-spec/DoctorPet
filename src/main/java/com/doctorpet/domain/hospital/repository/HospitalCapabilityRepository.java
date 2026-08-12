@@ -13,4 +13,6 @@ public interface HospitalCapabilityRepository
         extends JpaRepository<HospitalCapability, Long> {
 
     List<HospitalCapability> findAllByHospital(Hospital hospital);
+
+    List<HospitalCapability> findAllByHospitalId(Long hospitalId);
 }
