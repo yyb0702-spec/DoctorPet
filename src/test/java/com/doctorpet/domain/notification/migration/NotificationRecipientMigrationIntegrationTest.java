@@ -50,6 +50,10 @@ class NotificationRecipientMigrationIntegrationTest {
     @BeforeEach
     void prepareLegacySchema() {
         deleteMarker();
+        // 호환 트리거도 떨어뜨려 "마이그레이션 이전"을 정확히 재현한다 — 트리거가 남아 있으면 legacy INSERT가
+        // 트리거로 채워져 recipient-null 행을 만들 수 없어 백필 테스트 의도가 흐려진다.
+        jdbcTemplate.execute("drop trigger if exists "
+                + NotificationRecipientMigrationRunner.BACKFILL_TRIGGER);
         // recipient 컬럼을 nullable로 되돌려 recipient가 비어 있는 legacy 행을 넣을 수 있게 한다.
         jdbcTemplate.execute("alter table notifications modify column recipient_type varchar(20) null");
         jdbcTemplate.execute("alter table notifications modify column recipient_id bigint null");
@@ -99,6 +103,27 @@ class NotificationRecipientMigrationIntegrationTest {
         assertThat(indexExists(LEGACY_CREATED_INDEX)).isFalse();
         assertThat(indexExists(LEGACY_READ_INDEX)).isFalse();
         assertThat(markerExists()).isTrue();
+    }
+
+    @Test
+    @DisplayName("blue/green 호환: 마이그레이션(NOT NULL) 후에도 구버전식 member_id-only INSERT가 트리거로 채워져 성공한다")
+    void afterMigration_legacyStyleInsertIsFilledByTrigger() {
+        // 마이그레이션을 실제로 적용해 recipient_* NOT NULL + 백필 트리거가 있는 상태로 만든다.
+        new NotificationRecipientMigrationRunner(jdbcTemplate).run(null);
+
+        // 배포 중 아직 활성인 구버전 코드처럼 recipient_*를 빼고 member_id만으로 INSERT한다 — recipient_*가 NOT NULL이지만
+        // 트리거가 (MEMBER, member_id)로 채워 제약 위반 없이 저장되고, recipient 조회에도 보여야 한다(리뷰 지적 P1).
+        long memberId = Math.abs(System.nanoTime());
+        jdbcTemplate.update("""
+                insert into notifications
+                       (member_id, type, content, resource_type, resource_id, created_at, updated_at)
+                values (?, 'PAYMENT_RESULT', '진료비 결제가 완료되었습니다.', 'PAYMENT', 77, now(6), now(6))
+                """, memberId);
+        legacyNotificationId = jdbcTemplate.queryForObject(
+                "select id from notifications where member_id = ? order by id desc limit 1", Long.class, memberId);
+
+        assertThat(recipientType(legacyNotificationId)).isEqualTo("MEMBER");
+        assertThat(recipientId(legacyNotificationId)).isEqualTo(memberId);
     }
 
     @Test

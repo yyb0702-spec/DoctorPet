@@ -33,6 +33,8 @@ public class NotificationRecipientMigrationRunner implements ApplicationRunner {
     static final String MIGRATION_KEY = "notification_recipient_model_v1";
     static final String CREATED_INDEX = "idx_notifications_recipient_created";
     static final String READ_INDEX = "idx_notifications_recipient_read";
+    // blue/green 배포 호환용 BEFORE INSERT 트리거 이름(리뷰 지적 P1). recipient_*가 비면 (MEMBER, member_id)로 채운다.
+    static final String BACKFILL_TRIGGER = "trg_notifications_recipient_backfill";
     private static final String LEGACY_CREATED_INDEX = "idx_notifications_member_created";
     private static final String LEGACY_READ_INDEX = "idx_notifications_member_read";
     private static final String LOCK_NAME = "doctorpet:notification_recipient_model_v1";
@@ -78,6 +80,10 @@ public class NotificationRecipientMigrationRunner implements ApplicationRunner {
             );
         }
 
+        // NOT NULL을 걸기 전에 호환 트리거를 먼저 만든다 — blue/green 배포 중 아직 활성인 구버전(recipient_*를
+        // 모르는 코드)이 member_id만으로 INSERT해도 트리거가 (MEMBER, member_id)로 채워 NOT NULL을 만족시키고
+        // recipient 조회에도 보이게 한다(리뷰 지적 P1). 순서가 중요하다: 트리거 → NOT NULL.
+        applyRecipientBackfillTrigger(connection);
         applyNotNull(connection, "recipient_type", "varchar(20)");
         applyNotNull(connection, "recipient_id", "bigint");
         relaxMemberIdNullable(connection);
@@ -92,6 +98,21 @@ public class NotificationRecipientMigrationRunner implements ApplicationRunner {
                 "알림 수신자 모델 마이그레이션 완료: {}건 백필, recipient_type·recipient_id NOT NULL, member_id nullable, {}·{} 인덱스 확인",
                 backfilled, CREATED_INDEX, READ_INDEX
         );
+    }
+
+    // blue/green 호환 BEFORE INSERT 트리거를 (재)생성한다(리뷰 지적 P1). recipient_type/recipient_id가 비어 있으면
+    // (MEMBER, member_id)로 채운다 — 구버전 코드의 member_id-only INSERT를 NOT NULL 위반 없이 흡수하고 recipient
+    // 조회에도 보이게 한다. 신규 코드는 recipient_*를 직접 채우므로 COALESCE가 기존 값을 유지해 no-op이며, HOSPITAL
+    // 수신(member_id=NULL)도 recipient_*가 이미 채워져 영향받지 않는다. 구버전이 사라진 뒤엔 상시 no-op이라 무해하다.
+    // SET 한 문장짜리 트리거라 BEGIN/END·DELIMITER가 필요 없어 JDBC로 그대로 실행된다. 재실행 대비 DROP IF EXISTS 선행.
+    private void applyRecipientBackfillTrigger(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("drop trigger if exists " + BACKFILL_TRIGGER);
+            statement.execute(
+                    "create trigger " + BACKFILL_TRIGGER + " before insert on notifications for each row "
+                            + "set new.recipient_type = coalesce(new.recipient_type, 'MEMBER'), "
+                            + "new.recipient_id = coalesce(new.recipient_id, new.member_id)");
+        }
     }
 
     private void applyNotNull(Connection connection, String column, String type) throws SQLException {
