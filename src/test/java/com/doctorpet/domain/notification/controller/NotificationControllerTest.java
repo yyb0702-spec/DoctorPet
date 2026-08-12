@@ -14,7 +14,10 @@ import com.doctorpet.domain.notification.dto.response.NotificationPageResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
+import com.doctorpet.domain.notification.service.NotificationRecipient;
+import com.doctorpet.domain.notification.service.NotificationRecipientResolver;
 import com.doctorpet.domain.notification.service.NotificationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
@@ -27,6 +30,7 @@ import com.doctorpet.global.security.MemberPrincipal;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,12 +48,18 @@ import org.springframework.test.web.servlet.MockMvc;
 class NotificationControllerTest {
 
     private static final Long MEMBER_ID = 7L;
+    private static final Long HOSPITAL_ID = 20L;
+    private static final NotificationRecipient MEMBER_RECIPIENT =
+            NotificationRecipient.member(MEMBER_ID);
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockitoBean
     private NotificationService notificationService;
+
+    @MockitoBean
+    private NotificationRecipientResolver recipientResolver;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -60,25 +70,31 @@ class NotificationControllerTest {
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
 
+    @BeforeEach
+    void resolveMemberByDefault() {
+        // 기본은 회원(GUARDIAN) principal → (MEMBER, memberId). 병원 케이스는 개별 테스트에서 재정의한다.
+        given(recipientResolver.resolve(any(MemberPrincipal.class))).willReturn(MEMBER_RECIPIENT);
+    }
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
     }
 
-    private void authenticateAs(Long memberId) {
+    private void authenticateAs(Long memberId, String role) {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
-                        new MemberPrincipal(memberId, "member@example.com", "GUARDIAN"), null, List.of()));
+                        new MemberPrincipal(memberId, "member@example.com", role), null, List.of()));
     }
 
     @Test
-    @DisplayName("목록 조회: 인증된 본인 memberId로 조회하고 유형별 연결정보를 포함해 반환한다")
+    @DisplayName("목록 조회: 인증 principal을 해석한 수신자로 조회하고 유형별 연결정보를 포함해 반환한다")
     void getMyNotifications_returnsResourceInfo() throws Exception {
-        authenticateAs(MEMBER_ID);
+        authenticateAs(MEMBER_ID, "GUARDIAN");
         NotificationResponse item = new NotificationResponse(
                 100L, "PAYMENT_RESULT", "진료비 결제가 완료되었습니다.",
                 "PAYMENT", 55L, false, null, LocalDateTime.of(2026, 8, 3, 10, 0));
-        given(notificationService.getMyNotifications(eq(MEMBER_ID), any(), eq(0), eq(20)))
+        given(notificationService.getMyNotifications(eq(MEMBER_RECIPIENT), any(), eq(0), eq(20)))
                 .willReturn(new NotificationPageResponse(List.of(item), 0, 20, 1, 1, true, true));
 
         mockMvc.perform(get("/api/notifications"))
@@ -94,8 +110,8 @@ class NotificationControllerTest {
     @Test
     @DisplayName("목록 조회: isRead 필터와 페이징 파라미터를 서비스로 전달한다")
     void getMyNotifications_passesFilterAndPaging() throws Exception {
-        authenticateAs(MEMBER_ID);
-        given(notificationService.getMyNotifications(eq(MEMBER_ID), eq(true), eq(1), eq(5)))
+        authenticateAs(MEMBER_ID, "GUARDIAN");
+        given(notificationService.getMyNotifications(eq(MEMBER_RECIPIENT), eq(true), eq(1), eq(5)))
                 .willReturn(new NotificationPageResponse(List.of(), 1, 5, 0, 0, false, true));
 
         mockMvc.perform(get("/api/notifications")
@@ -104,14 +120,29 @@ class NotificationControllerTest {
                         .param("size", "5"))
                 .andExpect(status().isOk());
 
-        verify(notificationService).getMyNotifications(MEMBER_ID, true, 1, 5);
+        verify(notificationService).getMyNotifications(MEMBER_RECIPIENT, true, 1, 5);
     }
 
     @Test
-    @DisplayName("미읽음 개수: 인증 memberId로 위임하고 unreadCount를 SUCCESS로 반환한다")
+    @DisplayName("목록 조회(병원 스태프): 해석된 (HOSPITAL, hospitalId) 수신자로 위임한다")
+    void getMyNotifications_hospitalStaff() throws Exception {
+        authenticateAs(MEMBER_ID, "HOSPITAL_STAFF");
+        NotificationRecipient hospital = NotificationRecipient.hospital(HOSPITAL_ID);
+        given(recipientResolver.resolve(any(MemberPrincipal.class))).willReturn(hospital);
+        given(notificationService.getMyNotifications(eq(hospital), any(), eq(0), eq(20)))
+                .willReturn(new NotificationPageResponse(List.of(), 0, 20, 0, 0, true, true));
+
+        mockMvc.perform(get("/api/notifications"))
+                .andExpect(status().isOk());
+
+        verify(notificationService).getMyNotifications(hospital, null, 0, 20);
+    }
+
+    @Test
+    @DisplayName("미읽음 개수: 해석된 수신자로 위임하고 unreadCount를 SUCCESS로 반환한다")
     void getUnreadCount_returnsCount() throws Exception {
-        authenticateAs(MEMBER_ID);
-        given(notificationService.getUnreadCount(MEMBER_ID))
+        authenticateAs(MEMBER_ID, "GUARDIAN");
+        given(notificationService.getUnreadCount(MEMBER_RECIPIENT))
                 .willReturn(new NotificationUnreadCountResponse(3L));
 
         mockMvc.perform(get("/api/notifications/unread-count"))
@@ -119,14 +150,14 @@ class NotificationControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.unreadCount").value(3));
 
-        verify(notificationService).getUnreadCount(MEMBER_ID);
+        verify(notificationService).getUnreadCount(MEMBER_RECIPIENT);
     }
 
     @Test
-    @DisplayName("모두 읽음: 인증 memberId로 위임하고 updatedCount를 SUCCESS로 반환한다")
+    @DisplayName("모두 읽음: 해석된 수신자로 위임하고 updatedCount를 SUCCESS로 반환한다")
     void markAllRead_returnsUpdatedCount() throws Exception {
-        authenticateAs(MEMBER_ID);
-        given(notificationService.markAllRead(MEMBER_ID))
+        authenticateAs(MEMBER_ID, "GUARDIAN");
+        given(notificationService.markAllRead(MEMBER_RECIPIENT))
                 .willReturn(new NotificationReadAllResponse(4));
 
         mockMvc.perform(patch("/api/notifications/read-all"))
@@ -134,27 +165,27 @@ class NotificationControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.updatedCount").value(4));
 
-        verify(notificationService).markAllRead(MEMBER_ID);
+        verify(notificationService).markAllRead(MEMBER_RECIPIENT);
     }
 
     @Test
-    @DisplayName("읽음 처리: 200과 SUCCESS를 반환하고 인증 memberId로 위임한다")
+    @DisplayName("읽음 처리: 200과 SUCCESS를 반환하고 해석된 수신자로 위임한다")
     void markAsRead_success() throws Exception {
-        authenticateAs(MEMBER_ID);
+        authenticateAs(MEMBER_ID, "GUARDIAN");
 
         mockMvc.perform(patch("/api/notifications/{id}/read", 100L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
-        verify(notificationService).markAsRead(MEMBER_ID, 100L);
+        verify(notificationService).markAsRead(MEMBER_RECIPIENT, 100L);
     }
 
     @Test
-    @DisplayName("읽음 처리: 타 사용자 알림이면 403")
+    @DisplayName("읽음 처리: 타 수신자 알림이면 403")
     void markAsRead_forbidden() throws Exception {
-        authenticateAs(MEMBER_ID);
+        authenticateAs(MEMBER_ID, "GUARDIAN");
         doThrow(new ServiceException(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED))
-                .when(notificationService).markAsRead(MEMBER_ID, 100L);
+                .when(notificationService).markAsRead(MEMBER_RECIPIENT, 100L);
 
         mockMvc.perform(patch("/api/notifications/{id}/read", 100L))
                 .andExpect(status().isForbidden())
@@ -164,9 +195,9 @@ class NotificationControllerTest {
     @Test
     @DisplayName("읽음 처리: 없는 알림이면 404")
     void markAsRead_notFound() throws Exception {
-        authenticateAs(MEMBER_ID);
+        authenticateAs(MEMBER_ID, "GUARDIAN");
         doThrow(new ServiceException(NotificationErrorCode.NOTIFICATION_NOT_FOUND))
-                .when(notificationService).markAsRead(MEMBER_ID, 999L);
+                .when(notificationService).markAsRead(MEMBER_RECIPIENT, 999L);
 
         mockMvc.perform(patch("/api/notifications/{id}/read", 999L))
                 .andExpect(status().isNotFound())

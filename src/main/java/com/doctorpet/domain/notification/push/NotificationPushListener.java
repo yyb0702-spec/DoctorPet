@@ -19,11 +19,11 @@ public class NotificationPushListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onNotificationCreated(NotificationCreatedEvent event) {
         try {
-            pusher.push(event.recipientMemberId(), event.payload());
+            pusher.push(event.recipientType(), event.recipientId(), event.payload());
         } catch (RuntimeException e) {
-            // 전송 실패는 부가 채널의 문제일 뿐 저장은 이미 확정됐다. 보호자는 폴링으로 알림을 받을 수 있다.
-            log.warn("실시간 알림 전송 실패 memberId={} notificationId={}",
-                    event.recipientMemberId(), event.payload().id(), e);
+            // 전송 실패는 부가 채널의 문제일 뿐 저장은 이미 확정됐다. 수신자는 폴링으로 알림을 받을 수 있다.
+            log.warn("실시간 알림 전송 실패 recipientType={} recipientId={} notificationId={}",
+                    event.recipientType(), event.recipientId(), event.payload().id(), e);
         }
     }
 }

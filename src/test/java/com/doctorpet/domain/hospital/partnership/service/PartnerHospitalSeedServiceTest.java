@@ -14,13 +14,16 @@ import com.doctorpet.domain.hospital.partnership.mapper.PartnerHospitalSeedMappe
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.util.Map;
 import java.util.List;
@@ -43,6 +46,9 @@ class PartnerHospitalSeedServiceTest {
 
     @Mock
     private HospitalCapabilityRepository hospitalCapabilityRepository;
+
+    @Mock
+    private HospitalOperatingScheduleRepository operatingScheduleRepository;
 
     @Test
     void 처음_적용하면_제휴_상태와_상세정보와_역량을_저장한다() {
@@ -68,6 +74,8 @@ class PartnerHospitalSeedServiceTest {
                 .save(any(HospitalDetail.class));
         then(hospitalCapabilityRepository).should()
                 .saveAll(any());
+        then(operatingScheduleRepository).should()
+                .save(any());
     }
 
     @Test
@@ -179,7 +187,12 @@ class PartnerHospitalSeedServiceTest {
                 hospitalRepository,
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
-                new PartnerHospitalSeedMapper()
+                operatingScheduleRepository,
+                new PartnerHospitalSeedMapper(),
+                Clock.fixed(
+                        Instant.parse("2026-08-11T00:00:00Z"),
+                        java.time.ZoneId.of("Asia/Seoul")
+                )
         );
     }
 

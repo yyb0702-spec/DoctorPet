@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
 import com.doctorpet.global.config.QuerydslConfig;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
@@ -73,6 +74,8 @@ class HospitalSearchCacheBaselineIntegrationTest {
         savePartnerHospitals();
         HospitalSearchCacheRepository cacheRepository =
                 mock(HospitalSearchCacheRepository.class);
+        HospitalTemporaryClosureRepository temporaryClosureRepository =
+                mock(HospitalTemporaryClosureRepository.class);
         given(cacheRepository.findInitialPage())
                 .willReturn(HospitalSearchCacheLookupResult.miss());
         HospitalService hospitalService = new HospitalService(
@@ -80,6 +83,7 @@ class HospitalSearchCacheBaselineIntegrationTest {
                 null,
                 null,
                 cacheRepository,
+                temporaryClosureRepository,
                 null,
                 null
         );
