@@ -173,7 +173,40 @@ services:
     # nginx는 컷오버 대상 색과 독립적으로 항상 떠 있어야 하는 서비스라 이 결합을 두지 않는 게
     # 맞다 — 업스트림이 아직 안 떠 있으면 그 사이 요청은 502를 받을 뿐, nginx 자체는 정상 기동한다.
 
+  # 모니터링 스택(Prometheus+Grafana) — SA.md §12 "Grafana 등 시각화는 여력에 따라 확장" 항목
+  # 구현. 이미 `/actuator/prometheus`(8081, 이슈 #105)로 지표는 나가고 있었고, 이걸 긁어가서
+  # 보여줄 서버가 없었던 것뿐이라 blue/green 컷오버 로직 자체는 건드리지 않는다 — nginx처럼
+  # 컷오버 대상과 무관하게 상시 떠 있는 보조 서비스로 취급한다.
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    # mysql·redis·app-blue/green과 동일 원칙 — 호스트 포트를 게시하지 않는다. Grafana가 같은
+    # compose 네트워크 안에서 prometheus:9090으로 붙으므로 외부 노출이 필요 없다.
+
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-this-to-a-strong-password}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    # mysql/redis(디버깅 전용, override 파일에서만 loopback으로 연다)와 달리 Grafana는 로컬·EC2
+    # 양쪽에서 운영자가 실제로 계속 봐야 하는 대시보드라 본문에 바로 둔다. 다만 0.0.0.0으로
+    # 열면 보안그룹 실수 한 번에 인증 화면(기본 admin/admin류)이 인터넷에 노출되므로
+    # 127.0.0.1에만 바인딩한다 — 로컬은 그대로 localhost:3000, EC2는
+    # `ssh -L 3000:localhost:3000 <user>@<EC2_HOST>` 터널로만 접근한다(무중단배포 문서 참고).
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   mysql-data:
   payment-audit-logs:
   nginx-logs:
+  prometheus-data:
+  grafana-data:

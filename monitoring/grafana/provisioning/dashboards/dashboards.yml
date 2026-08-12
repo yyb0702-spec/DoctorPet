@@ -1,0 +1,16 @@
+# 대시보드 자동 로드 설정. 이 디렉터리(monitoring/grafana/provisioning/dashboards)에 대시보드
+# JSON 파일을 두면 Grafana가 기동 시 자동으로 읽어 들인다. 아직 이 리포에 커스텀 대시보드
+# JSON은 없다 — Grafana UI에서 Dashboards > New > Import로 커뮤니티 대시보드 ID를 넣어 바로
+# 쓸 수 있다(Spring Boot/Micrometer용으로 4701 또는 12900 추천). 팀 표준 대시보드로 굳히기로
+# 하면 그 화면에서 Export한 JSON을 이 디렉터리에 커밋해 다음부터는 수동 임포트 없이 뜨게 한다.
+apiVersion: 1
+
+providers:
+  - name: doctorpet
+    orgId: 1
+    folder: DoctorPet
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
