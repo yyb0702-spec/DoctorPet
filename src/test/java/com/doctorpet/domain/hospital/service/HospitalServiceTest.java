@@ -423,6 +423,18 @@ class HospitalServiceTest {
     }
 
     @Test
+    void 폐업한_제휴_병원은_슬롯_조회와_신규_예약이_불가능하다() {
+        Hospital hospital = createHospital(BusinessStatus.CLOSED, true);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        boolean available =
+                hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID);
+
+        assertThat(available).isFalse();
+    }
+
+    @Test
     void 비제휴_병원은_슬롯_조회가_불가능하다() {
         Hospital hospital = createHospital(BusinessStatus.OPEN, false);
         given(hospitalRepository.findById(HOSPITAL_ID))

@@ -95,6 +95,9 @@ class ReservationApplicationServiceTest {
 
         given(petService.findOwnedActivePet(MEMBER_ID, PET_ID))
                 .willReturn(Optional.of(pet));
+        given(reservationService.findSlot(SLOT_ID)).willReturn(slot());
+        given(hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID))
+                .willReturn(true);
         given(paymentMethodService.isActiveAndOwnedBy(
                 MEMBER_ID,
                 PAYMENT_METHOD_ID
@@ -124,6 +127,37 @@ class ReservationApplicationServiceTest {
                 "초코",
                 "DOG"
         );
+    }
+
+    @Test
+    @DisplayName("폐업 등으로 예약할 수 없는 병원에는 새 예약을 요청할 수 없다")
+    void request_unavailableHospital_throwsHospitalReservationNotAvailable() {
+        ReservationRequest request = new ReservationRequest(
+                PET_ID,
+                SLOT_ID,
+                PAYMENT_METHOD_ID
+        );
+        given(reservationService.findSlot(SLOT_ID)).willReturn(slot());
+        given(hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID))
+                .willReturn(false);
+        given(petService.findOwnedActivePet(MEMBER_ID, PET_ID))
+                .willReturn(Optional.of(pet("초코", PetSpecies.DOG)));
+        given(paymentMethodService.isActiveAndOwnedBy(
+                MEMBER_ID,
+                PAYMENT_METHOD_ID
+        )).willReturn(true);
+
+        assertThatThrownBy(() -> applicationService.request(MEMBER_ID, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE);
+
+        verify(petService).findOwnedActivePet(MEMBER_ID, PET_ID);
+        verify(paymentMethodService).isActiveAndOwnedBy(
+                MEMBER_ID,
+                PAYMENT_METHOD_ID
+        );
+        verify(reservationService, never()).request(any(), any(), any(), any());
     }
 
     @Test

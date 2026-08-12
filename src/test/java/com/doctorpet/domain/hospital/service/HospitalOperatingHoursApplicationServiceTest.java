@@ -13,6 +13,7 @@ import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
 import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
 import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
@@ -89,6 +90,8 @@ class HospitalOperatingHoursApplicationServiceTest {
         );
         lenient().when(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .thenReturn(Optional.of(lockedHospital));
+        lenient().when(lockedHospital.getBusinessStatus())
+                .thenReturn(BusinessStatus.OPEN);
     }
 
     @Test
@@ -593,6 +596,17 @@ class HospitalOperatingHoursApplicationServiceTest {
                 .findEffectiveSchedule(any(), any());
         verify(reservationService, never())
                 .createOpenSlots(any(), any(), any());
+    }
+
+    @Test
+    void createSlotsSkipsClosedHospital() {
+        given(lockedHospital.getBusinessStatus()).willReturn(BusinessStatus.CLOSED);
+
+        assertThat(service.createSlots(HOSPITAL_ID, TODAY.plusDays(1))).isZero();
+
+        verify(closureRepository, never()).findClosure(any(), any());
+        verify(scheduleRepository, never()).findEffectiveSchedule(any(), any());
+        verify(reservationService, never()).createOpenSlots(any(), any(), any());
     }
 
     private OperatingHoursUpdateRequest updateRequest(LocalDate desiredEffectiveFrom) {

@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
 import com.doctorpet.domain.hospital.dto.response.OperatingHoursResponse;
 import com.doctorpet.domain.hospital.dto.response.TemporaryClosureResponse;
 import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
 import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
@@ -146,7 +147,10 @@ public class HospitalOperatingHoursApplicationService {
 
     @Transactional
     public int createSlots(Long hospitalId, LocalDate businessDate) {
-        lockHospital(hospitalId);
+        Hospital hospital = lockHospital(hospitalId);
+        if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            return 0;
+        }
         return createSlotsAfterHospitalLock(hospitalId, businessDate);
     }
 

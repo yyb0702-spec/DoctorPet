@@ -2,6 +2,9 @@ package com.doctorpet.domain.reservation.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
@@ -62,12 +65,16 @@ class ReservationConcurrencyIntegrationTest {
     private MemberRepository memberRepository;
 
     @Autowired
+    private HospitalRepository hospitalRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Long createdSlotId;
     private Long createdPetId;
     private Long createdPaymentMethodId;
     private Long createdMemberId;
+    private Long createdHospitalId;
 
     @AfterEach
     void cleanUp() {
@@ -99,12 +106,33 @@ class ReservationConcurrencyIntegrationTest {
                     createdMemberId
             );
         }
+        if (createdHospitalId != null) {
+            hospitalRepository.deleteById(createdHospitalId);
+        }
     }
 
     @Test
     @DisplayName("동일 슬롯에 동시 예약하면 한 건만 성공하고 나머지는 SLOT_002로 실패한다")
     void concurrentRequest_sameSlot_onlyOneSucceeds() throws InterruptedException {
-        long hospitalId = System.nanoTime();
+        Hospital hospital = Hospital.createFromPublicData(
+                "RESERVATION-CONCURRENCY-" + System.nanoTime(),
+                "TEST-LOCAL-GOV",
+                "예약 동시성 테스트 병원",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                BusinessStatus.OPEN,
+                null,
+                null,
+                null
+        );
+        hospital.markAsPartner();
+        long hospitalId = hospitalRepository.saveAndFlush(hospital).getId();
+        createdHospitalId = hospitalId;
         LocalDateTime startAt = LocalDateTime.now().plusDays(2).withNano(0);
         ReservationSlot slot = reservationSlotRepository.saveAndFlush(
                 ReservationSlot.create(

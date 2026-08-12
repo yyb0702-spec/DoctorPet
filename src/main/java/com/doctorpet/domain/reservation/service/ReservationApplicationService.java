@@ -61,6 +61,13 @@ public class ReservationApplicationService {
             );
         }
 
+        ReservationSlot slot = reservationService.findSlot(request.slotId());
+        if (!hospitalService.isReservationSlotLookupAvailable(slot.getHospitalId())) {
+            throw new ServiceException(
+                    HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE
+            );
+        }
+
         return reservationService.request(
                 memberId,
                 request,

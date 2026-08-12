@@ -61,6 +61,11 @@ public enum HospitalErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "HOSPITAL_013",
             "폐업한 병원의 진료 역량은 수정할 수 없습니다."
+    ),
+    HOSPITAL_RESERVATION_NOT_AVAILABLE(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_014",
+            "현재 병원에는 예약을 요청할 수 없습니다."
     );
 
     private final HttpStatus httpStatus;
