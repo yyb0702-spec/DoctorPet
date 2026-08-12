@@ -1,0 +1,171 @@
+package com.doctorpet.domain.chat.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.BDDMockito.given;
+
+import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
+import com.doctorpet.domain.chat.exception.ChatErrorCode;
+import com.doctorpet.domain.chat.repository.ChatMessageRepository;
+import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
+import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.domain.member.entity.MemberRole;
+import com.doctorpet.domain.member.repository.MemberRepository;
+import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.domain.reservation.repository.ReservationRepository;
+import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
+import com.doctorpet.global.exception.ServiceException;
+import com.doctorpet.global.security.MemberPrincipal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
+
+/**
+ * Level 3 — 채팅 저장이 예약 행의 PESSIMISTIC_WRITE를 먼저 잡아도 종료 조건부 UPDATE와 직렬화된다.
+ * 종료가 먼저 커밋되면 send는 종료 상태를 다시 읽어 거부되고, send가 먼저 커밋된 경우에만 메시지가 남는다.
+ */
+@SpringBootTest(properties = {
+        "payment.gateway=fake",
+        "payment.billing-key.enc-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "mail.provider=fake",
+        "mail.verification.base-url=http://localhost/verify-email",
+        "mail.password-reset.base-url=http://localhost/reset-password",
+        "member.email-verified-backfill.enabled=false",
+        "jwt.secret=doctorpet-chat-integration-test-secret-key-32-bytes-minimum",
+        "jwt.access-token-expiration=3600000",
+        "jwt.refresh-token-expiration=1209600000"
+})
+class ChatMessageConcurrencyIntegrationTest {
+
+    @Autowired private ChatMessageService chatMessageService;
+    @Autowired private HospitalReservationApplicationService hospitalReservationService;
+    @Autowired private ChatMessageRepository chatMessageRepository;
+    @Autowired private ReservationRepository reservationRepository;
+    @Autowired private ReservationSlotRepository reservationSlotRepository;
+    @Autowired private MemberRepository memberRepository;
+    @MockitoBean private HospitalService hospitalService;
+
+    private Long reservationId;
+    private Long slotId;
+    private Long staffMemberId;
+
+    @AfterEach
+    void cleanUp() {
+        if (reservationId != null) {
+            chatMessageRepository.deleteAll(chatMessageRepository
+                    .findByReservationIdOrderByCreatedAtAscIdAsc(reservationId,
+                            org.springframework.data.domain.Pageable.unpaged()));
+            reservationRepository.deleteById(reservationId);
+        }
+        if (slotId != null) {
+            reservationSlotRepository.deleteById(slotId);
+        }
+        if (staffMemberId != null) {
+            memberRepository.deleteById(staffMemberId);
+        }
+    }
+
+    @RepeatedTest(5)
+    @DisplayName("종료 전이와 채팅 전송이 경쟁해도 종료 후 저장은 발생하지 않는다")
+    void completeTreatmentAndSend_areSerialized() throws InterruptedException {
+        RaceData data = saveInTreatmentReservation();
+        List<Throwable> unexpected = new CopyOnWriteArrayList<>();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+
+        executor.submit(() -> execute(ready, start, done, unexpected, () -> chatMessageService.send(
+                data.reservationId(), data.guardian(), new ChatMessageSendRequest("진료 중 문의"))));
+        executor.submit(() -> execute(ready, start, done, unexpected, () ->
+                hospitalReservationService.completeTreatment(
+                        data.staffMemberId(), data.reservationId())));
+
+        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(unexpected).isEmpty();
+        assertThat(reservationRepository.findById(data.reservationId()).orElseThrow().getStatus())
+                .isEqualTo(ReservationStatus.TREATMENT_COMPLETED);
+        assertThat(chatMessageRepository
+                .findByReservationIdOrderByCreatedAtAscIdAsc(data.reservationId(),
+                        org.springframework.data.domain.Pageable.unpaged()))
+                .hasSizeLessThanOrEqualTo(1);
+    }
+
+    private void execute(
+            CountDownLatch ready,
+            CountDownLatch start,
+            CountDownLatch done,
+            List<Throwable> unexpected,
+            Runnable action
+    ) {
+        ready.countDown();
+        try {
+            start.await();
+            action.run();
+        } catch (ServiceException e) {
+            if (e.getErrorCode() != ChatErrorCode.MESSAGE_SEND_NOT_ALLOWED
+                    && e.getErrorCode() != ReservationErrorCode.INVALID_STATUS) {
+                unexpected.add(e);
+            }
+        } catch (Throwable e) {
+            unexpected.add(e);
+        } finally {
+            done.countDown();
+        }
+    }
+
+    private RaceData saveInTreatmentReservation() {
+        long hospitalId = System.nanoTime();
+        LocalDateTime now = LocalDateTime.now();
+        ReservationSlot slot = reservationSlotRepository.saveAndFlush(ReservationSlot.create(
+                hospitalId, now.plusDays(2), now.plusDays(2).plusMinutes(30)));
+        slot.reserve();
+        reservationSlotRepository.saveAndFlush(slot);
+        slotId = slot.getId();
+
+        Member staff = Member.createGuardian(
+                "chat-race-" + hospitalId + "@example.com", "encoded", "스태프");
+        ReflectionTestUtils.setField(staff, "role", MemberRole.HOSPITAL_STAFF);
+        ReflectionTestUtils.setField(staff, "hospitalId", hospitalId);
+        staff = memberRepository.saveAndFlush(staff);
+        staffMemberId = staff.getId();
+
+        MemberPrincipal guardian = new MemberPrincipal(hospitalId + 1, "guardian@example.com",
+                MemberRole.GUARDIAN.name());
+        Reservation reservation = Reservation.request(
+                guardian.memberId(), 1L, hospitalId, slot.getId(), 1L,
+                "초코", "DOG", now, slot.getStartAt());
+        ReflectionTestUtils.setField(reservation, "status", ReservationStatus.IN_TREATMENT);
+        reservation = reservationRepository.saveAndFlush(reservation);
+        reservationId = reservation.getId();
+
+        given(hospitalService.getHospitalDetail(anyLong())).willReturn(new HospitalDetailResponse(
+                hospitalId, "테스트동물병원", null, null, null, null, null, null,
+                null, null, null, null, null, null, null, 0L, false));
+        return new RaceData(reservation.getId(), staff.getId(), guardian);
+    }
+
+    private record RaceData(Long reservationId, Long staffMemberId, MemberPrincipal guardian) {
+    }
+}

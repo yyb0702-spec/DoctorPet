@@ -36,6 +36,14 @@ public interface ReservationRepository
             select r
               from Reservation r
              where r.id = :reservationId
+            """)
+    Optional<Reservation> findByIdForUpdate(@Param("reservationId") Long reservationId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r
+              from Reservation r
+             where r.id = :reservationId
                and r.hospitalId = :hospitalId
             """)
     Optional<Reservation> findByIdAndHospitalIdForUpdate(

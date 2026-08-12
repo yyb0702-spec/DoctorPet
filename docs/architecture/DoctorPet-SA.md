@@ -353,6 +353,21 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | refunded_at | DATETIME NULL | 취소 확정 시각(COMPLETED에서만) |
 | created_at / updated_at | DATETIME | |
 
+### chat_messages
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| reservation_id | BIGINT NOT NULL | 예약당 1개 스레드의 논리 참조 |
+| sender_type | VARCHAR NOT NULL | GUARDIAN / HOSPITAL |
+| hospital_id | BIGINT NOT NULL | 예약 병원 ID. 병원 단위 접근·읽음 및 감사용 |
+| member_id | BIGINT NOT NULL | 실제 발신 보호자 또는 병원 스태프 ID(감사용) |
+| body | VARCHAR(1000) NOT NULL | 텍스트 본문 |
+| created_at | DATETIME NOT NULL | 생성 시각 |
+| read_at | DATETIME NULL | 상대 측이 읽은 시각. 병원 발신은 보호자, 보호자 발신은 병원 단위로 공유 |
+
+인덱스: 커서 조회용 `(reservation_id, created_at, id)`, 반대 발신자 미읽음 처리용 `(reservation_id, sender_type, read_at)`. 예약·병원·회원은 도메인 경계를 넘는 논리 참조로 DB FK를 두지 않는다. 메시지는 생성 시각부터 정확히 1년이 지난 시점에 hard delete한다.
+
 ### ai_consultations (상담 로그 + 운영·비용 측정)
 
 | 컬럼 | 타입 | 설명 |
@@ -771,7 +786,16 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 네 엔드포인트 모두 호출자 recipient를 서버에서 해석해 동작한다(고도화 3.10) — 회원 principal은 (MEMBER, memberId), 병원 스태프 principal은 소속 (HOSPITAL, hospitalId)로 매핑하고(hospitalId는 요청값이 아니라 `MemberService.getMyInfo`로 해석), 회원은 자기 MEMBER 알림만·스태프는 자병원 HOSPITAL 알림만 조회·읽음할 수 있다(§4 notifications).
 
-미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴).
+  미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴).
+
+### 8-9. 예약 채팅
+
+| 명칭 | Method | Path | 권한 |
+| --- | --- | --- | --- |
+| 채팅 메시지 조회 | GET | /api/reservations/{reservationId}/chat/messages?afterMessageId={messageId}&size={n} | 예약 보호자 또는 자병원 스태프 |
+| 채팅 읽음 처리 | PATCH | /api/reservations/{reservationId}/chat/messages/read | 예약 보호자 또는 자병원 스태프 |
+
+조회는 WebSocket 재연결 후 누락 메시지 복구를 위한 인증된 API다. `{reservationId}`에서 예약과 회원·병원을 서버가 조회해 권한을 확인하고, 요청의 `memberId`·`hospitalId`는 받지 않는다. `afterMessageId`가 있으면 반드시 같은 예약 스레드에 속하는지 검증한 뒤 그 이후 메시지를 `createdAt ASC, id ASC`로 반환한다. `size`는 1~100이고 응답은 `{ messages, nextAfterMessageId, hasNext }`다. 메시지 항목은 `messageId`, `senderType`, `content`, `createdAt`, 화면 표시용 발신자 정보만 포함한다. 병원 메시지는 병원명만 표시하며 실제 스태프 `memberId`·nickname은 노출하지 않는다. 조회는 종료 상태에서도 가능하지만 신규 전송은 §9-12의 허용 상태에서만 가능하다. 병원 스태프 한 명의 읽음은 병원 단위로 공유된다.
 
 ---
 
@@ -925,6 +949,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 | 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정. 단, 사유가 `AMOUNT_MISMATCH`/`INVALID_PG_RESULT`인 `PENDING`은 자동 확정하지 않고 운영자 수동 확인 대상으로 분류(금액·식별자 정합성이 깨져 자동 확정 시 잘못된 금액 확정 위험) |
 | 공공데이터 적재 | 매주 월요일 03:00(`Asia/Seoul`) | 전국 공공데이터 갱신 후 제휴 데이터를 재적용하고 검색 캐시를 삭제한다 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
+| 채팅 메시지 보존 | 매일 03:00(`Asia/Seoul`) | 공통 Clock 기준 생성 시각이 정확히 1년 지난 `chat_messages`를 hard delete한다 (§9-12) |
 
 노쇼 배치는 한 예약이 같은 실행에서 `CONFIRMED → NO_SHOW_PENDING → NO_SHOW`로 연달아 전이될 수 있다. 따라서 `maxScannedPerRun`은 조회·전이 시도 횟수 상한이며, `processed`는 한 번 이상 상태 전이에 성공한 예약 수를 뜻한다. `AUTO_NO_SHOW_PENDING`과 `AUTO_NO_SHOW`의 실제 전이 건수는 `reservation_events` 상태 이력으로 확인한다.
 
@@ -932,7 +957,9 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 병원 승인형 예약은 상태가 병원 액션에 따라 비동기로 바뀌므로 폴링 없이 즉시 받는 실시간 채널이 자연스럽다. 대상 이벤트는 예약 `CONFIRMED`/`REJECTED`, 결제 `PAID`/`OFFLINE_REQUIRED`, 노쇼 판정. 상태 전이 시 `notifications`에 저장한다.
 
-실시간 push는 MVP2에서 단방향 SSE로 확정한다. `NotificationPusher` 추상화 뒤에 SSE 구현을 두고, `EventSource`의 헤더 제약을 보완하기 위해 구독 티켓을 인증한다. 알림 저장 트랜잭션이 커밋된 뒤 push를 전송하며 회원당 연결 상한을 적용한다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 SSE는 부가 전달이다. 양방향 WebSocket+STOMP는 수의사·보호자 채팅 도입 시에만 별도 검토한다.
+실시간 push는 MVP2에서 단방향 SSE로 확정한다. `NotificationPusher` 추상화 뒤에 SSE 구현을 두고, `EventSource`의 헤더 제약을 보완하기 위해 구독 티켓을 인증한다. 알림 저장 트랜잭션이 커밋된 뒤 push를 전송하며 회원당 연결 상한을 적용한다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 SSE는 부가 전달이다.
+
+예약·결제 알림의 전송 계층은 SSE로 유지하며 WebSocket으로 이전하지 않는다. WebSocket은 §9-12의 병원↔회원 예약 채팅 전용으로 분리한다. 따라서 알림 저장과 SSE 전송의 AFTER_COMMIT 구조는 변경하지 않고, 채팅도 별도의 메시지 저장 커밋 뒤에만 전송한다.
 
 ## 9-9. 예약 슬롯 생성·운영
 
@@ -971,6 +998,18 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 `ProductionSafetyGuard`는 `payment.gateway`/`mail.provider`와 동일하게 `image.storage.provider=fake`인 채 `prod` 프로파일로 부팅하는 것을 막는다 — fake로 남으면 발급되는 URL이 존재하지 않는 로컬 호스트를 가리켜 업로드가 조용히 실패하기 때문이다. AWS 자격 증명은 설정 파일에 두지 않고 SDK 기본 체인(환경 변수·IAM 역할)을 그대로 쓴다.
 
 `imageUrl`은 인증된 클라이언트가 `PATCH /api/pets/{petId}`로 보내는 요청 값이라 신뢰 경계 밖에 있다(v1.51, 리뷰 지적). 업로드 절차(presigned URL 발급)를 거치지 않은 임의 외부 URL이나 다른 반려동물의 오브젝트 URL을 그대로 저장·노출하는 것을 막기 위해, `PetService.update()`는 저장 직전 `ImageStorageGateway.isManagedFileUrl(fileUrl, keyPrefix)`로 두 조건을 확인한다: (1) 이 스토리지가 실제로 발급 가능한 스킴·호스트(S3 버킷·리전 또는 Fake의 고정 base URL)인지, (2) key가 요청한 petId 네임스페이스(`pets/{petId}/`)로 시작하는지. 둘 중 하나라도 어긋나면 `PET_002 INVALID_IMAGE_URL`(400)로 거부하고 저장하지 않는다. 발급한 key를 회원·petId와 연결해 별도로 추적·확인하는 더 강한 보장(발급 기록 영속화)은 이번 범위에서 다루지 않는다 — 스킴·호스트·경로 검증만으로 최소 방어선을 둔다.
+
+## 9-12. 병원↔회원 예약 채팅
+
+채팅은 예약 1건당 1개의 스레드로 한정하며 상시 병원-회원 1:1 대화는 제공하지 않는다. 회원은 자신이 보호자인 예약 스레드만, 병원 스태프는 자신이 소속한 병원의 예약 스레드만 접근한다. 병원 측 접근·읽음의 공유 단위는 병원 단위다. 스레드 구독과 메시지 전송은 모두 서버가 인증 주체와 예약 관계로 인가하며 요청 body·구독 경로에 실린 `memberId`·`hospitalId`를 신뢰하지 않는다.
+
+메시지는 텍스트만 허용하고 최대 1,000자다. 메시지 송수신은 `REQUESTED`, `CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT` 상태에서만 허용한다. `REJECTED`, `CANCELED`, `TREATMENT_COMPLETED`, `NO_SHOW`는 기존 메시지 조회만 허용하는 읽기 전용 상태다. 메시지 수정·사용자 삭제, 이미지·파일 첨부, 신고·차단, 자동응답, 타이핑 인디케이터는 범위 밖이다. 발신자는 인증 주체로 결정하고, 회원 메시지는 회원 `memberId`, 병원 메시지는 실제 발신 스태프 `memberId`를 감사용으로 저장한다. 보호자 화면의 병원 발신자는 병원명으로 표시하고 스태프 개인 nickname은 기본 노출하지 않는다.
+
+채팅 본문은 생성일부터 1년 보존하고, 정확히 1년이 지난 메시지는 공통 Clock 기준으로 hard delete한다. 개인정보·진료 관련 내용이 포함될 수 있으므로 무기한 보관하지 않으며, 법적 보존 의무가 확인되면 보존 기간과 삭제 방식은 별도 정책 변경으로 재검토한다. 종료 상태 전이와 메시지 저장은 같은 예약 행에서 직렬화한다. 종료가 먼저 확정되면 메시지를 저장하지 않고, 메시지 저장이 먼저 확정된 경우에만 종료 전이와 직렬화된 메시지가 남는다.
+
+전용 `/ws/chat` HTTP Upgrade 경로만 HTTP 단계에서 JWT를 요구하지 않고 STOMP CONNECT까지 도달하도록 허용한다. 전송은 native WebSocket 위의 STOMP를 사용하며 SockJS fallback은 포함하지 않는다. JWT를 WebSocket URL 쿼리 파라미터로 전달하지 않고 STOMP CONNECT 프레임의 `Authorization: Bearer <accessToken>` 헤더로 보낸다. `ChannelInterceptor`가 Access Token을 검증해 인증 주체를 등록하고 만료·위조·Refresh Token·블랙리스트 토큰·미인증 CONNECT를 거부한다. 예약 참여자는 `/topic/chat/reservations/{reservationId}`만 SUBSCRIBE하고 `/app/chat/reservations/{reservationId}/messages`만 SEND할 수 있다. 메시지는 저장 트랜잭션의 AFTER_COMMIT 이후에만 해당 스레드 구독자에게 전달하므로 롤백된 메시지는 전송하지 않는다. 전달 실패는 이미 커밋된 채팅 저장이나 원래 예약 트랜잭션을 되돌리지 않는다.
+
+기본 broker는 단일 애플리케이션 인스턴스의 Spring SimpleBroker다. Redis pub/sub 또는 외부 STOMP broker 기반 다중 인스턴스 fan-out은 후속 고도화로 분리한다. 재연결 중 누락된 메시지는 §8-9의 인증된 채팅 조회 API로 복구한다.
 
 ---
 
@@ -1071,7 +1110,7 @@ sequenceDiagram
 - GitHub Actions로 빌드·테스트 자동 실행, 이미지 빌드·배포.
 - k6로 검색·예약 처리량·응답시간을 비교한다. 검색 캐시는 최초 진입 기본 첫 페이지의 적용 전후만 비교한다.
 - 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #105). Grafana 등 시각화는 여력에 따라 확장.
-- 실시간 알림은 단방향 SSE로 확정했으며, 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다(§9-8).
+- 예약·결제 알림은 단방향 SSE를 유지하고, 병원↔회원 예약 채팅은 native WebSocket+STOMP로 분리한다(§9-8·§9-12).
 
 **관측성 지표·API 문서 노출 범위(이슈 #105)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
 
