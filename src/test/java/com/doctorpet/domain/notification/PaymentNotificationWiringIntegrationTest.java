@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.doctorpet.domain.notification.adapter.StoringPaymentNotificationPublisher;
 import com.doctorpet.domain.notification.entity.Notification;
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
@@ -44,7 +45,8 @@ class PaymentNotificationWiringIntegrationTest {
     @AfterEach
     void cleanUp() {
         List<Notification> created = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 100))
+                .findByRecipientTypeAndRecipientId(
+                        NotificationRecipientType.MEMBER, GUARDIAN_ID, PageRequest.of(0, 100))
                 .getContent();
         notificationRepository.deleteAll(created);
     }
@@ -63,7 +65,9 @@ class PaymentNotificationWiringIntegrationTest {
                 GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.PAID, 80_000);
 
         List<Notification> notifications = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .findByRecipientTypeAndRecipientId(
+                        NotificationRecipientType.MEMBER, GUARDIAN_ID,
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
                 .getContent();
 
         assertThat(notifications).hasSize(1);
@@ -84,7 +88,9 @@ class PaymentNotificationWiringIntegrationTest {
         paymentNotificationPublisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, 80_000);
 
         List<Notification> notifications = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .findByRecipientTypeAndRecipientId(
+                        NotificationRecipientType.MEMBER, GUARDIAN_ID,
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
                 .getContent();
 
         assertThat(notifications).hasSize(1);
@@ -124,7 +130,9 @@ class PaymentNotificationWiringIntegrationTest {
         }
 
         List<Notification> pendings = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .findByRecipientTypeAndRecipientId(
+                        NotificationRecipientType.MEMBER, GUARDIAN_ID,
+                        PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")))
                 .getContent()
                 .stream()
                 .filter(n -> n.getType() == NotificationType.PAYMENT_PENDING)

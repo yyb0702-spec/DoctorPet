@@ -3,12 +3,14 @@ package com.doctorpet.domain.hospital.service;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
@@ -55,6 +57,9 @@ class HospitalSearchServiceTest {
     private HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
     @Mock
+    private HospitalTemporaryClosureRepository temporaryClosureRepository;
+
+    @Mock
     private ReviewQueryService reviewQueryService;
 
     @Mock
@@ -69,6 +74,7 @@ class HospitalSearchServiceTest {
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
                 hospitalSearchCacheRepository,
+                temporaryClosureRepository,
                 hospitalFavoriteService,
                 reviewQueryService
         );
@@ -966,6 +972,52 @@ class HospitalSearchServiceTest {
         verify(hospitalRepository, never()).searchAll(
                 org.mockito.ArgumentMatchers.any()
         );
+    }
+
+    @Test
+    void 임시_휴무인_제휴_병원은_현재_영업_검색에서_제외한다() {
+        Hospital hospital = createHospital(
+                1L,
+                "임시 휴무 병원",
+                BusinessStatus.OPEN,
+                true,
+                null,
+                null
+        );
+        given(hospitalRepository.searchPage(
+                org.mockito.ArgumentMatchers.any(HospitalSearchCondition.class),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.eq(200)
+        )).willReturn(List.of(candidate(hospital)));
+        given(temporaryClosureRepository.findClosures(
+                org.mockito.ArgumentMatchers.anyCollection(),
+                org.mockito.ArgumentMatchers.anyCollection()
+        )).willReturn(List.of(HospitalTemporaryClosure.create(
+                hospital,
+                LocalDate.now(ZoneId.of("Asia/Seoul"))
+        )));
+
+        HospitalSearchPageResponse response = hospitalService.hospitalSearch(
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                true,
+                1,
+                20,
+                "name"
+        );
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isZero();
     }
 
     private Hospital createHospital(

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
 import com.doctorpet.domain.notification.entity.Notification;
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
 import com.doctorpet.domain.payment.entity.Payment;
@@ -91,7 +92,7 @@ class PaymentStuckNoticeConcurrencyIntegrationTest {
         }
 
         List<Notification> forPayment = notificationRepository
-                .findByMemberId(GUARDIAN_ID, PageRequest.of(0, 50))
+                .findByRecipientTypeAndRecipientId(NotificationRecipientType.MEMBER, GUARDIAN_ID, PageRequest.of(0, 50))
                 .getContent()
                 .stream()
                 .filter(n -> paymentId.equals(n.getResourceId()))

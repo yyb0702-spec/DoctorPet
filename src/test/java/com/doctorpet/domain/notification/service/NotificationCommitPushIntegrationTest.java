@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.entity.Notification;
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.push.NotificationPusher;
@@ -84,7 +85,7 @@ class NotificationCommitPushIntegrationTest {
         Long savedId = transactionTemplate().execute(status -> createAndTrack().getId());
 
         // execute()가 반환한 시점엔 커밋이 이미 끝났고, AFTER_COMMIT 리스너는 커밋 안에서 동기 실행된다.
-        verify(notificationPusher, times(1)).push(eq(MEMBER_ID), any(NotificationResponse.class));
+        verify(notificationPusher, times(1)).push(eq(NotificationRecipientType.MEMBER), eq(MEMBER_ID), any(NotificationResponse.class));
         assertThat(rowExists(savedId)).isTrue();
     }
 
@@ -97,7 +98,7 @@ class NotificationCommitPushIntegrationTest {
             return id;
         });
 
-        verify(notificationPusher, never()).push(eq(MEMBER_ID), any(NotificationResponse.class));
+        verify(notificationPusher, never()).push(eq(NotificationRecipientType.MEMBER), eq(MEMBER_ID), any(NotificationResponse.class));
         assertThat(rowExists(attemptedId)).isFalse();
     }
 
@@ -106,13 +107,13 @@ class NotificationCommitPushIntegrationTest {
     void pushFailure_doesNotAffectSavedNotification() {
         doThrow(new IllegalStateException("전송 채널 장애 시뮬레이션"))
                 .when(notificationPusher)
-                .push(eq(MEMBER_ID), any(NotificationResponse.class));
+                .push(eq(NotificationRecipientType.MEMBER), eq(MEMBER_ID), any(NotificationResponse.class));
 
         Long savedId = transactionTemplate().execute(status -> createAndTrack().getId());
 
         // push 예외가 NotificationPushListener 안에서 삼켜지므로 호출자에게 전파되지 않고,
         // 저장은 이미 커밋을 마쳐 push 결과와 무관하게 남아 있어야 한다.
-        verify(notificationPusher, times(1)).push(eq(MEMBER_ID), any(NotificationResponse.class));
+        verify(notificationPusher, times(1)).push(eq(NotificationRecipientType.MEMBER), eq(MEMBER_ID), any(NotificationResponse.class));
         assertThat(rowExists(savedId)).isTrue();
     }
 

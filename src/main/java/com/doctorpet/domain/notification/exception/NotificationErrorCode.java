@@ -35,6 +35,13 @@ public enum NotificationErrorCode implements ErrorCode {
             HttpStatus.TOO_MANY_REQUESTS,
             "NOTIFICATION_004",
             "실시간 알림 동시 연결 수가 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
+    ),
+
+    // 병원 스태프 principal인데 소속 병원을 확인할 수 없어(role 불일치·hospitalId 없음) 수신자를 특정하지 못함(고도화 3.10).
+    NOTIFICATION_RECIPIENT_UNRESOLVED(
+            HttpStatus.FORBIDDEN,
+            "NOTIFICATION_005",
+            "알림 수신자를 확인할 수 없습니다."
     );
 
     private final HttpStatus httpStatus;
