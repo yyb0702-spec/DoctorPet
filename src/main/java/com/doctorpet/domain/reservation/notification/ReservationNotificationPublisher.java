@@ -22,6 +22,13 @@ public interface ReservationNotificationPublisher {
             String rejectReason
     );
 
+    /** 병원이 확정 예약을 취소했다(CONFIRMED → HOSPITAL_CANCELED). */
+    void publishHospitalCanceled(
+            Long guardianMemberId,
+            Long reservationId,
+            String reason
+    );
+
     /** 승인 데드라인 경과로 스케줄러가 예약 요청을 자동 거절했다(REQUESTED → REJECTED, TIMEOUT_REJECTED). */
     void publishAutoRejected(Long guardianMemberId, Long reservationId);
 

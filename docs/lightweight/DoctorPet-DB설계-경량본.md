@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.56, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.57, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 관계 요약
@@ -127,6 +127,8 @@ members 1 ── 0..N notifications
 | `approval_timeout_next_retry_at` | DATETIME NULL | 타임아웃 처리 실패 시 다음 재시도 시각 |
 | `confirmed_at` | DATETIME | 승인 시각, `NULL` 가능 |
 | `canceled_at` | DATETIME | 취소 시각, `NULL` 가능 |
+| `hospital_cancel_reason` | VARCHAR(255) | 병원 확정 예약 취소 사유, `NULL` 가능 |
+| `hospital_canceled_at` | DATETIME(6) | 병원 확정 예약 취소 시각, `NULL` 가능 |
 | `no_show_at` | DATETIME | 노쇼 판정 시각, `NULL` 가능 |
 | `no_show_pending_at` | DATETIME(6) NULL | 자동 노쇼 추가 유예 진입 시각 |
 인덱스: `(slot_id)`, `(member_id, status)`, `(hospital_id, status)`, `(status, approval_deadline_at)` — 슬롯·회원·병원별 예약 조회와 승인 타임아웃 배치에 사용한다.
@@ -138,7 +140,7 @@ members 1 ── 0..N notifications
 | --- | --- | --- |
 | `id` | BIGINT | PK |
 | `reservation_id` | BIGINT | 예약 FK |
-| `event_type` | VARCHAR | `CHECKED_IN`, `AUTO_NO_SHOW_PENDING`, `AUTO_NO_SHOW`, `MANUAL_NO_SHOW`, `NO_SHOW_CORRECTED`, `TIMEOUT_REJECTED` |
+| `event_type` | VARCHAR | `CHECKED_IN`, `HOSPITAL_CANCELED`, `AUTO_NO_SHOW_PENDING`, `AUTO_NO_SHOW`, `MANUAL_NO_SHOW`, `NO_SHOW_CORRECTED`, `TIMEOUT_REJECTED` |
 | `memo` | VARCHAR | 메모, `NULL` 가능 |
 | `processed_by` | BIGINT | 수동 처리자 회원 ID, 자동 처리면 `NULL` |
 | `occurred_at` | DATETIME | 발생 시각 |
@@ -202,7 +204,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | --- | --- | --- |
 | `id` | BIGINT | PK |
 | `member_id` | BIGINT | 회원 FK |
-| `type` | VARCHAR | 알림 유형 |
+| `type` | VARCHAR | `RESERVATION_CONFIRMED`, `RESERVATION_REJECTED`, `RESERVATION_HOSPITAL_CANCELED`, `PAYMENT_RESULT`, `PAYMENT_PENDING`, `NO_SHOW` |
 | `content` | VARCHAR | 알림 내용 |
 | `resource_type` | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
 | `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |

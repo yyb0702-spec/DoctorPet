@@ -50,9 +50,12 @@ public class NotificationService {
     // 같은 빈 내부 호출은 프록시를 우회해 @Transactional이 무시되므로, 순환 초기화 없는 ObjectProvider로 지연 주입한다.
     private final ObjectProvider<NotificationService> selfProvider;
 
-    // 기존 발행부(예약·결제)의 memberId 시그니처 호환용 오버로드. (MEMBER, memberId) 수신으로 위임한다 —
-    // 이 오버로드 덕분에 예약·결제 발행부 코드는 바뀌지 않는다(고도화 3.10 제약).
-    @Transactional
+    // 상태 전이 이벤트 수신자에게 알림을 저장한다. 수신자(memberId)는 이벤트 발행 도메인이 서버에서 확정해 전달한다.
+    // REQUIRED로 예약 상태 변경 트랜잭션에 참여한다. create에서 발생한 unchecked 예외는
+    // 호출 트랜잭션까지 전파되어 예약 상태·슬롯·이력과 알림 저장을 함께 롤백한다.
+    // 기존 발행부(예약·결제)의 memberId 시그니처 호환용 오버로드. (MEMBER, memberId) 수신으로 위임한다.
+    // 이 오버로드 덕분에 예약·결제 발행부 코드는 바뀌지 않는다.
+    @Transactional(propagation = Propagation.REQUIRED)
     public Notification create(
             Long memberId,
             NotificationType type,

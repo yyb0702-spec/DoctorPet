@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.56, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.57, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 시스템 구성
@@ -110,6 +110,7 @@ REQUESTED → CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 REQUESTED → REJECTED
 REQUESTED → CANCELED
 CONFIRMED → CANCELED
+CONFIRMED → HOSPITAL_CANCELED  // 병원 취소, 사유 필수
 CONFIRMED → NO_SHOW_PENDING  // 예약시각 +10분 초과 자동 대기
 NO_SHOW_PENDING → NO_SHOW  // 추가 5분 초과 자동 최종 판정
 CONFIRMED/NO_SHOW_PENDING → CHECKED_IN  // 직원 도착 확인
@@ -120,6 +121,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 같은 시점의 활성 예약은 1건만 허용하며, 예약 요청 시 낙관적 락으로 슬롯을 `OPEN → RESERVED` 전환한다.
 - 병원 거절 사유는 직원 부족, 슬롯 등록 오류, 진료 불가, 기타의 4종으로 관리한다.
 - 예약 승인 타임아웃 또는 허용 범위 내 취소·거절 시 슬롯을 반환한다.
+- 병원 스태프는 소속 병원의 `CONFIRMED` 예약만 사유와 함께 `HOSPITAL_CANCELED`로 취소할 수 있으며, 같은 트랜잭션에서 슬롯을 `OPEN`으로 반환하고 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
 - 체크인은 예약시간부터 예약시간 +10분까지 허용한다.
 - +10분이 지나도록 체크인하지 않으면 `NO_SHOW_PENDING`으로 바꾸고 기본 5분의 추가 유예를 둔다.
 - 추가 유예까지 지나도록 체크인하지 않으면 최종 `NO_SHOW`로 바꾸고 보호자에게 알림을 보낸다.

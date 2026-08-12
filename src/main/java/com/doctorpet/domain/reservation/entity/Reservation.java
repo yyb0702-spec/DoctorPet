@@ -71,6 +71,12 @@ public class Reservation extends BaseEntity {
     @Column(name = "canceled_at")
     private LocalDateTime canceledAt;
 
+    @Column(name = "hospital_cancel_reason", length = 255)
+    private String hospitalCancelReason;
+
+    @Column(name = "hospital_canceled_at")
+    private LocalDateTime hospitalCanceledAt;
+
     /*
      * 기존 행 백필 전에 Hibernate가 nullable 컬럼을 먼저 추가해야 한다. DB의 NOT NULL과
      * 조회 인덱스는 ReservationApprovalDeadlineMigrationRunner가 백필 후 적용·검증한다.
