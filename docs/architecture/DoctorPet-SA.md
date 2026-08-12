@@ -765,6 +765,14 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴).
 
+### 8-9. 예약 채팅
+
+| 명칭 | Method | Path | 권한 |
+| --- | --- | --- | --- |
+| 채팅 메시지 조회 | GET | /api/reservations/{reservationId}/chat/messages?afterMessageId={messageId}&size={n} | 예약 보호자 또는 자병원 스태프 |
+
+채팅 메시지 조회는 WebSocket 재연결 후 누락분 복구를 위한 인증된 조회 API다. `{reservationId}`에서 예약과 회원·병원을 조회해 권한을 확인하며 요청의 `memberId`·`hospitalId`는 받지 않는다. `afterMessageId`가 있으면 같은 예약 스레드에 속하는지 서버가 검증한 뒤 그 이후의 메시지를 `createdAt ASC, id ASC`로 반환하고, `size`는 1~100 범위로 제한한다. 응답은 `{ messages, nextAfterMessageId, hasNext }`를 사용하며, 메시지 항목은 `messageId`, `senderType`, `content`, `createdAt`과 화면 표시용 발신자 정보만 포함한다(병원 스태프 개인 `memberId`는 감사 저장용이지 보호자 화면 노출용이 아니다). 연결 직후 마지막 수신 메시지 ID를 기준으로 호출해 누락분을 보완하며, 조회 API 자체는 종료 상태에서도 기존 메시지 열람을 허용한다.
+
 ---
 
 # 9. 핵심 기능 설계
@@ -974,9 +982,9 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 채팅 본문은 생성일부터 1년 보존하고, 기간이 지난 메시지는 하드 삭제 배치로 제거한다. 개인정보·진료 관련 내용이 포함될 수 있으므로 무기한 보관하지 않으며, 법적 보존 의무가 확인되면 보존 기간과 삭제 방식은 별도 정책 변경으로 재검토한다.
 
-전송은 native WebSocket 위의 STOMP를 사용하며 SockJS fallback은 포함하지 않는다. JWT를 WebSocket URL 쿼리 파라미터로 전달하지 않고 STOMP CONNECT 프레임의 `Authorization: Bearer <accessToken>` 헤더로 보낸다. `ChannelInterceptor`가 JWT를 검증해 인증 주체를 등록하고 미인증 CONNECT를 거부한다. 메시지는 저장 트랜잭션의 AFTER_COMMIT 이후에만 해당 스레드 구독자에게 전달하므로 롤백된 메시지는 전송하지 않는다.
+전용 `/ws/chat` HTTP Upgrade 경로만 HTTP 단계에서 JWT를 요구하지 않고 STOMP CONNECT까지 도달하도록 허용한다. 전송은 native WebSocket 위의 STOMP를 사용하며 SockJS fallback은 포함하지 않는다. JWT를 WebSocket URL 쿼리 파라미터로 전달하지 않고 STOMP CONNECT 프레임의 `Authorization: Bearer <accessToken>` 헤더로 보낸다. `ChannelInterceptor`가 JWT를 검증해 인증 주체를 등록하고 미인증 CONNECT를 거부한다. 메시지는 저장 트랜잭션의 AFTER_COMMIT 이후에만 해당 스레드 구독자에게 전달하므로 롤백된 메시지는 전송하지 않는다.
 
-기본 broker는 단일 애플리케이션 인스턴스의 Spring SimpleBroker다. Redis pub/sub 또는 외부 STOMP broker 기반 다중 인스턴스 fan-out은 후속 고도화로 분리한다. 재연결 중 누락된 메시지는 실시간 채널이 아닌 기존 채팅 조회 API로 복구한다.
+기본 broker는 단일 애플리케이션 인스턴스의 Spring SimpleBroker다. Redis pub/sub 또는 외부 STOMP broker 기반 다중 인스턴스 fan-out은 후속 고도화로 분리한다. 재연결 중 누락된 메시지는 §8-9의 인증된 채팅 조회 API로 복구한다.
 
 ---
 
