@@ -186,4 +186,20 @@ public class AiConsultation {
         consultation.schemaParseSuccess = false;
         return consultation;
     }
+
+    public static AiConsultation gatewayFailedAfterToolCall(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason errorType,
+            int latencyMs
+    ) {
+        return responseValidationFailed(
+                memberId,
+                maskedSymptomText,
+                result,
+                errorType,
+                latencyMs
+        );
+    }
 }

@@ -90,13 +90,13 @@ public class AiConsultationService {
     public AiConsultationResponse consult(Long memberId, AiConsultationRequest request) {
         String maskedSymptomText = symptomTextMasker.mask(request.symptomText());
         long startedAt = System.nanoTime();
+        AiToolExecutionState toolState = new AiToolExecutionState();
 
         if (emergencyKeywordDetector.isEmergency(maskedSymptomText)) {
             return consultEmergency(memberId, request, maskedSymptomText, startedAt);
         }
 
         try {
-            AiToolExecutionState toolState = new AiToolExecutionState();
             AiGatewayConsultationResult gatewayResult = aiGateway.consult(
                     new AiAnalysisRequest(
                             maskedSymptomText,
@@ -182,6 +182,15 @@ public class AiConsultationService {
                     emergency && !hasLocation(request)
             );
         } catch (AiGatewayException exception) {
+            if (toolState.analysis() != null) {
+                return gatewayFailureAfterToolCall(
+                        memberId,
+                        maskedSymptomText,
+                        toolState.analysis(),
+                        exception.getFailureReason(),
+                        startedAt
+                );
+            }
             return fallback(memberId, maskedSymptomText, exception.getFailureReason(), startedAt);
         } catch (AiToolSearchExecutionException exception) {
             log.error("병원 검색 Tool 호출에 실패했습니다.", exception.getCause());
@@ -824,6 +833,30 @@ public class AiConsultationService {
             long startedAt
     ) {
         aiConsultationRepository.save(AiConsultation.responseValidationFailed(
+                memberId,
+                maskedSymptomText,
+                result,
+                failureReason,
+                elapsedMillis(startedAt)
+        ));
+        return new AiConsultationResponse(
+                null,
+                List.of(),
+                DISCLAIMER,
+                FALLBACK_MESSAGE,
+                true,
+                false
+        );
+    }
+
+    private AiConsultationResponse gatewayFailureAfterToolCall(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason failureReason,
+            long startedAt
+    ) {
+        aiConsultationRepository.save(AiConsultation.gatewayFailedAfterToolCall(
                 memberId,
                 maskedSymptomText,
                 result,

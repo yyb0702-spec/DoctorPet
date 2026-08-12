@@ -301,6 +301,59 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("Tool 성공 후 2차 OpenAI 실패는 1차 사용량과 Tool 성공을 보존한다")
+    void consult_secondOpenAiCallFailure_preservesFirstCallUsageAndToolSuccess() {
+        AiAnalysisResult firstAnalysis = new AiAnalysisResult(
+                List.of("GENERAL"),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of("ONSET_TIME"),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v8",
+                100,
+                20
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    firstAnalysis,
+                    null,
+                    null,
+                    null,
+                    HospitalSearchSort.NAME
+            ));
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.TIMEOUT,
+                    "second call timeout"
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("검사 가능한 병원을 알려줘", PetSpecies.DOG, "서울")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        AiConsultation saved = captor.getValue();
+        assertThat(response.fallback()).isTrue();
+        assertThat(saved.getStatus()).isEqualTo(AiConsultationStatus.FAILED);
+        assertThat(saved.getErrorType()).isEqualTo(AiGatewayFailureReason.TIMEOUT);
+        assertThat(saved.getModel()).isEqualTo("gpt-4.1-mini");
+        assertThat(saved.getPromptVersion()).isEqualTo("doctorpet-ai-v8");
+        assertThat(saved.getPromptTokens()).isEqualTo(100);
+        assertThat(saved.getCompletionTokens()).isEqualTo(20);
+        assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.SUCCESS);
+        assertThat(saved.isSchemaParseSuccess()).isFalse();
+    }
+
+    @Test
     @DisplayName("위치와 현재·야간·거리 의도를 병원 검색 조건으로 전달한다")
     void consult_searchIntent_passesAllowedConditions() {
         AiAnalysisResult result = result(List.of("BLOOD_TEST"));
