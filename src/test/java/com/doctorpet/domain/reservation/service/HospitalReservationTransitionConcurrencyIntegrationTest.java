@@ -213,6 +213,38 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
         assertThat(findSlotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.OPEN);
     }
 
+    @Test
+    @DisplayName("휴·폐업 자동 취소와 체크인이 경합하면 최종 예약·슬롯 상태가 일치한다")
+    void businessStatusCancellationAndCheckInLeaveConsistentState()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        RaceResult result = runRace(
+                () -> hospitalReservationService
+                        .cancelConfirmedByBusinessStatusChange(
+                                reservationRepository.findById(data.reservationId())
+                                        .orElseThrow()
+                                        .getHospitalId(),
+                                "공공데이터에서 병원 휴업이 확인되었습니다."
+                        ),
+                () -> hospitalReservationService.checkIn(
+                        data.staffMemberId(),
+                        data.reservationId()
+                )
+        );
+
+        assertThat(result.unexpectedErrors()).isEmpty();
+        ReservationStatus status = findReservationStatus(data.reservationId());
+        assertThat(status).isIn(
+                ReservationStatus.HOSPITAL_CANCELED,
+                ReservationStatus.CHECKED_IN
+        );
+        assertThat(findSlotStatus(data.slotId())).isEqualTo(
+                status == ReservationStatus.HOSPITAL_CANCELED
+                        ? ReservationSlotStatus.OPEN
+                        : ReservationSlotStatus.RESERVED
+        );
+    }
+
     private TestReservation saveRequestedReservation() {
         long hospitalId = System.nanoTime();
         long guardianMemberId = hospitalId + 1;

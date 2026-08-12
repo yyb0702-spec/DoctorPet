@@ -189,6 +189,57 @@ public class HospitalReservationApplicationService {
     }
 
     /**
+     * 공공데이터에서 병원의 휴업·폐업 전환이 확인되면 확정된 진료 전 예약을 병원 취소한다.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public int cancelConfirmedByBusinessStatusChange(
+            Long hospitalId,
+            String reason
+    ) {
+        List<Reservation> confirmedReservations = reservationRepository
+                .findAllByHospitalIdAndStatus(
+                        hospitalId,
+                        ReservationStatus.CONFIRMED
+                );
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        int canceledCount = 0;
+
+        for (Reservation reservation : confirmedReservations) {
+            Long reservationId = reservation.getId();
+            Long guardianMemberId = reservation.getMemberId();
+            Long slotId = reservation.getSlotId();
+            int updated = reservationRepository.cancelIfConfirmedByHospital(
+                    reservationId,
+                    hospitalId,
+                    ReservationStatus.CONFIRMED,
+                    ReservationStatus.HOSPITAL_CANCELED,
+                    reason,
+                    now,
+                    now
+            );
+            if (updated == 0) {
+                continue;
+            }
+
+            findSlot(slotId).open();
+            reservationEventRepository.appendIfAbsent(
+                    reservationId,
+                    ReservationEventType.HOSPITAL_CANCELED.name(),
+                    reason,
+                    null,
+                    now
+            );
+            notificationPublisher.publishHospitalCanceled(
+                    guardianMemberId,
+                    reservationId,
+                    reason
+            );
+            canceledCount++;
+        }
+        return canceledCount;
+    }
+
+    /**
      * 병원 스태프가 자기 병원의 CONFIRMED 예약을 체크인 처리한다(SA §5-1·§8-6).
      */
     @Transactional

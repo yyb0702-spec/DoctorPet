@@ -21,6 +21,11 @@ import jakarta.persistence.LockModeType;
 public interface ReservationRepository
         extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
 
+    List<Reservation> findAllByHospitalIdAndStatus(
+            Long hospitalId,
+            ReservationStatus status
+    );
+
     Optional <Reservation> findByIdAndMemberId(
             Long reservationId,
             Long memberId

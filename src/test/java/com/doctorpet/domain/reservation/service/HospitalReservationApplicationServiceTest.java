@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -915,6 +916,45 @@ class HospitalReservationApplicationServiceTest {
                 .extracting("guardianPhone")
                 .isNull();
         verify(memberService, never()).getPhonesByMemberIds(any());
+    }
+
+    @Test
+    void businessStatusChangeCancelsConfirmedReservationAsSystem() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        given(reservationRepository.findAllByHospitalIdAndStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        )).willReturn(List.of(reservation));
+        given(reservationRepository.cancelIfConfirmedByHospital(
+                any(), any(), any(), any(), any(), any(), any()
+        )).willReturn(1);
+        ReservationSlot reservedSlot = slot();
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(reservedSlot));
+
+        int canceledCount = hospitalReservationService
+                .cancelConfirmedByBusinessStatusChange(
+                        HOSPITAL_ID,
+                        "공공데이터에서 병원 휴업이 확인되었습니다."
+                );
+
+        assertThat(canceledCount).isEqualTo(1);
+        assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
+        verify(reservationEventRepository).appendIfAbsent(
+                eq(RESERVATION_ID),
+                eq(ReservationEventType.HOSPITAL_CANCELED.name()),
+                eq("공공데이터에서 병원 휴업이 확인되었습니다."),
+                isNull(),
+                any()
+        );
+        verify(notificationPublisher).publishHospitalCanceled(
+                1L,
+                RESERVATION_ID,
+                "공공데이터에서 병원 휴업이 확인되었습니다."
+        );
     }
 
     private Reservation reservation(Long hospitalId) {

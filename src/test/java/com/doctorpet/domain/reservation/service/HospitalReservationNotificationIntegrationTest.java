@@ -222,6 +222,37 @@ class HospitalReservationNotificationIntegrationTest {
         assertThat(totalNotificationCount(data.reservationId())).isZero();
     }
 
+    @Test
+    @DisplayName("휴·폐업 자동 취소는 시스템 이력과 보호자 알림을 저장하고 슬롯을 반환한다")
+    void businessStatusChange_persistsSystemCancellationAndNotification() {
+        TestReservation data = saveRequestedReservation();
+        jdbcTemplate.update(
+                "update reservations set status = 'CONFIRMED' where id = ?",
+                data.reservationId()
+        );
+
+        int canceledCount = hospitalReservationService
+                .cancelConfirmedByBusinessStatusChange(
+                        data.hospitalId(),
+                        "공공데이터에서 병원 폐업이 확인되었습니다."
+                );
+
+        assertThat(canceledCount).isEqualTo(1);
+        assertThat(reservationStatus(data.reservationId()))
+                .isEqualTo(ReservationStatus.HOSPITAL_CANCELED);
+        assertThat(slotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.OPEN);
+        assertThat(jdbcTemplate.queryForObject(
+                "select processed_by from reservation_events "
+                        + "where reservation_id = ? and event_type = 'HOSPITAL_CANCELED'",
+                Long.class,
+                data.reservationId()
+        )).isNull();
+        assertThat(notificationCount(
+                data.reservationId(),
+                NotificationType.RESERVATION_HOSPITAL_CANCELED
+        )).isEqualTo(1);
+    }
+
     private TestReservation saveRequestedReservation() {
         long hospitalId = System.nanoTime();
         long guardianMemberId = hospitalId + 1;
@@ -248,7 +279,12 @@ class HospitalReservationNotificationIntegrationTest {
         staffMemberId = staff.getId();
 
         return new TestReservation(
-                guardianMemberId, staff.getId(), reservation.getId(), slot.getId());
+                guardianMemberId,
+                staff.getId(),
+                hospitalId,
+                reservation.getId(),
+                slot.getId()
+        );
     }
 
     private ReservationStatus reservationStatus(Long id) {
@@ -301,6 +337,7 @@ class HospitalReservationNotificationIntegrationTest {
     private record TestReservation(
             Long guardianMemberId,
             Long staffMemberId,
+            Long hospitalId,
             Long reservationId,
             Long slotId
     ) {
