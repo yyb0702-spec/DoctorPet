@@ -177,8 +177,10 @@ def _bump_canonical(path: Path, label: str, entry: str,
 def _run_harness() -> int:
     check = ROOT / "scripts/harness_check.py"
     if not check.exists():
-        print("경고: scripts/harness_check.py가 없어 검증을 건너뛴다")
-        return 0
+        # 검증기가 없으면 문서 정합성을 확인할 방법이 없다 — 성공(0)으로 넘기면 --commit이
+        # 검증 없이 develop 직접 push용 커밋을 만들 수 있다(리뷰 지적 P2). 실패로 막는다.
+        print("실패 — scripts/harness_check.py가 없어 검증할 수 없다")
+        return 1
     # 부모 프로세스의 print()는 파이프로 캡처될 때 완전 버퍼링돼, flush 없이
     # subprocess를 띄우면 자식이 상속한 같은 stdout fd에 먼저 써서 순서가 뒤바뀐다.
     sys.stdout.flush()

@@ -178,6 +178,16 @@ class PromoteDocsTest(unittest.TestCase):
             pd._validate_entry("   ", "SA")
         pd._validate_entry("정상 한 줄.", "SA")  # 예외 없어야 한다
 
+    # --- 검증기 부재 시 성공(0)이 아니라 실패(1)여야 한다(리뷰 지적 P2) ---
+    def test_run_harness_fails_when_checker_missing(self):
+        # setUp이 _run_harness를 스텁으로 바꿔뒀으므로, 원본을 복원해 실제 동작을 검증한다.
+        # pd.ROOT는 이미 scripts/harness_check.py가 없는 tmp 트리다. main()과 달리 여기서는 stdout이
+        # UTF-8로 reconfigure되지 않았으므로(Windows 콘솔 cp949), 출력은 버리고 리턴값만 본다.
+        real_run_harness = self._orig[4]
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = real_run_harness()
+        self.assertEqual(result, 1)
+
 
 class PromoteCommitTest(unittest.TestCase):
     """--commit: develop 브랜치·origin/develop 동기·clean tree 강제 + 산출 파일만 stage.
@@ -317,6 +327,16 @@ class PromoteCommitTest(unittest.TestCase):
         rc = self._run("--sa", "승격.", "--commit")
         self.assertEqual(rc, 0)
         self.assertIn("| 문서 버전 | v1.52 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_refuses_when_harness_checker_missing(self):
+        # setUp의 _run_harness 스텁을 걷어내 실제 동작으로 --commit 전체 흐름을 검증한다(리뷰 지적 P2).
+        # self.tmp에는 scripts/harness_check.py가 없으므로 검증기 부재 상태다.
+        pd._run_harness = self._orig[4]
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
