@@ -31,6 +31,7 @@
 - 병원 응답 기한은 `min(요청시각+1시간, 예약시각-2시간)`이다. 기한 경과 시 자동 거절하고 슬롯을 반환한다.
 - 거절 사유는 직원 부족, 슬롯 등록 오류, 진료 불가, 기타의 4종으로 관리한다.
 - 예약 취소는 `REQUESTED` 또는 `CONFIRMED` 상태에서 예약 시각 2시간 전까지만 허용하며 슬롯을 반환한다.
+- 병원 스태프는 소속 병원의 `CONFIRMED` 예약만 공백이 아닌 255자 이하 사유와 함께 `HOSPITAL_CANCELED`로 취소할 수 있다. 취소 시 슬롯을 반환하고 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
 ### 진료
 ```plain text
 CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED

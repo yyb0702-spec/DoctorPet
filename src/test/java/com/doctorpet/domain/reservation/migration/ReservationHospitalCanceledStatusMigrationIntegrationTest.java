@@ -23,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "mail.provider=fake",
         "mail.verification.base-url=http://localhost/verify-email",
         "mail.password-reset.base-url=http://localhost/reset-password",
+        "jwt.secret=doctorpet-migration-integration-test-secret-key-32-bytes-minimum",
         "member.email-verified-backfill.enabled=false",
         "notification.recipient-migration.enabled=false"
 })
@@ -58,6 +59,7 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     private ReservationSlotRepository slotRepository;
 
     private Long legacyNotificationId;
+    private Long paymentPendingNotificationId;
     private Long reservationId;
     private Long slotId;
 
@@ -82,6 +84,9 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     void restoreSchema() {
         if (legacyNotificationId != null) {
             jdbcTemplate.update("delete from notifications where id = ?", legacyNotificationId);
+        }
+        if (paymentPendingNotificationId != null) {
+            jdbcTemplate.update("delete from notifications where id = ?", paymentPendingNotificationId);
         }
         if (reservationId != null) {
             jdbcTemplate.update("delete from reservation_events where reservation_id = ?", reservationId);
@@ -116,14 +121,17 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                         + "'RESERVATION_CONFIRMED','RESERVATION_HOSPITAL_CANCELED',"
                         + "'RESERVATION_REJECTED') not null"
         );
+        restoreHospitalCancelColumnsForJpa();
         deleteMigrationMarker();
     }
 
     @Test
-    @DisplayName("JPA 초기화 전 기존 병원 취소 상태·이력·알림을 CANCELED로 백필하고 PAYMENT_PENDING을 보존한다")
+    @DisplayName("기존 MySQL 스키마에서 병원 취소 이력은 정규화하고 PAYMENT_PENDING 행과 취소 컬럼을 보존한다")
     void preJpaMigration_preservesLegacyHistoryAndPaymentPending() {
         insertLegacyHospitalCanceledReservationAndEvent();
         insertLegacyHospitalCanceledNotification();
+        insertPaymentPendingNotification();
+        dropHospitalCancelColumns();
 
         ReservationHospitalCanceledStatusMigrationRunner runner =
                 new ReservationHospitalCanceledStatusMigrationRunner(jdbcTemplate);
@@ -132,6 +140,7 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
         assertThat(reservationStatus()).isEqualTo("HOSPITAL_CANCELED");
         assertThat(eventType()).isEqualTo("HOSPITAL_CANCELED");
         assertThat(notificationType()).isEqualTo("RESERVATION_HOSPITAL_CANCELED");
+        assertThat(paymentPendingNotificationType()).isEqualTo("PAYMENT_PENDING");
         assertThat(notificationEnum()).contains("PAYMENT_PENDING");
         assertThat(notificationEnum()).contains("RESERVATION_HOSPITAL_CANCELED");
         assertThat(notificationEnum()).doesNotContain("RESERVATION_HOSPITAL_CANCELLED");
@@ -143,15 +152,23 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     @Test
     @DisplayName("마이그레이션을 재실행해도 데이터와 스키마가 중복 변경되지 않는다")
     void rerun_isIdempotent() {
+        insertLegacyHospitalCanceledReservationAndEvent();
         insertLegacyHospitalCanceledNotification();
+        insertPaymentPendingNotification();
+        dropHospitalCancelColumns();
         ReservationHospitalCanceledStatusMigrationRunner runner =
                 new ReservationHospitalCanceledStatusMigrationRunner(jdbcTemplate);
 
         runner.run(null);
         runner.run(null);
 
+        assertThat(reservationStatus()).isEqualTo("HOSPITAL_CANCELED");
+        assertThat(eventType()).isEqualTo("HOSPITAL_CANCELED");
         assertThat(notificationType()).isEqualTo("RESERVATION_HOSPITAL_CANCELED");
+        assertThat(paymentPendingNotificationType()).isEqualTo("PAYMENT_PENDING");
         assertThat(notificationEnum()).doesNotContain("RESERVATION_HOSPITAL_CANCELLED");
+        assertThat(columnExists("hospital_cancel_reason")).isTrue();
+        assertThat(columnExists("hospital_canceled_at")).isTrue();
         assertThat(migrationMarkerExists()).isTrue();
     }
 
@@ -169,6 +186,40 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                 Long.class,
                 memberId
         );
+    }
+
+    private void insertPaymentPendingNotification() {
+        long memberId = Math.abs(System.nanoTime());
+        jdbcTemplate.update("""
+                insert into notifications
+                       (member_id, recipient_type, recipient_id, type, content,
+                        resource_type, resource_id, created_at, updated_at)
+                values (?, 'MEMBER', ?, 'PAYMENT_PENDING',
+                        '결제 확인 중입니다.', 'PAYMENT', 992, now(6), now(6))
+                """, memberId, memberId);
+        paymentPendingNotificationId = jdbcTemplate.queryForObject(
+                "select id from notifications where member_id = ? order by id desc limit 1",
+                Long.class,
+                memberId
+        );
+    }
+
+    private void dropHospitalCancelColumns() {
+        jdbcTemplate.execute("alter table reservations drop column hospital_cancel_reason");
+        jdbcTemplate.execute("alter table reservations drop column hospital_canceled_at");
+    }
+
+    private void restoreHospitalCancelColumnsForJpa() {
+        if (!columnExists("hospital_cancel_reason")) {
+            jdbcTemplate.execute(
+                    "alter table reservations add column hospital_cancel_reason varchar(255) null"
+            );
+        }
+        if (!columnExists("hospital_canceled_at")) {
+            jdbcTemplate.execute(
+                    "alter table reservations add column hospital_canceled_at datetime(6) null"
+            );
+        }
     }
 
     private void insertLegacyHospitalCanceledReservationAndEvent() {
@@ -229,6 +280,14 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                 "select type from notifications where id = ?",
                 String.class,
                 legacyNotificationId
+        );
+    }
+
+    private String paymentPendingNotificationType() {
+        return jdbcTemplate.queryForObject(
+                "select type from notifications where id = ?",
+                String.class,
+                paymentPendingNotificationId
         );
     }
 
