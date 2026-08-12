@@ -180,10 +180,15 @@ class PromoteDocsTest(unittest.TestCase):
 
 
 class PromoteCommitTest(unittest.TestCase):
-    """--commit: clean tree 강제 + 산출 파일만 stage(무관한 변경 혼입·유실 방지)."""
+    """--commit: develop 브랜치·origin/develop 동기·clean tree 강제 + 산출 파일만 stage.
+
+    실제 로컬 git 저장소 + bare remote를 만들어 fetch·rev-parse가 진짜로 동작하는
+    상태에서 검증한다(리뷰 지적 — 브랜치·원격 동기 검사가 스텁이면 회귀를 못 잡는다).
+    """
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        self.remote = Path(tempfile.mkdtemp())
         (self.tmp / "docs/architecture").mkdir(parents=True)
         (self.tmp / "docs/product").mkdir(parents=True)
         (self.tmp / "docs/lightweight").mkdir(parents=True)
@@ -196,12 +201,16 @@ class PromoteCommitTest(unittest.TestCase):
         self.lw.write_text(LW_DOC, encoding="utf-8")
         self.other.write_text("무관한 파일.\n", encoding="utf-8")
 
-        self._g("init", "-q")
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+
+        self._g("init", "-q", "-b", "develop")
         self._g("config", "user.email", "t@example.com")
         self._g("config", "user.name", "test")
         self._g("config", "core.quotepath", "false")  # 한글 경로를 따옴표 없이 출력
         self._g("add", "-A")
         self._g("commit", "-qm", "init")
+        self._g("remote", "add", "origin", str(self.remote))
+        self._g("push", "-q", "origin", "develop")
 
         self._orig = (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness)
         pd.ROOT = self.tmp
@@ -259,6 +268,55 @@ class PromoteCommitTest(unittest.TestCase):
         self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)  # 커밋 없음
         self.assertEqual(self._g("status", "--porcelain").stdout.strip(), "")       # 워킹트리 clean 복구
         self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))  # 버전도 원복
+
+    # --- 브랜치·원격 동기 검사 (리뷰 지적 P1) ---
+
+    def test_commit_refuses_non_develop_branch(self):
+        # feature 브랜치에서 --commit하면 developer가 아니라 이 검사가 막아야 한다.
+        self._g("checkout", "-q", "-b", "feature/x")
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_refuses_when_local_has_unrelated_commit_ahead_of_origin(self):
+        # develop 위에 승격과 무관한 로컬 커밋이 있으면(origin/develop과 어긋남) 거부해야 한다 —
+        # 안 그러면 그 커밋이 승격 push에 실려 PR 없이 develop에 반영된다(리뷰가 지적한 시나리오).
+        (self.tmp / "docs/side-note.md").write_text("무관한 커밋.\n", encoding="utf-8")
+        self._g("add", "-A")
+        self._g("commit", "-qm", "unrelated local commit")
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_refuses_when_local_is_behind_origin_develop(self):
+        # origin/develop이 로컬보다 앞서 있으면(다른 승격이 먼저 push) 거부해야 한다. 스크립트가
+        # 내부에서 fetch하므로, 실행 전 사람이 fetch했는지와 무관하게 stale 상태를 스스로 잡아야 한다.
+        other_clone = Path(tempfile.mkdtemp())
+        # bare remote의 symbolic HEAD는 여전히 기본 브랜치(master 등)를 가리키므로 develop을
+        # 명시해 체크아웃한다(그 기본 브랜치는 애초에 존재하지 않아 checkout이 조용히 실패한다).
+        subprocess.run(["git", "clone", "-q", "--branch", "develop", str(self.remote), str(other_clone)],
+                       check=True)
+        (other_clone / "extra.md").write_text("다른 사람이 먼저 승격.\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(other_clone), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(other_clone), "-c", "user.email=o@example.com",
+                        "-c", "user.name=other", "commit", "-qm", "other promotion"], check=True)
+        subprocess.run(["git", "-C", str(other_clone), "push", "-q", "origin", "develop"], check=True)
+
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_succeeds_on_develop_synced_with_origin(self):
+        # 양성 케이스: develop 브랜치 + origin/develop과 정확히 일치 + clean tree면 통과한다.
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 0)
+        self.assertIn("| 문서 버전 | v1.52 |", self.sa.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

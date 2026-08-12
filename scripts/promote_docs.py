@@ -67,16 +67,46 @@ def _git(*args: str, capture: bool = False) -> subprocess.CompletedProcess:
         capture_output=capture, text=True, encoding="utf-8", errors="replace")
 
 
-def _ensure_git_clean() -> None:
-    """--commit 전제: git 저장소 + clean 워킹트리.
+def _current_branch() -> str:
+    return _git("rev-parse", "--abbrev-ref", "HEAD", capture=True).stdout.strip()
 
-    깨끗하지 않으면 승격 산출물과 무관한 tracked 변경까지 커밋되고, 이후 push
-    거부 시 reset --hard로 그 변경이 유실될 수 있다(리뷰 지적). 그래서 파일을
-    쓰기 전에 clean tree를 강제하고, 커밋도 산출 파일만 명시 stage한다.
+
+def _ensure_git_clean() -> None:
+    """--commit 전제: git 저장소 + develop 브랜치 + 최신 origin/develop과 동기 + clean 워킹트리.
+
+    브랜치·원격 동기를 확인하지 않으면 feature 브랜치나 뒤처지거나 앞선(unrelated local
+    commit이 섞인) develop에서 실행해도 그대로 커밋·push가 진행돼, 승격과 무관한 변경까지
+    PR 없이 develop에 반영될 수 있다(리뷰 지적). 산출 파일만 stage하는 것은 새 승격
+    커밋 자체의 내용만 보장하고, 이미 존재하는 무관한 로컬 커밋의 혼입은 막지 못한다.
+    그래서 fetch로 최신 origin/develop을 받아 HEAD가 정확히 일치하는지까지 확인한 뒤에야
+    파일을 쓴다.
     """
     inside = _git("rev-parse", "--is-inside-work-tree", capture=True)
     if inside.returncode != 0 or inside.stdout.strip() != "true":
         raise PromoteError("git 저장소가 아니어서 --commit할 수 없다")
+
+    branch = _current_branch()
+    if branch != "develop":
+        raise PromoteError(
+            f"현재 브랜치가 'develop'이 아니라 '{branch}'다 — 승격 직접 push는 develop에서만 "
+            "허용된다(github-rules.md §3). `git checkout develop`으로 전환한 뒤 재실행한다.")
+
+    fetch = _git("fetch", "origin", "develop", capture=True)
+    if fetch.returncode != 0:
+        raise PromoteError(
+            "origin/develop을 fetch하지 못해 원격과의 동기 여부를 확인할 수 없다 — 승격을 "
+            "진행할 수 없다.\n" + fetch.stderr.strip())
+
+    head = _git("rev-parse", "HEAD", capture=True).stdout.strip()
+    remote_head = _git("rev-parse", "origin/develop", capture=True).stdout.strip()
+    if head != remote_head:
+        raise PromoteError(
+            "로컬 develop이 최신 origin/develop과 다르다 — 이 상태로 커밋·push하면 승격과 "
+            "무관한 로컬 커밋까지 develop에 그대로 반영될 위험이 있다.\n"
+            f"HEAD={head[:12]}, origin/develop={remote_head[:12]}. 로컬에만 있는 커밋이 "
+            "있으면 정리하고, 뒤처졌다면 `git pull --ff-only origin develop`으로 맞춘 뒤 "
+            "재실행한다(github-rules.md §3).")
+
     st = _git("status", "--porcelain", capture=True)
     if st.stdout.strip():
         raise PromoteError(
