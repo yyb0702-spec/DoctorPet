@@ -6,6 +6,7 @@
 - 각 기능 작업은 `feature/도메인명` 브랜치에서 진행한다.
 - PR merge는 **2명 이상 승인** 시 가능하며, 승인 조건이 충족되면 **팀원 누구나** merge 할 수 있다(특정 인물 고정 아님).
 - PR 작성자는 본인 PR을 직접 merge하지 않는다.
+- **예외:** 문서 버전 승격 bookkeeping 커밋(`scripts/promote_docs.py` 산출물)은 `develop`에 직접 push할 수 있다(2인 승인·PR 예외). 조건·근거는 §3 "문서 버전 승격 예외".
 
 ## 1. 브랜치 구조
 
@@ -209,6 +210,21 @@ Closes #
 - **2명 이상**의 Approve를 받은 후 merge한다.
 - 리뷰 의견 반영 후 merge한다.
 - 승인 조건이 충족되면 **팀원 누구나** merge할 수 있다(특정 인물 고정 아님).
+
+### 문서 버전 승격 예외 (직접 push 허용)
+
+> 승격 절차·git 명령·조건의 **정본은 이 절 한 곳**이다. `docs/enhancement/README.md` 규칙 1과 `scripts/promote_docs.py` docstring은 여기를 가리키기만 한다 — 명령을 다시 적어 복제하지 말 것(한 사본만 갱신돼 어긋난 리뷰 지적이 있었다).
+
+정본 문서(SA·PRD)의 **버전 헤더·`> 변경 이력`·경량본 버전 참조 동기**는 모든 승격이 동시에 건드리는 단일 전역 상태라, feature PR에서 하면 병렬 PR끼리 반드시 충돌한다(배경은 `docs/enhancement/README.md` 규칙 1). 그래서 이 bookkeeping은 feature PR에서 빼고, **아래 조건을 모두 만족할 때 `develop`에 직접 push할 수 있다**(2인 승인·PR 예외).
+
+- feature PR이 `develop`에 merge된 **직후**, 그 merge를 수행한 사람이 최신 `develop`에서 실행한다.
+- 커밋은 `scripts/promote_docs.py`를 **`--commit`으로 실행**해 만든다. `--commit`은 파일을 쓰기 전에 clean 워킹트리를 강제하고 산출 파일만 명시적으로 stage하므로, 승격과 무관한 tracked 변경이 섞이거나(→ PR 없이 develop 반영) 유실되지 않는다. `git commit -am`으로 직접 커밋하지 않는다(무관한 변경까지 커밋됨).
+- `python scripts/harness_check.py` PASS를 만족해야 한다(`--commit`이 커밋 전에 자동 실행하며, FAIL이면 커밋하지 않는다).
+- 결과 커밋은 버전 헤더·변경 이력·경량본 버전 참조 동기 **외 다른 변경을 담지 않는다**(위 `--commit`이 보장).
+- **push가 거부되면**(다른 승격이 먼저 오른 경우) 로컬 승격 커밋을 merge/rebase로 합치지 말고 **폐기한 뒤 최신 `develop`에서 재실행**한다: `git fetch origin develop` → `git diff --name-only origin/develop...HEAD`로 승격 파일(SA/PRD/경량본)만 있는지 확인 → **`git status --porcelain`이 비어 있는지 확인**(아래 주의) → `git reset --hard origin/develop` → `promote_docs.py ... --commit` 재실행 → push. 로컬 커밋을 pull·merge로 합치면 버전 헤더와 한 줄 변경 이력이 다시 충돌하므로 반드시 폐기·재생성한다. `--commit`이 clean tree를 강제하므로 폐기 대상 커밋에는 승격 파일만 들어 있어 `reset --hard`가 무관한 커밋을 지우지 않는다.
+  - **주의(리뷰 지적 P1):** `git diff --name-only origin/develop...HEAD`는 **커밋 간** 변경만 보여 주므로, 승격 커밋을 만든 뒤 새로 생긴 **미커밋(uncommitted) tracked 변경**은 드러나지 않는다. 그대로 `git reset --hard`를 하면 그 미커밋 작업까지 삭제된다. 그래서 `reset --hard` **전에 반드시 `git status --porcelain`이 비어 있는지** 확인하고, 비어 있지 않으면 먼저 `git stash` 또는 별도 커밋으로 정리한 뒤 진행한다(`promote_docs.py` 상단 복구 절차와 동일).
+
+근거: 이 커밋은 스크립트가 만든 기계적 산출물이고 harness_check로 검증되며 설계 판단이 없어 코드 리뷰가 더할 것이 없다. 또 `develop`으로의 push는 git이 직렬화하므로 승격끼리 충돌하지 않는다 — 별도 승격 PR로 하면 동시 두 PR이 같은 다음 번호를 계산해 충돌이 재발하지만, 직접 push는 뒤선 작업자가 위 "폐기·재생성"으로 최신 상태에서 다음 번호를 다시 계산하므로 헤더·이력 충돌이 남지 않는다. 더 견고한 자동화(merge 직후 단일 CI job이 실행·commit)는 후속 과제로 둔다.
 
 ## 4. 코드 리뷰 규칙
 
