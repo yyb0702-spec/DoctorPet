@@ -373,7 +373,6 @@ class AiConsultationServiceTest {
                     List.of(new AiHospitalRecommendationResult(
                             10L,
                             5,
-                            "필요한 X-ray 진료가 가능합니다.",
                             List.of(
                                     new AiRecommendationEvidenceResult(
                                             AiRecommendationEvidenceType.CAPABILITY,
@@ -432,7 +431,7 @@ class AiConsultationServiceTest {
             assertThat(recommendation.hospital()).isEqualTo(hospital());
             assertThat(recommendation.recommendationScore()).isEqualTo(5);
             assertThat(recommendation.recommendationReason())
-                    .isEqualTo("필요한 X-ray 진료가 가능합니다.");
+                    .isEqualTo("필요한 진료 역량을 보유하고 있습니다. 현재 진료 중입니다.");
             assertThat(recommendation.evidence())
                     .extracting(AiRecommendationEvidenceResult::type)
                     .containsExactly(
@@ -467,7 +466,6 @@ class AiConsultationServiceTest {
                 new AiHospitalRecommendationResult(
                         10L,
                         5,
-                        "MRI 검사가 가능합니다.",
                         List.of(new AiRecommendationEvidenceResult(
                                 AiRecommendationEvidenceType.CAPABILITY,
                                 "MRI"
@@ -954,7 +952,6 @@ class AiConsultationServiceTest {
         return new AiHospitalRecommendationResult(
                 hospitalId,
                 score,
-                "X-ray 진료가 가능합니다.",
                 List.of(new AiRecommendationEvidenceResult(
                         AiRecommendationEvidenceType.CAPABILITY,
                         "XRAY"

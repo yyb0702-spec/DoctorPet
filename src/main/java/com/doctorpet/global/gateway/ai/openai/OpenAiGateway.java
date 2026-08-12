@@ -50,7 +50,7 @@ public class OpenAiGateway implements AiGateway {
 
     static final String SEARCH_TOOL_NAME = "searchNearbyVets";
     private static final String RESPONSES_PATH = "/responses";
-    private static final String PROMPT_PATH = "prompts/ai-consultation-v6.txt";
+    private static final String PROMPT_PATH = "prompts/ai-consultation-v7.txt";
 
     private final OpenAiProperties properties;
     private final ObjectMapper objectMapper;
@@ -329,7 +329,6 @@ public class OpenAiGateway implements AiGateway {
                 "minimum", 1,
                 "maximum", 5
         ));
-        recommendationProperties.put("recommendationReason", Map.of("type", "string"));
         Map<String, Object> evidenceProperties = new LinkedHashMap<>();
         evidenceProperties.put("type", Map.of(
                 "type", "string",

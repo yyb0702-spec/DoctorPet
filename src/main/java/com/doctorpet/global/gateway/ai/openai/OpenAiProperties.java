@@ -23,7 +23,7 @@ public class OpenAiProperties {
     private String model = "gpt-4.1-mini";
 
     @NotBlank
-    private String promptVersion = "doctorpet-ai-v6";
+    private String promptVersion = "doctorpet-ai-v7";
 
     @Positive
     private int connectTimeoutMs = 2000;

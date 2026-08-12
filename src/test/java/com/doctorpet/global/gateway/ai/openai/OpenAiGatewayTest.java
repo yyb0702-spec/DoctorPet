@@ -61,6 +61,8 @@ class OpenAiGatewayTest {
                         .value(1))
                 .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.recommendationScore.maximum")
                         .value(5))
+                .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.recommendationReason")
+                        .doesNotExist())
                 .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.evidence.items.properties.type.enum[0]")
                         .value("SUPPORTED_SPECIES"))
                 .andExpect(jsonPath("$.text.format.schema.properties.message").doesNotExist())
@@ -95,7 +97,6 @@ class OpenAiGatewayTest {
         assertThat(result.recommendations()).singleElement().satisfies(recommendation -> {
             assertThat(recommendation.hospitalId()).isEqualTo(10L);
             assertThat(recommendation.recommendationScore()).isEqualTo(5);
-            assertThat(recommendation.recommendationReason()).isEqualTo("필요한 X-ray 진료가 가능합니다.");
             assertThat(recommendation.evidence())
                     .containsExactly(
                             new AiRecommendationEvidenceResult(
@@ -246,7 +247,7 @@ class OpenAiGatewayTest {
 
     private String finalResponseWithRecommendation() {
         String output = """
-                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":false,"recommendations":[{"hospitalId":10,"recommendationScore":5,"recommendationReason":"필요한 X-ray 진료가 가능합니다.","evidence":[{"type":"CAPABILITY","value":"XRAY"},{"type":"OPEN_NOW","value":"true"}]}]}
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":false,"recommendations":[{"hospitalId":10,"recommendationScore":5,"evidence":[{"type":"CAPABILITY","value":"XRAY"},{"type":"OPEN_NOW","value":"true"}]}]}
                 """.trim().replace("\"", "\\\"");
         return """
                 {

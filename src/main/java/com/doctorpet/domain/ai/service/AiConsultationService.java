@@ -26,11 +26,13 @@ import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
 import com.doctorpet.global.gateway.ai.dto.AiHospitalRecommendationResult;
 import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceType;
 import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -295,9 +297,6 @@ public class AiConsultationService {
                 || recommendation.recommendationScore() > 5) {
             throw invalidRecommendation("AI 추천 적합도는 1~5 정수여야 합니다.");
         }
-        if (!StringUtils.hasText(recommendation.recommendationReason())) {
-            throw invalidRecommendation("AI 추천 이유가 비어 있습니다.");
-        }
         if (recommendation.evidence().isEmpty()) {
             throw invalidRecommendation("AI 추천의 객관적 근거가 비어 있습니다.");
         }
@@ -306,9 +305,47 @@ public class AiConsultationService {
         return new AiHospitalRecommendationResponse(
                 candidate.hospital(),
                 recommendation.recommendationScore(),
-                recommendation.recommendationReason(),
+                buildRecommendationReason(recommendation.evidence()),
                 recommendation.evidence()
         );
+    }
+
+    private String buildRecommendationReason(
+            List<AiRecommendationEvidenceResult> evidence
+    ) {
+        Set<AiRecommendationEvidenceType> types =
+                evidence.stream()
+                        .map(AiRecommendationEvidenceResult::type)
+                        .collect(Collectors.toSet());
+        List<String> reasons = new ArrayList<>();
+        if (types.contains(AiRecommendationEvidenceType.SUPPORTED_SPECIES)) {
+            reasons.add("요청한 축종을 진료합니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.CAPABILITY)) {
+            reasons.add("필요한 진료 역량을 보유하고 있습니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.OPEN_NOW)) {
+            boolean openNow = evidence.stream()
+                    .filter(item -> item.type()
+                            == AiRecommendationEvidenceType.OPEN_NOW)
+                    .anyMatch(item -> "true".equals(item.value()));
+            reasons.add(openNow ? "현재 진료 중입니다" : "현재 진료 중이 아닙니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.DISTANCE_KM)) {
+            reasons.add("거리 정보를 확인할 수 있습니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.AVERAGE_RATING)
+                || types.contains(AiRecommendationEvidenceType.REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.POSITIVE_REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.NEUTRAL_REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.NEGATIVE_REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.REVIEW_EXCERPT_ID)) {
+            reasons.add("사용자 리뷰 정보를 참고했습니다");
+        }
+        if (reasons.isEmpty()) {
+            return "병원의 실제 정보를 바탕으로 추천했습니다.";
+        }
+        return String.join(". ", reasons) + ".";
     }
 
     private void validateRecommendationEvidence(
