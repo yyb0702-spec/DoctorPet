@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.repository.MemberRepository;
@@ -19,6 +22,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,6 +63,9 @@ class HospitalReservationNotificationIntegrationTest {
     private MemberRepository memberRepository;
 
     @Autowired
+    private HospitalRepository hospitalRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     // 기본은 실제 저장 동작을 그대로 쓰고, 롤백 검증 테스트에서만 예외를 던지도록 스텁한다.
@@ -68,6 +75,7 @@ class HospitalReservationNotificationIntegrationTest {
     private Long reservationId;
     private Long slotId;
     private Long staffMemberId;
+    private Long hospitalId;
 
     @AfterEach
     void cleanUp() {
@@ -83,6 +91,9 @@ class HospitalReservationNotificationIntegrationTest {
         }
         if (staffMemberId != null) {
             jdbcTemplate.update("delete from members where id = ?", staffMemberId);
+        }
+        if (hospitalId != null) {
+            jdbcTemplate.update("delete from hospitals where id = ?", hospitalId);
         }
     }
 
@@ -254,7 +265,25 @@ class HospitalReservationNotificationIntegrationTest {
     }
 
     private TestReservation saveRequestedReservation() {
-        long hospitalId = System.nanoTime();
+        Hospital hospital = Hospital.createFromPublicData(
+                "notification-" + System.nanoTime(),
+                "test-local-gov",
+                "알림 테스트 병원",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                LocalDate.now(),
+                BusinessStatus.OPEN,
+                null,
+                null,
+                LocalDateTime.now()
+        );
+        hospital.markAsPartner();
+        hospital = hospitalRepository.saveAndFlush(hospital);
+        hospitalId = hospital.getId();
         long guardianMemberId = hospitalId + 1;
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         LocalDateTime startAt = now.plusDays(2).withNano(0);
