@@ -69,6 +69,14 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
     void cleanUp() {
         if (reservationId != null) {
             jdbcTemplate.update(
+                    "delete from notifications where resource_type = 'RESERVATION' and resource_id = ?",
+                    reservationId
+            );
+            jdbcTemplate.update(
+                    "delete from reservation_events where reservation_id = ?",
+                    reservationId
+            );
+            jdbcTemplate.update(
                     "delete from reservations where id = ?",
                     reservationId
             );
@@ -146,6 +154,39 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
                 .isEqualTo(ReservationSlotStatus.OPEN);
     }
 
+    @Test
+    @DisplayName("동일 CONFIRMED 예약의 병원 취소와 체크인은 정확히 하나만 성공하고 최종 슬롯 상태가 일치한다")
+    void hospitalCancelAndCheckIn_onlyOneSucceedsWithConsistentSlot()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        RaceResult result = runRace(
+                () -> hospitalReservationService.cancelConfirmedByHospital(
+                        data.staffMemberId(),
+                        data.reservationId(),
+                        "응급수술로 진료 불가"
+                ),
+                () -> hospitalReservationService.checkIn(
+                        data.staffMemberId(),
+                        data.reservationId()
+                )
+        );
+
+        assertThat(result.successCount()).isEqualTo(1);
+        assertThat(result.unexpectedErrors()).isEmpty();
+
+        ReservationStatus status = findReservationStatus(data.reservationId());
+        ReservationSlotStatus slotStatus = findSlotStatus(data.slotId());
+        assertThat(status).isIn(
+                ReservationStatus.HOSPITAL_CANCELED,
+                ReservationStatus.CHECKED_IN
+        );
+        assertThat(slotStatus).isEqualTo(
+                status == ReservationStatus.HOSPITAL_CANCELED
+                        ? ReservationSlotStatus.OPEN
+                        : ReservationSlotStatus.RESERVED
+        );
+    }
+
     private TestReservation saveRequestedReservation() {
         long hospitalId = System.nanoTime();
         long guardianMemberId = hospitalId + 1;
@@ -194,6 +235,15 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
                 reservation.getId(),
                 slot.getId()
         );
+    }
+
+    private TestReservation saveConfirmedReservation() {
+        TestReservation data = saveRequestedReservation();
+        jdbcTemplate.update(
+                "update reservations set status = 'CONFIRMED' where id = ?",
+                data.reservationId()
+        );
+        return data;
     }
 
     private RaceResult runRace(Runnable first, Runnable second)

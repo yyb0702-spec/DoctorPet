@@ -19,8 +19,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ReservationHospitalCanceledStatusMigrationRunner implements ApplicationRunner {
 
-    static final String MIGRATION_KEY = "reservation_hospital_canceled_status_v3";
-    private static final String LOCK_NAME = "doctorpet:reservation_hospital_canceled_status_v3";
+    static final String MIGRATION_KEY = "reservation_hospital_canceled_status_v4";
+    private static final String LOCK_NAME = "doctorpet:reservation_hospital_canceled_status_v4";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
     private static final String REASON_COLUMN = "hospital_cancel_reason";
     private static final String CANCELED_AT_COLUMN = "hospital_canceled_at";
@@ -40,11 +40,11 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
             "enum('AUTO_NO_SHOW','AUTO_NO_SHOW_PENDING','CHECKED_IN','HOSPITAL_CANCELED',"
                     + "'MANUAL_NO_SHOW','NO_SHOW_CORRECTED','TIMEOUT_REJECTED')";
     private static final String NOTIFICATION_ENUM_WITH_LEGACY =
-            "enum('NO_SHOW','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
+            "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
                     + "'RESERVATION_REJECTED')";
     private static final String NOTIFICATION_ENUM =
-            "enum('NO_SHOW','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
+            "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED')";
 
     private final JdbcTemplate jdbcTemplate;
@@ -105,7 +105,9 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         if (notificationTypeColumnType == null) {
             throw new IllegalStateException("notifications.type 컬럼이 없습니다.");
         }
-        if (notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELLED")) {
+        if (notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELLED")
+                || !notificationTypeColumnType.contains("PAYMENT_PENDING")
+                || !notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELED")) {
             alterNotificationTypeColumn(connection, NOTIFICATION_ENUM_WITH_LEGACY);
             try (Statement statement = connection.createStatement()) {
                 statement.executeUpdate(
@@ -157,10 +159,11 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
 
     private void assertNotificationTypeColumn(Connection connection) throws SQLException {
         String columnType = notificationTypeColumnType(connection);
-        if (columnType == null || !columnType.contains("RESERVATION_HOSPITAL_CANCELED")
+        if (columnType == null || !columnType.contains("PAYMENT_PENDING")
+                || !columnType.contains("RESERVATION_HOSPITAL_CANCELED")
                 || columnType.contains("RESERVATION_HOSPITAL_CANCELLED")) {
             throw new IllegalStateException(
-                    "notifications.type enum에 RESERVATION_HOSPITAL_CANCELED가 올바르게 반영되지 않았습니다."
+                    "notifications.type enum에 PAYMENT_PENDING과 RESERVATION_HOSPITAL_CANCELED가 올바르게 반영되지 않았습니다."
             );
         }
     }
