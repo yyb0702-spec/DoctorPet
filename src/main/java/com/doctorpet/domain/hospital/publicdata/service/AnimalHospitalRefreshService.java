@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.partnership.service.PartnerHospitalSeedServ
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalRefreshResult;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.scheduler.HospitalSlotGenerationSummary;
 import com.doctorpet.domain.hospital.service.HospitalSlotGenerationBatchService;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -45,12 +46,28 @@ public class AnimalHospitalRefreshService {
         int appliedPartnerCount =
                 partnerHospitalSeedService.applyPartnerships(partnerData);
         LocalDate today = LocalDate.now(applicationClock);
-        slotGenerationBatchService.generateRange(
-                today,
-                today.plusDays(PUBLISHED_RANGE_LAST_DAY_OFFSET)
-        );
+        HospitalSlotGenerationSummary slotSummary =
+                slotGenerationBatchService.generateRange(
+                        today,
+                        today.plusDays(PUBLISHED_RANGE_LAST_DAY_OFFSET)
+                );
+        validateSlotGeneration(slotSummary);
         searchCacheRepository.evictInitialPage();
 
         return new AnimalHospitalRefreshResult(collectionResult, appliedPartnerCount);
+    }
+
+    private void validateSlotGeneration(HospitalSlotGenerationSummary summary) {
+        if (!summary.locked()) {
+            throw new IllegalStateException(
+                    "최초 제휴 병원 슬롯 생성 락을 획득하지 못했습니다."
+            );
+        }
+        if (summary.failedTasks() > 0) {
+            throw new IllegalStateException(
+                    "최초 제휴 병원 슬롯 생성에 실패한 작업이 있습니다. failedTasks="
+                            + summary.failedTasks()
+            );
+        }
     }
 }

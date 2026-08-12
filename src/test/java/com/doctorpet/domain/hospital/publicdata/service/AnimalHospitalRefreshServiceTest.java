@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.publicdata.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
@@ -12,6 +13,7 @@ import com.doctorpet.domain.hospital.partnership.service.PartnerHospitalSeedServ
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalRefreshResult;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.scheduler.HospitalSlotGenerationSummary;
 import com.doctorpet.domain.hospital.service.HospitalSlotGenerationBatchService;
 import java.time.Clock;
 import java.time.Instant;
@@ -82,6 +84,17 @@ class AnimalHospitalRefreshServiceTest {
         given(collectionService.collectNationwide()).willReturn(collection);
         given(partnerHospitalSeedLoader.load()).willReturn(partnerData);
         given(partnerHospitalSeedService.applyPartnerships(partnerData)).willReturn(2);
+        given(slotGenerationBatchService.generateRange(
+                LocalDate.of(2026, 8, 12),
+                LocalDate.of(2026, 8, 25)
+        )).willReturn(new HospitalSlotGenerationSummary(
+                true,
+                14,
+                28,
+                28,
+                0,
+                56
+        ));
         AnimalHospitalRefreshService service = new AnimalHospitalRefreshService(
                 collectionService,
                 partnerHospitalSeedLoader,
@@ -110,5 +123,59 @@ class AnimalHospitalRefreshServiceTest {
                 LocalDate.of(2026, 8, 25)
         );
         then(searchCacheRepository).should(order).evictInitialPage();
+    }
+
+    @Test
+    void initialSeedFailsWhenSlotGenerationLockIsNotAcquired() {
+        given(collectionService.collectNationwide()).willReturn(
+                new AnimalHospitalCollectionResult(3, 250)
+        );
+        given(partnerHospitalSeedLoader.load()).willReturn(List.of());
+        given(slotGenerationBatchService.generateRange(
+                LocalDate.of(2026, 8, 12),
+                LocalDate.of(2026, 8, 25)
+        )).willReturn(HospitalSlotGenerationSummary.lockSkipped(14));
+        AnimalHospitalRefreshService service = createService();
+
+        assertThatThrownBy(service::seed)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("락을 획득하지 못했습니다");
+        then(searchCacheRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void initialSeedFailsWhenAnySlotGenerationTaskFails() {
+        given(collectionService.collectNationwide()).willReturn(
+                new AnimalHospitalCollectionResult(3, 250)
+        );
+        given(partnerHospitalSeedLoader.load()).willReturn(List.of());
+        given(slotGenerationBatchService.generateRange(
+                LocalDate.of(2026, 8, 12),
+                LocalDate.of(2026, 8, 25)
+        )).willReturn(new HospitalSlotGenerationSummary(
+                true,
+                14,
+                28,
+                27,
+                1,
+                54
+        ));
+        AnimalHospitalRefreshService service = createService();
+
+        assertThatThrownBy(service::seed)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("failedTasks=1");
+        then(searchCacheRepository).shouldHaveNoInteractions();
+    }
+
+    private AnimalHospitalRefreshService createService() {
+        return new AnimalHospitalRefreshService(
+                collectionService,
+                partnerHospitalSeedLoader,
+                partnerHospitalSeedService,
+                searchCacheRepository,
+                slotGenerationBatchService,
+                CLOCK
+        );
     }
 }
