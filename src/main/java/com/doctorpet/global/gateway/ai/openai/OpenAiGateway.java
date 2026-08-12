@@ -10,6 +10,7 @@ import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
 import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceType;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.io.IOException;
@@ -49,7 +50,7 @@ public class OpenAiGateway implements AiGateway {
 
     static final String SEARCH_TOOL_NAME = "searchNearbyVets";
     private static final String RESPONSES_PATH = "/responses";
-    private static final String PROMPT_PATH = "prompts/ai-consultation-v5.txt";
+    private static final String PROMPT_PATH = "prompts/ai-consultation-v6.txt";
 
     private final OpenAiProperties properties;
     private final ObjectMapper objectMapper;
@@ -329,9 +330,17 @@ public class OpenAiGateway implements AiGateway {
                 "maximum", 5
         ));
         recommendationProperties.put("recommendationReason", Map.of("type", "string"));
+        Map<String, Object> evidenceProperties = new LinkedHashMap<>();
+        evidenceProperties.put("type", Map.of(
+                "type", "string",
+                "enum", Arrays.stream(AiRecommendationEvidenceType.values())
+                        .map(Enum::name)
+                        .toList()
+        ));
+        evidenceProperties.put("value", Map.of("type", "string"));
         recommendationProperties.put("evidence", Map.of(
                 "type", "array",
-                "items", Map.of("type", "string")
+                "items", objectSchema(evidenceProperties)
         ));
         return Map.of(
                 "type", "array",

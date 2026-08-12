@@ -13,6 +13,8 @@ import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceType;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +61,8 @@ class OpenAiGatewayTest {
                         .value(1))
                 .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.recommendationScore.maximum")
                         .value(5))
+                .andExpect(jsonPath("$.text.format.schema.properties.recommendations.items.properties.evidence.items.properties.type.enum[0]")
+                        .value("SUPPORTED_SPECIES"))
                 .andExpect(jsonPath("$.text.format.schema.properties.message").doesNotExist())
                 .andExpect(jsonPath("$.instructions").value(
                         org.hamcrest.Matchers.containsString("지역만 제공됐어도 병원 검색이 가능")))
@@ -92,7 +96,17 @@ class OpenAiGatewayTest {
             assertThat(recommendation.hospitalId()).isEqualTo(10L);
             assertThat(recommendation.recommendationScore()).isEqualTo(5);
             assertThat(recommendation.recommendationReason()).isEqualTo("필요한 X-ray 진료가 가능합니다.");
-            assertThat(recommendation.evidence()).containsExactly("XRAY 지원", "현재 영업 중");
+            assertThat(recommendation.evidence())
+                    .containsExactly(
+                            new AiRecommendationEvidenceResult(
+                                    AiRecommendationEvidenceType.CAPABILITY,
+                                    "XRAY"
+                            ),
+                            new AiRecommendationEvidenceResult(
+                                    AiRecommendationEvidenceType.OPEN_NOW,
+                                    "true"
+                            )
+                    );
         });
         assertThat(captured.get().openNow()).isTrue();
         assertThat(captured.get().analysis().requiredCapabilities()).containsExactly("XRAY");
@@ -232,7 +246,7 @@ class OpenAiGatewayTest {
 
     private String finalResponseWithRecommendation() {
         String output = """
-                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":false,"recommendations":[{"hospitalId":10,"recommendationScore":5,"recommendationReason":"필요한 X-ray 진료가 가능합니다.","evidence":["XRAY 지원","현재 영업 중"]}]}
+                {"possibleFocusAreas":["MUSCULOSKELETAL"],"requiredCapabilities":["XRAY"],"urgencyLevel":"MODERATE","preVisitCheckpoints":["ONSET_TIME"],"recommendVetVisit":true,"locationRequired":false,"recommendations":[{"hospitalId":10,"recommendationScore":5,"recommendationReason":"필요한 X-ray 진료가 가능합니다.","evidence":[{"type":"CAPABILITY","value":"XRAY"},{"type":"OPEN_NOW","value":"true"}]}]}
                 """.trim().replace("\"", "\\\"");
         return """
                 {

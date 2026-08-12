@@ -7,7 +7,7 @@ public record AiHospitalRecommendationResult(
         Long hospitalId,
         int recommendationScore,
         String recommendationReason,
-        List<String> evidence
+        List<AiRecommendationEvidenceResult> evidence
 ) {
 
     public AiHospitalRecommendationResult {
