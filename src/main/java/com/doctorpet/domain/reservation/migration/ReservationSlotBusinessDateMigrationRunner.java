@@ -30,6 +30,10 @@ public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRu
             "reservation_slot_overnight_business_date_v2";
     private static final String LOCK_NAME = "doctorpet:reservation_slot_business_date_v1";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
+    // open_hours의 openTime/closeTime은 "HH:MM" 문자열 하나다(배열 아님, PartnerHospitalOperatingHoursSeedData
+    // 참조). json_extract(...)[0]로 배열 인덱싱을 하면 스칼라 문자열도 [0]엔 그 값 전체가 그대로 매칭되어
+    // maketime("09:00", ...)에 문자열을 그대로 넘기게 되고, strict SQL 모드에서 "Truncated incorrect INTEGER
+    // value"로 예외가 난다(리뷰 지적 — 로컬 실 데이터로 재현). "HH:MM"을 TIME으로 직접 캐스팅해 고쳤다.
     private static final String OVERNIGHT_SLOT_PREDICATE = """
             slot.business_date = date(slot.start_at)
               and json_extract(
@@ -38,58 +42,29 @@ public class ReservationSlotBusinessDateMigrationRunner implements ApplicationRu
                              elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
                                  'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
                                  'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                             '.openTime[0]')
+                             '.openTime')
                   ) is not null
-              and maketime(
-                      json_unquote(json_extract(
-                              detail.open_hours,
-                              concat('$.' ,
-                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
-                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
-                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                                     '.openTime[0]'))),
-                      json_unquote(json_extract(
-                              detail.open_hours,
-                              concat('$.' ,
-                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
-                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
-                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                                     '.openTime[1]'))),
-                      0
-                  ) > maketime(
-                      json_unquote(json_extract(
-                              detail.open_hours,
-                              concat('$.' ,
-                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
-                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
-                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                                     '.closeTime[0]'))),
-                      json_unquote(json_extract(
-                              detail.open_hours,
-                              concat('$.' ,
-                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
-                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
-                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                                     '.closeTime[1]'))),
-                      0
-                  )
-              and time(slot.start_at) < maketime(
-                      json_unquote(json_extract(
-                              detail.open_hours,
-                              concat('$.' ,
-                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
-                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
-                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                                     '.closeTime[0]'))),
-                      json_unquote(json_extract(
-                              detail.open_hours,
-                              concat('$.' ,
-                                     elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
-                                         'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
-                                         'FRIDAY', 'SATURDAY', 'SUNDAY'),
-                                     '.closeTime[1]'))),
-                      0
-                  )
+              and cast(json_unquote(json_extract(
+                      detail.open_hours,
+                      concat('$.' ,
+                             elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                 'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                             '.openTime'))) as time)
+                  > cast(json_unquote(json_extract(
+                      detail.open_hours,
+                      concat('$.' ,
+                             elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                 'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                             '.closeTime'))) as time)
+              and time(slot.start_at) < cast(json_unquote(json_extract(
+                      detail.open_hours,
+                      concat('$.' ,
+                             elt(weekday(date_sub(date(slot.start_at), interval 1 day)) + 1,
+                                 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY',
+                                 'FRIDAY', 'SATURDAY', 'SUNDAY'),
+                             '.closeTime'))) as time)
             """;
 
     private final JdbcTemplate jdbcTemplate;

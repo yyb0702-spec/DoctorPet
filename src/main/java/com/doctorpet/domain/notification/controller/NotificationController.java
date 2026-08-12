@@ -1,10 +1,13 @@
 package com.doctorpet.domain.notification.controller;
 
-// 알림 조회·읽음 처리 API(SA §8-8). 수신자는 @AuthenticationPrincipal로만 식별하고 경로/쿼리의 memberId는 신뢰하지 않는다.
+// 알림 조회·읽음 처리 API(SA §8-8). 수신자는 @AuthenticationPrincipal로만 식별하고 경로/쿼리의 memberId·hospitalId는
+// 신뢰하지 않는다. 회원은 (MEMBER, memberId), 병원 스태프는 (HOSPITAL, hospitalId)로 해석해 자기 수신 알림만 접근한다.
 
 import com.doctorpet.domain.notification.dto.response.NotificationPageResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
+import com.doctorpet.domain.notification.service.NotificationRecipient;
+import com.doctorpet.domain.notification.service.NotificationRecipientResolver;
 import com.doctorpet.domain.notification.service.NotificationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final NotificationRecipientResolver recipientResolver;
 
     @GetMapping
     public ApiResponse<NotificationPageResponse> getMyNotifications(
@@ -36,8 +40,9 @@ public class NotificationController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
+        NotificationRecipient recipient = recipientResolver.resolve(principal);
         return ApiResponse.success(
-                notificationService.getMyNotifications(principal.memberId(), isRead, page, size)
+                notificationService.getMyNotifications(recipient, isRead, page, size)
         );
     }
 
@@ -45,14 +50,16 @@ public class NotificationController {
     public ApiResponse<NotificationUnreadCountResponse> getUnreadCount(
             @AuthenticationPrincipal MemberPrincipal principal
     ) {
-        return ApiResponse.success(notificationService.getUnreadCount(principal.memberId()));
+        NotificationRecipient recipient = recipientResolver.resolve(principal);
+        return ApiResponse.success(notificationService.getUnreadCount(recipient));
     }
 
     @PatchMapping("/read-all")
     public ApiResponse<NotificationReadAllResponse> markAllRead(
             @AuthenticationPrincipal MemberPrincipal principal
     ) {
-        return ApiResponse.success(notificationService.markAllRead(principal.memberId()));
+        NotificationRecipient recipient = recipientResolver.resolve(principal);
+        return ApiResponse.success(notificationService.markAllRead(recipient));
     }
 
     @PatchMapping("/{notificationId}/read")
@@ -60,7 +67,8 @@ public class NotificationController {
             @AuthenticationPrincipal MemberPrincipal principal,
             @PathVariable @Positive Long notificationId
     ) {
-        notificationService.markAsRead(principal.memberId(), notificationId);
+        NotificationRecipient recipient = recipientResolver.resolve(principal);
+        notificationService.markAsRead(recipient, notificationId);
         return ApiResponse.success();
     }
 }
