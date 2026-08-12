@@ -95,6 +95,39 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
         ));
 
         jdbcTemplate.update(
+                """
+                update hospital_details
+                   set open_hours = ?
+                 where hospital_id = ?
+                """,
+                """
+                {"MONDAY":{"openTime":[20,0],"closeTime":[2,0]},
+                 "TUESDAY":{"openTime":[9,0],"closeTime":[18,0]}}
+                """,
+                hospital.getId()
+        );
+        jdbcTemplate.update(
+                """
+                update reservation_slots
+                   set start_at = '2026-08-11 01:00:00',
+                       end_at = '2026-08-11 01:30:00',
+                       business_date = '2026-08-11'
+                 where id = ?
+                """,
+                overnight.getId()
+        );
+        jdbcTemplate.update(
+                """
+                update reservation_slots
+                   set start_at = '2026-08-11 10:00:00',
+                       end_at = '2026-08-11 10:30:00',
+                       business_date = '2026-08-11'
+                 where id = ?
+                """,
+                daytime.getId()
+        );
+
+        jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
                 ReservationSlotBusinessDateMigrationRunner
                         .OVERNIGHT_BACKFILL_MIGRATION_KEY
