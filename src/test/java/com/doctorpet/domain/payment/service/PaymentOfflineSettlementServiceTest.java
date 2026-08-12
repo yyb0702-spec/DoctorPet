@@ -53,7 +53,7 @@ class PaymentOfflineSettlementServiceTest {
 
         assertThat(response.status()).isEqualTo(PaymentStatus.OFFLINE_PAID);
         verify(notificationPublisher)
-                .publishChargeResult(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.OFFLINE_PAID);
+                .publishChargeResult(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, PaymentStatus.OFFLINE_PAID, 50_000);
     }
 
     @Test
@@ -65,6 +65,7 @@ class PaymentOfflineSettlementServiceTest {
         paymentOfflineSettlementService.settle(PAYMENT_ID, STAFF_MEMBER_ID);
 
         verify(notificationPublisher, never())
-                .publishChargeResult(anyLong(), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+                .publishChargeResult(anyLong(), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyInt());
     }
 }

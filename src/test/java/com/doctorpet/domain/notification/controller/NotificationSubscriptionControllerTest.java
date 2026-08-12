@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -108,6 +109,18 @@ class NotificationSubscriptionControllerTest {
                         .accept(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+    }
+
+    @Test
+    @DisplayName("유효한 티켓이면 nginx 버퍼링을 끄는 X-Accel-Buffering: no 헤더가 함께 내려간다(리뷰 지적)")
+    void subscribe_validTicket_disablesProxyBuffering() throws Exception {
+        given(subscriptionService.subscribe(anyString())).willReturn(new SseEmitter());
+
+        mockMvc.perform(get(SUBSCRIBE_PATH)
+                        .param("ticket", "valid-ticket")
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Accel-Buffering", "no"));
     }
 
     @Test

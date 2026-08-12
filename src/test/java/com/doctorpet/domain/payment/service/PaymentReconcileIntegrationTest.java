@@ -78,7 +78,8 @@ class PaymentReconcileIntegrationTest {
         assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.PAID);
         assertThat(reloaded.getPgPaymentId()).isNotNull();
         verify(notificationPublisher, times(1))
-                .publishChargeResult(eq(GUARDIAN_ID), eq(target.getReservationId()), eq(target.getId()), eq(PaymentStatus.PAID));
+                .publishChargeResult(eq(GUARDIAN_ID), eq(target.getReservationId()), eq(target.getId()), eq(PaymentStatus.PAID),
+                        org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -92,7 +93,8 @@ class PaymentReconcileIntegrationTest {
         Payment reloaded = paymentRepository.findById(target.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(reloaded.getRetryCount()).isEqualTo(1);
-        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any());
+        verify(notificationPublisher, never()).publishChargeResult(anyLong(), anyLong(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(notificationPublisher, never()).publishPendingNotice(anyLong(), anyLong(), any(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
