@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
 
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
@@ -49,7 +51,7 @@ class HospitalSlotGenerationBatchIntegrationTest {
     @Autowired
     private HospitalRepository hospitalRepository;
 
-    @Autowired
+    @MockitoSpyBean
     private HospitalOperatingScheduleRepository scheduleRepository;
 
     @Autowired
@@ -125,6 +127,11 @@ class HospitalSlotGenerationBatchIntegrationTest {
                 HospitalTemporaryClosure.create(closedHospital, businessDate)
         );
         closureIds.add(closure.getId());
+        doReturn(List.of(
+                operatingHospital.getId(),
+                closedHospital.getId()
+        )).when(scheduleRepository)
+                .findHospitalIdsWithEffectiveSchedule(businessDate);
 
         var first = batchService.generateRange(businessDate, businessDate);
         var second = batchService.generateRange(businessDate, businessDate);
@@ -168,6 +175,12 @@ class HospitalSlotGenerationBatchIntegrationTest {
                         LocalTime.of(10, 0)
                 ))
         ));
+        for (LocalDate businessDate = fromDate;
+             !businessDate.isAfter(toDate);
+             businessDate = businessDate.plusDays(1)) {
+            doReturn(List.of(hospital.getId())).when(scheduleRepository)
+                    .findHospitalIdsWithEffectiveSchedule(businessDate);
+        }
 
         var existing = batchService.generateRange(existingDate, existingDate);
         var recovered = batchService.generateRange(fromDate, toDate);
