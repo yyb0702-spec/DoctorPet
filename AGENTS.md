@@ -37,11 +37,11 @@ Java 17, Spring Boot, Spring Data JPA, Spring Security, QueryDSL, MySQL 8.x, Red
 - SA 부록 A의 `[결정 필요]` 항목이나 비어 있는 정책은 마음대로 구현하지 않고 질문으로 남긴다.
 - PRD·SA의 설계 변경이 필요해지면 구현 전에 사용자 확인을 받는다.
 
-## 확정된 핵심 결정 (재논의 금지, 근거는 SA)
+## 확정된 핵심 결정 (재논의 금지, 근거는 각 항목에 명시)
 
 - 동시성: 낙관적 락(`@Version`) 실채택, 조건부 UPDATE는 비교 베이스라인. `ReservationLockStrategy` 인터페이스로 추상화. Redis 분산 락 미사용 (SA §9-3)
 - 검색 캐시: Redis 원격 캐시. Caffeine 미사용 (SA §9-2)
-- 실시간 알림·채팅: 예약·결제 알림은 MVP2 단방향 SSE를 유지한다(#40). `NotificationPusher` 추상화 + `SseNotificationPusher` 구현, 티켓 기반 인증·커밋 후 전송 계약은 변경하지 않는다. 병원↔회원의 예약당 채팅은 native WebSocket + STOMP를 사용하며, 전용 `/ws/chat` HTTP Upgrade 경로만 CONNECT까지 도달하도록 허용하고 실제 인증은 STOMP CONNECT `Authorization` 헤더의 JWT 검증으로 강제한다. 채팅은 단일 인스턴스 Spring SimpleBroker를 기준으로 하고 다중 인스턴스 fan-out은 후속 범위이며, 메시지는 저장 커밋 후에만 전달한다. 상세 정책은 `docs/enhancement/채팅.md`에 두고, SA 승격은 채팅 구현 PR에서 수행한다.
+- 실시간 알림·채팅: 예약·결제 알림은 MVP2 단방향 SSE를 유지한다(#40). `NotificationPusher` 추상화 + `SseNotificationPusher` 구현, 티켓 기반 인증·커밋 후 전송 계약은 변경하지 않는다. 병원↔회원의 예약당 채팅은 native WebSocket + STOMP를 사용하며, 전용 `/ws/chat` HTTP Upgrade 경로만 CONNECT까지 도달하도록 허용하고 실제 인증은 STOMP CONNECT `Authorization` 헤더의 JWT 검증으로 강제한다. 채팅은 단일 인스턴스 Spring SimpleBroker를 기준으로 하고 다중 인스턴스 fan-out은 후속 범위이며, 메시지는 저장 커밋 후에만 전달한다. **채팅 상세 정책의 현재 정본은 고도화 델타 `docs/enhancement/채팅.md`**이며, 동결 SA §9-8은 알림 SSE 계약만 따른다. SA 채팅 절 승격은 실제 채팅 구현 PR에서 수행한다.
 - 환불: MVP는 제외였으나 **MVP+ 고도화에서 오청구 전액 환불을 도입**(이슈 #37, SA §5-2·§9-4). 대상은 빌링키 자동결제 완료건(`PAID`·`BILLING_KEY`)뿐이고 사유만 입력받아 결제 금액 그대로 취소한다. 선점은 `payment_refunds.UNIQUE(payment_id)`가 담당하며 결제 상태에 환불 중간 단계를 두지 않는다(역방향 전이 방지). 현장 수납분 환불은 여전히 확장이고, **환불한 예약은 재청구할 수 없다**(SA §9-4 알려진 한계) — 이 제한을 정정 재청구로 해제하는 방향은 팀 합의됐으나(`docs/enhancement/결제.md` 3.5-a. 3.5-b 부분 환불은 재청구와 무관한 별개 계약이며 아직 미확정), 스키마·코드 변경 전까지는 이 제한이 그대로 유효하다. 그 구현 PR에서 이 줄과 SA §9-4를 함께 갱신한다. 예약 상태에 `PAYMENT_COMPLETED` 없음 — 결제완료는 예약+결제 상태 조합으로 표현 (SA §5-4)
 - 응답 포맷: `ApiResponse{ code, message, data }`, 성공 `code="SUCCESS"`, 실패는 예외 → GlobalExceptionHandler
 - ErrorCode: `{DOMAIN}_{3자리}`, 도메인별 enum 분리 (글로벌 통합 enum 금지)
