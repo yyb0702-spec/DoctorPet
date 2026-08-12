@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
@@ -13,6 +14,7 @@ import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
 import com.doctorpet.domain.review.service.ReviewQueryService;
@@ -61,6 +63,9 @@ class HospitalServiceTest {
     private HospitalSearchCacheRepository hospitalSearchCacheRepository;
 
     @Mock
+    private HospitalTemporaryClosureRepository temporaryClosureRepository;
+
+    @Mock
     private ReviewQueryService reviewQueryService;
 
     @Mock
@@ -75,6 +80,7 @@ class HospitalServiceTest {
                 hospitalDetailRepository,
                 hospitalCapabilityRepository,
                 hospitalSearchCacheRepository,
+                temporaryClosureRepository,
                 hospitalFavoriteService,
                 reviewQueryService
         );
@@ -199,6 +205,62 @@ class HospitalServiceTest {
 
         HospitalDetailResponse response =
                 getHospitalDetailAt(tuesdayAtOne);
+
+        assertThat(response.openNow()).isTrue();
+    }
+
+    @Test
+    void 자정_이후_전날_영업일이_임시_휴무면_영업중이_아니다() {
+        LocalDateTime tuesdayAtOne = LocalDateTime.of(2026, 7, 28, 1, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+        given(temporaryClosureRepository.findClosures(
+                List.of(HOSPITAL_ID),
+                List.of(tuesdayAtOne.toLocalDate(), LocalDate.of(2026, 7, 27))
+        )).willReturn(List.of(HospitalTemporaryClosure.create(
+                hospital,
+                LocalDate.of(2026, 7, 27)
+        )));
+
+        HospitalDetailResponse response = getHospitalDetailAt(tuesdayAtOne);
+
+        assertThat(response.openNow()).isFalse();
+    }
+
+    @Test
+    void 자정_이후_오늘만_임시_휴무면_전날_야간영업은_유지된다() {
+        LocalDateTime tuesdayAtOne = LocalDateTime.of(2026, 7, 28, 1, 0);
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(
+                hospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                )
+        );
+        givenPartnerHospital(hospital, detail);
+        given(temporaryClosureRepository.findClosures(
+                List.of(HOSPITAL_ID),
+                List.of(tuesdayAtOne.toLocalDate(), LocalDate.of(2026, 7, 27))
+        )).willReturn(List.of(HospitalTemporaryClosure.create(
+                hospital,
+                tuesdayAtOne.toLocalDate()
+        )));
+
+        HospitalDetailResponse response = getHospitalDetailAt(tuesdayAtOne);
 
         assertThat(response.openNow()).isTrue();
     }

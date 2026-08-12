@@ -4,17 +4,25 @@ import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
+import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.partnership.dto.PartnerHospitalSeedData;
 import com.doctorpet.domain.hospital.partnership.mapper.PartnerHospitalSeedMapper;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -27,7 +35,9 @@ public class PartnerHospitalSeedService {
     private final HospitalRepository hospitalRepository;
     private final HospitalDetailRepository hospitalDetailRepository;
     private final HospitalCapabilityRepository hospitalCapabilityRepository;
+    private final HospitalOperatingScheduleRepository operatingScheduleRepository;
     private final PartnerHospitalSeedMapper seedMapper;
+    private final Clock applicationClock;
 
     /**
      * 매칭된 병원을 제휴 상태로 전환하고 처리 건수를 반환합니다.
@@ -56,11 +66,17 @@ public class PartnerHospitalSeedService {
         hospital.markAsPartner();
 
         // 같은 JSON을 다시 실행해도 중복되지 않도록 상세정보와 역량을 각각 맞춥니다.
-        synchronizeDetail(hospital, seedData);
+        Map<DayOfWeek, DailyOperatingHours> openHours =
+                synchronizeDetail(hospital, seedData);
+        initializeOperatingScheduleIfMissing(
+                hospital,
+                openHours,
+                LocalDate.now(applicationClock)
+        );
         synchronizeCapabilities(hospital, seedData.capabilities());
     }
 
-    private void synchronizeDetail(
+    private Map<DayOfWeek, DailyOperatingHours> synchronizeDetail(
             Hospital hospital,
             PartnerHospitalSeedData seedData
     ) {
@@ -91,6 +107,50 @@ public class PartnerHospitalSeedService {
                                 )
                         )
                 );
+        return openHours;
+    }
+
+    /** 기존 제휴 병원 중 현재 적용 가능한 운영 스케줄이 없는 병원을 초기화한다. */
+    @Transactional
+    public int initializeMissingOperatingSchedules(LocalDate effectiveDate) {
+        List<HospitalDetail> targets = hospitalDetailRepository
+                .findPartnerDetailsWithoutEffectiveSchedule(effectiveDate);
+        targets.forEach(detail -> initializeOperatingScheduleIfMissing(
+                detail.getHospital(),
+                detail.getOpenHours(),
+                effectiveDate
+        ));
+        operatingScheduleRepository.flush();
+        return targets.size();
+    }
+
+    private void initializeOperatingScheduleIfMissing(
+            Hospital hospital,
+            Map<DayOfWeek, DailyOperatingHours> openHours,
+            LocalDate effectiveDate
+    ) {
+        if (operatingScheduleRepository
+                .findEffectiveSchedule(hospital.getId(), effectiveDate)
+                .isPresent()) {
+            return;
+        }
+        operatingScheduleRepository.save(HospitalOperatingSchedule.create(
+                hospital,
+                effectiveDate,
+                toOperatingSchedule(openHours)
+        ));
+    }
+
+    private Map<DayOfWeek, List<DailyOperatingHours>> toOperatingSchedule(
+            Map<DayOfWeek, DailyOperatingHours> openHours
+    ) {
+        EnumMap<DayOfWeek, List<DailyOperatingHours>> schedule =
+                new EnumMap<>(DayOfWeek.class);
+        for (DayOfWeek day : DayOfWeek.values()) {
+            DailyOperatingHours hours = openHours.get(day);
+            schedule.put(day, hours == null ? List.of() : List.of(hours));
+        }
+        return schedule;
     }
 
     private void synchronizeCapabilities(

@@ -13,6 +13,7 @@ import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
@@ -21,6 +22,7 @@ import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
@@ -35,11 +37,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,6 +63,7 @@ public class HospitalService {
     private final HospitalDetailRepository hospitalDetailRepository;
     private final HospitalCapabilityRepository hospitalCapabilityRepository;
     private final HospitalSearchCacheRepository hospitalSearchCacheRepository;
+    private final HospitalTemporaryClosureRepository temporaryClosureRepository;
     private final HospitalFavoriteService hospitalFavoriteService;
     private final ReviewQueryService reviewQueryService;
 
@@ -108,6 +114,13 @@ public class HospitalService {
                 });
 
         List<HospitalCapability> capabilities = hospitalCapabilityRepository.findAllByHospital(hospital);
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        Set<LocalDate> closureDates = temporaryClosureRepository.findClosures(
+                        List.of(hospitalId),
+                        List.of(now.toLocalDate(), now.toLocalDate().minusDays(1))
+                ).stream()
+                .map(HospitalTemporaryClosure::getBusinessDate)
+                .collect(java.util.stream.Collectors.toSet());
 
         return HospitalDetailResponse.from(
                 hospital,
@@ -115,7 +128,9 @@ public class HospitalService {
                 capabilities,
                 calculateOpenNow(
                         hospital.getBusinessStatus(),
-                        detail.getOpenHours()
+                        detail.getOpenHours(),
+                        closureDates,
+                        now
                 ),
                 ratingSummary
         ).withFavorite(favorite);
@@ -350,17 +365,12 @@ public class HospitalService {
         List<HospitalSearchResponse> content =
                 totalElements == 0 || page > totalPages
                 ? List.of()
-                : searchPageCandidates(
+                : toSearchResults(searchPageCandidates(
                                 condition,
                                 offset,
                                 size,
                                 partnerFirst
-                        ).stream()
-                        .map(candidate -> toSearchResult(
-                                candidate,
-                                latitude,
-                                longitude
-                        ))
+                        ), latitude, longitude).stream()
                         .map(this::toSearchResponse)
                         .toList();
 
@@ -435,12 +445,9 @@ public class HospitalService {
     ) {
         long totalElements = cachedPage.totalElements();
         int totalPages = calculateTotalPages(totalElements, size);
-        List<HospitalSearchResponse> content = cachedPage.content().stream()
-                .map(candidate -> toSearchResult(
-                        candidate,
-                        latitude,
-                        longitude
-                ))
+        List<HospitalSearchResponse> content = toSearchResults(
+                        cachedPage.content(), latitude, longitude
+                ).stream()
                 .map(this::toSearchResponse)
                 .toList();
 
@@ -487,12 +494,11 @@ public class HospitalService {
             HospitalSearchSort sort
     ) {
         List<HospitalSearchResponse> searchedHospitals =
-                hospitalRepository.searchAll(condition).stream()
-                        .map(candidate -> toSearchResult(
-                                candidate,
-                                latitude,
-                                longitude
-                        ))
+                toSearchResults(
+                        hospitalRepository.searchAll(condition),
+                        latitude,
+                        longitude
+                ).stream()
                         .filter(result ->
                                 isWithinRadius(
                                         result.preciseDistanceKm(),
@@ -551,18 +557,13 @@ public class HospitalService {
         List<HospitalSearchResponse> content =
                 totalElements == 0 || page > totalPages
                         ? List.of()
-                        : hospitalRepository.searchDistancePage(
+                        : toSearchResults(hospitalRepository.searchDistancePage(
                                         condition,
                                         latitude,
                                         longitude,
                                         offset,
                                         size
-                                ).stream()
-                                .map(candidate -> toSearchResult(
-                                        candidate,
-                                        latitude,
-                                        longitude
-                                ))
+                                ), latitude, longitude).stream()
                                 .map(this::toSearchResponse)
                                 .toList();
 
@@ -602,12 +603,9 @@ public class HospitalService {
                 break;
             }
 
-            for (HospitalSearchCandidate candidate : candidates) {
-                HospitalSearchResult result = toSearchResult(
-                        candidate,
-                        latitude,
-                        longitude
-                );
+            for (HospitalSearchResult result : toSearchResults(
+                    candidates, latitude, longitude
+            )) {
                 if (!Boolean.TRUE.equals(result.openNow())) {
                     continue;
                 }
@@ -724,7 +722,9 @@ public class HospitalService {
     private HospitalSearchResult toSearchResult(
             HospitalSearchCandidate candidate,
             BigDecimal latitude,
-            BigDecimal longitude
+            BigDecimal longitude,
+            Set<LocalDate> closureDates,
+            LocalDateTime now
     ) {
         BigDecimal preciseDistanceKm = calculatePreciseDistanceKm(
                 latitude,
@@ -736,8 +736,63 @@ public class HospitalService {
         return new HospitalSearchResult(
                 candidate,
                 preciseDistanceKm,
-                resolveOpenNow(candidate)
+                resolveOpenNow(candidate, closureDates, now)
         );
+    }
+
+    private List<HospitalSearchResult> toSearchResults(
+            List<HospitalSearchCandidate> candidates,
+            BigDecimal latitude,
+            BigDecimal longitude
+    ) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        Map<Long, Set<LocalDate>> closureDatesByHospital =
+                findClosureDatesByHospital(candidates, now.toLocalDate());
+
+        return candidates.stream()
+                .map(candidate -> toSearchResult(
+                        candidate,
+                        latitude,
+                        longitude,
+                        closureDatesByHospital.getOrDefault(
+                                candidate.hospitalId(),
+                                Set.of()
+                        ),
+                        now
+                ))
+                .toList();
+    }
+
+    private Map<Long, Set<LocalDate>> findClosureDatesByHospital(
+            List<HospitalSearchCandidate> candidates,
+            LocalDate today
+    ) {
+        List<Long> partnerHospitalIds = candidates.stream()
+                .filter(candidate -> candidate.partnershipStatus()
+                        == PartnershipStatus.PARTNER)
+                .map(HospitalSearchCandidate::hospitalId)
+                .distinct()
+                .toList();
+        if (partnerHospitalIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, Set<LocalDate>> closureDatesByHospital = new HashMap<>();
+        for (HospitalTemporaryClosure closure
+                : temporaryClosureRepository.findClosures(
+                        partnerHospitalIds,
+                        List.of(today, today.minusDays(1))
+                )) {
+            closureDatesByHospital.computeIfAbsent(
+                    closure.getHospital().getId(),
+                    ignored -> new HashSet<>()
+            ).add(closure.getBusinessDate());
+        }
+        return closureDatesByHospital;
     }
 
     private HospitalSearchResponse toSearchResponse(
@@ -751,7 +806,9 @@ public class HospitalService {
     }
 
     private Boolean resolveOpenNow(
-            HospitalSearchCandidate candidate
+            HospitalSearchCandidate candidate,
+            Set<LocalDate> closureDates,
+            LocalDateTime now
     ) {
         // 비제휴 병원은 운영시간 데이터가 없으므로 현재 영업 여부를 null로 반환합니다.
         if (candidate.partnershipStatus() != PartnershipStatus.PARTNER) {
@@ -761,7 +818,9 @@ public class HospitalService {
         return candidate.openHours() != null
                 && calculateOpenNow(
                         candidate.businessStatus(),
-                        candidate.openHours()
+                        candidate.openHours(),
+                        closureDates,
+                        now
                 );
     }
 
@@ -907,13 +966,14 @@ public class HospitalService {
 
     private boolean calculateOpenNow(
             BusinessStatus businessStatus,
-            Map<DayOfWeek, DailyOperatingHours> openHours
+            Map<DayOfWeek, DailyOperatingHours> openHours,
+            Set<LocalDate> closureDates,
+            LocalDateTime now
     ) {
         if (businessStatus != BusinessStatus.OPEN) {
             return false;
         }
 
-        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         DayOfWeek today = now.getDayOfWeek();
         LocalTime currentTime = now.toLocalTime();
         var todayHours = openHours.get(today);
@@ -921,7 +981,7 @@ public class HospitalService {
         // 오늘 일정은 당일 시작 시각 이후 구간만 판단합니다.
         // 예: 화요일 20:00~02:00은 화요일 01:00이 아니라 20:00부터 적용됩니다.
         if (isOpenDuringTodayHours(todayHours, currentTime)) {
-            return true;
+            return !closureDates.contains(now.toLocalDate());
         }
 
         // 자정 이후에는 전날 시작한 심야영업이 이어질 수 있으므로 전날 일정도 확인합니다.
@@ -929,7 +989,8 @@ public class HospitalService {
         DayOfWeek yesterday = today.minus(1);
         var yesterdayHours = openHours.get(yesterday);
 
-        return isOpenAfterMidnight(yesterdayHours, currentTime);
+        return isOpenAfterMidnight(yesterdayHours, currentTime)
+                && !closureDates.contains(now.toLocalDate().minusDays(1));
     }
 
     private boolean isOpenDuringTodayHours(

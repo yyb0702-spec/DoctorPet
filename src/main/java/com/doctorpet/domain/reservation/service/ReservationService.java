@@ -2,11 +2,13 @@ package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.lock.ReservationLockStrategy;
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
@@ -110,6 +114,114 @@ public class ReservationService {
                 .stream()
                 .map(ReservationSlotQueryResult::from)
                 .toList();
+    }
+
+    public Optional<LocalDate> findLatestReservedBusinessDate(
+            Long hospitalId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        return reservationSlotRepository.findLatestReservedBusinessDate(
+                hospitalId,
+                fromDate,
+                toDate,
+                fromDate.atStartOfDay(),
+                toDate.plusDays(2).atStartOfDay()
+        );
+    }
+
+    @Transactional
+    public boolean removeOpenSlotsIfNoReservation(
+            Long hospitalId,
+            LocalDate businessDate
+    ) {
+        List<ReservationSlot> slots = reservationSlotRepository
+                .findBusinessDateSlotsForUpdate(hospitalId, businessDate);
+        boolean hasReservedSlot = slots.stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            return false;
+        }
+
+        int deletedSlotCount = reservationSlotRepository.deleteOpenSlots(
+                hospitalId,
+                businessDate
+        );
+        return deletedSlotCount == slots.size();
+    }
+
+    @Transactional
+    public int createOpenSlots(
+            Long hospitalId,
+            LocalDate businessDate,
+            List<ReservationSlotCreateCommand> commands
+    ) {
+        Set<LocalDateTime> existingStartTimes = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate)
+                .stream()
+                .map(ReservationSlot::getStartAt)
+                .collect(Collectors.toSet());
+        List<ReservationSlot> slots = commands.stream()
+                .filter(command -> !existingStartTimes.contains(command.startAt()))
+                .map(command -> ReservationSlot.create(
+                        hospitalId,
+                        command.startAt(),
+                        command.endAt(),
+                        businessDate
+                ))
+                .toList();
+
+        reservationSlotRepository.saveAll(slots);
+        return slots.size();
+    }
+
+    @Transactional
+    public void lockOpenSlotsForReplacement(
+            Long hospitalId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        boolean hasReservedSlot = reservationSlotRepository
+                .findBusinessDateSlotsInRangeForUpdate(
+                        hospitalId,
+                        fromDate,
+                        toDate,
+                        fromDate.atStartOfDay(),
+                        toDate.plusDays(2).atStartOfDay()
+                )
+                .stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            throw new ServiceException(SlotErrorCode.ALREADY_RESERVED);
+        }
+    }
+
+    @Transactional
+    public int replaceOpenSlots(
+            Long hospitalId,
+            LocalDate businessDate,
+            List<ReservationSlotCreateCommand> commands
+    ) {
+        List<ReservationSlot> existingSlots = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate);
+        int deletedSlotCount = reservationSlotRepository.deleteOpenSlots(
+                hospitalId,
+                businessDate
+        );
+        if (deletedSlotCount != existingSlots.size()) {
+            throw new ServiceException(SlotErrorCode.ALREADY_RESERVED);
+        }
+
+        List<ReservationSlot> replacementSlots = commands.stream()
+                .map(command -> ReservationSlot.create(
+                        hospitalId,
+                        command.startAt(),
+                        command.endAt(),
+                        businessDate
+                ))
+                .toList();
+        reservationSlotRepository.saveAll(replacementSlots);
+        return replacementSlots.size();
     }
 
     @Transactional

@@ -70,10 +70,16 @@ public-data:
     source-crs: EPSG:5174
 
 hospital:
+  slot-generation:
+    cron: ${HOSPITAL_SLOT_GENERATION_CRON:0 5 0 * * *}
   # 병원 컬럼 보정과 검색 인덱스를 DB 잠금·개별 마커로 순서대로 적용한다.
   schema-migration:
     enabled: ${HOSPITAL_SCHEMA_MIGRATION_ENABLED:true}
     lock-timeout-seconds: ${HOSPITAL_SCHEMA_MIGRATION_LOCK_TIMEOUT_SECONDS:30}
+  # 기존 제휴 병원의 상세 운영시간을 최초 운영 스케줄로 한 번만 옮긴다.
+  # schema_migrations 마커와 DB 잠금으로 재실행과 다중 인스턴스 중복을 막는다.
+  operating-schedule-migration:
+    enabled: ${HOSPITAL_OPERATING_SCHEDULE_MIGRATION_ENABLED:true}
   search:
     cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
 
@@ -150,6 +156,8 @@ springdoc:
     enabled: false
 
 reservation:
+  slot-business-date-migration:
+    enabled: ${RESERVATION_SLOT_BUSINESS_DATE_MIGRATION_ENABLED:true}
   no-show:
     interval-ms: ${RESERVATION_NO_SHOW_INTERVAL_MS:60000}
     initial-delay-ms: ${RESERVATION_NO_SHOW_INITIAL_DELAY_MS:60000}

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.global.config.QuerydslConfig;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +23,24 @@ class ReservationSlotDdlIntegrationTest {
 
     @Autowired
     private ReservationSlotRepository reservationSlotRepository;
+
+    @Test
+    void 영업_기준일을_슬롯_시작일과_다르게_저장할_수_있다() {
+        long hospitalId = System.nanoTime();
+        LocalDate businessDate = LocalDate.of(2026, 8, 14);
+        LocalDateTime startAt = LocalDate.of(2026, 8, 15).atTime(1, 0);
+
+        ReservationSlot saved = reservationSlotRepository.saveAndFlush(
+                ReservationSlot.create(
+                        hospitalId,
+                        startAt,
+                        startAt.plusMinutes(30),
+                        businessDate
+                )
+        );
+
+        assertThat(saved.getBusinessDate()).isEqualTo(businessDate);
+    }
 
     @Test
     @DisplayName("같은 병원과 시작 시각의 슬롯은 종료 시각이 달라도 중복 저장할 수 없다")
