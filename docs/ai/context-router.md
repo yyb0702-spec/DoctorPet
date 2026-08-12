@@ -77,7 +77,14 @@
 
 - 필수: SA §9-8(MVP 폴링 + MVP2 단방향 SSE 확정·NotificationPusher 추상화·티켓 인증·커밋 후 전송 불변식), SA §8-8, SA §4 notifications
 - 조건부: 예약·노쇼 이벤트 발행이 쟁점이면 예약 hot path(SA §5-1)와 `ReservationNotificationPublisher`(#88 연동)를 추가한다.
-- 주의: 양방향 채널(WebSocket+STOMP)은 채팅 도입 시에만 재논의한다 — 단방향 알림은 SSE로 확정(SA 부록 A #1).
+- 주의: 알림 전송은 SSE를 유지한다. WebSocket은 채팅 전용이므로 알림 hot path에 포함하지 않는다.
+
+### 병원↔회원 채팅
+
+- 필수: [채팅 고도화 문서](../enhancement/채팅.md), SA §6(인증·인가), SA §9-8(알림=SSE), SA §9-12(채팅), SA §4 reservations, [코드컨벤션](../architecture/DoctorPet-코드컨벤션.md)
+- 전송: 채팅은 native WebSocket 위의 STOMP를 사용하고, 단일 인스턴스 Spring SimpleBroker를 기준으로 한다. 다중 인스턴스 fan-out은 후속 범위다.
+- 인증·인가: STOMP CONNECT `Authorization: Bearer <accessToken>`을 `ChannelInterceptor`에서 검증한다. URL 쿼리 JWT와 클라이언트가 전달한 `memberId`·`hospitalId`는 신뢰하지 않으며, 구독·전송 권한은 서버가 예약 관계로 확인한다.
+- 주의: 이 정책은 정식 확정됐으므로 구현 전 질문으로 라우팅하지 않는다. 채팅 메시지는 AFTER_COMMIT 이후 전달하고, 재연결 누락분은 채팅 조회 API로 복구한다.
 
 ### 병원 진료시간·임시 휴무·슬롯 생성
 
