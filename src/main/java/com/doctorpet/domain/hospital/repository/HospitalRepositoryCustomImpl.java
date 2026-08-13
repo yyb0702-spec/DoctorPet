@@ -258,9 +258,17 @@ public class HospitalRepositoryCustomImpl
             HospitalSearchCondition condition,
             CapabilityMatchMode capabilityMatchMode
     ) {
-        BooleanExpression capabilityExpression = capabilityMatchMode == CapabilityMatchMode.ANY
-                ? containsAnyCapability(condition.requiredCapabilities(), "searchCapability")
-                : containsAllCapabilities(condition.requiredCapabilities(), "searchCapability");
+        BooleanExpression capabilityExpression = switch (capabilityMatchMode) {
+            case ALL -> containsAllCapabilities(
+                    condition.requiredCapabilities(),
+                    "searchCapability"
+            );
+            case ANY -> containsAnyCapability(
+                    condition.requiredCapabilities(),
+                    "searchCapability"
+            );
+            case NONE -> null;
+        };
         BooleanExpression speciesExpression = containsAllCapabilities(
                 condition.supportedSpecies(),
                 "searchSpecies"

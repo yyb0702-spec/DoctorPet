@@ -4,5 +4,6 @@ package com.doctorpet.domain.hospital.model;
 public enum CapabilityMatchMode {
 
     ALL,
-    ANY
+    ANY,
+    NONE
 }

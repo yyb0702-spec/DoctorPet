@@ -509,7 +509,7 @@ class AiConsultationServiceTest {
     }
 
     @Test
-    @DisplayName("엄격 검색 후보가 부족하면 OR 검색으로 추천 후보만 보충한다")
+    @DisplayName("엄격·OR 검색 후보가 부족하면 진료역량 조건 없이 추천 후보를 보충한다")
     void consult_toolCallingGateway_supplementsOnlyRecommendationCandidates() {
         AiAnalysisResult result = result(List.of("XRAY", "ULTRASOUND"));
         HospitalSearchResponse strict = hospital(10L, "엄격 일치 병원", "1.0");
@@ -532,7 +532,7 @@ class AiConsultationServiceTest {
                     List.of(
                             recommendation(10L, 5),
                             recommendation(20L, 4),
-                            recommendation(30L, 3)
+                            businessStatusRecommendation(30L, 3)
                     )
             );
         }).when(aiGateway).consult(any(), any());
@@ -547,6 +547,18 @@ class AiConsultationServiceTest {
                 null, null, null, null, false, false, 1, 20, "name",
                 CapabilityMatchMode.ANY
         )).willReturn(HospitalSearchPageResponse.of(
+                List.of(strict, partialOne),
+                1,
+                20,
+                2,
+                1
+        ));
+        given(hospitalService.hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.NONE
+        )).willReturn(HospitalSearchPageResponse.of(
                 List.of(strict, partialOne, partialTwo),
                 1,
                 20,
@@ -558,7 +570,7 @@ class AiConsultationServiceTest {
                         10L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY,
                                 CapabilityValue.ULTRASOUND),
                         20L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY),
-                        30L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY)
+                        30L, List.of(CapabilityValue.DOG)
                 ));
         given(reviewQueryService.getEvidenceByHospitalIds(List.of(10L, 20L, 30L)))
                 .willReturn(Map.of());
@@ -577,6 +589,12 @@ class AiConsultationServiceTest {
                 List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
                 null, null, null, null, false, false, 1, 20, "name",
                 CapabilityMatchMode.ANY
+        );
+        verify(hospitalService).hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.NONE
         );
     }
 

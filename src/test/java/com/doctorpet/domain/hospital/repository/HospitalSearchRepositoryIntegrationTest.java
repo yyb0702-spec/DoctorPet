@@ -390,6 +390,52 @@ class HospitalSearchRepositoryIntegrationTest {
     }
 
     @Test
+    void NONE_검색은_진료역량을_생략하고_지원_축종은_유지한다() {
+        Hospital supportedSpecies = saveHospital(
+                "NONE-DOG",
+                "역량없음검색 지원축종병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital wrongSpecies = saveHospital(
+                "NONE-CAT",
+                "역량없음검색 미지원축종병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        hospitalCapabilityRepository.saveAll(List.of(
+                HospitalCapability.create(supportedSpecies, CapabilityValue.DOG),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.CAT),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.XRAY)
+        ));
+        hospitalCapabilityRepository.flush();
+
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                "역량없음검색",
+                null,
+                null,
+                null,
+                null,
+                List.of(CapabilityValue.XRAY),
+                List.of(CapabilityValue.DOG),
+                null,
+                null,
+                null,
+                null,
+                false
+        );
+
+        List<HospitalSearchCandidate> result = hospitalRepository.searchAll(
+                condition,
+                CapabilityMatchMode.NONE
+        );
+
+        assertThat(result)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactly(supportedSpecies.getId());
+    }
+
+    @Test
     void 좌표_반경_사각박스_밖의_병원은_후보에서_제외한다() {
         Hospital nearby = saveHospital(
                 "NEARBY",

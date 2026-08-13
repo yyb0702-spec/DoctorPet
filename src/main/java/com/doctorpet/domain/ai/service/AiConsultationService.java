@@ -552,19 +552,42 @@ public class AiConsultationService {
         Map<Long, HospitalSearchResponse> candidatesByHospitalId = new LinkedHashMap<>();
         strictCandidates.forEach(candidate ->
                 candidatesByHospitalId.put(candidate.hospitalId(), candidate));
-        searchHospitals(
-                memberId,
-                request,
-                result,
-                intent,
-                emergency,
-                CapabilityMatchMode.ANY
-        ).forEach(candidate ->
-                candidatesByHospitalId.putIfAbsent(candidate.hospitalId(), candidate));
+        mergeCandidates(
+                candidatesByHospitalId,
+                searchHospitals(
+                        memberId,
+                        request,
+                        result,
+                        intent,
+                        emergency,
+                        CapabilityMatchMode.ANY
+                )
+        );
+        if (candidatesByHospitalId.size() < RECOMMENDATION_COUNT) {
+            mergeCandidates(
+                    candidatesByHospitalId,
+                    searchHospitals(
+                            memberId,
+                            request,
+                            result,
+                            intent,
+                            emergency,
+                            CapabilityMatchMode.NONE
+                    )
+            );
+        }
 
         return candidatesByHospitalId.values().stream()
                 .limit(RECOMMENDATION_COUNT)
                 .toList();
+    }
+
+    private void mergeCandidates(
+            Map<Long, HospitalSearchResponse> candidatesByHospitalId,
+            List<HospitalSearchResponse> candidates
+    ) {
+        candidates.forEach(candidate ->
+                candidatesByHospitalId.putIfAbsent(candidate.hospitalId(), candidate));
     }
 
     private List<AiHospitalCandidateEvidence> buildCandidateEvidence(
@@ -643,7 +666,7 @@ public class AiConsultationService {
     ) {
         boolean distanceSort = hasLocation(request)
                 && (emergency || intent.distance());
-        if (capabilityMatchMode == CapabilityMatchMode.ANY) {
+        if (capabilityMatchMode != CapabilityMatchMode.ALL) {
             HospitalSearchPageResponse response =
                     hospitalService.hospitalSearchWithCapabilityMatchMode(
                             memberId,
