@@ -19,7 +19,8 @@ reservation_slots 1 ── 0..N reservations
 reservations 1 ── 0..N reservation_events
 reservations 1 ── 0..1 payments   (정정 재청구 도입 후 0..N, 활성 1건)
 payments 1 ── 0..1 payment_refunds
-payments 1 ── 1..N payment_items   (항목화 도입 후)
+payments 1 ── 0..N payment_items   (항목화 도입 후 신규 청구는 1..N, 기존 결제는 0)
+reservations 1 ── 0..N payment_items   (청구 전 초안 — payment_id IS NULL)
 members 1 ── 0..N payment_methods
 members 1 ── 0..N ai_consultations
 members 1 ── 0..N notifications
@@ -187,6 +188,8 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 
 정정 재청구 도입 시 추가·교체할 항목(계약 확정, 구현 후속): `correction_of`(정정한 이전 결제 id, `NULL` 가능), `superseded_at`(대체된 시각 — `NULL`이 활성 마커), 생성 컬럼 `active_reservation_id`(활성일 때만 `reservation_id`)와 `UNIQUE(active_reservation_id)`. 이 UNIQUE가 기존 `UNIQUE(reservation_id)`를 대신해 "예약당 활성 결제 1건"을 강제하며, 환불·대체된 과거 결제는 `NULL`이라 제약을 타지 않고 이력으로 남는다.
 
+교체 순서는 expand/contract를 지킨다 — ① 새 컬럼·생성 컬럼·`UNIQUE(active_reservation_id)` 추가(구 UNIQUE 유지) → ② 중복 활성 검사와 마커 기록 → ③ `UNIQUE(reservation_id)` 제거 → ④ 다음 배포에서 재청구 경로 활성화. ③을 ①보다 먼저 하면 두 제약이 모두 없는 창에서 활성 결제가 2건 생긴다.
+
 ### `payment_refunds`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -208,13 +211,16 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
 | `id` | BIGINT | PK |
-| `payment_id` | BIGINT | 결제 FK. 결제당 1..N |
+| `reservation_id` | BIGINT | 예약 FK, `NOT NULL`. 청구 전 초안도 이 값으로 존재한다 |
+| `payment_id` | BIGINT | 결제 FK, `NULL` 가능. `NULL`이 "아직 청구되지 않은 초안" |
 | `name` | VARCHAR | 항목 명칭 |
-| `quantity` | INT | 항상 양수 |
+| `quantity` | INT | 항상 양수(요청 DTO `@Positive`) |
 | `unit_price` | INT | signed — 할인·조정은 음수. `UNSIGNED` 금지 |
-| `amount` | INT | signed — `quantity * unit_price`. `UNSIGNED` 금지 |
+| `amount` | INT | signed — 서버가 `quantity * unit_price`로 산출. `UNSIGNED` 금지 |
 | `created_at` | DATETIME | 생성 시각 |
-불변식: `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 청구 선기록 이후에는 항목을 수정·삭제하지 않는다.
+인덱스: `(reservation_id, payment_id)`, `(payment_id)`.
+
+항목은 청구 선기록 전 예약에 매달린 초안으로 만들고(그 시점에는 `payments` 행이 없다), 청구 선기록이 같은 트랜잭션에서 `payment_id`를 스탬프해 스냅샷을 고정한다. 수정·삭제는 `WHERE payment_id IS NULL` 조건부로만 수행하고 0건이면 이미 청구된 것으로 거부한다. 불변식은 스탬프된 항목에 한해 `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 결제당 항목은 `0..N`이며 항목화 이전 결제는 항목이 없고 백필하지 않는다.
 ## 6. AI·알림
 ### `ai_consultations`
 | 필드 | 타입 | 제약·설명 |
@@ -273,4 +279,6 @@ Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "�
 - 노쇼 처리 시 슬롯 상태는 `RESERVED`를 유지한다.
 - 오프라인 정산은 결제 상태가 `OFFLINE_REQUIRED`일 때만 수행한다.
 - 보호자 셀프 재청구도 `OFFLINE_REQUIRED`에서만 허용하고 `PENDING`에서는 허용하지 않는다.
+- 활성 결제는 상태가 아니라 `payments.superseded_at IS NULL`로 판정한다. 대체는 `OFFLINE_REQUIRED`·`REFUNDED`에서만 허용하고 `PAID`·`OFFLINE_PAID`는 대체하지 않는다.
+- 오프라인 정산과 셀프 재청구는 둘 다 활성 조건을 포함한 조건부 UPDATE로만 성립해 하나만 이긴다(이중 수납 방지).
 - 할인·조정은 별도 할인 필드가 아니라 음수 금액 항목으로 기록하므로 `payment_items.unit_price`·`amount`를 `UNSIGNED`로 만들지 않는다.
