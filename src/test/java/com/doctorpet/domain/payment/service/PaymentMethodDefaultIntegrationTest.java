@@ -55,6 +55,16 @@ class PaymentMethodDefaultIntegrationTest {
     }
 
     @Test
+    @DisplayName("기본값 UNIQUE는 생성 컬럼 하나만 포함한다")
+    void activeDefaultUniqueConstraint_hasExactlyOneGeneratedColumn() {
+        assertIndexColumns(
+                "uk_payment_methods_active_default_member_id",
+                0,
+                "active_default_member_id"
+        );
+    }
+
+    @Test
     @DisplayName("동시 기본값 변경 후에도 ACTIVE 기본 결제수단은 정확히 한 건이다")
     void concurrentSetDefault_keepsExactlyOneDefault() throws Exception {
         long memberId = System.nanoTime();
@@ -150,20 +160,28 @@ class PaymentMethodDefaultIntegrationTest {
     }
 
     @Test
-    @DisplayName("기본값 변경의 비관적 잠금 조회에 member_id, status 복합 인덱스가 존재한다")
-    void activePaymentMethodLockQuery_hasMemberStatusIndex() {
-        Integer indexColumnCount = jdbcTemplate.queryForObject("""
-                select count(*)
+    @DisplayName("기본값 변경의 비관적 잠금 조회 인덱스는 member_id, status만 포함한다")
+    void activePaymentMethodLockQuery_hasExactlyMemberStatusIndex() {
+        assertIndexColumns(
+                "idx_payment_methods_member_id_status",
+                1,
+                "member_id",
+                "status"
+        );
+    }
+
+    private void assertIndexColumns(String indexName, int nonUnique, String... expectedColumns) {
+        List<String> indexColumns = jdbcTemplate.queryForList("""
+                select column_name
                   from information_schema.statistics
                  where table_schema = database()
                    and table_name = 'payment_methods'
-                   and index_name = 'idx_payment_methods_member_id_status'
-                   and non_unique = 1
-                   and ((seq_in_index = 1 and column_name = 'member_id')
-                        or (seq_in_index = 2 and column_name = 'status'))
-                """, Integer.class);
+                   and index_name = ?
+                   and non_unique = ?
+                 order by seq_in_index
+                """, String.class, indexName, nonUnique);
 
-        assertThat(indexColumnCount).isEqualTo(2);
+        assertThat(indexColumns).containsExactly(expectedColumns);
     }
 
     private void setDefaultAfterStart(

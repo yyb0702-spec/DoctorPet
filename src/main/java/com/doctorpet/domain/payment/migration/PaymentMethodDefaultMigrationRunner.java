@@ -201,18 +201,21 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
 
     private boolean indexExists(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
-                select count(*)
+                select column_name
                   from information_schema.statistics
                  where table_schema = database()
                    and table_name = 'payment_methods'
                    and index_name = ?
-                   and column_name = ?
                    and non_unique = 0
+                 order by seq_in_index
                 """)) {
             statement.setString(1, UNIQUE_INDEX);
-            statement.setString(2, GENERATED_COLUMN);
             try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() && resultSet.getInt(1) == 1;
+                // 이름만 같은 복합 UNIQUE(active_default_member_id, 다른 컬럼)는 기본값 1건을
+                // 보장하지 못한다. 마커가 있어도 컬럼 수·순서까지 일치해야 정상 스키마다.
+                return resultSet.next()
+                        && GENERATED_COLUMN.equals(resultSet.getString(1))
+                        && !resultSet.next();
             }
         }
     }
