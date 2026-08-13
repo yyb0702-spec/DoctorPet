@@ -1,5 +1,7 @@
 package com.doctorpet.domain.reservation.notification;
 
+import java.time.LocalDateTime;
+
 /**
  * 예약 상태 변경을 보호자 알림으로 전달하는 도메인 포트(SA §9-8, 이슈 #88).
  *
@@ -34,4 +36,11 @@ public interface ReservationNotificationPublisher {
 
     /** 예약이 노쇼로 확정됐다(CONFIRMED → NO_SHOW). */
     void publishNoShow(Long guardianMemberId, Long reservationId);
+
+    /** FIFO 대기자가 승급 제안을 받았다(WAITING → OFFERED). */
+    void publishWaitlistOffered(
+            Long guardianMemberId,
+            Long waitlistEntryId,
+            LocalDateTime expiresAt
+    );
 }

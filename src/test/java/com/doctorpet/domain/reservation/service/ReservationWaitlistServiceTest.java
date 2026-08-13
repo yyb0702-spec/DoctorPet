@@ -146,6 +146,9 @@ class ReservationWaitlistServiceTest {
     void accept_activeOffer_createsRequestedReservation() {
         ReservationWaitlist waitlist = offeredWaitlist(10L);
         given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(Optional.of(reservedSlot()));
+        given(reservationWaitlistRepository.acceptIfActive(10L, MEMBER_ID,
+                LocalDateTime.of(2026, 8, 13, 10, 0))).willReturn(1);
         ReservationResponse response = new ReservationResponse(
                 100L, 3L, 4L, SLOT_ID, ReservationStatus.REQUESTED, LocalDateTime.now());
         given(reservationApplicationService.requestFromWaitlist(MEMBER_ID, 3L, 4L, SLOT_ID))
@@ -154,8 +157,47 @@ class ReservationWaitlistServiceTest {
         ReservationResponse result = reservationWaitlistService.accept(MEMBER_ID, 10L, 3L, 4L);
 
         assertThat(result.status()).isEqualTo(ReservationStatus.REQUESTED);
-        assertThat(waitlist.getStatus()).isEqualTo(ReservationWaitlistStatus.ACCEPTED);
-        verify(reservationWaitlistRepository).flush();
+        verify(reservationWaitlistRepository).acceptIfActive(
+                10L, MEMBER_ID, LocalDateTime.of(2026, 8, 13, 10, 0));
+    }
+
+    @Test
+    @DisplayName("수락 조건부 UPDATE가 0건이면 REQUESTED 예약을 만들지 않는다")
+    void accept_conditionallyRejected_doesNotCreateReservation() {
+        ReservationWaitlist waitlist = offeredWaitlist(10L);
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(Optional.of(reservedSlot()));
+        given(reservationWaitlistRepository.acceptIfActive(10L, MEMBER_ID,
+                LocalDateTime.of(2026, 8, 13, 10, 0))).willReturn(0);
+
+        assertThatThrownBy(() -> reservationWaitlistService.accept(MEMBER_ID, 10L, 3L, 4L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationWaitlistErrorCode.OFFER_NOT_ACTIVE);
+        verify(reservationApplicationService, never()).requestFromWaitlist(MEMBER_ID, 3L, 4L, SLOT_ID);
+    }
+
+    @Test
+    @DisplayName("예약 시작 4시간 이내에는 대기열 등록과 수락을 허용하지 않는다")
+    void leadTimeViolation_blocksRegisterAndAccept() {
+        ReservationSlot slot = ReservationSlot.create(
+                3L,
+                LocalDateTime.of(2026, 8, 13, 13, 59),
+                LocalDateTime.of(2026, 8, 13, 14, 29));
+        slot.reserve();
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(Optional.of(slot));
+
+        assertThatThrownBy(() -> reservationWaitlistService.register(MEMBER_ID, SLOT_ID))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.domain.reservation.exception.ReservationErrorCode.LEAD_TIME_VIOLATION);
+
+        ReservationWaitlist waitlist = offeredWaitlist(10L);
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+        assertThatThrownBy(() -> reservationWaitlistService.accept(MEMBER_ID, 10L, 3L, 4L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.domain.reservation.exception.ReservationErrorCode.LEAD_TIME_VIOLATION);
     }
 
     @Test

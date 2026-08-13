@@ -16,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 
+import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -35,6 +37,7 @@ public class ReservationWaitlistService {
         if (slot.getStatus() != ReservationSlotStatus.RESERVED) {
             throw new ServiceException(ReservationWaitlistErrorCode.SLOT_NOT_RESERVED);
         }
+        validateLeadTime(slot, LocalDateTime.now(clock));
         if (reservationWaitlistRepository.existsByMemberIdAndSlotId(memberId, slotId)) {
             throw new ServiceException(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
         }
@@ -59,10 +62,17 @@ public class ReservationWaitlistService {
         ReservationWaitlist waitlist = findOwned(waitlistId, memberId);
         LocalDateTime now = LocalDateTime.now(clock);
         validateActiveOffer(waitlist, now);
+        ReservationSlot slot = reservationSlotRepository.findById(waitlist.getSlotId())
+                .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
+        validateLeadTime(slot, now);
+
+        // OFFERED && offer_expires_at > now 조건을 DB에서 원자적으로 선점한다. 만료 배치나
+        // 중복 수락 요청과 경합해도 1건만 ACCEPTED가 되고, 아래 REQUESTED 생성은 성공한 트랜잭션에만 묶인다.
+        if (reservationWaitlistRepository.acceptIfActive(waitlistId, memberId, now) == 0) {
+            throw new ServiceException(ReservationWaitlistErrorCode.OFFER_NOT_ACTIVE);
+        }
         ReservationResponse reservation = reservationApplicationService.requestFromWaitlist(
                 memberId, petId, paymentMethodId, waitlist.getSlotId());
-        waitlist.accept(now);
-        reservationWaitlistRepository.flush();
         return reservation;
     }
 
@@ -105,6 +115,12 @@ public class ReservationWaitlistService {
         }
         if (waitlist.isOfferExpiredAt(now)) {
             throw new ServiceException(ReservationWaitlistErrorCode.OFFER_EXPIRED);
+        }
+    }
+
+    private void validateLeadTime(ReservationSlot slot, LocalDateTime now) {
+        if (slot.getStartAt().isBefore(now.plus(LEAD_TIME))) {
+            throw new ServiceException(com.doctorpet.domain.reservation.exception.ReservationErrorCode.LEAD_TIME_VIOLATION);
         }
     }
 }

@@ -63,6 +63,11 @@ class ReservationWaitlistConcurrencyIntegrationTest {
         if (slotId == null) {
             return;
         }
+        jdbcTemplate.update("""
+                delete from notifications
+                 where resource_type = 'RESERVATION_WAITLIST'
+                   and resource_id in (select id from reservation_waitlists where slot_id = ?)
+                """, slotId);
         jdbcTemplate.update("delete from reservation_waitlists where slot_id = ?", slotId);
         jdbcTemplate.update("delete from reservation_slots where id = ?", slotId);
     }
@@ -113,6 +118,14 @@ class ReservationWaitlistConcurrencyIntegrationTest {
         assertThat(waiting).extracting(ReservationWaitlist::getId).containsExactly(second.getId());
         assertThat(reservationSlotRepository.findById(slotId).orElseThrow().getStatus())
                 .isEqualTo(ReservationSlotStatus.RESERVED);
+        Integer offeredNotificationCount = jdbcTemplate.queryForObject(
+                "select count(*) from notifications "
+                        + "where type = 'RESERVATION_WAITLIST_OFFERED' "
+                        + "and resource_type = 'RESERVATION_WAITLIST' and resource_id = ?",
+                Integer.class,
+                first.getId()
+        );
+        assertThat(offeredNotificationCount).isEqualTo(1);
     }
 
     private RaceResult runRace(Runnable first, Runnable second) throws InterruptedException {

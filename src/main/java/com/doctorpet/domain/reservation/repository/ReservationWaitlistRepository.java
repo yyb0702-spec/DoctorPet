@@ -41,4 +41,24 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
             ReservationWaitlistStatus status,
             LocalDateTime offerExpiresAt
     );
+
+    /**
+     * 수락 시점의 상태·만료 조건을 DB에서 한 번에 확인한다. 조회 후 엔티티 변경만으로는 만료 배치나
+     * 중복 수락 요청과 경합할 수 있으므로, 이 UPDATE가 1건 성공한 경우만 REQUESTED 생성을 이어간다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ReservationWaitlist waitlist
+               set waitlist.status = com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.ACCEPTED,
+                   waitlist.respondedAt = :respondedAt
+             where waitlist.id = :waitlistId
+               and waitlist.memberId = :memberId
+               and waitlist.status = com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED
+               and waitlist.offerExpiresAt > :respondedAt
+            """)
+    int acceptIfActive(
+            @Param("waitlistId") Long waitlistId,
+            @Param("memberId") Long memberId,
+            @Param("respondedAt") LocalDateTime respondedAt
+    );
 }

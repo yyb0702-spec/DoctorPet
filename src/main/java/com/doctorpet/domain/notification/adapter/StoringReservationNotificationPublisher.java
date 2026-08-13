@@ -8,6 +8,7 @@ import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.service.NotificationService;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -79,6 +80,21 @@ public class StoringReservationNotificationPublisher
                 "예약 시간 이후 체크인이 확인되지 않아 노쇼로 처리되었습니다.",
                 NotificationResourceType.RESERVATION,
                 reservationId
+        );
+    }
+
+    @Override
+    public void publishWaitlistOffered(
+            Long guardianMemberId,
+            Long waitlistEntryId,
+            LocalDateTime expiresAt
+    ) {
+        notificationService.create(
+                guardianMemberId,
+                NotificationType.RESERVATION_WAITLIST_OFFERED,
+                "예약 대기열 승급 제안이 도착했습니다. " + expiresAt + "까지 수락해 주세요.",
+                NotificationResourceType.RESERVATION_WAITLIST,
+                waitlistEntryId
         );
     }
 }
