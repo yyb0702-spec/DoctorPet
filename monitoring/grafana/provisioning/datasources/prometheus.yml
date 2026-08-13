@@ -5,6 +5,11 @@ apiVersion: 1
 
 datasources:
   - name: Prometheus
+    # uid를 고정한다 — 지정하지 않으면 Grafana가 매 환경마다 임의의 uid를 생성해, 대시보드
+    # JSON에 datasource uid를 하드코딩해도 다른 환경에서는 어긋나 패널이 "데이터소스를
+    # 찾을 수 없음" 상태가 된다. monitoring/grafana/provisioning/dashboards/jvm-micrometer.json이
+    # 이 uid를 그대로 참조한다.
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
