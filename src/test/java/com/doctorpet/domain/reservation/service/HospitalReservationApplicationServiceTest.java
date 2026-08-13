@@ -921,6 +921,15 @@ class HospitalReservationApplicationServiceTest {
                 .extracting("guardianPhone")
                 .isNull();
         verify(memberService, never()).getPhonesByMemberIds(any());
+        verify(reservationRepository).findHistoryAggregates(
+                any(),
+                eq(ReservationStatus.TREATMENT_COMPLETED),
+                eq(List.of(
+                        ReservationStatus.CANCELED,
+                        ReservationStatus.HOSPITAL_CANCELED
+                )),
+                eq(ReservationStatus.NO_SHOW)
+        );
     }
 
     @Test

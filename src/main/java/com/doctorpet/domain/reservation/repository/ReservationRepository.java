@@ -72,7 +72,7 @@ public interface ReservationRepository
                     r.memberId,
                     count(r),
                     sum(case when r.status = :completedStatus then 1L else 0L end),
-                    sum(case when r.status = :canceledStatus then 1L else 0L end),
+                    sum(case when r.status in :canceledStatuses then 1L else 0L end),
                     sum(case when r.status = :noShowStatus then 1L else 0L end)
             )
               from Reservation r
@@ -82,7 +82,7 @@ public interface ReservationRepository
     List<ReservationHistoryAggregate> findHistoryAggregates(
             @Param("memberIds") Collection<Long> memberIds,
             @Param("completedStatus") ReservationStatus completedStatus,
-            @Param("canceledStatus") ReservationStatus canceledStatus,
+            @Param("canceledStatuses") Collection<ReservationStatus> canceledStatuses,
             @Param("noShowStatus") ReservationStatus noShowStatus
     );
 

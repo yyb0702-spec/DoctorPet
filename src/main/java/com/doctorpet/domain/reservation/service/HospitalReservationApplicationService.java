@@ -516,7 +516,10 @@ public class HospitalReservationApplicationService {
         return reservationRepository.findHistoryAggregates(
                         memberIds,
                         ReservationStatus.TREATMENT_COMPLETED,
-                        ReservationStatus.CANCELED,
+                        List.of(
+                                ReservationStatus.CANCELED,
+                                ReservationStatus.HOSPITAL_CANCELED
+                        ),
                         ReservationStatus.NO_SHOW
                 ).stream()
                 .collect(Collectors.toMap(

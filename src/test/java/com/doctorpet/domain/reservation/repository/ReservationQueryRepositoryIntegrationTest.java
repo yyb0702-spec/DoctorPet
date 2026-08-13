@@ -275,6 +275,11 @@ class ReservationQueryRepositoryIntegrationTest {
         saveReservationWithStatus(
                 memberId,
                 LocalDateTime.of(2026, 8, 2, 12, 0),
+                ReservationStatus.HOSPITAL_CANCELED
+        );
+        saveReservationWithStatus(
+                memberId,
+                LocalDateTime.of(2026, 8, 2, 12, 30),
                 ReservationStatus.NO_SHOW
         );
         saveReservation(
@@ -287,15 +292,18 @@ class ReservationQueryRepositoryIntegrationTest {
                 reservationRepository.findHistoryAggregates(
                         List.of(memberId),
                         ReservationStatus.TREATMENT_COMPLETED,
-                        ReservationStatus.CANCELED,
+                        List.of(
+                                ReservationStatus.CANCELED,
+                                ReservationStatus.HOSPITAL_CANCELED
+                        ),
                         ReservationStatus.NO_SHOW
                 );
 
         assertThat(result).singleElement().satisfies(history -> {
             assertThat(history.memberId()).isEqualTo(memberId);
-            assertThat(history.totalReservationCount()).isEqualTo(4L);
+            assertThat(history.totalReservationCount()).isEqualTo(5L);
             assertThat(history.completedCount()).isEqualTo(1L);
-            assertThat(history.cancelCount()).isEqualTo(1L);
+            assertThat(history.cancelCount()).isEqualTo(2L);
             assertThat(history.noShowCount()).isEqualTo(1L);
         });
     }
