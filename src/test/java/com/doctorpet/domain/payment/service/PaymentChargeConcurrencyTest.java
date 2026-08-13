@@ -1,5 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItemsOf;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.singleItem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
@@ -11,6 +13,7 @@ import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
@@ -47,6 +50,7 @@ class PaymentChargeConcurrencyTest {
 
     @Autowired private PaymentApplicationService paymentApplicationService;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private PaymentItemRepository paymentItemRepository;
     @Autowired private PaymentMethodRepository paymentMethodRepository;
     @Autowired private BillingKeyCryptor billingKeyCryptor;
 
@@ -71,7 +75,10 @@ class PaymentChargeConcurrencyTest {
     @AfterEach
     void tearDown() {
         // 커밋된 테스트 데이터를 정리해 영속 볼륨에 잔여가 쌓이지 않게 한다.
-        paymentRepository.findByReservationId(reservationId).ifPresent(paymentRepository::delete);
+        paymentRepository.findByReservationId(reservationId).ifPresent(payment -> {
+            deleteItemsOf(paymentItemRepository, payment.getId());
+            paymentRepository.delete(payment);
+        });
         paymentMethodRepository.deleteById(paymentMethodId);
     }
 
@@ -93,7 +100,7 @@ class PaymentChargeConcurrencyTest {
                 try {
                     startLatch.await();
                     PaymentChargeResponse response =
-                            paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, AMOUNT);
+                            paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, singleItem(AMOUNT));
                     if (response.status() == PaymentStatus.PAID) {
                         success.incrementAndGet();
                     }

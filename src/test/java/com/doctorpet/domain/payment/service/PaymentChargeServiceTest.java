@@ -1,7 +1,9 @@
 package com.doctorpet.domain.payment.service;
 
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.singleItem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -9,12 +11,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.entity.Payment;
+import com.doctorpet.domain.payment.entity.PaymentItem;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.ServiceException;
@@ -23,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -50,6 +55,7 @@ class PaymentChargeServiceTest {
     private static final int VALID_AMOUNT = 50_000;
 
     @Mock private PaymentRepository paymentRepository;
+    @Mock private PaymentItemRepository paymentItemRepository;
     @Mock private PaymentMethodRepository paymentMethodRepository;
     @Mock private ReservationLookupPort reservationLookupPort;
     @Mock private StaffHospitalPort staffHospitalPort;
@@ -63,7 +69,7 @@ class PaymentChargeServiceTest {
     @BeforeEach
     void setUp() {
         paymentChargeService = new PaymentChargeService(
-                paymentRepository, paymentMethodRepository, reservationLookupPort,
+                paymentRepository, paymentItemRepository, paymentMethodRepository, reservationLookupPort,
                 staffHospitalPort, merchantPaymentIdGenerator, FIXED_CLOCK, MAX_AMOUNT);
     }
 
@@ -86,7 +92,7 @@ class PaymentChargeServiceTest {
             given(paymentMethodRepository.findByIdAndMemberId(PAYMENT_METHOD_ID, GUARDIAN_ID))
                     .willReturn(Optional.of(PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234")));
 
-            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT);
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT));
 
             assertThat(pre.merchantPaymentId()).isEqualTo("pay_test");
             assertThat(pre.billingKeyEnc()).isEqualTo("v1:enc");
@@ -114,7 +120,7 @@ class PaymentChargeServiceTest {
             given(paymentMethodRepository.findByIdAndMemberId(PAYMENT_METHOD_ID, GUARDIAN_ID))
                     .willReturn(Optional.of(deleted));
 
-            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT);
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT));
 
             assertThat(pre.paymentMethodActive()).isFalse();
         }
@@ -124,7 +130,7 @@ class PaymentChargeServiceTest {
         void noStaffHospital_forbidden() {
             given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.FORBIDDEN_HOSPITAL);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -137,7 +143,7 @@ class PaymentChargeServiceTest {
             given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                     new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, true)));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.FORBIDDEN_HOSPITAL);
         }
@@ -149,7 +155,7 @@ class PaymentChargeServiceTest {
             given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                     new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, false)));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
         }
@@ -159,7 +165,7 @@ class PaymentChargeServiceTest {
         void overMax_invalidAmount() {
             stubChargeableReservation();
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, MAX_AMOUNT + 1))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(MAX_AMOUNT + 1)))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
         }
@@ -170,7 +176,7 @@ class PaymentChargeServiceTest {
             stubChargeableReservation();
             given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(true);
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -182,7 +188,7 @@ class PaymentChargeServiceTest {
             stubSaveThrows(new SQLException(
                     "Duplicate entry '100' for key 'payments.uk_payments_reservation_id'", "23000", 1062));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
         }
@@ -193,7 +199,7 @@ class PaymentChargeServiceTest {
             stubSaveThrows(new SQLException(
                     "Duplicate entry 'pay_test' for key 'payments.uk_payments_merchant_payment_id'", "23000", 1062));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
 
@@ -202,7 +208,7 @@ class PaymentChargeServiceTest {
         void saveNonUniqueViolation_propagates() {
             stubSaveThrows(new SQLException("Column cannot be null", "23000", 1048));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(VALID_AMOUNT)))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
 
@@ -215,6 +221,152 @@ class PaymentChargeServiceTest {
                     .willReturn(Optional.of(PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234")));
             given(paymentRepository.saveAndFlush(any()))
                     .willThrow(new DataIntegrityViolationException("save failed", cause));
+        }
+    }
+
+    @Nested
+    @DisplayName("청구 항목 합계·검증 (고도화 결제 3.1)")
+    class ChargeItems {
+
+        @Test
+        @DisplayName("여러 항목의 수량×단가 합계로 총액을 계산하고, 항목 스냅샷을 같은 트랜잭션에서 저장한다")
+        void multipleItems_sumBecomesAmount() {
+            stubSavable();
+
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, List.of(
+                    new PaymentItemCommand("진찰료", 1, 20_000),
+                    new PaymentItemCommand("주사", 2, 15_000)));
+
+            assertThat(pre.amount()).isEqualTo(50_000);
+            assertThat(savedPayment().getAmount()).isEqualTo(50_000);
+            assertThat(savedItems())
+                    .extracting(PaymentItem::getName, PaymentItem::getQuantity,
+                            PaymentItem::getUnitPrice, PaymentItem::getAmount)
+                    .containsExactly(
+                            tuple("진찰료", 1, 20_000, 20_000),
+                            tuple("주사", 2, 15_000, 30_000));
+        }
+
+        @Test
+        @DisplayName("음수 단가의 할인 항목을 포함해도 합계가 양수면 청구가 성립한다")
+        void discountItem_allowed() {
+            stubSavable();
+
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, List.of(
+                    new PaymentItemCommand("진찰료", 1, 20_000),
+                    new PaymentItemCommand("재진 할인", 1, -5_000)));
+
+            assertThat(pre.amount()).isEqualTo(15_000);
+            assertThat(savedItems()).extracting(PaymentItem::getAmount).containsExactly(20_000, -5_000);
+        }
+
+        @Test
+        @DisplayName("항목 목록이 비어 있으면 INVALID_PAYMENT_ITEM")
+        void emptyItems_rejected() {
+            stubChargeableReservation();
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, List.of()))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_PAYMENT_ITEM);
+            verify(paymentRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("수량이 0이거나 음수면 INVALID_PAYMENT_ITEM")
+        void nonPositiveQuantity_rejected() {
+            stubChargeableReservation();
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID,
+                    List.of(new PaymentItemCommand("진찰료", 0, 20_000))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_PAYMENT_ITEM);
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID,
+                    List.of(new PaymentItemCommand("진찰료", -1, 20_000))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_PAYMENT_ITEM);
+            verify(paymentRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("항목명이 비어 있으면 INVALID_PAYMENT_ITEM")
+        void blankName_rejected() {
+            stubChargeableReservation();
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID,
+                    List.of(new PaymentItemCommand("  ", 1, 20_000))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_PAYMENT_ITEM);
+        }
+
+        @Test
+        @DisplayName("할인이 커서 합계가 0 이하가 되면 INVALID_AMOUNT")
+        void nonPositiveTotal_rejected() {
+            stubChargeableReservation();
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, List.of(
+                    new PaymentItemCommand("진찰료", 1, 20_000),
+                    new PaymentItemCommand("전액 할인", 1, -20_000))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
+            verify(paymentRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("항목 하나의 수량×단가가 int 범위를 넘으면 INVALID_AMOUNT(오버플로가 음수로 되감겨 상한을 통과하지 않는다)")
+        void lineAmountOverflow_rejected() {
+            stubChargeableReservation();
+
+            // int로 곱하면 Integer.MAX_VALUE * 2 == -2로 되감겨 "합계 0 이하"로만 걸리거나 상한 검증을 통과한다.
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID,
+                    List.of(new PaymentItemCommand("과다 항목", 2, Integer.MAX_VALUE))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
+            verify(paymentRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("항목별로는 int 범위 안이어도 합계가 넘치면 INVALID_AMOUNT")
+        void totalOverflow_rejected() {
+            stubChargeableReservation();
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, List.of(
+                    new PaymentItemCommand("항목1", 1, Integer.MAX_VALUE),
+                    new PaymentItemCommand("항목2", 1, Integer.MAX_VALUE))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
+            verify(paymentRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("항목 합계가 기존 절대 상한을 넘으면 INVALID_AMOUNT(항목화 이후에도 상한 검증은 그대로다)")
+        void overMaxTotal_rejected() {
+            stubChargeableReservation();
+
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID,
+                    List.of(new PaymentItemCommand("진찰료", 2, MAX_AMOUNT / 2 + 1))))
+                    .isInstanceOf(ServiceException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
+        }
+
+        private void stubSavable() {
+            stubChargeableReservation();
+            given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+            given(merchantPaymentIdGenerator.generate()).willReturn("pay_test");
+            given(paymentMethodRepository.findByIdAndMemberId(PAYMENT_METHOD_ID, GUARDIAN_ID))
+                    .willReturn(Optional.of(PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234")));
+        }
+
+        private Payment savedPayment() {
+            ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
+            verify(paymentRepository).saveAndFlush(captor.capture());
+            return captor.getValue();
+        }
+
+        @SuppressWarnings("unchecked")
+        private List<PaymentItem> savedItems() {
+            ArgumentCaptor<List<PaymentItem>> captor = ArgumentCaptor.forClass(List.class);
+            verify(paymentItemRepository).saveAll(captor.capture());
+            return captor.getValue();
         }
     }
 

@@ -1,6 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
 import com.doctorpet.domain.payment.entity.Payment;
+import com.doctorpet.domain.payment.entity.PaymentItem;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentMethodStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
@@ -8,6 +9,7 @@ import com.doctorpet.domain.payment.exception.PaymentMethodErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.exception.CommonErrorCode;
@@ -15,6 +17,7 @@ import com.doctorpet.global.exception.ServiceException;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -30,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentChargeService {
 
     private final PaymentRepository paymentRepository;
+    private final PaymentItemRepository paymentItemRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final ReservationLookupPort reservationLookupPort;
     private final StaffHospitalPort staffHospitalPort;
@@ -41,6 +45,7 @@ public class PaymentChargeService {
 
     public PaymentChargeService(
             PaymentRepository paymentRepository,
+            PaymentItemRepository paymentItemRepository,
             PaymentMethodRepository paymentMethodRepository,
             ReservationLookupPort reservationLookupPort,
             StaffHospitalPort staffHospitalPort,
@@ -50,6 +55,7 @@ public class PaymentChargeService {
             @Value("${payment.charge.max-amount:3000000}") int maxAmount
     ) {
         this.paymentRepository = paymentRepository;
+        this.paymentItemRepository = paymentItemRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.reservationLookupPort = reservationLookupPort;
         this.staffHospitalPort = staffHospitalPort;
@@ -67,11 +73,16 @@ public class PaymentChargeService {
     }
 
     /**
-     * Tx1 — 청구 전제 검증 + 멱등키 선기록(PENDING). 외부 승인 전에 커밋해, UNIQUE(reservation_id)로 이중 청구를
-     * 차단하고 앱이 승인 도중 죽어도 레코드가 남게 한다(check-then-act 금지, SA §9-4).
+     * Tx1 — 청구 전제 검증 + 멱등키 선기록(PENDING) + 항목 스냅샷 저장. 외부 승인 전에 커밋해,
+     * UNIQUE(reservation_id)로 이중 청구를 차단하고 앱이 승인 도중 죽어도 레코드가 남게 한다
+     * (check-then-act 금지, SA §9-4).
+     *
+     * <p>총액은 요청이 아니라 항목 합계로 서버가 계산한다(고도화 결제 3.1). 선기록과 항목 저장은 같은
+     * 트랜잭션이라 "항목 없는 신규 결제"나 "결제 없는 고아 항목" 어느 쪽도 커밋되지 않는다 — 이중 청구 경쟁이
+     * UNIQUE(reservation_id)에 걸려 롤백되면 그 요청이 만든 항목도 함께 사라진다.
      */
     @Transactional
-    public PaymentPreRecord preRecord(Long reservationId, Long staffMemberId, int amount) {
+    public PaymentPreRecord preRecord(Long reservationId, Long staffMemberId, List<PaymentItemCommand> items) {
         // 1) 자병원 권한: 스태프 소속 병원을 인증 주체(memberId)로 재해석한다(요청 값 신뢰 금지, 보안).
         Long staffHospitalId = staffHospitalPort.findHospitalIdByMemberId(staffMemberId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL));
@@ -87,7 +98,8 @@ public class PaymentChargeService {
         if (!reservation.treatmentCompleted()) {
             throw new ServiceException(PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
         }
-        validateAmount(amount);
+        // 총액은 요청이 아니라 항목 합계다. 곱셈·합산 overflow를 먼저 막은 뒤 기존 상한 검증을 그대로 적용한다.
+        int amount = calculateAmount(items);
 
         // 4) 이중 청구 사전 차단(정상 경로). 경쟁 상태는 아래 UNIQUE 위반으로 최종 방어한다.
         if (paymentRepository.existsByReservationId(reservationId)) {
@@ -122,6 +134,14 @@ public class PaymentChargeService {
             throw e;
         }
 
+        // 7) 항목 스냅샷 저장. 결제 저장 이후라 payment_id가 확정돼 있고, 같은 트랜잭션이라 이중 청구 경쟁으로
+        //    결제가 롤백되면 항목도 남지 않는다.
+        paymentItemRepository.saveAll(items.stream()
+                .map(item -> PaymentItem.snapshot(
+                        payment.getId(), item.name().trim(), item.quantity(), item.unitPrice(),
+                        lineAmount(item)))
+                .toList());
+
         boolean methodActive = method.getStatus() == PaymentMethodStatus.ACTIVE;
         return new PaymentPreRecord(
                 payment.getId(), merchantPaymentId, method.getBillingKeyEnc(),
@@ -151,10 +171,41 @@ public class PaymentChargeService {
         return new FinalizeResult(payment, applied);
     }
 
-    private void validateAmount(int amount) {
-        if (amount <= 0 || amount > maxAmount) {
+    /**
+     * 항목 합계로 최종 청구 금액을 계산한다(고도화 결제 3.1). 요청이 보낸 총액은 쓰지 않는다.
+     *
+     * <p>계산 순서가 곧 안전장치다 — 곱셈·합산을 long으로 먼저 수행해 int overflow를 막고, 그 다음 int 범위와
+     * 기존 절대 상한(설정값)을 검증한다. int로 먼저 곱하면 오버플로가 음수로 되감겨 상한 검증을 통과해버린다.
+     * 항목 구조 문제(빈 목록·항목명 누락·수량 0 이하)는 INVALID_PAYMENT_ITEM, 금액 범위 문제는 INVALID_AMOUNT다.
+     */
+    private int calculateAmount(List<PaymentItemCommand> items) {
+        if (items == null || items.isEmpty()) {
+            throw new ServiceException(PaymentErrorCode.INVALID_PAYMENT_ITEM);
+        }
+        long total = 0;
+        for (PaymentItemCommand item : items) {
+            total += lineAmount(item);
+        }
+        // 각 항목이 int 범위 안이어도 누적 합계는 넘칠 수 있다. long으로 더한 뒤 여기서 한 번에 판정한다.
+        if (total <= 0 || total > maxAmount) {
             throw new ServiceException(PaymentErrorCode.INVALID_AMOUNT);
         }
+        return (int) total;
+    }
+
+    /** 항목 금액(= 수량 × 단가). 곱셈을 long으로 해 int overflow를 막고, int 범위를 벗어나면 거부한다. */
+    private int lineAmount(PaymentItemCommand item) {
+        if (item == null || item.name() == null || item.name().isBlank()) {
+            throw new ServiceException(PaymentErrorCode.INVALID_PAYMENT_ITEM);
+        }
+        if (item.quantity() <= 0) {
+            throw new ServiceException(PaymentErrorCode.INVALID_PAYMENT_ITEM);
+        }
+        long lineAmount = (long) item.quantity() * item.unitPrice();
+        if (lineAmount < Integer.MIN_VALUE || lineAmount > Integer.MAX_VALUE) {
+            throw new ServiceException(PaymentErrorCode.INVALID_AMOUNT);
+        }
+        return (int) lineAmount;
     }
 
     // MySQL이 UNIQUE 제약 위반(중복 키, ER_DUP_ENTRY)에 내려주는 SQLState·벤더 오류코드. 이 둘로 "중복 키

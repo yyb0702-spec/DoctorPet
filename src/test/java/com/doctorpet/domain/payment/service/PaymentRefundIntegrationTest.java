@@ -1,5 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItemsOf;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.singleItem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,6 +23,7 @@ import com.doctorpet.domain.payment.notification.PaymentNotificationPublisher;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
 import com.doctorpet.domain.payment.repository.PaymentRefundRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.payment.repository.PaymentWebhookRepository;
@@ -76,6 +79,7 @@ class PaymentRefundIntegrationTest {
 
     @Autowired private PaymentRefundService paymentRefundService;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private PaymentItemRepository paymentItemRepository;
     @Autowired private PaymentRefundRepository paymentRefundRepository;
     @Autowired private FakePaymentGateway fakePaymentGateway;
     // OFFLINE_PAID 픽스처를 실제 정산 경로(#36)로 만들기 위해서만 쓴다.
@@ -116,6 +120,7 @@ class PaymentRefundIntegrationTest {
                 .ifPresent(paymentWebhookRepository::delete));
         paymentIds.forEach(id -> paymentRefundRepository.findByPaymentId(id)
                 .ifPresent(paymentRefundRepository::delete));
+        paymentIds.forEach(id -> deleteItemsOf(paymentItemRepository, id));
         paymentIds.forEach(paymentRepository::deleteById);
         reservationIds.forEach(reviewRepository::deleteByReservationId);
         reservationIds.forEach(reservationRepository::deleteById);
@@ -621,7 +626,7 @@ class PaymentRefundIntegrationTest {
         // 예약은 금액을 고쳐 다시 청구할 수 없다. UNIQUE(reservation_id)가 예약당 결제 1건을 강제하기 때문에
         // 정정 재청구는 스키마 확장(payments 1:N) 없이는 불가능하다 — PRD·SA가 확장으로 분류한 그 항목이다.
         // 의도된 한계를 테스트로 고정해, 나중에 조용히 동작이 바뀌거나 놓친 요구사항으로 오해되지 않게 한다.
-        assertThatThrownBy(() -> paymentChargeService.preRecord(reservationId, STAFF_MEMBER_ID, AMOUNT - 10_000))
+        assertThatThrownBy(() -> paymentChargeService.preRecord(reservationId, STAFF_MEMBER_ID, singleItem(AMOUNT - 10_000)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
     }
