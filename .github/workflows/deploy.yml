@@ -214,8 +214,10 @@ jobs:
             # condition: service_healthy)까지 건너뛴다. mysql/redis 자체를 여기서 healthy가
             # 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅 직후처럼 mysql이 아직
             # 초기화 중인 상태에서 대상 앱이 DB 연결 실패로 헛되이 크래시루프를 도는 상황을
-            # 피할 수 있다. --wait는 healthcheck가 없는 nginx·prometheus·grafana는 running
-            # 상태만 확인한다.
+            # 피할 수 있다. prometheus/grafana도 이제 healthcheck가 있어(리뷰 지적 P2,
+            # docker-compose.yml 참고) --wait가 실제 준비 상태(설정 로딩·HTTP 응답)까지
+            # 확인한다 — 예전엔 이 둘에 healthcheck가 없어 --wait가 running 여부만 보고
+            # 넘어갔다. nginx만 여전히 healthcheck가 없어 running 상태까지만 확인된다.
             if [ "$FIRST_DEPLOY" = "true" ]; then
               docker compose up -d --wait mysql redis prometheus grafana
             else
