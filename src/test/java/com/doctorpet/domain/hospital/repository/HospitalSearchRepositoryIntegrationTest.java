@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.global.config.QuerydslConfig;
 import org.junit.jupiter.api.Test;
@@ -322,6 +323,59 @@ class HospitalSearchRepositoryIntegrationTest {
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(matched.getId());
+    }
+
+    @Test
+    void ANY_검색은_요청한_진료역량을_하나라도_가진_병원을_조회한다() {
+        Hospital allMatched = saveHospital(
+                "ANY-ALL",
+                "역량OR검색 전체일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital partiallyMatched = saveHospital(
+                "ANY-PARTIAL",
+                "역량OR검색 부분일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital notMatched = saveHospital(
+                "ANY-NONE",
+                "역량OR검색 불일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        hospitalCapabilityRepository.saveAll(List.of(
+                HospitalCapability.create(allMatched, CapabilityValue.XRAY),
+                HospitalCapability.create(allMatched, CapabilityValue.ULTRASOUND),
+                HospitalCapability.create(partiallyMatched, CapabilityValue.XRAY),
+                HospitalCapability.create(notMatched, CapabilityValue.BLOOD_TEST)
+        ));
+        hospitalCapabilityRepository.flush();
+
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                "역량OR검색",
+                null,
+                null,
+                null,
+                null,
+                List.of(CapabilityValue.XRAY, CapabilityValue.ULTRASOUND),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false
+        );
+
+        List<HospitalSearchCandidate> result = hospitalRepository.searchAll(
+                condition,
+                CapabilityMatchMode.ANY
+        );
+
+        assertThat(result)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactlyInAnyOrder(allMatched.getId(), partiallyMatched.getId());
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.entity.QHospitalCapability;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
@@ -42,7 +43,15 @@ public class HospitalRepositoryCustomImpl
     public List<HospitalSearchCandidate> searchAll(
             HospitalSearchCondition condition
     ) {
-        return searchQuery(condition)
+        return searchAll(condition, CapabilityMatchMode.ALL);
+    }
+
+    @Override
+    public List<HospitalSearchCandidate> searchAll(
+            HospitalSearchCondition condition,
+            CapabilityMatchMode capabilityMatchMode
+    ) {
+        return searchQuery(condition, capabilityMatchMode)
                 .fetch();
     }
 
@@ -146,6 +155,13 @@ public class HospitalRepositoryCustomImpl
     private JPAQuery<HospitalSearchCandidate> searchQuery(
             HospitalSearchCondition condition
     ) {
+        return searchQuery(condition, CapabilityMatchMode.ALL);
+    }
+
+    private JPAQuery<HospitalSearchCandidate> searchQuery(
+            HospitalSearchCondition condition,
+            CapabilityMatchMode capabilityMatchMode
+    ) {
         return queryFactory
                 // 검색 응답 계산에 필요한 필드만 후보 DTO 생성자에 바로 넣습니다.
                 .select(Projections.constructor(
@@ -164,11 +180,18 @@ public class HospitalRepositoryCustomImpl
                 // 상세정보가 없는 비제휴 병원도 조회하기 위해 LEFT JOIN을 사용합니다.
                 .leftJoin(hospitalDetail)
                 .on(hospitalDetail.hospital.eq(hospital))
-                .where(searchPredicates(condition));
+                .where(searchPredicates(condition, capabilityMatchMode));
     }
 
     private BooleanExpression[] searchPredicates(
             HospitalSearchCondition condition
+    ) {
+        return searchPredicates(condition, CapabilityMatchMode.ALL);
+    }
+
+    private BooleanExpression[] searchPredicates(
+            HospitalSearchCondition condition,
+            CapabilityMatchMode capabilityMatchMode
     ) {
         return new BooleanExpression[]{
                 // 폐업 병원은 제외하고 휴업 병원은 검색 결과에 포함합니다.
@@ -176,7 +199,7 @@ public class HospitalRepositoryCustomImpl
                 keywordContains(condition.keyword()),
                 regionContains(condition.region()),
                 partnerOnly(condition.partnerOnly()),
-                capabilityMatches(condition),
+                capabilityMatches(condition, capabilityMatchMode),
                 facilityMatches(condition),
                 withinBoundingBox(condition)
         };
@@ -231,11 +254,10 @@ public class HospitalRepositoryCustomImpl
         );
     }
 
-    /**
-     * 요청한 진료역량을 모두 가진 병원만 조회하는 조건을 만듭니다.
-     */
+    /** 요청한 진료역량을 매칭 모드에 따라 모두 또는 하나 이상 가진 병원 조건을 만듭니다. */
     private BooleanExpression capabilityMatches(
-            HospitalSearchCondition condition
+            HospitalSearchCondition condition,
+            CapabilityMatchMode capabilityMatchMode
     ) {
         List<CapabilityValue> requiredCapabilities = new ArrayList<>(
                         condition.requiredCapabilities()
@@ -249,6 +271,15 @@ public class HospitalRepositoryCustomImpl
         // 서브쿼리에서 hospital_capabilities 테이블을 searchCapability이라는 이름으로 사용합니다.
         QHospitalCapability capability =
                 new QHospitalCapability("searchCapability");
+
+        if (capabilityMatchMode == CapabilityMatchMode.ANY) {
+            return hospital.id.in(
+                    JPAExpressions
+                            .select(capability.hospital.id)
+                            .from(capability)
+                            .where(capability.capabilityValue.in(requiredCapabilities))
+            );
+        }
 
         // 같은 역량이 중복 요청되어도 한 종류로 계산합니다.
         long requiredCount = requiredCapabilities.stream()
