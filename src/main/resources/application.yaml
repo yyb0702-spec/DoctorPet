@@ -156,6 +156,11 @@ springdoc:
     enabled: false
 
 reservation:
+  waitlist:
+    offer-validity-minutes: ${RESERVATION_WAITLIST_OFFER_VALIDITY_MINUTES:10}
+    expiration-interval-ms: ${RESERVATION_WAITLIST_EXPIRATION_INTERVAL_MS:60000}
+    expiration-initial-delay-ms: ${RESERVATION_WAITLIST_EXPIRATION_INITIAL_DELAY_MS:60000}
+    expiration-batch-size: ${RESERVATION_WAITLIST_EXPIRATION_BATCH_SIZE:100}
   # 대기열 테이블은 Hibernate ddl-auto가 아니라 선행 마이그레이션 러너가 생성·검증한다.
   waitlist-migration:
     enabled: ${RESERVATION_WAITLIST_MIGRATION_ENABLED:true}

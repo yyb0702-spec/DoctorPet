@@ -70,6 +70,29 @@ public class ReservationApplicationService {
     }
 
     @Transactional
+    public ReservationResponse requestFromWaitlist(
+            Long memberId,
+            Long petId,
+            Long paymentMethodId,
+            Long slotId
+    ) {
+        memberService.assertActiveMember(memberId);
+        PetResponse pet = petService.findOwnedActivePet(memberId, petId)
+                .orElseThrow(() -> new ServiceException(ReservationErrorCode.PROFILE_REQUIRED));
+        if (!paymentMethodService.isActiveAndOwnedBy(memberId, paymentMethodId)) {
+            throw new ServiceException(ReservationErrorCode.PAYMENT_METHOD_REQUIRED);
+        }
+        return reservationService.requestFromWaitlist(
+                memberId,
+                petId,
+                paymentMethodId,
+                slotId,
+                pet.name(),
+                pet.species().name()
+        );
+    }
+
+    @Transactional
     public void cancel(Long memberId, Long reservationId) {
         memberService.assertActiveMember(memberId);
         reservationService.cancel(memberId, reservationId);

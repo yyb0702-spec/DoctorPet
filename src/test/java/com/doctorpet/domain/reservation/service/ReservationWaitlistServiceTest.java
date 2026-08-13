@@ -10,12 +10,16 @@ import static org.mockito.Mockito.verify;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
+import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationWaitlistErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.ZoneId;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,13 +41,26 @@ class ReservationWaitlistServiceTest {
     @Mock
     private ReservationSlotRepository reservationSlotRepository;
 
+    @Mock
+    private ReservationApplicationService reservationApplicationService;
+
+    @Mock
+    private ReservationSlotReleaseService reservationSlotReleaseService;
+
     private ReservationWaitlistService reservationWaitlistService;
 
     @BeforeEach
     void setUp() {
         reservationWaitlistService = new ReservationWaitlistService(
                 reservationWaitlistRepository,
-                reservationSlotRepository
+                reservationSlotRepository,
+                reservationApplicationService,
+                reservationSlotReleaseService,
+                Clock.fixed(
+                        LocalDateTime.of(2026, 8, 13, 10, 0)
+                                .atZone(ZoneId.of("Asia/Seoul")).toInstant(),
+                        ZoneId.of("Asia/Seoul")
+                )
         );
     }
 
@@ -124,10 +141,66 @@ class ReservationWaitlistServiceTest {
                 .isEqualTo(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
     }
 
+    @Test
+    @DisplayName("OFFERED 대기자가 수락하면 REQUESTED 예약을 만들고 ACCEPTED로 전이한다")
+    void accept_activeOffer_createsRequestedReservation() {
+        ReservationWaitlist waitlist = offeredWaitlist(10L);
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+        ReservationResponse response = new ReservationResponse(
+                100L, 3L, 4L, SLOT_ID, ReservationStatus.REQUESTED, LocalDateTime.now());
+        given(reservationApplicationService.requestFromWaitlist(MEMBER_ID, 3L, 4L, SLOT_ID))
+                .willReturn(response);
+
+        ReservationResponse result = reservationWaitlistService.accept(MEMBER_ID, 10L, 3L, 4L);
+
+        assertThat(result.status()).isEqualTo(ReservationStatus.REQUESTED);
+        assertThat(waitlist.getStatus()).isEqualTo(ReservationWaitlistStatus.ACCEPTED);
+        verify(reservationWaitlistRepository).flush();
+    }
+
+    @Test
+    @DisplayName("OFFERED 대기자의 거절은 다음 대기자 승급을 위해 슬롯 반환을 호출한다")
+    void reject_activeOffer_releasesSlotForNextCandidate() {
+        ReservationWaitlist waitlist = offeredWaitlist(10L);
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+
+        reservationWaitlistService.reject(MEMBER_ID, 10L);
+
+        assertThat(waitlist.getStatus()).isEqualTo(ReservationWaitlistStatus.REJECTED);
+        verify(reservationWaitlistRepository).flush();
+        verify(reservationSlotReleaseService).release(SLOT_ID);
+    }
+
+    @Test
+    @DisplayName("만료된 OFFERED 대기자는 EXPIRED로 전이하고 다음 대기자 처리를 시작한다")
+    void expire_expiredOffer_releasesSlotForNextCandidate() {
+        ReservationWaitlist waitlist = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        LocalDateTime offeredAt = LocalDateTime.of(2026, 8, 13, 9, 0);
+        waitlist.offer(offeredAt, offeredAt.plusMinutes(10));
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+
+        boolean expired = reservationWaitlistService.expire(
+                10L,
+                LocalDateTime.of(2026, 8, 13, 9, 10)
+        );
+
+        assertThat(expired).isTrue();
+        assertThat(waitlist.getStatus()).isEqualTo(ReservationWaitlistStatus.EXPIRED);
+        verify(reservationSlotReleaseService).release(SLOT_ID);
+    }
+
     private ReservationSlot reservedSlot() {
         LocalDateTime startAt = LocalDateTime.now().plusDays(1);
         ReservationSlot slot = ReservationSlot.create(3L, startAt, startAt.plusMinutes(30));
         slot.reserve();
         return slot;
+    }
+
+    private ReservationWaitlist offeredWaitlist(Long waitlistId) {
+        ReservationWaitlist waitlist = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        ReflectionTestUtils.setField(waitlist, "id", waitlistId);
+        LocalDateTime now = LocalDateTime.of(2026, 8, 13, 10, 0);
+        waitlist.offer(now.minusMinutes(1), now.plusMinutes(9));
+        return waitlist;
     }
 }

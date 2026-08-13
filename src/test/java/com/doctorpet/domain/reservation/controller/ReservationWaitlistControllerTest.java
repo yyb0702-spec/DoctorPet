@@ -6,10 +6,13 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.reservation.dto.response.ReservationWaitlistResponse;
+import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.service.ReservationWaitlistService;
 import com.doctorpet.global.config.SecurityConfig;
@@ -94,6 +97,35 @@ class ReservationWaitlistControllerTest {
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
     }
 
+    @Test
+    @DisplayName("보호자는 유효한 승급 제안을 수락해 REQUESTED 예약을 생성할 수 있다")
+    void accept_guardian_returnsCreated() throws Exception {
+        given(reservationWaitlistService.accept(1L, 20L, 3L, 4L)).willReturn(
+                new ReservationResponse(
+                        30L, 3L, 5L, 10L, ReservationStatus.REQUESTED, LocalDateTime.now()
+                )
+        );
+
+        mockMvc.perform(post("/api/reservation-waitlists/{waitlistId}/accept", 20L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AcceptRequest(3L, 4L))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.data.reservationId").value(30L));
+    }
+
+    @Test
+    @DisplayName("보호자는 자신의 승급 제안을 거절할 수 있다")
+    void reject_guardian_returnsSuccess() throws Exception {
+        mockMvc.perform(patch("/api/reservation-waitlists/{waitlistId}/reject", 20L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(reservationWaitlistService).reject(1L, 20L);
+    }
+
     private Authentication memberAuthentication(Long memberId, String role) {
         MemberPrincipal principal = new MemberPrincipal(memberId, "guardian@test.com", role);
         return new UsernamePasswordAuthenticationToken(
@@ -104,5 +136,8 @@ class ReservationWaitlistControllerTest {
     }
 
     private record CreateRequest(Long slotId) {
+    }
+
+    private record AcceptRequest(Long petId, Long paymentMethodId) {
     }
 }

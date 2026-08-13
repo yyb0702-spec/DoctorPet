@@ -31,4 +31,14 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
     );
 
     Optional<ReservationWaitlist> findByMemberIdAndSlotId(Long memberId, Long slotId);
+
+    List<ReservationWaitlist> findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(
+            Long slotId,
+            ReservationWaitlistStatus status
+    );
+
+    List<ReservationWaitlist> findByStatusAndOfferExpiresAtLessThanEqualOrderByOfferExpiresAtAscIdAsc(
+            ReservationWaitlistStatus status,
+            LocalDateTime offerExpiresAt
+    );
 }
