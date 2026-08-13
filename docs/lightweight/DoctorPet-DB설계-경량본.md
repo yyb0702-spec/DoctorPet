@@ -17,7 +17,9 @@ hospitals 1 ── 0..N hospital_favorites
 hospitals 1 ── 0..N reservation_slots
 reservation_slots 1 ── 0..N reservations
 reservations 1 ── 0..N reservation_events
-reservations 1 ── 0..1 payments
+reservations 1 ── 0..1 payments   (정정 재청구 도입 후 0..N, 활성 1건)
+payments 1 ── 0..1 payment_refunds
+payments 1 ── 1..N payment_items   (항목화 도입 후)
 members 1 ── 0..N payment_methods
 members 1 ── 0..N ai_consultations
 members 1 ── 0..N notifications
@@ -157,7 +159,10 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `card_brand` | VARCHAR | 카드사, `NULL` 가능 |
 | `card_last4` | VARCHAR | 카드 끝 4자리, `NULL` 가능 |
 | `status` | VARCHAR | `ACTIVE`, `EXPIRED`, `DELETED` |
+| `is_default` | BOOLEAN | 기본 결제수단 여부, `NOT NULL DEFAULT false` |
+| `active_default_member_id` | BIGINT | 생성 컬럼 — `ACTIVE`이고 기본값일 때만 `member_id`, 아니면 `NULL` |
 | `created_at` | DATETIME | 생성 시각 |
+제약: `UNIQUE(active_default_member_id)` — 회원별 활성 기본 결제수단을 최대 1건으로 제한한다. 기본값 변경 시 활성 수단 조회는 `idx_payment_methods_member_id_status(member_id, status)`를 사용한다.
 ### `payments`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -168,7 +173,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `card_brand_snapshot` | VARCHAR | 결제 당시 카드사, `NULL` 가능 |
 | `card_last4_snapshot` | VARCHAR | 결제 당시 카드 끝 4자리, `NULL` 가능 |
 | `amount` | INT | `0 < amount ≤ 3,000,000` |
-| `status` | VARCHAR | `PENDING`, `PAID`, `OFFLINE_REQUIRED`, `OFFLINE_PAID` |
+| `status` | VARCHAR | `PENDING`, `PAID`, `OFFLINE_REQUIRED`, `OFFLINE_PAID`, `REFUNDED` |
 | `payment_channel` | VARCHAR | `BILLING_KEY`, `OFFLINE` |
 | `retry_count` | INT | 재시도 횟수 |
 | `failure_reason` | VARCHAR | 실패 사유, `NULL` 가능 |
@@ -178,6 +183,38 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `offline_settled_by` | BIGINT | 정산 처리자, `NULL` 가능 |
 | `created_at` | DATETIME | 생성 시각 |
 | `paid_at` | DATETIME | 결제 완료 시각, `NULL` 가능 |
+| `refunded_at` | DATETIME | 전액 환불 확정 시각, `NULL` 가능 |
+
+정정 재청구 도입 시 추가·교체할 항목(계약 확정, 구현 후속): `correction_of`(정정한 이전 결제 id, `NULL` 가능), `superseded_at`(대체된 시각 — `NULL`이 활성 마커), 생성 컬럼 `active_reservation_id`(활성일 때만 `reservation_id`)와 `UNIQUE(active_reservation_id)`. 이 UNIQUE가 기존 `UNIQUE(reservation_id)`를 대신해 "예약당 활성 결제 1건"을 강제하며, 환불·대체된 과거 결제는 `NULL`이라 제약을 타지 않고 이력으로 남는다.
+
+### `payment_refunds`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `payment_id` | BIGINT | 결제 FK, UNIQUE — 이 제약이 환불 선점이다 |
+| `merchant_refund_id` | VARCHAR | PG 취소 멱등키, UNIQUE. 재시도에도 재사용 |
+| `amount` | INT | 환불 금액. 전액 환불만 지원하므로 `payments.amount`와 같다 |
+| `reason` | VARCHAR | 스태프 입력 사유. 감사용이며 보호자 알림·응답·영수증에 노출하지 않는다 |
+| `status` | VARCHAR | `REQUESTED`, `COMPLETED`, `FAILED` |
+| `pg_cancel_id` | VARCHAR | 공급자 취소 식별자, `NULL` 가능 |
+| `failure_reason` | VARCHAR | 실패 분류값, `NULL` 가능 |
+| `refunded_by` | BIGINT | 환불을 실행한 스태프 member_id |
+| `claimed_at` | DATETIME | 선점 시각 |
+| `claim_token` | VARCHAR | 선점 소유권 펜스 |
+| `refunded_at` | DATETIME | 취소 확정 시각, `COMPLETED`에서만 |
+| `created_at` / `updated_at` | DATETIME | 생성·갱신 시각 |
+
+### `payment_items` `(계약 확정, 구현 후속)`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `payment_id` | BIGINT | 결제 FK. 결제당 1..N |
+| `name` | VARCHAR | 항목 명칭 |
+| `quantity` | INT | 항상 양수 |
+| `unit_price` | INT | signed — 할인·조정은 음수. `UNSIGNED` 금지 |
+| `amount` | INT | signed — `quantity * unit_price`. `UNSIGNED` 금지 |
+| `created_at` | DATETIME | 생성 시각 |
+불변식: `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 청구 선기록 이후에는 항목을 수정·삭제하지 않는다.
 ## 6. AI·알림
 ### `ai_consultations`
 | 필드 | 타입 | 제약·설명 |
@@ -235,3 +272,5 @@ Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "�
 - `reservation_slots.version`은 낙관적 락에 사용한다.
 - 노쇼 처리 시 슬롯 상태는 `RESERVED`를 유지한다.
 - 오프라인 정산은 결제 상태가 `OFFLINE_REQUIRED`일 때만 수행한다.
+- 보호자 셀프 재청구도 `OFFLINE_REQUIRED`에서만 허용하고 `PENDING`에서는 허용하지 않는다.
+- 할인·조정은 별도 할인 필드가 아니라 음수 금액 항목으로 기록하므로 `payment_items.unit_price`·`amount`를 `UNSIGNED`로 만들지 않는다.
