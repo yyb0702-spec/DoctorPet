@@ -92,5 +92,6 @@ CONFIRMED → CHECKED_IN → IN_TREATMENT → TREATMENT_COMPLETED
 - timeout·fallback·기본 Circuit Breaker는 MVP에 포함한다.
 ## 7. 알림
 - 예약 승인·거절, 결제 결과, 노쇼 등 주요 상태 변경을 알림으로 저장한다.
-- MVP는 폴링으로 조회하고, MVP2 실시간 알림은 단방향 SSE로 전달한다. 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다.
+- MVP는 폴링으로 조회하고, MVP2 실시간 알림은 단방향 SSE로 전달한다. 양방향 WebSocket+STOMP는 병원↔회원 예약 채팅 전용으로 도입했고 알림 전송은 SSE를 유지한다.
 - 알림 저장이 원본이고 실시간 전달은 부가 기능이다.
+- 병원↔회원 채팅은 예약 1건당 1개 스레드이며, 진행 중 예약에서만 송수신하고 종료된 예약은 조회만 허용한다. 메시지는 1년 보존 후 삭제한다.

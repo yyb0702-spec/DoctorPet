@@ -81,10 +81,11 @@
 
 ### 병원↔회원 채팅
 
-- 필수: [채팅 고도화 문서](../enhancement/채팅.md), SA §6(인증·인가), SA §9-8(알림=SSE), SA §4 reservations, [코드컨벤션](../architecture/DoctorPet-코드컨벤션.md)
+- 필수: SA §9-12(채팅 설계), SA §8-9(채팅 API), SA §4 chat_messages, SA §6(인증·인가), SA §9-8(알림=SSE)
+- 조건부: 코드 스타일이 쟁점이면 [코드컨벤션](../architecture/DoctorPet-코드컨벤션.md)을, 남은 구현 범위·완료 기준을 확인할 때만 [채팅 고도화 문서](../enhancement/채팅.md)를 추가한다.
 - 전송: 채팅은 native WebSocket 위의 STOMP를 사용하고, 단일 인스턴스 Spring SimpleBroker를 기준으로 한다. 다중 인스턴스 fan-out은 후속 범위다.
 - 인증·인가: 전용 `/ws/chat` HTTP Upgrade 경로만 CONNECT까지 도달하도록 허용하고, STOMP CONNECT `Authorization: Bearer <accessToken>`을 `ChannelInterceptor`에서 검증한다. URL 쿼리 JWT와 클라이언트가 전달한 `memberId`·`hospitalId`는 신뢰하지 않으며, 구독·전송 권한은 서버가 예약 관계로 확인한다.
-- 주의: 채팅 정책은 `docs/enhancement/채팅.md` 델타를 기준으로 하며, 구현 PR에서 SA의 채팅 절로 승격한다. 채팅 메시지는 AFTER_COMMIT 이후 전달하고, 재연결 누락분은 인증된 채팅 조회 API로 복구한다.
+- 주의: **채팅 정책의 정본은 SA §8-9·§9-12다**(구현 PR #151에서 델타를 승격 완료). 델타 문서를 기준으로 삼지 않는다. 채팅 메시지는 AFTER_COMMIT 이후 전달하고, 재연결 누락분은 인증된 채팅 조회 API로 복구한다. 상태별 송수신·읽기 전용 구분과 1년 보존·hard delete는 SA §9-12를 따른다.
 
 ### 병원 진료시간·임시 휴무·슬롯 생성
 

@@ -55,6 +55,7 @@ domain/
 - 여러 도메인을 조합하는 흐름에만 `XxxApplicationService`를 사용한다.
 - AI·결제·공공데이터 연동은 각각 `AiGateway`, `PaymentGateway`, `PublicDataGateway`로 추상화한다.
 - 알림 전송은 `NotificationPusher` 인터페이스로 추상화한다.
+- 실시간은 두 채널로 확정됐다 — 예약·결제 **알림은 단방향 SSE**(티켓 인증·커밋 후 전송)이고, **병원↔회원 예약 채팅은 native WebSocket + STOMP**다(정본 SA §8-9·§9-12). 알림을 WebSocket으로 이전하지 않으며, 채팅 다중 인스턴스 fan-out은 후속 범위다.
 ## 4. 인증과 회원
 - 회원 역할은 `GUARDIAN`, `HOSPITAL_STAFF`로 구분한다.
 - Access Token 수명은 30분\~1시간이다.
@@ -169,7 +170,6 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 외부 시스템 요청·응답에는 민감정보를 그대로 기록하지 않는다.
 - 상태 변경과 외부 결제 처리는 멱등성과 중복 실행 방지를 보장한다.
 ## 11. 미확정 사항 — 구현 금지
-- 실시간 알림은 단방향 SSE로 확정하며, 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다.
 - 미인증 계정의 장기 미완료 처리
 - SNS 로그인 도입 범위와 기존 계정 연동 정책
 - 이메일 인증·비밀번호 재설정 토큰 소비 순서
