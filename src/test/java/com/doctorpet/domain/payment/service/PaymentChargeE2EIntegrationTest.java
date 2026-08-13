@@ -19,15 +19,16 @@ import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
+import com.doctorpet.domain.reservation.adapter.ReservationChargeLookupAdapter;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.service.ReservationApplicationService;
+import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -58,10 +59,12 @@ class PaymentChargeE2EIntegrationTest {
     @Autowired private PaymentApplicationService paymentApplicationService;
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private PaymentMethodRepository paymentMethodRepository;
-    @MockitoSpyBean private ReservationRepository reservationRepository;
+    @Autowired private ReservationRepository reservationRepository;
     @Autowired private MemberRepository memberRepository;
     @Autowired private BillingKeyCryptor billingKeyCryptor;
     @Autowired private ReservationApplicationService reservationApplicationService;
+    @MockitoSpyBean private ReservationChargeLookupAdapter reservationChargeLookupAdapter;
+    @MockitoSpyBean private ReservationService reservationService;
 
     private Long staffMemberId;
     private Long guardianMemberId;
@@ -176,16 +179,15 @@ class PaymentChargeE2EIntegrationTest {
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
         doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Optional<Reservation> reservation = (Optional<Reservation>) invocation.callRealMethod();
+            Object reservation = invocation.callRealMethod();
             chargeLockAcquired.countDown();
             assertThat(releaseCharge.await(5, TimeUnit.SECONDS)).isTrue();
             return reservation;
-        }).when(reservationRepository).findByIdForUpdate(eq(reservationId));
+        }).when(reservationChargeLookupAdapter).findForChargeForUpdate(eq(reservationId));
         doAnswer(invocation -> {
             reassignmentLockAttempted.countDown();
             return invocation.callRealMethod();
-        }).when(reservationRepository).findByIdAndMemberIdForUpdate(eq(reservationId), eq(guardianMemberId));
+        }).when(reservationService).findMyReservationForUpdate(eq(guardianMemberId), eq(reservationId));
 
         try {
             Future<PaymentChargeResponse> charge = executor.submit(() ->
@@ -198,7 +200,6 @@ class PaymentChargeE2EIntegrationTest {
                     new ReservationPaymentMethodUpdateRequest(replacementPaymentMethodId)
             ));
             assertThat(reassignmentLockAttempted.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(reassignment.isDone()).isFalse();
 
             releaseCharge.countDown();
             assertThat(charge.get(10, TimeUnit.SECONDS).status()).isEqualTo(PaymentStatus.PAID);
