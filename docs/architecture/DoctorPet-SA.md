@@ -842,7 +842,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 청구 항목 작성·수정, JSON 영수증 조회, 보호자 셀프 재청구, 정정 재청구의 **정책 계약은 §9-4에서 확정했고 엔드포인트는 아직 없다** — 경로·요청/응답 스키마는 각 구현 PR에서 이 표에 추가한다.
 
-진료비 청구 `{ amount }`는 0 초과 & 절대 상한 이하만 허용하고(0·음수는 요청 DTO `@Positive` 검증으로 `VALIDATION_FAILED` 400, 상한 초과는 서버 검증으로 `INVALID_AMOUNT` 400 — 둘 다 400), 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다. **셀프 복구·정정 재청구 도입 후에는 전제조건에 `superseded_at IS NULL`(활성)이 함께 들어간다** — 대체된 결제를 현장 수납으로 확정하면 새 결제와 이중 수납이 된다(§9-4 "현장 수납과의 경합").
+진료비 청구는 청구 전 저장된 초안 항목을 확정하는 요청이므로 **요청 body에 `amount`나 항목을 받지 않는다**. 서버가 예약 행 잠금 아래 `payment_id IS NULL` 초안 항목을 재조회해 합계를 산출하고, 초안이 0건이거나 합계가 0 이하·절대 상한 초과면 각각 `PAYMENT_ITEM_REQUIRED`·`INVALID_AMOUNT` 400으로 거부한다. 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다. **셀프 복구·정정 재청구 도입 후에는 전제조건에 `superseded_at IS NULL`(활성)이 함께 들어간다** — 대체된 결제를 현장 수납으로 확정하면 새 결제와 이중 수납이 된다(§9-4 "현장 수납과의 경합").
 
 ### 8-8. 알림
 
@@ -945,7 +945,7 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
   - **총액의 출처**: 총액은 **서버가 항목 합계로 산출**한다. 클라이언트가 보낸 총액을 신뢰하지 않는다("클라이언트 결과를 믿지 않는다"는 위 검증 원칙과 같다). 요청에 총액이 함께 오는 형태를 쓸 경우 합계와 다르면 저장하지 않고 거부한다.
   - **항목 수정**: 락을 잡은 뒤 `WHERE payment_id IS NULL` 조건부 UPDATE/DELETE로만 반영한다. 0건이면 이미 청구된 것이므로 `PAYMENT_ITEM_ALREADY_CHARGED`(409)로 거부한다. 청구가 먼저 커밋되면 이후 수정은 이 조건에서 반드시 0건이 된다.
 - **할인·조정**: 별도 할인 필드를 두지 않고 **음수 금액 항목**으로 기록한다. `unit_price`·`amount`만 음수를 허용하는 signed 정수다(§4 — `UNSIGNED` 금지).
-- **`quantity > 0`의 강제 지점**: 요청 DTO 검증(`@Positive` → `VALIDATION_FAILED` 400)으로 막는다. `amount`는 요청에서 받지 않고 서버가 `quantity * unit_price`로 계산하므로, 수량을 음수로 넣어 금액 부호를 뒤집는 경로가 생기지 않는다. DB 컬럼은 signed로 두되(`UNSIGNED` 금지는 `unit_price`·`amount`에 대한 것이다) 수량 부호는 애플리케이션 계약으로 강제한다.
+- **`quantity > 0`의 강제 지점**: 요청 DTO 검증(`@Positive` → `VALIDATION_FAILED` 400)을 1차로 두고, DB `CHECK (quantity > 0)`을 최종 방어선으로 둔다. `amount`는 요청에서 받지 않고 서버가 `quantity * unit_price`로 계산하므로, 수량을 음수로 넣어 금액 부호를 뒤집는 경로가 생기지 않는다. DB 컬럼은 signed로 두되(`UNSIGNED` 금지는 `unit_price`·`amount`에 대한 것이다) 수량 부호는 두 계층에서 강제한다.
 - **합계 불변식**: 스탬프된 항목에 한해 `payments.amount == sum(payment_items.amount)`이며 **합계는 0 초과·절대 상한 이하**다(위 금액 검증과 같은 규칙). 음수 항목이 총액을 0 이하로 만드는 청구는 `INVALID_AMOUNT`로 거부한다.
 - **기존 결제**: 항목화 이전 결제는 항목이 없고 백필하지 않는다(§4 payment_items). 불변식은 항목이 있는 결제에만 적용한다.
 - **제외**: 세율·부가세 분리, 진료 항목 마스터 코드 표준화.
