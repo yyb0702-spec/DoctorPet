@@ -67,4 +67,54 @@ public class ReservationWaitlist extends BaseEntity {
     public static ReservationWaitlist waiting(Long memberId, Long slotId) {
         return new ReservationWaitlist(memberId, slotId);
     }
+
+    /** FIFO로 선택된 대기자에게만 예약 기회를 제안한다. */
+    public void offer(LocalDateTime offeredAt, LocalDateTime offerExpiresAt) {
+        if (status != ReservationWaitlistStatus.WAITING) {
+            throw new IllegalStateException("WAITING 상태의 대기열만 승급 제안을 할 수 있습니다.");
+        }
+        if (!offeredAt.isBefore(offerExpiresAt)) {
+            throw new IllegalArgumentException("승급 제안 만료 시각은 제안 시각보다 늦어야 합니다.");
+        }
+
+        this.status = ReservationWaitlistStatus.OFFERED;
+        this.offeredAt = offeredAt;
+        this.offerExpiresAt = offerExpiresAt;
+    }
+
+    public void accept(LocalDateTime respondedAt) {
+        requireActiveOffer(respondedAt);
+        this.status = ReservationWaitlistStatus.ACCEPTED;
+        this.respondedAt = respondedAt;
+    }
+
+    public void reject(LocalDateTime respondedAt) {
+        requireActiveOffer(respondedAt);
+        this.status = ReservationWaitlistStatus.REJECTED;
+        this.respondedAt = respondedAt;
+    }
+
+    public void expire(LocalDateTime expiredAt) {
+        if (status != ReservationWaitlistStatus.OFFERED || offerExpiresAt == null
+                || expiredAt.isBefore(offerExpiresAt)) {
+            throw new IllegalStateException("만료된 OFFERED 대기열만 만료 처리할 수 있습니다.");
+        }
+        this.status = ReservationWaitlistStatus.EXPIRED;
+        this.respondedAt = expiredAt;
+    }
+
+    public boolean isOfferExpiredAt(LocalDateTime now) {
+        return status == ReservationWaitlistStatus.OFFERED
+                && offerExpiresAt != null
+                && !now.isBefore(offerExpiresAt);
+    }
+
+    private void requireActiveOffer(LocalDateTime respondedAt) {
+        if (status != ReservationWaitlistStatus.OFFERED || offerExpiresAt == null) {
+            throw new IllegalStateException("OFFERED 상태의 대기열만 응답할 수 있습니다.");
+        }
+        if (!respondedAt.isBefore(offerExpiresAt)) {
+            throw new IllegalStateException("만료된 승급 제안에는 응답할 수 없습니다.");
+        }
+    }
 }
