@@ -92,7 +92,13 @@ public class HospitalOperatingHoursApplicationService {
                 ));
 
         HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
-        replacePublishedSlots(hospitalId, effectiveFrom, today, savedSchedule);
+        replacePublishedSlots(
+                hospital,
+                hospitalId,
+                effectiveFrom,
+                today,
+                savedSchedule
+        );
         return OperatingHoursResponse.from(savedSchedule);
     }
 
@@ -130,7 +136,7 @@ public class HospitalOperatingHoursApplicationService {
         Long hospitalId = getHospitalId(memberId);
         LocalDate today = LocalDate.now(applicationClock);
         validateTemporaryClosureCancellationDate(businessDate, today);
-        lockHospital(hospitalId);
+        Hospital hospital = lockHospital(hospitalId);
 
         HospitalTemporaryClosure closure = closureRepository
                 .findClosure(hospitalId, businessDate)
@@ -141,7 +147,7 @@ public class HospitalOperatingHoursApplicationService {
         closureRepository.flush();
 
         if (!businessDate.isAfter(today.plusDays(13))) {
-            createSlotsAfterHospitalLock(hospitalId, businessDate);
+            createSlotsAfterHospitalLock(hospital, hospitalId, businessDate);
         }
     }
 
@@ -151,13 +157,17 @@ public class HospitalOperatingHoursApplicationService {
         if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
             return 0;
         }
-        return createSlotsAfterHospitalLock(hospitalId, businessDate);
+        return createSlotsAfterHospitalLock(hospital, hospitalId, businessDate);
     }
 
     private int createSlotsAfterHospitalLock(
+            Hospital hospital,
             Long hospitalId,
             LocalDate businessDate
     ) {
+        if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            return 0;
+        }
         if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
             return 0;
         }
@@ -217,11 +227,15 @@ public class HospitalOperatingHoursApplicationService {
     }
 
     private void replacePublishedSlots(
+            Hospital hospital,
             Long hospitalId,
             LocalDate effectiveFrom,
             LocalDate today,
             HospitalOperatingSchedule schedule
     ) {
+        if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            return;
+        }
         LocalDate publishedUntil = today.plusDays(13);
         if (effectiveFrom.isAfter(publishedUntil)) {
             return;
