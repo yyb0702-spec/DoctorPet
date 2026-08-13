@@ -26,7 +26,7 @@ public class AnimalHospitalSeedRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        AnimalHospitalRefreshResult result = refreshService.refresh();
+        AnimalHospitalRefreshResult result = refreshService.seed();
 
         log.info(
                 "전국 동물병원 시드 적재 완료: 페이지 {}개, 병원 {}건, 제휴 {}건",

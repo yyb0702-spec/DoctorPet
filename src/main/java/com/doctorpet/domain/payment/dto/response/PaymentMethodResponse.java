@@ -11,6 +11,7 @@ public record PaymentMethodResponse(
         String cardBrand,
         String cardLast4,
         String status,
+        boolean isDefault,
         LocalDateTime createdAt
 ) {
 
@@ -20,6 +21,7 @@ public record PaymentMethodResponse(
                 paymentMethod.getCardBrand(),
                 paymentMethod.getCardLast4(),
                 paymentMethod.getStatus().name(),
+                paymentMethod.isDefaultPaymentMethod(),
                 paymentMethod.getCreatedAt()
         );
     }

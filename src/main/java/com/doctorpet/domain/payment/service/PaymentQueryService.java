@@ -37,6 +37,12 @@ public class PaymentQueryService {
                 .map(Payment::getStatus);
     }
 
+    /** 예약 결제수단 재지정 전, 청구 선기록이 이미 생성됐는지 확인하는 도메인 간 조회 계약이다. */
+    @Transactional(readOnly = true)
+    public boolean existsByReservationId(Long reservationId) {
+        return paymentRepository.existsByReservationId(reservationId);
+    }
+
     /** 보호자 본인 예약의 결제 내역. 본인 예약이 아니면 403. */
     @Transactional(readOnly = true)
     public List<PaymentHistoryResponse> getForGuardian(Long reservationId, Long memberId) {

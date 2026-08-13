@@ -216,6 +216,49 @@ class ReservationQueryRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("병원 자동 취소 조회와 조건부 갱신은 시작 시각이 현재보다 미래인 예약만 허용한다")
+    void hospitalCancellation_requiresFutureSlotStartAt() {
+        LocalDateTime now = LocalDateTime.of(2099, 8, 13, 11, 30);
+        Reservation future = saveReservationWithStatus(
+                401L,
+                now.plusSeconds(1),
+                ReservationStatus.CONFIRMED
+        );
+        Reservation current = saveReservationWithStatus(
+                402L,
+                now,
+                ReservationStatus.CONFIRMED
+        );
+        Reservation past = saveReservationWithStatus(
+                403L,
+                now.minusSeconds(1),
+                ReservationStatus.CONFIRMED
+        );
+
+        List<Reservation> targets = reservationRepository
+                .findAllCancelableByHospitalIdAndStatus(
+                        100L,
+                        ReservationStatus.CONFIRMED,
+                        now
+                );
+
+        assertThat(targets)
+                .extracting(Reservation::getId)
+                .containsExactly(future.getId());
+        assertThat(cancelByHospital(future.getId(), now)).isEqualTo(1);
+        assertThat(cancelByHospital(current.getId(), now)).isZero();
+        assertThat(cancelByHospital(past.getId(), now)).isZero();
+
+        entityManager.clear();
+        assertThat(reservationRepository.findById(future.getId()).orElseThrow()
+                .getStatus()).isEqualTo(ReservationStatus.HOSPITAL_CANCELED);
+        assertThat(reservationRepository.findById(current.getId()).orElseThrow()
+                .getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(reservationRepository.findById(past.getId()).orElseThrow()
+                .getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+    }
+
+    @Test
     @DisplayName("회원별 예약 이력은 한 번의 집계 쿼리로 상태별 건수를 계산한다")
     void findHistoryAggregates_groupsCountsByMember() {
         long memberId = 301L;
@@ -232,6 +275,11 @@ class ReservationQueryRepositoryIntegrationTest {
         saveReservationWithStatus(
                 memberId,
                 LocalDateTime.of(2026, 8, 2, 12, 0),
+                ReservationStatus.HOSPITAL_CANCELED
+        );
+        saveReservationWithStatus(
+                memberId,
+                LocalDateTime.of(2026, 8, 2, 12, 30),
                 ReservationStatus.NO_SHOW
         );
         saveReservation(
@@ -244,15 +292,18 @@ class ReservationQueryRepositoryIntegrationTest {
                 reservationRepository.findHistoryAggregates(
                         List.of(memberId),
                         ReservationStatus.TREATMENT_COMPLETED,
-                        ReservationStatus.CANCELED,
+                        List.of(
+                                ReservationStatus.CANCELED,
+                                ReservationStatus.HOSPITAL_CANCELED
+                        ),
                         ReservationStatus.NO_SHOW
                 );
 
         assertThat(result).singleElement().satisfies(history -> {
             assertThat(history.memberId()).isEqualTo(memberId);
-            assertThat(history.totalReservationCount()).isEqualTo(4L);
+            assertThat(history.totalReservationCount()).isEqualTo(5L);
             assertThat(history.completedCount()).isEqualTo(1L);
-            assertThat(history.cancelCount()).isEqualTo(1L);
+            assertThat(history.cancelCount()).isEqualTo(2L);
             assertThat(history.noShowCount()).isEqualTo(1L);
         });
     }
@@ -265,6 +316,19 @@ class ReservationQueryRepositoryIntegrationTest {
         Reservation reservation = saveReservation(memberId, startAt, false);
         ReflectionTestUtils.setField(reservation, "status", status);
         return reservationRepository.saveAndFlush(reservation);
+    }
+
+    private int cancelByHospital(Long reservationId, LocalDateTime now) {
+        return reservationRepository.cancelIfConfirmedByHospital(
+                reservationId,
+                100L,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.HOSPITAL_CANCELED,
+                "공공데이터에서 병원 휴업이 확인되었습니다.",
+                now,
+                now,
+                now
+        );
     }
 
     private Reservation saveReservation(

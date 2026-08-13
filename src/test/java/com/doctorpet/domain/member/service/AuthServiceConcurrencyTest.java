@@ -1,6 +1,9 @@
 package com.doctorpet.domain.member.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 
 import com.doctorpet.domain.member.dto.request.LoginRequest;
 import com.doctorpet.domain.member.dto.request.ReissueRequest;
@@ -24,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * Level 3 — 동시성 통합 검증(docs/testing/verification-guide.md, SA 부록 B).
@@ -49,7 +53,7 @@ class AuthServiceConcurrencyTest {
     @Autowired
     private MemberTokenRepository memberTokenRepository;
 
-    @Autowired
+    @MockitoSpyBean
     private RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
@@ -102,18 +106,55 @@ class AuthServiceConcurrencyTest {
         ReissueRequest reissueRequest = new ReissueRequest(refreshToken);
         List<Boolean> results = new CopyOnWriteArrayList<>();
         List<LoginResponse> successes = new CopyOnWriteArrayList<>();
+        CountDownLatch firstRotateEntered = new CountDownLatch(1);
+        CountDownLatch allowFirstRotate = new CountDownLatch(1);
+        CountDownLatch rejectedRequests = new CountDownLatch(CONCURRENT_REQUESTS - 1);
+        CountDownLatch readyLatch = new CountDownLatch(CONCURRENT_REQUESTS);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(CONCURRENT_REQUESTS);
+        ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REQUESTS);
 
-        runConcurrently(CONCURRENT_REQUESTS, () -> {
+        doAnswer(invocation -> {
+            firstRotateEntered.countDown();
+            if (!allowFirstRotate.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("첫 재발급 회전이 시간 내 해제되지 않았습니다.");
+            }
+            return invocation.callRealMethod();
+        }).when(refreshTokenRepository).rotateIfMatches(
+                anyLong(), anyLong(), anyString(), anyString(), org.mockito.ArgumentMatchers.any());
+
+        for (int index = 0; index < CONCURRENT_REQUESTS; index++) {
+            executor.submit(() -> {
+            readyLatch.countDown();
             try {
+                startLatch.await();
                 LoginResponse response = authService.reissue(reissueRequest);
                 successes.add(response);
                 results.add(true);
             } catch (ServiceException e) {
                 // 락을 못 얻은 요청은 REISSUE_IN_PROGRESS(409), CAS에 실패한 요청은
                 // REFRESH_TOKEN_REUSED(401) — 둘 다 "성공하지 못함"으로만 집계한다.
+                rejectedRequests.countDown();
                 results.add(false);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            } finally {
+                doneLatch.countDown();
             }
-        });
+            });
+        }
+
+        try {
+            assertThat(readyLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            startLatch.countDown();
+            assertThat(firstRotateEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(rejectedRequests.await(5, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            allowFirstRotate.countDown();
+        }
+        assertThat(doneLatch.await(10, TimeUnit.SECONDS)).isTrue();
+        executor.shutdown();
 
         long successCount = results.stream().filter(Boolean::booleanValue).count();
         assertThat(successCount).isEqualTo(1);

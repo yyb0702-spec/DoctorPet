@@ -258,7 +258,7 @@ erDiagram
 
 기존 예약이 있는 환경에서는 먼저 `approval_deadline_at`을 nullable로 추가하고, 각 `REQUESTED` 예약을 `min(requested_at + 1시간, slot.start_at - 2시간)`으로 백필한다. 검증이 끝난 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다. `ReservationApprovalDeadlineMigrationRunner`는 MySQL `GET_LOCK`으로 다중 인스턴스 실행을 직렬화하고 `schema_migrations`의 `reservation_approval_deadline_v1` 마커로 일회성 실행을 보장한다. 마커와 실제 스키마가 다르면 부팅을 중단한다.
 
-하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션에서 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유를 원자적으로 처리하며, 충돌한 요청은 실패시킨다(§9-3).
+하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션은 병원 행을 `FOR UPDATE`로 잠그고 `business_status=OPEN`을 확인한 뒤, 잠금을 유지한 채 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유와 `REQUESTED` 저장을 원자적으로 처리한다. 충돌한 요청은 실패시킨다(§9-3).
 
 ### reviews
 
@@ -455,7 +455,7 @@ stateDiagram-v2
 - REQUESTED 진입 전제: 프로필 + 빌링키 등록, 예약시각 4시간 전까지.
 - REJECTED: 병원 거절, 또는 승인 데드라인 경과 시 스케줄러 자동 거절(이력 `TIMEOUT_REJECTED`). 슬롯 반환, 후불이라 환불 불필요. 데드라인 = `min(요청시각+1시간, 예약시각−2시간)`.
 - CANCELED: 사용자 취소. REQUESTED·CONFIRMED 두 상태 모두 예약시각 2시간 전까지. 슬롯 반환.
-- HOSPITAL_CANCELED: 병원 스태프가 자병원의 `CONFIRMED` 예약을 진료 불가 사유와 함께 취소한다. `hospital_cancel_reason`와 `hospital_canceled_at`을 저장하고 슬롯을 `OPEN`으로 반환한다. `REQUESTED`는 병원 거절 API를 사용하며, `CHECKED_IN` 이후 상태와 종료 상태는 병원 취소 대상이 아니다. 취소 완료 후 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
+- HOSPITAL_CANCELED: 병원 스태프가 자병원의 `CONFIRMED` 예약을 진료 불가 사유와 함께 취소하거나, 정기 공공데이터 갱신에서 병원이 `OPEN → CLOSED_TEMP/CLOSED`로 전환될 때 시스템이 해당 병원의 진료 시작 전 `CONFIRMED` 예약을 자동 취소한다. 자동 취소 대상 조회와 상태 조건부 UPDATE 모두 `slot.start_at > now`를 요구하므로 `start_at == now`와 과거 예약은 제외한다. `hospital_cancel_reason`와 `hospital_canceled_at`을 저장하고 슬롯을 `OPEN`으로 반환한다. 자동 취소 이력의 `processed_by`는 NULL이다. `REQUESTED`와 `CHECKED_IN` 이후 상태 및 종료 상태는 자동 취소 대상이 아니다. 취소 완료 후 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
 - NO_SHOW_PENDING: 예약시각 +10분 초과 시 자동 진입하며 기본 5분 동안 직원 도착 확인을 허용한다. 이 단계에서는 최종 노쇼 알림을 만들지 않는다.
 - NO_SHOW: 병원은 예약 시작 시각부터 수동 확정할 수 있고, 자동 처리는 +15분 초과 시 최종 판정한다(수동 판단 우선). 정정 시 CHECKED_IN 재전이.
 - `PAYMENT_COMPLETED`는 예약 상태에 두지 않는다. 진료 종료가 종착이고, 결제 완료 여부는 Payment 상태로 표현한다.
@@ -743,7 +743,9 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 `ReservationProgressStatus` 응답 값은 `RESERVATION_REQUESTED`, `RESERVATION_CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT`, `TREATMENT_COMPLETED`, `PAYMENT_COMPLETED`, `RESERVATION_REJECTED`, `RESERVATION_CANCELED`, `NO_SHOW`이다. 내부 예약 상태 `HOSPITAL_CANCELED`는 보호자 진행 상태에서 `RESERVATION_CANCELED`로 매핑하며, 병원 취소 사유는 예약 상세의 취소 사유 필드로 제공한다. `PAYMENT_COMPLETED`는 예약 상태가 `TREATMENT_COMPLETED`이고 결제 상태가 `PAID` 또는 `OFFLINE_PAID`일 때만 파생한다.
 
-권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 병원 취소는 인증된 스태프의 소속 병원과 예약의 `hospital_id`가 일치해야 하며 요청 body의 병원 ID를 신뢰하지 않는다. 취소 요청은 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. `CONFIRMED`에서만 `HOSPITAL_CANCELED`로 전이하고, 동일 예약에 대한 재요청·다른 상태와의 경합은 조건부 UPDATE 결과로 차단한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null이고, `REJECTED`·`CANCELED`·`HOSPITAL_CANCELED`·`TREATMENT_COMPLETED`·`NO_SHOW`처럼 이미 종료된 예약이면 phone 보유 여부와 무관하게 항상 null이다(§6-6 노출 범위 참고). `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
+신규 예약 요청과 예약 승인은 병원의 현재 영업상태가 `OPEN`일 때만 허용한다. 두 경로는 공공데이터 휴·폐업 갱신과 동일한 병원 행 `FOR UPDATE` 잠금을 사용한다. 신규 요청은 잠금 아래 상태를 확인한 뒤 슬롯 점유와 예약 저장까지 같은 트랜잭션에서 수행하여, 휴·폐업 전환이 완료된 뒤 `REQUESTED` 예약이나 `REQUESTED → CONFIRMED` 전이가 성립하는 경합을 막는다.
+
+권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 병원 취소는 인증된 스태프의 소속 병원과 예약의 `hospital_id`가 일치해야 하며 요청 body의 병원 ID를 신뢰하지 않는다. 취소 요청은 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. `CONFIRMED`에서만 `HOSPITAL_CANCELED`로 전이하고, 동일 예약에 대한 재요청·다른 상태와의 경합은 조건부 UPDATE 결과로 차단한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `cancelCount`는 현재 상태가 `CANCELED` 또는 `HOSPITAL_CANCELED`인 예약을 전 병원 통합으로 합산한다. `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null이고, `REJECTED`·`CANCELED`·`HOSPITAL_CANCELED`·`TREATMENT_COMPLETED`·`NO_SHOW`처럼 이미 종료된 예약이면 phone 보유 여부와 무관하게 항상 null이다(§6-6 노출 범위 참고). `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
 
 ### 8-7. 결제
 
@@ -781,7 +783,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 검색 대상은 자체 DB(`hospitals` + `hospital_details` + `hospital_capabilities`)이고 공공데이터 실시간 호출은 없다. 조건은 `BooleanBuilder`/동적 `where`로 조합하고 null 조건은 무시한다. `requiredCapabilities` 다중 매칭은 `hospital_capabilities`를 조인해 요청 역량을 전부 가진 병원만 남긴다(AND 매칭). 축종(`supportedSpecies`)은 `capability_type='SPECIES'`의 확정 화이트리스트를 사용하며 복수 요청은 AND 매칭한다. 페이징은 count 쿼리를 분리하고 결과 DTO는 `Projections`로 직접 조회한다.
 
-반경 검색은 좌표 사각박스(좌표 ± N도)로 후보를 먼저 좁힌 뒤 애플리케이션에서 정밀 거리와 반경 포함 여부를 계산한다. 반경이 없는 거리순 검색은 MySQL `ST_Distance_Sphere`로 정렬하고 `(거리, 병원명, 병원 ID)` 순서로 DB 페이징하며, 좌표가 없는 병원은 좌표가 있는 병원 뒤에 둔다. 현재 영업 필터는 `open_hours` JSON의 요일·자정 넘김 판정 계약을 서버에 유지하되, 이름순 또는 거리순으로 정렬된 후보를 200건 단위로 읽어 요청 페이지의 결과와 전체 일치 건수만 보관한다. 따라서 무반경 거리순·현재 영업 검색은 전체 후보 목록을 한 번에 애플리케이션 메모리에 적재하지 않는다. 다만 현재 영업 검색은 정확한 `totalElements` 계산을 위해 조건 후보 전체를 끝까지 순회하므로 총 스캔 로우 수는 줄지 않고, 200건 단위 조회로 DB 왕복 횟수가 증가할 수 있다. 전국 데이터 기준 실행 계획·응답시간 측정과 영업시간 필터의 DB 전환 여부는 후속 성능 검증 대상으로 둔다. 영업상태는 폐업(`CLOSED`)을 기본 검색에서 제외하고 휴업(`CLOSED_TEMP`)은 포함하되 배지로 표시한다.
+반경 검색은 좌표 사각박스(좌표 ± N도)로 후보를 먼저 좁힌 뒤 애플리케이션에서 정밀 거리와 반경 포함 여부를 계산한다. 반경이 없는 거리순 검색은 MySQL `ST_Distance_Sphere`로 정렬하고 `(거리, 병원명, 병원 ID)` 순서로 DB 페이징하며, 좌표가 없는 병원은 좌표가 있는 병원 뒤에 둔다. 현재 영업 필터는 `open_hours` JSON의 요일·자정 넘김 판정 계약을 서버에 유지하되, 이름순 또는 거리순으로 정렬된 후보를 200건 단위로 읽어 요청 페이지의 결과와 전체 일치 건수만 보관한다. 따라서 무반경 거리순·현재 영업 검색은 전체 후보 목록을 한 번에 애플리케이션 메모리에 적재하지 않는다. 다만 현재 영업 검색은 정확한 `totalElements` 계산을 위해 조건 후보 전체를 끝까지 순회하므로 총 스캔 로우 수는 줄지 않고, 200건 단위 조회로 DB 왕복 횟수가 증가할 수 있다. 전국 데이터 기준 실행 계획·응답시간 측정과 영업시간 필터의 DB 전환 여부는 후속 성능 검증 대상으로 둔다. 일반 검색은 영업상태가 `OPEN`인 병원만 대상으로 하며 휴업(`CLOSED_TEMP`)·폐업(`CLOSED`) 병원은 Redis 캐시 HIT/MISS와 관계없이 제외한다.
 
 역량·축종·시설 필터는 제휴 병원만 대상이다. `hospital_capabilities`·`hospital_details`가 제휴 병원만 보강되므로, `requiredCapabilities`/`species`/야간·응급 조건이 걸리면 비제휴 병원은 결과에서 빠진다. 비제휴는 지역·거리 등 원본 필드 조건으로만 노출된다. 그래서 AI가 역량 조건으로 검색하면 사실상 제휴 병원이 추천되고 비제휴는 "인근 참고 병원"으로만 함께 보인다.
 
@@ -914,7 +916,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 ## 9-6. 공공데이터 배치 적재·2계층 매핑
 
-스케줄러가 전국 공공데이터를 수집해 `hospitals`에 적재·갱신한다. 조인 키는 `local_gov_code + mgmt_no`. 제휴 매핑은 운영 제휴 데이터를 같은 복합 키로 조인해 `partnership_status=PARTNER`로 표시하고 `hospital_details`·`hospital_capabilities`를 보강한다. 비제휴는 원본만 유지(`NON_PARTNER`)해 참고용으로 노출하고 예약은 막는다. 매주 월요일 03:00(`Asia/Seoul`)에 갱신하며, 여러 인스턴스의 중복 실행은 MySQL `GET_LOCK`으로 막는다. 외부 제휴 시스템이 생기기 전에는 저장소의 제휴 JSON을 재적용하고 임의의 제휴 API 계약은 만들지 않는다. 갱신 완료 후 기본 첫 페이지 Redis 캐시를 삭제하며, 캐시 삭제 실패는 원천 데이터 갱신을 실패시키지 않는다.
+스케줄러가 전국 공공데이터를 수집해 `hospitals`에 적재·갱신한다. 조인 키는 `local_gov_code + mgmt_no`. 제휴 매핑은 최초 데이터 구축에서만 저장소의 제휴 JSON을 같은 복합 키로 조인해 `partnership_status=PARTNER`로 표시하고 `hospital_details`·`hospital_capabilities`를 보강한다. 비제휴는 원본만 유지(`NON_PARTNER`)해 참고용으로 노출하고 예약은 막는다. 매일 03:00(`Asia/Seoul`) 갱신은 공공 원천 기본정보와 `business_status`만 갱신하고 제휴 JSON을 재적용하지 않는다. 병원별 갱신은 해당 병원 행을 `FOR UPDATE`로 잠그며 신규 예약 요청·승인과 같은 잠금을 공유한다. 이번 갱신에서 병원이 `OPEN → CLOSED_TEMP/CLOSED`로 전환되면 §5-1에 따라 `slot.start_at > now`인 `CONFIRMED` 예약만 `HOSPITAL_CANCELED`로 자동 취소하고, 조건부 UPDATE에도 같은 시간 조건을 적용한다. 여러 인스턴스의 중복 실행은 MySQL `GET_LOCK`으로 막는다. 갱신 완료 후 기본 첫 페이지 Redis 캐시를 삭제하며, 캐시 삭제 실패는 원천 데이터 갱신을 실패시키지 않는다.
 
 ## 9-7. 스케줄러
 
@@ -923,7 +925,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 | 노쇼 자동 판정 | 1분 | CONFIRMED 중 예약시각+10분 초과·미체크인 → NO_SHOW_PENDING, 기본 추가 유예 5분 초과 → NO_SHOW(수동 판정 우선, 최종 전이에만 보호자 알림) |
 | 예약 요청 타임아웃 | 1분 | REQUESTED 중 승인 데드라인(`min(요청+1h, 예약−2h)`) 경과·미승인 → 자동 REJECTED, 슬롯 반환 |
 | 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정. 단, 사유가 `AMOUNT_MISMATCH`/`INVALID_PG_RESULT`인 `PENDING`은 자동 확정하지 않고 운영자 수동 확인 대상으로 분류(금액·식별자 정합성이 깨져 자동 확정 시 잘못된 금액 확정 위험) |
-| 공공데이터 적재 | 매주 월요일 03:00(`Asia/Seoul`) | 전국 공공데이터 갱신 후 제휴 데이터를 재적용하고 검색 캐시를 삭제한다 (§9-6) |
+| 공공데이터 적재 | 매일 03:00(`Asia/Seoul`) | 전국 공공 원천정보 갱신, 휴·폐업 전환 병원의 시작 전 `CONFIRMED` 예약 자동 취소 후 검색 캐시를 삭제한다 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
 
 노쇼 배치는 한 예약이 같은 실행에서 `CONFIRMED → NO_SHOW_PENDING → NO_SHOW`로 연달아 전이될 수 있다. 따라서 `maxScannedPerRun`은 조회·전이 시도 횟수 상한이며, `processed`는 한 번 이상 상태 전이에 성공한 예약 수를 뜻한다. `AUTO_NO_SHOW_PENDING`과 `AUTO_NO_SHOW`의 실제 전이 건수는 `reservation_events` 상태 이력으로 확인한다.
@@ -944,9 +946,9 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 기존 슬롯의 `business_date`는 최초 컬럼 추가 시 `date(start_at)`으로 채운 뒤, 후속 일회성 마이그레이션이 `hospital_details.open_hours`의 기존 야간 운영시간과 슬롯 시작 시각을 비교해 자정 이후 슬롯을 전날 영업일로 보정한다. 예를 들어 월요일 `20:00~02:00` 운영에서 화요일 01:00 슬롯의 `business_date`는 월요일이다. 보정은 슬롯 상태와 무관하게 `OPEN`과 `RESERVED` 모두에 적용하며 완료 여부는 `schema_migrations`의 `reservation_slot_overnight_business_date_v2`로 기록한다.
 
-진료시간 변경 요청은 희망 적용일을 받으며, 희망 적용일의 최솟값은 `Asia/Seoul` 기준 요청일의 다음 날이다. 서버는 요청 시점의 공개 범위(`오늘~오늘+13일`)에 존재하는 해당 병원의 `RESERVED` 슬롯을 `business_date` 기준으로 확인한다. 따라서 마지막 공개 영업일에 속하지만 `start_at`은 다음 날 자정 이후인 야간 예약도 가장 늦은 예약일 계산에 포함한다. 예약이 없으면 희망 적용일부터 변경하고, 예약이 있으면 `max(희망 적용일, 가장 늦은 예약 영업일+1일)`을 실제 적용일로 정한다. 공개 슬롯 교체 전 잠금도 같은 `business_date` 범위를 사용해 야간 예약을 누락하지 않는다. 실제 적용일 전날까지 기존 진료시간과 슬롯을 유지하며, 적용일부터 `OPEN` 슬롯만 제거한 뒤 새 진료시간 기준으로 재생성한다. `RESERVED` 슬롯은 삭제·이동·자동 취소하지 않는다. 적용일이 현재 공개 범위 밖이면 새 정책을 저장해 두고 해당 날짜가 공개 범위에 들어올 때부터 사용한다.
+진료시간 변경 요청은 희망 적용일을 받으며, 희망 적용일의 최솟값은 `Asia/Seoul` 기준 요청일의 다음 날이다. 서버는 요청 시점의 공개 범위(`오늘~오늘+13일`)에 존재하는 해당 병원의 `RESERVED` 슬롯을 `business_date` 기준으로 확인한다. 따라서 마지막 공개 영업일에 속하지만 `start_at`은 다음 날 자정 이후인 야간 예약도 가장 늦은 예약일 계산에 포함한다. 예약이 없으면 희망 적용일부터 변경하고, 예약이 있으면 `max(희망 적용일, 가장 늦은 예약 영업일+1일)`을 실제 적용일로 정한다. 공개 슬롯 교체 전 잠금도 같은 `business_date` 범위를 사용해 야간 예약을 누락하지 않는다. 실제 적용일 전날까지 기존 진료시간과 슬롯을 유지하며, 적용일부터 `OPEN` 슬롯만 제거한 뒤 새 진료시간 기준으로 재생성한다. `RESERVED` 슬롯은 삭제·이동·자동 취소하지 않는다. 적용일이 현재 공개 범위 밖이면 새 정책을 저장해 두고 해당 날짜가 공개 범위에 들어올 때부터 사용한다. 진료시간 교체는 병원 행 잠금 아래 `business_status=OPEN`일 때만 신규 슬롯을 생성한다.
 
-특정일 임시 휴무는 정기 진료시간과 별도로 저장하며, 요청일 다음 날 이후라면 14일 공개 범위 밖의 미래 날짜도 등록할 수 있다. 휴무 날짜는 `Asia/Seoul` 기준 운영 구간이 시작하는 `영업 기준일`이고 정기 진료시간보다 우선한다. 일반 구간은 시작·종료 시각이 모두 영업 기준일 안에 있고, 야간 구간은 영업 기준일에 시작해 다음 날 종료하더라도 하나의 영업일에 속한다. 예를 들어 15일 휴무와 `20:00~02:00` 운영시간이 겹치면 14일 20:00~15일 02:00 구간은 유지하고, 15일 20:00~16일 02:00 구간 전체를 생성하지 않는다. 해당 영업일에 속한 `RESERVED` 슬롯이 하나라도 있으면 휴무 등록을 거부한다. 예약이 없고 해당 영업일의 `OPEN` 슬롯이 이미 생성돼 있으면 휴무 등록과 함께 제거하며, 아직 슬롯이 생성되지 않았다면 향후 배치가 그 영업일을 건너뛴다. 기존 예약을 자동 취소하거나 다른 날짜로 옮기는 처리는 하지 않는다.
+특정일 임시 휴무는 정기 진료시간과 별도로 저장하며, 요청일 다음 날 이후라면 14일 공개 범위 밖의 미래 날짜도 등록할 수 있다. 휴무 날짜는 `Asia/Seoul` 기준 운영 구간이 시작하는 `영업 기준일`이고 정기 진료시간보다 우선한다. 일반 구간은 시작·종료 시각이 모두 영업 기준일 안에 있고, 야간 구간은 영업 기준일에 시작해 다음 날 종료하더라도 하나의 영업일에 속한다. 예를 들어 15일 휴무와 `20:00~02:00` 운영시간이 겹치면 14일 20:00~15일 02:00 구간은 유지하고, 15일 20:00~16일 02:00 구간 전체를 생성하지 않는다. 해당 영업일에 속한 `RESERVED` 슬롯이 하나라도 있으면 휴무 등록을 거부한다. 예약이 없고 해당 영업일의 `OPEN` 슬롯이 이미 생성돼 있으면 휴무 등록과 함께 제거하며, 아직 슬롯이 생성되지 않았다면 향후 배치가 그 영업일을 건너뛴다. 기존 예약을 자동 취소하거나 다른 날짜로 옮기는 처리는 하지 않는다. 임시 휴무 취소 후 슬롯 복구도 병원 행 잠금 아래 `business_status=OPEN`인 경우에만 실행한다. 일 배치 역시 같은 잠금과 상태 조건을 사용하므로 `CLOSED_TEMP`·`CLOSED` 병원에는 어떤 경로에서도 신규 슬롯을 만들지 않는다.
 
 공개 병원 검색·상세와 AI 추천의 `openNow` 판정에서도 임시 휴무가 정기 진료시간보다 우선한다. 자정 이후 이어지는 야간 진료는 현재 달력 날짜가 아니라 그 운영 구간이 시작한 전날 영업 기준일의 임시 휴무를 적용하며, 요일별 정기 운영시간 응답 자체는 변경하지 않는다.
 
@@ -1085,7 +1087,7 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, 단방향 SSE 실시간 알림, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
+확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 매일 03:00에 갱신한다. 낙관적 락, Redis 검색 캐시, 단방향 SSE 실시간 알림, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
 
 남은 것:
 

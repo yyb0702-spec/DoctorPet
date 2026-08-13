@@ -61,7 +61,7 @@ public-data:
     service-key: ${PUBLIC_DATA_SERVICE_KEY:}
     seed-enabled: ${PUBLIC_DATA_SEED_ENABLED:false}
     refresh-enabled: ${PUBLIC_DATA_REFRESH_ENABLED:true}
-    refresh-cron: ${PUBLIC_DATA_REFRESH_CRON:0 0 3 * * MON}
+    refresh-cron: ${PUBLIC_DATA_REFRESH_CRON:0 0 3 * * *}
     refresh-max-attempts: ${PUBLIC_DATA_REFRESH_MAX_ATTEMPTS:3}
     refresh-retry-delay: ${PUBLIC_DATA_REFRESH_RETRY_DELAY:5m}
     page-size: 100

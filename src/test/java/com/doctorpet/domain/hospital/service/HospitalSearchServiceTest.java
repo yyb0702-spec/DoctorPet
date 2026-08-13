@@ -94,7 +94,7 @@ class HospitalSearchServiceTest {
         Hospital first = createHospital(
                 1L,
                 "가병원",
-                BusinessStatus.CLOSED_TEMP,
+                BusinessStatus.OPEN,
                 false,
                 "126.9700",
                 "37.5600"

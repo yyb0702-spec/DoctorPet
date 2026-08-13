@@ -30,6 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Level 1 — 결제수단 서비스 단위 검증(Mockito). 게이트웨이·암호화·저장소는 목으로 대체한다.
@@ -74,6 +75,27 @@ class PaymentMethodServiceTest {
         assertThat(response.cardBrand()).isEqualTo("SHINHAN");
         assertThat(response.cardLast4()).isEqualTo("1234");
         assertThat(response.status()).isEqualTo("ACTIVE");
+        assertThat(response.isDefault()).isTrue();
+    }
+
+    @Test
+    @DisplayName("기존 활성 결제수단이 있고 기본값이 비어 있어도 신규 등록분을 기본값으로 만들지 않는다")
+    void register_existingActivePaymentMethod_doesNotAssignDefault() {
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");
+        given(paymentGateway.verifyBillingKey("valid_billing_key"))
+                .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234"));
+        given(billingKeyCryptor.encrypt("valid_billing_key")).willReturn("v1:encrypted");
+        given(paymentMethodRepository.existsByMemberIdAndStatus(MEMBER_ID, PaymentMethodStatus.ACTIVE))
+                .willReturn(true);
+        given(paymentMethodRepository.save(any(PaymentMethod.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentMethodResponse response = paymentMethodService.register(MEMBER_ID, request);
+
+        ArgumentCaptor<PaymentMethod> captor = ArgumentCaptor.forClass(PaymentMethod.class);
+        verify(paymentMethodRepository).save(captor.capture());
+        assertThat(captor.getValue().isDefaultPaymentMethod()).isFalse();
+        assertThat(response.isDefault()).isFalse();
     }
 
     @Test
@@ -129,6 +151,8 @@ class PaymentMethodServiceTest {
         given(paymentGateway.verifyBillingKey("valid_billing_key"))
                 .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234"));
         given(billingKeyCryptor.encrypt("valid_billing_key")).willReturn("v1:encrypted");
+        given(paymentMethodRepository.existsByMemberIdAndStatus(MEMBER_ID, PaymentMethodStatus.ACTIVE))
+                .willReturn(false, true);
         given(paymentMethodRepository.save(any(PaymentMethod.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -190,5 +214,42 @@ class PaymentMethodServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("기본 결제수단을 변경하면 기존 기본값은 해제되고 대상만 기본값이 된다")
+    void setDefault_changesOnlyTarget() {
+        PaymentMethod previous = paymentMethod(10L, "1111");
+        previous.markDefault();
+        PaymentMethod target = paymentMethod(11L, "2222");
+        given(paymentMethodRepository.findActiveByMemberIdForUpdate(MEMBER_ID))
+                .willReturn(List.of(previous, target));
+
+        PaymentMethodResponse response = paymentMethodService.setDefault(MEMBER_ID, 11L);
+
+        assertThat(previous.isDefaultPaymentMethod()).isFalse();
+        assertThat(target.isDefaultPaymentMethod()).isTrue();
+        assertThat(response.id()).isEqualTo(11L);
+        assertThat(response.isDefault()).isTrue();
+    }
+
+    @Test
+    @DisplayName("삭제된 결제수단은 기본값으로 지정할 수 없다")
+    void setDefault_deletedPaymentMethod_throws() {
+        PaymentMethod deleted = paymentMethod(10L, "1111");
+        deleted.markDeleted();
+        given(paymentMethodRepository.findActiveByMemberIdForUpdate(MEMBER_ID)).willReturn(List.of());
+        given(paymentMethodRepository.findByIdAndMemberId(10L, MEMBER_ID)).willReturn(Optional.of(deleted));
+
+        assertThatThrownBy(() -> paymentMethodService.setDefault(MEMBER_ID, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_ACTIVE);
+    }
+
+    private PaymentMethod paymentMethod(Long id, String last4) {
+        PaymentMethod paymentMethod = PaymentMethod.issue(MEMBER_ID, "v1:" + id, "SHINHAN", last4);
+        ReflectionTestUtils.setField(paymentMethod, "id", id);
+        return paymentMethod;
     }
 }

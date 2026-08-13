@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
@@ -59,6 +61,9 @@ class HospitalReservationApplicationServiceTest {
     private MemberService memberService;
 
     @Mock
+    private HospitalService hospitalService;
+
+    @Mock
     private ReservationRepository reservationRepository;
 
     @Mock
@@ -79,6 +84,7 @@ class HospitalReservationApplicationServiceTest {
         noShowProperties.setPendingGraceMinutes(5);
         hospitalReservationService = new HospitalReservationApplicationService(
                 memberService,
+                hospitalService,
                 reservationRepository,
                 reservationSlotRepository,
                 reservationEventRepository,
@@ -262,7 +268,7 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation));
         given(reservationRepository.cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
         ReservationSlot reservedSlot = slot();
         given(reservationSlotRepository.findById(SLOT_ID))
@@ -275,7 +281,7 @@ class HospitalReservationApplicationServiceTest {
         );
 
         verify(reservationRepository).cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         );
         verify(reservationSlotRepository).findById(SLOT_ID);
         assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
@@ -307,7 +313,7 @@ class HospitalReservationApplicationServiceTest {
 
         verify(memberService, never()).getMyInfo(any());
         verify(reservationRepository, never()).cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 
@@ -320,7 +326,7 @@ class HospitalReservationApplicationServiceTest {
                         ReservationStatus.REQUESTED
                 )));
         given(reservationRepository.cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(0);
 
         assertThatThrownBy(() -> hospitalReservationService.cancelConfirmedByHospital(
@@ -915,6 +921,80 @@ class HospitalReservationApplicationServiceTest {
                 .extracting("guardianPhone")
                 .isNull();
         verify(memberService, never()).getPhonesByMemberIds(any());
+        verify(reservationRepository).findHistoryAggregates(
+                any(),
+                eq(ReservationStatus.TREATMENT_COMPLETED),
+                eq(List.of(
+                        ReservationStatus.CANCELED,
+                        ReservationStatus.HOSPITAL_CANCELED
+                )),
+                eq(ReservationStatus.NO_SHOW)
+        );
+    }
+
+    @Test
+    void businessStatusChangeCancelsConfirmedReservationAsSystem() {
+        Reservation reservation = reservationWithStatus(
+                HOSPITAL_ID,
+                ReservationStatus.CONFIRMED
+        );
+        given(reservationRepository.findAllCancelableByHospitalIdAndStatus(
+                eq(HOSPITAL_ID),
+                eq(ReservationStatus.CONFIRMED),
+                any()
+        )).willReturn(List.of(reservation));
+        given(reservationRepository.cancelIfConfirmedByHospital(
+                any(), any(), any(), any(), any(), any(), any(), any()
+        )).willReturn(1);
+        ReservationSlot reservedSlot = slot();
+        given(reservationSlotRepository.findById(SLOT_ID))
+                .willReturn(Optional.of(reservedSlot));
+
+        int canceledCount = hospitalReservationService
+                .cancelConfirmedByBusinessStatusChange(
+                        HOSPITAL_ID,
+                        "공공데이터에서 병원 휴업이 확인되었습니다."
+                );
+
+        assertThat(canceledCount).isEqualTo(1);
+        assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
+        verify(reservationEventRepository).appendIfAbsent(
+                eq(RESERVATION_ID),
+                eq(ReservationEventType.HOSPITAL_CANCELED.name()),
+                eq("공공데이터에서 병원 휴업이 확인되었습니다."),
+                isNull(),
+                any()
+        );
+        verify(notificationPublisher).publishHospitalCanceled(
+                1L,
+                RESERVATION_ID,
+                "공공데이터에서 병원 휴업이 확인되었습니다."
+        );
+    }
+
+    @Test
+    @DisplayName("휴업 또는 폐업한 병원은 예약을 승인할 수 없다")
+    void approve_inactiveHospital_throwsApprovalNotAvailable() {
+        org.mockito.Mockito.doThrow(new ServiceException(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+                ))
+                .when(hospitalService)
+                .assertReservationApprovalAvailable(HOSPITAL_ID);
+
+        assertThatThrownBy(() -> hospitalReservationService.approve(
+                STAFF_ID,
+                RESERVATION_ID
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+                );
+
+        verify(reservationRepository, never()).findById(any());
+        verify(reservationRepository, never()).approveIfRequested(
+                any(), any(), any(), any(), any(), any()
+        );
     }
 
     private Reservation reservation(Long hospitalId) {

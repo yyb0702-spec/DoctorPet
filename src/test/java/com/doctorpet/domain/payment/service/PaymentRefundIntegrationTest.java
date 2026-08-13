@@ -671,6 +671,8 @@ class PaymentRefundIntegrationTest {
         // 예약 port는 아래 정산 호출보다 먼저 스텁돼야 한다.
         given(reservationLookupPort.findForCharge(reservationId)).willReturn(Optional.of(
                 new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, 7L, true)));
+        given(reservationLookupPort.findForChargeForUpdate(reservationId)).willReturn(Optional.of(
+                new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, 7L, true)));
         if (status == PaymentStatus.OFFLINE_PAID) {
             // 조건부 UPDATE는 트랜잭션 안에서만 동작하므로 실제 정산 경로(#36)로 전이시킨다.
             paymentOfflineSettleTxService.settle(paymentId, STAFF_MEMBER_ID);

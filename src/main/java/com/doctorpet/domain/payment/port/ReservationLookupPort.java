@@ -16,4 +16,7 @@ public interface ReservationLookupPort {
      * (진료 완료·자병원 여부의 판단은 반환값을 받은 상위 서비스가 수행한다.)
      */
     Optional<ReservationChargeView> findForCharge(Long reservationId);
+
+    /** 청구 선기록 동안 결제수단 재지정과 직렬화할 예약 행 락 조회다. */
+    Optional<ReservationChargeView> findForChargeForUpdate(Long reservationId);
 }

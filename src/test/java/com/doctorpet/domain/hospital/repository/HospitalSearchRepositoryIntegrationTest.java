@@ -254,7 +254,7 @@ class HospitalSearchRepositoryIntegrationTest {
     }
 
     @Test
-    void 폐업을_제외하고_요청한_역량을_모두_가진_병원만_조회한다() {
+    void 휴업과_폐업을_제외하고_요청한_역량을_모두_가진_OPEN_병원만_조회한다() {
         Hospital matched = saveHospital(
                 "MATCHED",
                 "닥터펫 동물병원",
@@ -271,6 +271,12 @@ class HospitalSearchRepositoryIntegrationTest {
                 "CLOSED",
                 "닥터펫 폐업병원",
                 BusinessStatus.CLOSED,
+                true
+        );
+        Hospital temporarilyClosed = saveHospital(
+                "CLOSED-TEMP",
+                "닥터펫 휴업병원",
+                BusinessStatus.CLOSED_TEMP,
                 true
         );
 
@@ -293,6 +299,14 @@ class HospitalSearchRepositoryIntegrationTest {
                 ),
                 HospitalCapability.create(
                         closed,
+                        CapabilityValue.XRAY
+                ),
+                HospitalCapability.create(
+                        temporarilyClosed,
+                        CapabilityValue.DOG
+                ),
+                HospitalCapability.create(
+                        temporarilyClosed,
                         CapabilityValue.XRAY
                 )
         ));
