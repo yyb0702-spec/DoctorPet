@@ -14,7 +14,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** 공공데이터 최초 적재와 주간 갱신의 책임을 분리합니다. */
+/** 공공데이터 최초 적재와 정기 갱신의 책임을 분리합니다. */
 @Service
 @RequiredArgsConstructor
 public class AnimalHospitalRefreshService {
@@ -28,7 +28,7 @@ public class AnimalHospitalRefreshService {
     private final HospitalSlotGenerationBatchService slotGenerationBatchService;
     private final Clock applicationClock;
 
-    /** 주간 갱신은 공공 원천 기본정보만 갱신하며 제휴 초기값을 다시 적용하지 않습니다. */
+    /** 정기 갱신은 공공 원천 기본정보만 갱신하며 제휴 초기값을 다시 적용하지 않습니다. */
     public AnimalHospitalRefreshResult refresh() {
         AnimalHospitalCollectionResult collectionResult =
                 collectionService.collectNationwide();
