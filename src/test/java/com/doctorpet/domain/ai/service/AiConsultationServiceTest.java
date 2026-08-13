@@ -26,6 +26,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.review.dto.response.HospitalReviewEvidence;
 import com.doctorpet.domain.review.dto.response.ReviewExcerpt;
@@ -504,6 +505,78 @@ class AiConsultationServiceTest {
                 1L, null, null, latitude, longitude, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
                 true, null, false, true, 1, 20, "distance"
+        );
+    }
+
+    @Test
+    @DisplayName("엄격 검색 후보가 부족하면 OR 검색으로 추천 후보만 보충한다")
+    void consult_toolCallingGateway_supplementsOnlyRecommendationCandidates() {
+        AiAnalysisResult result = result(List.of("XRAY", "ULTRASOUND"));
+        HospitalSearchResponse strict = hospital(10L, "엄격 일치 병원", "1.0");
+        HospitalSearchResponse partialOne = hospital(20L, "부분 일치 병원 1", "2.0");
+        HospitalSearchResponse partialTwo = hospital(30L, "부분 일치 병원 2", "3.0");
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    result,
+                    null,
+                    false,
+                    false,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    result,
+                    false,
+                    true,
+                    true,
+                    List.of(
+                            recommendation(10L, 5),
+                            recommendation(20L, 4),
+                            recommendation(30L, 3)
+                    )
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(strict), 1, 20, 1, 1));
+        given(hospitalService.hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.ANY
+        )).willReturn(HospitalSearchPageResponse.of(
+                List.of(strict, partialOne, partialTwo),
+                1,
+                20,
+                3,
+                1
+        ));
+        given(hospitalService.getCapabilitiesByHospitalIds(List.of(10L, 20L, 30L)))
+                .willReturn(Map.of(
+                        10L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY,
+                                CapabilityValue.ULTRASOUND),
+                        20L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY),
+                        30L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY)
+                ));
+        given(reviewQueryService.getEvidenceByHospitalIds(List.of(10L, 20L, 30L)))
+                .willReturn(Map.of());
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("검사 가능한 병원을 찾아줘", PetSpecies.DOG, "서울")
+        );
+
+        assertThat(response.hospitals()).containsExactly(strict);
+        assertThat(response.recommendations())
+                .extracting(recommendation -> recommendation.hospital().hospitalId())
+                .containsExactly(10L, 20L, 30L);
+        verify(hospitalService).hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.ANY
         );
     }
 

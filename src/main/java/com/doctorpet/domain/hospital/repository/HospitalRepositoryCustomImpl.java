@@ -20,7 +20,6 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.List;
 
 import static com.doctorpet.domain.hospital.entity.QHospital.hospital;
@@ -259,49 +258,55 @@ public class HospitalRepositoryCustomImpl
             HospitalSearchCondition condition,
             CapabilityMatchMode capabilityMatchMode
     ) {
-        List<CapabilityValue> requiredCapabilities = new ArrayList<>(
-                        condition.requiredCapabilities()
-                );
-        requiredCapabilities.addAll(condition.supportedSpecies());
+        BooleanExpression capabilityExpression = capabilityMatchMode == CapabilityMatchMode.ANY
+                ? containsAnyCapability(condition.requiredCapabilities(), "searchCapability")
+                : containsAllCapabilities(condition.requiredCapabilities(), "searchCapability");
+        BooleanExpression speciesExpression = containsAllCapabilities(
+                condition.supportedSpecies(),
+                "searchSpecies"
+        );
 
-        if (requiredCapabilities.isEmpty()) {
+        if (capabilityExpression == null) {
+            return speciesExpression;
+        }
+        if (speciesExpression == null) {
+            return capabilityExpression;
+        }
+        return capabilityExpression.and(speciesExpression);
+    }
+
+    private BooleanExpression containsAnyCapability(
+            List<CapabilityValue> capabilities,
+            String alias
+    ) {
+        if (capabilities.isEmpty()) {
             return null;
         }
-
-        // 서브쿼리에서 hospital_capabilities 테이블을 searchCapability이라는 이름으로 사용합니다.
-        QHospitalCapability capability =
-                new QHospitalCapability("searchCapability");
-
-        if (capabilityMatchMode == CapabilityMatchMode.ANY) {
-            return hospital.id.in(
-                    JPAExpressions
-                            .select(capability.hospital.id)
-                            .from(capability)
-                            .where(capability.capabilityValue.in(requiredCapabilities))
-            );
-        }
-
-        // 같은 역량이 중복 요청되어도 한 종류로 계산합니다.
-        long requiredCount = requiredCapabilities.stream()
-                .distinct()
-                .count();
-
-        // 서브쿼리가 반환한 병원 ID 목록에 현재 병원 ID가 포함되는지 검사합니다.
+        QHospitalCapability capability = new QHospitalCapability(alias);
         return hospital.id.in(
                 JPAExpressions
-                        // 요청 역량 중 하나 이상을 가진 병원의 ID를 조회합니다.
                         .select(capability.hospital.id)
                         .from(capability)
-                        .where(capability.capabilityValue.in(
-                                requiredCapabilities
-                        ))
-                        // 병원마다 요청 역량과 일치한 개수를 계산하기 위해 병원 ID로 묶습니다.
+                        .where(capability.capabilityValue.in(capabilities))
+        );
+    }
+
+    private BooleanExpression containsAllCapabilities(
+            List<CapabilityValue> capabilities,
+            String alias
+    ) {
+        if (capabilities.isEmpty()) {
+            return null;
+        }
+        QHospitalCapability capability = new QHospitalCapability(alias);
+        long requiredCount = capabilities.stream().distinct().count();
+        return hospital.id.in(
+                JPAExpressions
+                        .select(capability.hospital.id)
+                        .from(capability)
+                        .where(capability.capabilityValue.in(capabilities))
                         .groupBy(capability.hospital.id)
-                        .having(
-                                // 일치한 역량 수가 요청 수와 같으면 요청 역량을 모두 가진 병원입니다.
-                                capability.capabilityValue.countDistinct()
-                                        .eq(requiredCount)
-                        )
+                        .having(capability.capabilityValue.countDistinct().eq(requiredCount))
         );
     }
 

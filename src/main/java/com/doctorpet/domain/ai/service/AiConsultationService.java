@@ -12,6 +12,7 @@ import com.doctorpet.domain.ai.support.AiHospitalSearchIntentExtractor;
 import com.doctorpet.domain.ai.support.EmergencyKeywordDetector;
 import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
@@ -36,6 +37,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +59,7 @@ public class AiConsultationService {
 
     private static final int HOSPITAL_SEARCH_PAGE = 1;
     private static final int HOSPITAL_SEARCH_SIZE = 20;
+    private static final int RECOMMENDATION_COUNT = 3;
     private static final String DISCLAIMER =
             "AI 분석은 참고용이며 진단이나 처방을 대신하지 않습니다. 정확한 판단은 동물병원에서 받아 주세요.";
     private static final String SUCCESS_MESSAGE = "증상을 바탕으로 필요한 진료역량을 정리했습니다.";
@@ -493,16 +496,26 @@ public class AiConsultationService {
                 call.sort() == HospitalSearchSort.DISTANCE
         );
         try {
-            state.updateHospitals(searchHospitals(
+            List<HospitalSearchResponse> hospitals = searchHospitals(
                     memberId,
                     request,
                     call.analysis(),
                     intent,
                     emergency,
                     CapabilityMatchMode.ALL
-            ));
+            );
+            state.updateHospitals(hospitals);
+            List<HospitalSearchResponse> recommendationCandidates =
+                    supplementRecommendationCandidates(
+                            memberId,
+                            request,
+                            call.analysis(),
+                            intent,
+                            emergency,
+                            hospitals
+                    );
             List<AiHospitalCandidateEvidence> candidates =
-                    buildCandidateEvidence(state.hospitals());
+                    buildCandidateEvidence(recommendationCandidates);
             state.updateCandidates(candidates);
             return objectMapper.writeValueAsString(Map.of(
                     "hospitals",
@@ -521,6 +534,37 @@ public class AiConsultationService {
                     exception
             );
         }
+    }
+
+    private List<HospitalSearchResponse> supplementRecommendationCandidates(
+            Long memberId,
+            AiConsultationRequest request,
+            AiAnalysisResult result,
+            AiHospitalSearchIntent intent,
+            boolean emergency,
+            List<HospitalSearchResponse> strictCandidates
+    ) {
+        if (strictCandidates.size() >= RECOMMENDATION_COUNT
+                || result.requiredCapabilities().isEmpty()) {
+            return strictCandidates;
+        }
+
+        Map<Long, HospitalSearchResponse> candidatesByHospitalId = new LinkedHashMap<>();
+        strictCandidates.forEach(candidate ->
+                candidatesByHospitalId.put(candidate.hospitalId(), candidate));
+        searchHospitals(
+                memberId,
+                request,
+                result,
+                intent,
+                emergency,
+                CapabilityMatchMode.ANY
+        ).forEach(candidate ->
+                candidatesByHospitalId.putIfAbsent(candidate.hospitalId(), candidate));
+
+        return candidatesByHospitalId.values().stream()
+                .limit(RECOMMENDATION_COUNT)
+                .toList();
     }
 
     private List<AiHospitalCandidateEvidence> buildCandidateEvidence(
@@ -597,13 +641,34 @@ public class AiConsultationService {
             boolean emergency,
             CapabilityMatchMode capabilityMatchMode
     ) {
-        if (capabilityMatchMode != CapabilityMatchMode.ALL) {
-            throw new UnsupportedOperationException(
-                    "진료역량 완화 검색 호출 경로가 아직 연결되지 않았습니다."
-            );
-        }
         boolean distanceSort = hasLocation(request)
                 && (emergency || intent.distance());
+        if (capabilityMatchMode == CapabilityMatchMode.ANY) {
+            HospitalSearchPageResponse response =
+                    hospitalService.hospitalSearchWithCapabilityMatchMode(
+                            memberId,
+                            null,
+                            request.region(),
+                            request.latitude(),
+                            request.longitude(),
+                            null,
+                            result.requiredCapabilities(),
+                            List.of(request.species().name()),
+                            null,
+                            null,
+                            intent.nightCare() ? true : null,
+                            emergency ? true : null,
+                            false,
+                            intent.openNow(),
+                            HOSPITAL_SEARCH_PAGE,
+                            HOSPITAL_SEARCH_SIZE,
+                            (distanceSort
+                                    ? HospitalSearchSort.DISTANCE
+                                    : HospitalSearchSort.NAME).requestValue(),
+                            capabilityMatchMode
+                    );
+            return response == null ? List.of() : response.content();
+        }
         return hospitalService.hospitalSearch(
                 memberId,
                 null,

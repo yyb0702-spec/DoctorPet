@@ -345,11 +345,22 @@ class HospitalSearchRepositoryIntegrationTest {
                 BusinessStatus.OPEN,
                 true
         );
+        Hospital wrongSpecies = saveHospital(
+                "ANY-WRONG-SPECIES",
+                "역량OR검색 축종불일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
         hospitalCapabilityRepository.saveAll(List.of(
+                HospitalCapability.create(allMatched, CapabilityValue.DOG),
                 HospitalCapability.create(allMatched, CapabilityValue.XRAY),
                 HospitalCapability.create(allMatched, CapabilityValue.ULTRASOUND),
+                HospitalCapability.create(partiallyMatched, CapabilityValue.DOG),
                 HospitalCapability.create(partiallyMatched, CapabilityValue.XRAY),
-                HospitalCapability.create(notMatched, CapabilityValue.BLOOD_TEST)
+                HospitalCapability.create(notMatched, CapabilityValue.DOG),
+                HospitalCapability.create(notMatched, CapabilityValue.BLOOD_TEST),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.CAT),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.XRAY)
         ));
         hospitalCapabilityRepository.flush();
 
@@ -360,7 +371,7 @@ class HospitalSearchRepositoryIntegrationTest {
                 null,
                 null,
                 List.of(CapabilityValue.XRAY, CapabilityValue.ULTRASOUND),
-                List.of(),
+                List.of(CapabilityValue.DOG),
                 null,
                 null,
                 null,
