@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
 import { PaymentStatus } from '@/types/enums'
+import { ChatPanel } from '@/features/chat/ChatPanel'
 
 interface LocationState {
   item?: StaffReservationListItem
@@ -215,6 +216,11 @@ export function StaffReservationDetailPage() {
           </p>
         </CardContent>
       </Card>
+
+      <ChatPanel
+        reservationId={id}
+        reservationStatus={item.reservationStatus}
+      />
 
       <PaymentSection reservationId={id} />
 

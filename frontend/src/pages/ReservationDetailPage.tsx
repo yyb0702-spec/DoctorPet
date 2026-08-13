@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { PaymentChannel, PaymentStatus, ReservationStatus } from '@/types/enums'
 import type { PaymentStatus as PaymentStatusType } from '@/types/enums'
 import { ApiError } from '@/lib/api/error'
+import { ChatPanel } from '@/features/chat/ChatPanel'
 
 // 취소 가능한 예약 상태 (SA §5-1: REQUESTED·CONFIRMED, 서버가 리드타임 최종 검증).
 const CANCELABLE: ReservationStatus[] = [
@@ -254,6 +255,11 @@ export function ReservationDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      <ChatPanel
+        reservationId={r.reservationId}
+        reservationStatus={r.reservationStatus}
+      />
 
       {/* 취소 (REQUESTED·CONFIRMED) */}
       {cancelable && (

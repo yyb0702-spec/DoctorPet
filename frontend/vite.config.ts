@@ -20,6 +20,12 @@ export default defineConfig({
         target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:8080',
         changeOrigin: true,
       },
+      // 채팅은 native WebSocket + STOMP 전용 경로다. API 프록시와 분리해 Upgrade를 전달한다.
+      '/ws/chat': {
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
   test: {

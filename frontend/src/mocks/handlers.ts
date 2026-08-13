@@ -133,6 +133,14 @@ export const handlers = [
     )
   }),
 
+  // 예약당 채팅 — dev:mock에서는 이력만 빈 상태로 보여 주고 실제 STOMP 연결은 시도하지 않는다.
+  http.get(`${BASE}/reservations/:reservationId/chat/messages`, () =>
+    ok({ messages: [], nextAfterMessageId: null, hasNext: false }),
+  ),
+  http.patch(`${BASE}/reservations/:reservationId/chat/messages/read`, () =>
+    ok(null),
+  ),
+
   // 예약별 결제 내역 (실계약: PaymentHistoryResponse[] — 예약당 여러 건 가능)
   http.get(`${BASE}/reservations/:reservationId/payments`, ({ params }) => {
     const id = Number(params.reservationId)
