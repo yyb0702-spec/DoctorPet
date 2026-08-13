@@ -2,12 +2,16 @@ package com.doctorpet.domain.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 
 import com.doctorpet.domain.payment.dto.request.PaymentMethodRegisterRequest;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
+import com.doctorpet.domain.payment.entity.PaymentMethodStatus;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,13 +22,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /** 실제 MySQL 생성 컬럼 UNIQUE와 기본값 변경 동시성을 검증한다. */
 @SpringBootTest
 class PaymentMethodDefaultIntegrationTest {
 
     @Autowired private PaymentMethodService paymentMethodService;
-    @Autowired private PaymentMethodRepository paymentMethodRepository;
+    @MockitoSpyBean private PaymentMethodRepository paymentMethodRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private final List<Long> paymentMethodIds = new ArrayList<>();
 
@@ -102,6 +109,61 @@ class PaymentMethodDefaultIntegrationTest {
         assertThat(defaultCount).isZero();
     }
 
+    @Test
+    @DisplayName("동시 최초 등록은 UNIQUE 충돌 후 재시도로 두 건을 저장하고 기본값을 한 건만 남긴다")
+    void concurrentFirstRegistration_persistsBothAndKeepsExactlyOneDefault() throws Exception {
+        long memberId = System.nanoTime();
+        CountDownLatch bothExistChecksEntered = new CountDownLatch(2);
+        CountDownLatch releaseExistChecks = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        List<Long> registeredIds = new CopyOnWriteArrayList<>();
+        List<Throwable> failures = new CopyOnWriteArrayList<>();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        doAnswer(invocation -> {
+            bothExistChecksEntered.countDown();
+            assertThat(releaseExistChecks.await(5, TimeUnit.SECONDS)).isTrue();
+            return invocation.callRealMethod();
+        }).when(paymentMethodRepository).existsByMemberIdAndStatus(eq(memberId), eq(PaymentMethodStatus.ACTIVE));
+
+        try {
+            executor.submit(() -> registerAfterBarrier(
+                    memberId, "billing-key-first", registeredIds, failures, done));
+            executor.submit(() -> registerAfterBarrier(
+                    memberId, "billing-key-second", registeredIds, failures, done));
+            assertThat(bothExistChecksEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            releaseExistChecks.countDown();
+            assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            releaseExistChecks.countDown();
+            executor.shutdownNow();
+        }
+
+        paymentMethodIds.addAll(registeredIds);
+        assertThat(failures).isEmpty();
+        List<PaymentMethod> activeMethods = paymentMethodRepository
+                .findByMemberIdAndStatusOrderByCreatedAtDesc(memberId, PaymentMethodStatus.ACTIVE);
+        assertThat(activeMethods).hasSize(2);
+        assertThat(activeMethods.stream().filter(PaymentMethod::isDefaultPaymentMethod)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("기본값 변경의 비관적 잠금 조회에 member_id, status 복합 인덱스가 존재한다")
+    void activePaymentMethodLockQuery_hasMemberStatusIndex() {
+        Integer indexColumnCount = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'payment_methods'
+                   and index_name = 'idx_payment_methods_member_id_status'
+                   and non_unique = 1
+                   and ((seq_in_index = 1 and column_name = 'member_id')
+                        or (seq_in_index = 2 and column_name = 'status'))
+                """, Integer.class);
+
+        assertThat(indexColumnCount).isEqualTo(2);
+    }
+
     private void setDefaultAfterStart(
             long memberId,
             Long paymentMethodId,
@@ -118,6 +180,24 @@ class PaymentMethodDefaultIntegrationTest {
             synchronized (failures) {
                 failures.add(throwable);
             }
+        } finally {
+            done.countDown();
+        }
+    }
+
+    private void registerAfterBarrier(
+            long memberId,
+            String billingKey,
+            List<Long> registeredIds,
+            List<Throwable> failures,
+            CountDownLatch done
+    ) {
+        try {
+            registeredIds.add(paymentMethodService.register(
+                    memberId,
+                    new PaymentMethodRegisterRequest(billingKey)).id());
+        } catch (Throwable throwable) {
+            failures.add(throwable);
         } finally {
             done.countDown();
         }

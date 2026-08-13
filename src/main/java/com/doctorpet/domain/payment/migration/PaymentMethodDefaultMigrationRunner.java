@@ -23,8 +23,10 @@ import org.springframework.stereotype.Component;
 public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
 
     static final String MIGRATION_KEY = "payment_method_default_v1";
+    static final String ACTIVE_METHOD_INDEX_MIGRATION_KEY = "payment_method_active_member_status_index_v1";
     static final String GENERATED_COLUMN = "active_default_member_id";
     static final String UNIQUE_INDEX = "uk_payment_methods_active_default_member_id";
+    static final String ACTIVE_METHOD_INDEX = "idx_payment_methods_member_id_status";
     private static final String LOCK_NAME = "doctorpet:payment_method_default_v1";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
 
@@ -44,8 +46,13 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
     }
 
     private void migrate(Connection connection) throws SQLException {
-        if (migrationApplied(connection)) {
-            assertTargetSchema(connection);
+        migrateDefaultConstraint(connection);
+        migrateActiveMethodIndex(connection);
+    }
+
+    private void migrateDefaultConstraint(Connection connection) throws SQLException {
+        if (migrationApplied(connection, MIGRATION_KEY)) {
+            assertDefaultConstraintSchema(connection);
             return;
         }
 
@@ -74,7 +81,7 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
                     """);
         }
         if (!indexExists(connection)) {
-            if (indexNameExists(connection)) {
+            if (indexNameExists(connection, UNIQUE_INDEX)) {
                 throw new IllegalStateException("결제수단 기본값 UNIQUE 인덱스 구성이 올바르지 않습니다.");
             }
             execute(connection, """
@@ -83,17 +90,44 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
                     """);
         }
 
-        assertTargetSchema(connection);
-        recordMigration(connection);
+        assertDefaultConstraintSchema(connection);
+        recordMigration(connection, MIGRATION_KEY);
         log.info("결제수단 기본값 제약 적용 완료: {}", UNIQUE_INDEX);
     }
 
-    private void assertTargetSchema(Connection connection) throws SQLException {
+    private void migrateActiveMethodIndex(Connection connection) throws SQLException {
+        if (migrationApplied(connection, ACTIVE_METHOD_INDEX_MIGRATION_KEY)) {
+            assertActiveMethodIndex(connection);
+            return;
+        }
+
+        if (!activeMethodIndexExists(connection)) {
+            if (indexNameExists(connection, ACTIVE_METHOD_INDEX)) {
+                throw new IllegalStateException("결제수단 활성 목록 잠금 인덱스 구성이 올바르지 않습니다.");
+            }
+            execute(connection, """
+                    create index idx_payment_methods_member_id_status
+                    on payment_methods (member_id, status)
+                    """);
+        }
+
+        assertActiveMethodIndex(connection);
+        recordMigration(connection, ACTIVE_METHOD_INDEX_MIGRATION_KEY);
+        log.info("결제수단 활성 목록 잠금 인덱스 적용 완료: {}", ACTIVE_METHOD_INDEX);
+    }
+
+    private void assertDefaultConstraintSchema(Connection connection) throws SQLException {
         if (!columnExists(connection, "is_default") || !generatedColumnExists(connection)) {
             throw new IllegalStateException("결제수단 기본값 생성 컬럼이 없습니다.");
         }
         if (!indexExists(connection)) {
             throw new IllegalStateException("결제수단 기본값 UNIQUE 인덱스가 없습니다.");
+        }
+    }
+
+    private void assertActiveMethodIndex(Connection connection) throws SQLException {
+        if (!activeMethodIndexExists(connection)) {
+            throw new IllegalStateException("결제수단 활성 목록 잠금 인덱스가 없습니다.");
         }
     }
 
@@ -129,7 +163,7 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
         }
     }
 
-    private boolean indexNameExists(Connection connection) throws SQLException {
+    private boolean indexNameExists(Connection connection, String indexName) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 select count(*)
                   from information_schema.statistics
@@ -137,9 +171,30 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
                    and table_name = 'payment_methods'
                    and index_name = ?
                 """)) {
-            statement.setString(1, UNIQUE_INDEX);
+            statement.setString(1, indexName);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() && resultSet.getInt(1) > 0;
+            }
+        }
+    }
+
+    private boolean activeMethodIndexExists(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select column_name
+                  from information_schema.statistics
+                 where table_schema = database()
+                   and table_name = 'payment_methods'
+                   and index_name = ?
+                   and non_unique = 1
+                 order by seq_in_index
+                """)) {
+            statement.setString(1, ACTIVE_METHOD_INDEX);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next()
+                        && "member_id".equals(resultSet.getString(1))
+                        && resultSet.next()
+                        && "status".equals(resultSet.getString(1))
+                        && !resultSet.next();
             }
         }
     }
@@ -162,24 +217,24 @@ public class PaymentMethodDefaultMigrationRunner implements ApplicationRunner {
         }
     }
 
-    private boolean migrationApplied(Connection connection) throws SQLException {
+    private boolean migrationApplied(Connection connection, String migrationKey) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 select count(*) from schema_migrations where migration_key = ?
                 """)) {
-            statement.setString(1, MIGRATION_KEY);
+            statement.setString(1, migrationKey);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() && resultSet.getInt(1) > 0;
             }
         }
     }
 
-    private void recordMigration(Connection connection) throws SQLException {
+    private void recordMigration(Connection connection, String migrationKey) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 insert into schema_migrations (migration_key, applied_at)
                 values (?, now())
                 on duplicate key update migration_key = migration_key
                 """)) {
-            statement.setString(1, MIGRATION_KEY);
+            statement.setString(1, migrationKey);
             statement.executeUpdate();
         }
     }
