@@ -1,6 +1,5 @@
 package com.doctorpet.domain.payment.controller;
 
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -64,7 +63,7 @@ class HospitalPaymentAuthorizationTest {
     @Test
     @DisplayName("병원 스태프(ROLE_HOSPITAL_STAFF)는 진료비 청구에 접근할 수 있다(201)")
     void hospitalStaff_isAllowed() throws Exception {
-        given(paymentApplicationService.charge(anyLong(), anyLong(), anyList()))
+        given(paymentApplicationService.charge(anyLong(), anyLong()))
                 .willReturn(new PaymentChargeResponse(1L, 100L, PaymentStatus.PAID, 50000, "VISA", "1234", null));
 
         mockMvc.perform(post(CHARGE_URL)

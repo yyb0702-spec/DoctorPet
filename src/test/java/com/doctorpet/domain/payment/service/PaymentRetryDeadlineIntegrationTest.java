@@ -1,7 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
-import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItemsOf;
-import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.singleItem;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItems;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.persistDraft;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -97,6 +97,8 @@ class PaymentRetryDeadlineIntegrationTest {
         ReflectionTestUtils.setField(reservation, "status", ReservationStatus.TREATMENT_COMPLETED);
         ReflectionTestUtils.setField(reservation, "confirmedAt", now);
         reservationId = reservationRepository.saveAndFlush(reservation).getId();
+        // 청구는 초안 항목 합계로 총액을 산출하므로 초안을 먼저 깐다(SA §9-4 청구 항목).
+        persistDraft(paymentItemRepository, reservationId, AMOUNT);
 
         // 승인은 항상 재시도 유효 실패, 단건조회는 미확정 → 재시도 루프 진입 후 데드라인으로 조기 종료.
         given(retryBackoff.pause(anyInt(), anyLong())).willReturn(BACKOFF_PAUSE_MS);
@@ -108,10 +110,14 @@ class PaymentRetryDeadlineIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        paymentRepository.findByReservationId(reservationId).ifPresent(payment -> {
-            deleteItemsOf(paymentItemRepository, payment.getId());
-            paymentRepository.delete(payment);
-        });
+        Long paymentId = paymentRepository.findByReservationId(reservationId)
+                .map(payment -> {
+                    Long id = payment.getId();
+                    paymentRepository.delete(payment);
+                    return id;
+                })
+                .orElse(null);
+        deleteItems(paymentItemRepository, reservationId, paymentId);
         reservationRepository.deleteById(reservationId);
         paymentMethodRepository.deleteById(paymentMethodId);
         memberRepository.deleteById(staffMemberId);
@@ -122,7 +128,7 @@ class PaymentRetryDeadlineIntegrationTest {
     @DisplayName("데드라인으로 재시도가 조기 종료되면 payments.retry_count에 maxRetry가 아니라 실제 수행한 재시도 횟수가 저장된다")
     void deadlineEarlyTermination_persistsActualRetryCount() {
         PaymentChargeResponse response =
-                paymentApplicationService.charge(reservationId, staffMemberId, singleItem(AMOUNT));
+                paymentApplicationService.charge(reservationId, staffMemberId);
 
         // 승인 여부 미상이라 오프라인 이중수납 금지 → PENDING 유지(정산 스케줄러가 확정).
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);

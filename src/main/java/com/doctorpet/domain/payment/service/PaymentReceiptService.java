@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /*
-  JSON 영수증 조회(고도화 결제 3.4). 보호자는 본인 결제만, 병원 스태프는 자병원 결제만 조회한다.
+  JSON 영수증 조회(SA §9-4 영수증). 보호자는 본인 결제만, 병원 스태프는 자병원 결제만 조회한다.
   예약 소유권·병원 정보는 예약 Repository를 직접 호출하지 않고 port로만 얻는다(가드레일, PaymentQueryService와 동일).
 
   검사 순서가 계약이다 — 권한을 먼저 보고 상태를 나중에 본다. 순서를 뒤집으면 남의 결제라도 "발급 가능한 상태인지"가

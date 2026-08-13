@@ -7,7 +7,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-import com.doctorpet.domain.payment.dto.response.PaymentReceiptItemResponse;
+import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentReceiptResponse;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentChannel;
@@ -39,7 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Level 1 — JSON 영수증 조회의 권한·상태·노출 필드 단위 검증(고도화 결제 3.4).
+ * Level 1 — JSON 영수증 조회의 권한·상태·노출 필드 단위 검증(SA §9-4 영수증).
  * 실제 MySQL 저장·항목 정합은 PaymentItemChargeIntegrationTest(Level 3)가 담당한다.
  */
 @ExtendWith(MockitoExtension.class)
@@ -65,8 +65,8 @@ class PaymentReceiptServiceTest {
         Payment payment = paidPayment(50_000);
         stubPaymentAndReservation(payment);
         given(paymentItemRepository.findByPaymentIdOrderByIdAsc(PAYMENT_ID)).willReturn(List.of(
-                PaymentItem.snapshot(PAYMENT_ID, "진찰료", 1, 20_000, 20_000),
-                PaymentItem.snapshot(PAYMENT_ID, "주사", 2, 15_000, 30_000)));
+                PaymentItem.draft(RESERVATION_ID, "진찰료", 1, 20_000, 20_000),
+                PaymentItem.draft(RESERVATION_ID, "주사", 2, 15_000, 30_000)));
 
         PaymentReceiptResponse receipt = paymentReceiptService.getForGuardian(PAYMENT_ID, GUARDIAN_ID);
 
@@ -82,8 +82,8 @@ class PaymentReceiptServiceTest {
         assertThat(receipt.totalAmount()).isEqualTo(50_000);
         assertThat(receipt.paidAt()).isNotNull();
         assertThat(receipt.items())
-                .extracting(PaymentReceiptItemResponse::name, PaymentReceiptItemResponse::quantity,
-                        PaymentReceiptItemResponse::unitPrice, PaymentReceiptItemResponse::amount)
+                .extracting(PaymentItemResponse::name, PaymentItemResponse::quantity,
+                        PaymentItemResponse::unitPrice, PaymentItemResponse::amount)
                 .containsExactly(
                         tuple("진찰료", 1, 20_000, 20_000),
                         tuple("주사", 2, 15_000, 30_000));
@@ -99,12 +99,12 @@ class PaymentReceiptServiceTest {
         Payment payment = paidPayment(15_000);
         stubPaymentAndReservation(payment);
         given(paymentItemRepository.findByPaymentIdOrderByIdAsc(PAYMENT_ID)).willReturn(List.of(
-                PaymentItem.snapshot(PAYMENT_ID, "진찰료", 1, 20_000, 20_000),
-                PaymentItem.snapshot(PAYMENT_ID, "재진 할인", 1, -5_000, -5_000)));
+                PaymentItem.draft(RESERVATION_ID, "진찰료", 1, 20_000, 20_000),
+                PaymentItem.draft(RESERVATION_ID, "재진 할인", 1, -5_000, -5_000)));
 
         PaymentReceiptResponse receipt = paymentReceiptService.getForGuardian(PAYMENT_ID, GUARDIAN_ID);
 
-        assertThat(receipt.items()).extracting(PaymentReceiptItemResponse::amount)
+        assertThat(receipt.items()).extracting(PaymentItemResponse::amount)
                 .containsExactly(20_000, -5_000);
         assertThat(receipt.totalAmount()).isEqualTo(15_000);
     }
@@ -194,7 +194,7 @@ class PaymentReceiptServiceTest {
         Payment payment = paidPayment(50_000);
         stubPaymentAndReservation(payment);
         given(paymentItemRepository.findByPaymentIdOrderByIdAsc(PAYMENT_ID)).willReturn(List.of(
-                PaymentItem.snapshot(PAYMENT_ID, "진찰료", 1, 50_000, 50_000)));
+                PaymentItem.draft(RESERVATION_ID, "진찰료", 1, 50_000, 50_000)));
 
         PaymentReceiptResponse receipt = paymentReceiptService.getForHospital(PAYMENT_ID, STAFF_MEMBER_ID);
 

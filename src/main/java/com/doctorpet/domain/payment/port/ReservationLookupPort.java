@@ -21,7 +21,7 @@ public interface ReservationLookupPort {
     Optional<ReservationChargeView> findForChargeForUpdate(Long reservationId);
 
     /**
-     * 영수증 발급 대상 예약의 최소 뷰를 반환한다(고도화 결제 3.4). 존재하지 않으면 {@link Optional#empty()}.
+     * 영수증 발급 대상 예약의 최소 뷰를 반환한다(SA §9-4 영수증). 존재하지 않으면 {@link Optional#empty()}.
      * 소유권(보호자 본인·스태프 자병원) 판단은 반환값을 받은 상위 서비스가 수행한다.
      */
     Optional<ReservationReceiptView> findForReceipt(Long reservationId);

@@ -1,10 +1,8 @@
 package com.doctorpet.domain.payment.controller;
 
-import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.singleItem;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,7 +14,6 @@ import com.doctorpet.domain.payment.entity.PaymentChannel;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.service.PaymentApplicationService;
-import com.doctorpet.domain.payment.service.PaymentItemCommand;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
 import java.time.LocalDateTime;
 import com.doctorpet.global.config.SecurityConfig;
@@ -35,7 +32,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -55,8 +51,6 @@ class HospitalPaymentControllerTest {
 
     private static final Long STAFF_MEMBER_ID = 9L;
     private static final String CHARGE_URL = "/api/hospital/reservations/100/payments";
-    private static final String CHARGE_BODY =
-            "{\"items\":[{\"name\":\"진료비\",\"quantity\":1,\"unitPrice\":50000}]}";
 
     @Autowired
     private MockMvc mockMvc;
@@ -85,119 +79,54 @@ class HospitalPaymentControllerTest {
     @DisplayName("청구 성공 시 201과 결제 결과를 반환하고, 인증된 스태프 id로 서비스를 호출한다")
     void charge_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID), eq(singleItem(50000))))
+        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID)))
                 .willReturn(new PaymentChargeResponse(1L, 100L, PaymentStatus.PAID, 50000, "VISA", "1234", null));
 
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(CHARGE_BODY))
+        // 요청 body가 없다 — 총액은 미리 작성된 초안 항목 합계로 서버가 산출한다(SA §9-4 청구 항목).
+        mockMvc.perform(post(CHARGE_URL))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.paymentId").value(1))
                 .andExpect(jsonPath("$.data.status").value("PAID"))
+                .andExpect(jsonPath("$.data.amount").value(50000))
                 .andExpect(jsonPath("$.data.cardLast4Snapshot").value("1234"));
 
-        verify(paymentApplicationService).charge(100L, STAFF_MEMBER_ID, singleItem(50000));
+        verify(paymentApplicationService).charge(100L, STAFF_MEMBER_ID);
     }
 
     @Test
     @DisplayName("승인 실패는 201과 status=OFFLINE_REQUIRED로 응답한다(게이트웨이 예외가 500으로 새지 않는다)")
     void charge_offlineRequired() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID), eq(singleItem(50000))))
+        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID)))
                 .willReturn(new PaymentChargeResponse(1L, 100L, PaymentStatus.OFFLINE_REQUIRED, 50000, "VISA", "1234", "NON_RETRIABLE"));
 
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(CHARGE_BODY))
+        mockMvc.perform(post(CHARGE_URL))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.status").value("OFFLINE_REQUIRED"))
                 .andExpect(jsonPath("$.data.failureReason").value("NON_RETRIABLE"));
     }
 
     @Test
-    @DisplayName("여러 항목을 보내면 항목 목록 그대로 서비스에 전달한다(총액은 요청으로 받지 않는다)")
-    void charge_multipleItems_passesItemsThrough() throws Exception {
+    @DisplayName("초안 항목이 없으면 서비스에서 PAYMENT_ITEM_REQUIRED(PAYMENT_015, 409)로 응답한다")
+    void charge_withoutDraftItems() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-        List<PaymentItemCommand> expected = List.of(
-                new PaymentItemCommand("진찰료", 1, 20000),
-                new PaymentItemCommand("주사", 2, 15000),
-                new PaymentItemCommand("재진 할인", 1, -5000));
-        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID), eq(expected)))
-                .willReturn(new PaymentChargeResponse(1L, 100L, PaymentStatus.PAID, 45000, "VISA", "1234", null));
+        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID)))
+                .willThrow(new ServiceException(PaymentErrorCode.PAYMENT_ITEM_REQUIRED));
 
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"items":[
-                                  {"name":"진찰료","quantity":1,"unitPrice":20000},
-                                  {"name":"주사","quantity":2,"unitPrice":15000},
-                                  {"name":"재진 할인","quantity":1,"unitPrice":-5000}
-                                ]}"""))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.amount").value(45000));
-
-        verify(paymentApplicationService).charge(100L, STAFF_MEMBER_ID, expected);
+        mockMvc.perform(post(CHARGE_URL))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_015"));
     }
 
     @Test
-    @DisplayName("항목 수량이 0 이하이면 400과 COMMON_001(VALIDATION_FAILED)을 반환하고 서비스를 호출하지 않는다")
-    void charge_nonPositiveQuantity() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"items\":[{\"name\":\"진료비\",\"quantity\":0,\"unitPrice\":50000}]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON_001"));
-
-        verifyNoInteractions(paymentApplicationService);
-    }
-
-    @Test
-    @DisplayName("항목 목록이 비어 있거나 없으면 400과 COMMON_001을 반환한다")
-    void charge_emptyOrMissingItems() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"items\":[]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON_001"));
-
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON_001"));
-
-        verifyNoInteractions(paymentApplicationService);
-    }
-
-    @Test
-    @DisplayName("항목명이 비어 있으면 400과 COMMON_001을 반환한다")
-    void charge_blankItemName() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"items\":[{\"name\":\" \",\"quantity\":1,\"unitPrice\":50000}]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON_001"));
-
-        verifyNoInteractions(paymentApplicationService);
-    }
-
-    @Test
-    @DisplayName("항목 합계가 상한을 넘으면 서비스에서 INVALID_AMOUNT(PAYMENT_001, 400)로 응답한다")
+    @DisplayName("초안 항목 합계가 상한을 넘으면 서비스에서 INVALID_AMOUNT(PAYMENT_001, 400)로 응답한다")
     void charge_overMaxAmount() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
-        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID), eq(singleItem(3_000_001))))
+        given(paymentApplicationService.charge(eq(100L), eq(STAFF_MEMBER_ID)))
                 .willThrow(new ServiceException(PaymentErrorCode.INVALID_AMOUNT));
 
-        mockMvc.perform(post(CHARGE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"items\":[{\"name\":\"진료비\",\"quantity\":1,\"unitPrice\":3000001}]}"))
+        mockMvc.perform(post(CHARGE_URL))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PAYMENT_001"));
     }

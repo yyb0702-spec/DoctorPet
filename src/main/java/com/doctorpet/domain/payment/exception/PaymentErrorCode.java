@@ -45,11 +45,18 @@ public enum PaymentErrorCode implements ErrorCode {
     // 같은 멱등키 재시도가 PG의 기존 취소 결과를 받아 자가 복구한다.
     REFUND_STATE_CONFLICT(HttpStatus.CONFLICT, "PAYMENT_011", "환불 상태를 확정할 수 없습니다. 잠시 후 다시 시도해 주세요."),
     // 청구 항목 자체가 성립하지 않는 경우(빈 목록·항목명 누락·수량 0 이하). 금액 범위 문제는 INVALID_AMOUNT로 구분한다
-    // — 항목 구조가 틀린 것과 합계가 허용 범위를 벗어난 것은 스태프가 고쳐야 할 지점이 다르다(고도화 결제 3.1).
+    // — 항목 구조가 틀린 것과 합계가 허용 범위를 벗어난 것은 스태프가 고쳐야 할 지점이 다르다(SA §9-4 청구 항목).
     INVALID_PAYMENT_ITEM(HttpStatus.BAD_REQUEST, "PAYMENT_012", "청구 항목이 올바르지 않습니다."),
     // 영수증은 결제가 확정된 건(PAID·OFFLINE_PAID·REFUNDED)만 발급한다. PENDING·OFFLINE_REQUIRED는 아직
-    // 수납이 끝나지 않아 증빙 대상이 아니다(고도화 결제 3.4).
-    RECEIPT_NOT_AVAILABLE(HttpStatus.CONFLICT, "PAYMENT_013", "영수증을 발급할 수 있는 결제가 아닙니다.");
+    // 수납이 끝나지 않아 증빙 대상이 아니다(SA §9-4 영수증).
+    RECEIPT_NOT_AVAILABLE(HttpStatus.CONFLICT, "PAYMENT_013", "영수증을 발급할 수 있는 결제가 아닙니다."),
+    // 이미 청구가 시작된(선기록이 존재하는) 예약의 항목을 수정·삭제하려 한 경우(SA §9-4 청구 항목).
+    // 항목은 청구 시점 스냅샷이고, 이 금지는 정정 재청구를 우회 구현하지 못하게 하는 경계다 —
+    // 기존 결제의 금액 정정은 항목 수정이 아니라 정정 재청구 절차만 쓴다.
+    PAYMENT_ITEM_ALREADY_CHARGED(HttpStatus.CONFLICT, "PAYMENT_014", "이미 청구된 예약의 진료 항목은 수정할 수 없습니다."),
+    // 초안 항목이 없는 예약에 청구를 시도한 경우(SA §9-4 — 초안 항목이 0건이면 청구를 거부한다).
+    // 요청이 잘못된 것이 아니라 청구 전제(항목 작성)가 아직 성립하지 않은 상태라 400이 아니라 409다.
+    PAYMENT_ITEM_REQUIRED(HttpStatus.CONFLICT, "PAYMENT_015", "청구할 진료 항목이 없습니다. 항목을 먼저 등록해 주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

@@ -7,7 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.doctorpet.domain.payment.dto.response.PaymentReceiptItemResponse;
+import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentReceiptResponse;
 import com.doctorpet.domain.payment.entity.PaymentChannel;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
@@ -40,7 +40,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Level 2 — 보호자 JSON 영수증 컨트롤러 계약(응답 포맷·인증 주체·에러 매핑) 검증(고도화 결제 3.4).
+ * Level 2 — 보호자 JSON 영수증 컨트롤러 계약(응답 포맷·인증 주체·에러 매핑) 검증(SA §9-4 영수증).
  * 필터는 addFilters=false로 끄고 인증 주체를 SecurityContext에 직접 주입한다(인가 URL 강제는 인가 테스트 담당).
  */
 @WebMvcTest(controllers = PaymentReceiptController.class)
@@ -72,8 +72,8 @@ class PaymentReceiptControllerTest {
                         1L, 100L, 7L, GUARDIAN_MEMBER_ID, 11L, "나비", "CAT",
                         PaymentStatus.PAID, PaymentChannel.BILLING_KEY,
                         LocalDateTime.now(), null, "VISA", "1234",
-                        List.of(new PaymentReceiptItemResponse("진찰료", 1, 20000, 20000),
-                                new PaymentReceiptItemResponse("재진 할인", 1, -5000, -5000)),
+                        List.of(new PaymentItemResponse("진찰료", 1, 20000, 20000),
+                                new PaymentItemResponse("재진 할인", 1, -5000, -5000)),
                         15000, null, null));
 
         mockMvc.perform(get(RECEIPT_URL))

@@ -14,10 +14,10 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Level 3 — payment_items DDL·제약 통합 검증(고도화 결제 3.1, STRICT: 스키마).
- * PaymentItemConstraintMigrationRunner가 실제로 적용한 CHECK 제약·인덱스와, 단가·금액 컬럼이 signed인지를
- * 실제 MySQL에 연결해 확인한다. ddl-auto=update는 CHECK를 붙여주지 않으므로 러너가 도는 전체 컨텍스트가 필요하다
- * (@DataJpaTest 슬라이스는 ApplicationRunner를 실행하지 않아 이 검증을 할 수 없다).
+ * Level 3 — payment_items DDL·제약 통합 검증(SA §4 payment_items, STRICT: 스키마).
+ * PaymentItemConstraintMigrationRunner가 실제로 적용한 CHECK 제약·인덱스와, 단가·금액 컬럼이 signed인지,
+ * 초안 마커(payment_id)가 nullable인지를 실제 MySQL에 연결해 확인한다. ddl-auto=update는 CHECK를 붙여주지
+ * 않으므로 러너가 도는 전체 컨텍스트가 필요하다(@DataJpaTest 슬라이스는 ApplicationRunner를 실행하지 않는다).
  */
 @SpringBootTest
 class PaymentItemDdlIntegrationTest {
@@ -25,12 +25,12 @@ class PaymentItemDdlIntegrationTest {
     @Autowired private PaymentItemRepository paymentItemRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
-    private Long paymentId;
+    private Long reservationId;
 
     @AfterEach
     void tearDown() {
-        if (paymentId != null) {
-            jdbcTemplate.update("delete from payment_items where payment_id = ?", paymentId);
+        if (reservationId != null) {
+            jdbcTemplate.update("delete from payment_items where reservation_id = ?", reservationId);
         }
     }
 
@@ -42,16 +42,31 @@ class PaymentItemDdlIntegrationTest {
     }
 
     @Test
-    @DisplayName("음수 단가·음수 금액 항목이 실제로 저장·조회된다")
-    void negativeAmountItem_persists() {
-        paymentId = System.nanoTime();
-        paymentItemRepository.saveAndFlush(
-                PaymentItem.snapshot(paymentId, "재진 할인", 1, -5_000, -5_000));
+    @DisplayName("payment_id는 nullable이다 — NULL이 '아직 청구되지 않은 초안' 마커다")
+    void paymentIdColumn_isNullable() {
+        assertThat(jdbcTemplate.queryForObject("""
+                select is_nullable
+                  from information_schema.columns
+                 where table_schema = database()
+                   and table_name = 'payment_items'
+                   and column_name = 'payment_id'
+                """, String.class)).isEqualToIgnoringCase("YES");
+    }
 
-        List<PaymentItem> items = paymentItemRepository.findByPaymentIdOrderByIdAsc(paymentId);
-        assertThat(items).hasSize(1);
-        assertThat(items.get(0).getUnitPrice()).isEqualTo(-5_000);
-        assertThat(items.get(0).getAmount()).isEqualTo(-5_000);
+    @Test
+    @DisplayName("초안 항목은 payment_id 없이 저장되고, 음수 단가·금액도 그대로 영속화된다")
+    void draftItem_persistsWithoutPaymentIdAndAllowsNegativeAmount() {
+        reservationId = System.nanoTime();
+        paymentItemRepository.saveAndFlush(
+                PaymentItem.draft(reservationId, "재진 할인", 1, -5_000, -5_000));
+
+        List<PaymentItem> drafts =
+                paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId);
+        assertThat(drafts).hasSize(1);
+        assertThat(drafts.get(0).isDraft()).isTrue();
+        assertThat(drafts.get(0).getUnitPrice()).isEqualTo(-5_000);
+        assertThat(drafts.get(0).getAmount()).isEqualTo(-5_000);
+        assertThat(drafts.get(0).getCreatedAt()).isNotNull();
     }
 
     @Test
@@ -77,18 +92,23 @@ class PaymentItemDdlIntegrationTest {
     }
 
     @Test
-    @DisplayName("payment_id 조회 인덱스가 payment_id 단일 컬럼으로 존재한다")
-    void paymentIdIndex_exists() {
-        List<String> columns = jdbcTemplate.queryForList("""
+    @DisplayName("초안 조회 인덱스는 (reservation_id, payment_id), 영수증 조회 인덱스는 (payment_id)로 존재한다")
+    void indexes_exist() {
+        assertThat(indexColumns("idx_payment_items_reservation_id_payment_id"))
+                .containsExactly("reservation_id", "payment_id");
+        assertThat(indexColumns("idx_payment_items_payment_id"))
+                .containsExactly("payment_id");
+    }
+
+    private List<String> indexColumns(String indexName) {
+        return jdbcTemplate.queryForList("""
                 select column_name
                   from information_schema.statistics
                  where table_schema = database()
                    and table_name = 'payment_items'
-                   and index_name = 'idx_payment_items_payment_id'
+                   and index_name = ?
                  order by seq_in_index
-                """, String.class);
-
-        assertThat(columns).containsExactly("payment_id");
+                """, String.class, indexName);
     }
 
     private String columnType(String columnName) {
@@ -114,10 +134,10 @@ class PaymentItemDdlIntegrationTest {
     }
 
     /** CHECK 제약이 실제로 거부하는지 보려면 엔티티 검증을 우회해야 하므로 raw SQL로 삽입한다. */
-    private void insertRaw(long paymentId, String name, int quantity, int unitPrice, int amount) {
+    private void insertRaw(long reservationId, String name, int quantity, int unitPrice, int amount) {
         jdbcTemplate.update("""
-                insert into payment_items (payment_id, name, quantity, unit_price, amount, created_at, updated_at)
-                values (?, ?, ?, ?, ?, now(), now())
-                """, paymentId, name, quantity, unitPrice, amount);
+                insert into payment_items (reservation_id, name, quantity, unit_price, amount, created_at)
+                values (?, ?, ?, ?, ?, now())
+                """, reservationId, name, quantity, unitPrice, amount);
     }
 }

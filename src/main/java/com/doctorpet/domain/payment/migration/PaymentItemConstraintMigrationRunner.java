@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * payment_items의 항목 불변식을 MySQL에서 보장한다(고도화 결제 3.1). {@code ddl-auto=update}는 테이블·인덱스는
+ * payment_items의 항목 불변식을 MySQL에서 보장한다(SA §9-4 청구 항목). {@code ddl-auto=update}는 테이블·인덱스는
  * 만들어도 CHECK 제약을 붙여주지 않으므로, 수량 양수와 "항목 금액 = 수량 × 단가"를 여기서 명시적으로 추가·검증한다.
  *
  * <p>단가·항목 금액은 할인·조정 항목(음수)을 담아야 하므로 signed여야 한다. UNSIGNED로 만들어진 컬럼이 있으면
@@ -32,6 +32,7 @@ public class PaymentItemConstraintMigrationRunner implements ApplicationRunner {
     static final String QUANTITY_CHECK = "chk_payment_items_quantity_positive";
     static final String LINE_AMOUNT_CHECK = "chk_payment_items_line_amount";
     static final String PAYMENT_ID_INDEX = "idx_payment_items_payment_id";
+    static final String DRAFT_INDEX = "idx_payment_items_reservation_id_payment_id";
     private static final String LOCK_NAME = "doctorpet:payment_item_constraints_v1";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
 
@@ -77,6 +78,12 @@ public class PaymentItemConstraintMigrationRunner implements ApplicationRunner {
                     create index idx_payment_items_payment_id on payment_items (payment_id)
                     """);
         }
+        if (!indexNameExists(connection, DRAFT_INDEX)) {
+            execute(connection, """
+                    create index idx_payment_items_reservation_id_payment_id
+                    on payment_items (reservation_id, payment_id)
+                    """);
+        }
 
         assertSchema(connection);
         recordMigration(connection);
@@ -85,6 +92,7 @@ public class PaymentItemConstraintMigrationRunner implements ApplicationRunner {
 
     private void assertSchema(Connection connection) throws SQLException {
         assertSignedAmountColumns(connection);
+        assertDraftMarkerNullable(connection);
         if (!checkConstraintExists(connection, QUANTITY_CHECK)) {
             throw new IllegalStateException("청구 항목 수량 CHECK 제약이 없습니다.");
         }
@@ -92,7 +100,34 @@ public class PaymentItemConstraintMigrationRunner implements ApplicationRunner {
             throw new IllegalStateException("청구 항목 금액 CHECK 제약이 없습니다.");
         }
         if (!indexNameExists(connection, PAYMENT_ID_INDEX)) {
-            throw new IllegalStateException("청구 항목 조회 인덱스가 없습니다.");
+            throw new IllegalStateException("청구 항목 영수증 조회 인덱스가 없습니다.");
+        }
+        if (!indexNameExists(connection, DRAFT_INDEX)) {
+            throw new IllegalStateException("청구 항목 초안 조회 인덱스가 없습니다.");
+        }
+    }
+
+    /**
+     * 초안 마커가 성립하려면 {@code payment_id}가 NULL을 담을 수 있어야 한다(SA §4 — NULL이 "아직 청구되지
+     * 않은 초안"). NOT NULL로 만들어져 있으면 청구 전 항목 작성 자체가 불가능하므로 부팅을 중단시킨다.
+     */
+    private void assertDraftMarkerNullable(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select is_nullable
+                  from information_schema.columns
+                 where table_schema = database()
+                   and table_name = 'payment_items'
+                   and column_name = 'payment_id'
+                """)) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    throw new IllegalStateException("청구 항목 컬럼이 없습니다: payment_id");
+                }
+                if (!"YES".equalsIgnoreCase(resultSet.getString(1))) {
+                    throw new IllegalStateException(
+                            "청구 항목의 payment_id는 초안(NULL)을 담아야 하므로 nullable이어야 합니다.");
+                }
+            }
         }
     }
 

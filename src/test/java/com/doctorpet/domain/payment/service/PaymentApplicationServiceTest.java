@@ -1,6 +1,5 @@
 package com.doctorpet.domain.payment.service;
 
-import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.singleItem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -78,7 +77,7 @@ class PaymentApplicationServiceTest {
     }
 
     private void stubPreRecord(boolean methodActive) {
-        given(paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT))).willReturn(
+        given(paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID)).willReturn(
                 new PaymentPreRecord(PAYMENT_ID, MERCHANT_ID, "v1:enc", AMOUNT, methodActive, GUARDIAN_ID, RESERVATION_ID));
         // 후확정은 전달된 ChargeOutcome을 실제 상태에 반영한 Payment와 applied 플래그를 돌려준다.
         // PAID·OFFLINE_REQUIRED는 실제 전이(applied=true), PENDING 유지는 전이가 아니다(applied=false) — 알림 발행 분기 검증용.
@@ -116,7 +115,7 @@ class PaymentApplicationServiceTest {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
 
-        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
@@ -130,7 +129,7 @@ class PaymentApplicationServiceTest {
         stubPreRecord(true);
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
 
-        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         // 선기록된 결제(pre.paymentId=PAYMENT_ID)와 스태프·예약·금액을 그대로 감사 기록한다(외부 승인 결과와 무관).
         verify(chargeAuditLogger).recordChargeAccepted(STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
@@ -141,7 +140,7 @@ class PaymentApplicationServiceTest {
     void charge_recordsAuditEvenWhenGatewaySkipped() {
         stubPreRecord(false);
 
-        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         verify(chargeAuditLogger).recordChargeAccepted(STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
     }
@@ -151,7 +150,7 @@ class PaymentApplicationServiceTest {
     void inactiveMethod_offlineWithoutGateway() {
         stubPreRecord(false);
 
-        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
         ChargeOutcome outcome = captureOutcome();
@@ -167,7 +166,7 @@ class PaymentApplicationServiceTest {
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.NON_RETRIABLE, "CARD_LIMIT", "한도 초과");
 
-        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
@@ -185,7 +184,7 @@ class PaymentApplicationServiceTest {
         // 최종 조회가 FAILED(성공 아님 확인) → 소진 후 오프라인 전환.
         paymentGateway.stubQueryResult(MERCHANT_ID, GatewayPaymentStatus.FAILED, 0);
 
-        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         ChargeOutcome outcome = captureOutcome();
         assertThat(outcome.type()).isEqualTo(ChargeOutcome.Type.OFFLINE_REQUIRED);
@@ -203,7 +202,7 @@ class PaymentApplicationServiceTest {
         // 승인은 계속 실패하고 최종 조회도 미확정(FakeGateway 기본 PENDING) — 승인 여부 미상.
         paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
 
-        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
@@ -226,7 +225,7 @@ class PaymentApplicationServiceTest {
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.RETRIABLE, "TIMEOUT", "일시 장애");
 
-        PaymentChargeResponse response = service.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = service.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         // 최초 1회 + 예산 내 재시도 2회 = 3회만 승인 시도(데드라인 캡이 3회차 재시도를 차단).
         assertThat(paymentGateway.receivedMerchantPaymentIds()).hasSize(3);
@@ -247,7 +246,7 @@ class PaymentApplicationServiceTest {
         given(billingKeyCryptor.decrypt("v1:enc")).willReturn("plain-key");
         paymentGateway.stubApproveFailure(GatewayFailureReason.UNKNOWN, null, "응답 유실");
 
-        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PENDING);
@@ -262,7 +261,7 @@ class PaymentApplicationServiceTest {
         // 승인 응답은 유실됐지만 실제로는 처리된 상황을 조회 결과로 주입.
         paymentGateway.stubQueryResult(MERCHANT_ID, GatewayPaymentStatus.PAID, AMOUNT);
 
-        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(captureOutcome().type()).isEqualTo(ChargeOutcome.Type.PAID);
@@ -278,7 +277,7 @@ class PaymentApplicationServiceTest {
         given(gateway.approve(any())).willReturn(
                 new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-1", AMOUNT + 1, LocalDateTime.now()));
 
-        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         // PG가 PAID를 반환했으므로 OFFLINE_REQUIRED(현장 수납)로 돌리면 이중결제 — PENDING 유지로 오프라인 정산을 막는다.
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
@@ -296,7 +295,7 @@ class PaymentApplicationServiceTest {
         given(gateway.approve(any())).willReturn(
                 new PaymentApproveResult(GatewayPaymentStatus.PAID, "  ", AMOUNT, LocalDateTime.now()));
 
-        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
@@ -316,7 +315,7 @@ class PaymentApplicationServiceTest {
                 .willReturn(new PaymentApproveResult(GatewayPaymentStatus.PAID, "PG-2", AMOUNT + 100, LocalDateTime.now()));
         given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PENDING, null, 0));
 
-        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
@@ -335,7 +334,7 @@ class PaymentApplicationServiceTest {
                 .willThrow(new PaymentGatewayException(GatewayFailureReason.UNKNOWN, null, "응답 유실"));
         given(gateway.query(any())).willReturn(new PaymentQueryResult(GatewayPaymentStatus.PAID, "PG-Q", AMOUNT + 5));
 
-        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();
@@ -350,7 +349,7 @@ class PaymentApplicationServiceTest {
         given(billingKeyCryptor.decrypt("v1:enc")).willThrow(new IllegalStateException("enc-key mismatch"));
 
         // 예외가 charge() 밖으로 전파되지 않고(=500 안 남) 정상 응답으로 흡수돼야 한다.
-        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.OFFLINE_REQUIRED);
         ChargeOutcome outcome = captureOutcome();
@@ -370,7 +369,7 @@ class PaymentApplicationServiceTest {
         given(gateway.approve(any())).willThrow(new UnsupportedOperationException("integration pending"));
 
         // 예외가 charge() 밖으로 전파되지 않고 PENDING으로 흡수돼야 한다(승인 도달 불명 → 오프라인 이중수납 금지).
-        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID, singleItem(AMOUNT));
+        PaymentChargeResponse response = serviceWith(gateway).charge(RESERVATION_ID, STAFF_MEMBER_ID);
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
         ChargeOutcome outcome = captureOutcome();

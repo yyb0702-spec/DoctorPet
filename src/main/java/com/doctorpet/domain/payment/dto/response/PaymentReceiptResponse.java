@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /*
-  JSON 영수증(고도화 결제 3.4). PDF·전자문서·세금계산서·진료확인서는 범위 밖이고 이 구조화 응답만 제공한다.
+  JSON 영수증(SA §9-4 영수증). PDF·전자문서·세금계산서·진료확인서는 범위 밖이고 이 구조화 응답만 제공한다.
 
   담는 것: 결제·예약 식별자, 결제 상태·채널, 결제 일시, 카드 스냅샷(brand·last4), 항목 목록·총액,
   병원·보호자·펫을 식별할 수 있는 기존 도메인 정보(예약 시점 펫 스냅샷 포함).
@@ -39,7 +39,7 @@ public record PaymentReceiptResponse(
         LocalDateTime offlineSettledAt,
         String cardBrandSnapshot,
         String cardLast4Snapshot,
-        List<PaymentReceiptItemResponse> items,
+        List<PaymentItemResponse> items,
         int totalAmount,
         RefundStatus refundStatus,
         LocalDateTime refundedAt
@@ -70,7 +70,7 @@ public record PaymentReceiptResponse(
                 payment.getOfflineSettledAt(),
                 payment.getCardBrandSnapshot(),
                 payment.getCardLast4Snapshot(),
-                items.stream().map(PaymentReceiptItemResponse::from).toList(),
+                PaymentItemResponse.from(items),
                 // 총액은 payments.amount가 정본이다. 항목 합계를 다시 계산해 내려주면 과거 결제(항목 없음)에서
                 // 0원 영수증이 나오고, 항목이 있는 결제에서도 두 값이 갈릴 여지가 생긴다.
                 payment.getAmount(),

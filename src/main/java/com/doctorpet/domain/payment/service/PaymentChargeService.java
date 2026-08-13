@@ -41,7 +41,8 @@ public class PaymentChargeService {
     // JpaAuditing의 updatedAt과 같은 서울 기준 Clock(applicationClock). 조건부 UPDATE로 갱신하는 updatedAt·
     // offlineRequiredAt을 JVM 기본 시간대가 아니라 이 Clock으로 만들어 정산 임계(§9-7)와 시간대가 어긋나지 않게 한다.
     private final Clock clock;
-    private final int maxAmount;
+    // 금액 규칙(항목 합계·overflow·절대 상한)은 초안 저장과 공유해야 하므로 정책 빈에 둔다(SA §9-4).
+    private final PaymentAmountPolicy amountPolicy;
 
     public PaymentChargeService(
             PaymentRepository paymentRepository,
@@ -51,8 +52,7 @@ public class PaymentChargeService {
             StaffHospitalPort staffHospitalPort,
             MerchantPaymentIdGenerator merchantPaymentIdGenerator,
             Clock clock,
-            // 진료비 절대 상한(원). 코드 상수가 아니라 설정값으로 둬 배포 없이 상향 가능하게 한다(SA §9-4).
-            @Value("${payment.charge.max-amount:3000000}") int maxAmount
+            PaymentAmountPolicy amountPolicy
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentItemRepository = paymentItemRepository;
@@ -61,7 +61,7 @@ public class PaymentChargeService {
         this.staffHospitalPort = staffHospitalPort;
         this.merchantPaymentIdGenerator = merchantPaymentIdGenerator;
         this.clock = clock;
-        this.maxAmount = maxAmount;
+        this.amountPolicy = amountPolicy;
     }
 
     /**
@@ -73,45 +73,55 @@ public class PaymentChargeService {
     }
 
     /**
-     * Tx1 — 청구 전제 검증 + 멱등키 선기록(PENDING) + 항목 스냅샷 저장. 외부 승인 전에 커밋해,
+     * Tx1 — 청구 전제 검증 + 초안 항목 스탬프 + 멱등키 선기록(PENDING). 외부 승인 전에 커밋해,
      * UNIQUE(reservation_id)로 이중 청구를 차단하고 앱이 승인 도중 죽어도 레코드가 남게 한다
      * (check-then-act 금지, SA §9-4).
      *
-     * <p>총액은 요청이 아니라 항목 합계로 서버가 계산한다(고도화 결제 3.1). 선기록과 항목 저장은 같은
-     * 트랜잭션이라 "항목 없는 신규 결제"나 "결제 없는 고아 항목" 어느 쪽도 커밋되지 않는다 — 이중 청구 경쟁이
-     * UNIQUE(reservation_id)에 걸려 롤백되면 그 요청이 만든 항목도 함께 사라진다.
+     * <p>총액은 요청이 아니라 **예약 행 락을 잡은 뒤 재조회한 초안 항목의 합계**로 서버가 산출한다(SA §9-4).
+     * 항목은 이미 초안으로 저장돼 있으므로(고도화 3.1) 여기서 새로 만들지 않고 {@code payment_id}를 스탬프해
+     * 청구 시점 스냅샷을 고정한다. 스탬프와 선기록이 같은 트랜잭션이라, 이중 청구 경쟁이
+     * UNIQUE(reservation_id)에 걸려 롤백되면 스탬프도 함께 되돌아가 초안 상태로 남는다.
+     *
+     * <p>초안 항목이 0건이면 청구를 거부한다({@code PAYMENT_ITEM_REQUIRED}) — 항목 없는 신규 결제를 만들지 않는다.
      */
     @Transactional
-    public PaymentPreRecord preRecord(Long reservationId, Long staffMemberId, List<PaymentItemCommand> items) {
+    public PaymentPreRecord preRecord(Long reservationId, Long staffMemberId) {
         // 1) 자병원 권한: 스태프 소속 병원을 인증 주체(memberId)로 재해석한다(요청 값 신뢰 금지, 보안).
         Long staffHospitalId = staffHospitalPort.findHospitalIdByMemberId(staffMemberId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL));
 
-        // 2) 예약 로드(port 경유 — 예약 Repository 직접 호출 금지).
+        // 2) 예약 로드(port 경유 — 예약 Repository 직접 호출 금지). PESSIMISTIC_WRITE 락이라 이 아래에서는
+        //    항목 초안 쓰기(PaymentItemDraftService)와 직렬화된다(SA §9-4 STRICT).
         ReservationChargeView reservation = reservationLookupPort.findForChargeForUpdate(reservationId)
                 .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND));
 
-        // 3) 자병원·진료완료·금액 검증.
+        // 3) 자병원·진료완료 검증.
         if (!staffHospitalId.equals(reservation.hospitalId())) {
             throw new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL);
         }
         if (!reservation.treatmentCompleted()) {
             throw new ServiceException(PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
         }
-        // 총액은 요청이 아니라 항목 합계다. 곱셈·합산 overflow를 먼저 막은 뒤 기존 상한 검증을 그대로 적용한다.
-        int amount = calculateAmount(items);
 
         // 4) 이중 청구 사전 차단(정상 경로). 경쟁 상태는 아래 UNIQUE 위반으로 최종 방어한다.
+        //    초안 조회보다 먼저 본다 — 청구가 끝나면 초안이 스탬프돼 0건이 되므로, 순서를 뒤집으면 재청구 시도가
+        //    DUPLICATE_CHARGE 대신 PAYMENT_ITEM_REQUIRED로 답해 이중 청구 차단 계약(SA §9-4)이 흐려진다.
         if (paymentRepository.existsByReservationId(reservationId)) {
             throw new ServiceException(PaymentErrorCode.DUPLICATE_CHARGE);
         }
 
-        // 5) 예약에 확정된 결제수단 로드(소유권=예약 보호자). 상태와 무관하게 로드해 ACTIVE 여부는 여기서 판단한다.
+        // 5) 락을 잡은 뒤 초안 항목을 재조회해 총액을 산출한다 — 락 이전에 읽으면 그 사이 초안이 바뀌어
+        //    영수증 항목 합계와 payments.amount가 갈라진다. 0건이면 PAYMENT_ITEM_REQUIRED로 거부한다.
+        List<PaymentItem> drafts =
+                paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId);
+        int amount = amountPolicy.totalOfItems(drafts);
+
+        // 6) 예약에 확정된 결제수단 로드(소유권=예약 보호자). 상태와 무관하게 로드해 ACTIVE 여부는 여기서 판단한다.
         PaymentMethod method = paymentMethodRepository
                 .findByIdAndMemberId(reservation.paymentMethodId(), reservation.guardianMemberId())
                 .orElseThrow(() -> new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND));
 
-        // 6) 카드 스냅샷 복사 + PENDING 선기록. UNIQUE(reservation_id)가 동시 이중 청구를 막는다.
+        // 7) 카드 스냅샷 복사 + PENDING 선기록. UNIQUE(reservation_id)가 동시 이중 청구를 막는다.
         String merchantPaymentId = merchantPaymentIdGenerator.generate();
         Payment payment = Payment.pending(
                 reservationId, merchantPaymentId, method.getId(),
@@ -134,13 +144,14 @@ public class PaymentChargeService {
             throw e;
         }
 
-        // 7) 항목 스냅샷 저장. 결제 저장 이후라 payment_id가 확정돼 있고, 같은 트랜잭션이라 이중 청구 경쟁으로
-        //    결제가 롤백되면 항목도 남지 않는다.
-        paymentItemRepository.saveAll(items.stream()
-                .map(item -> PaymentItem.snapshot(
-                        payment.getId(), item.name().trim(), item.quantity(), item.unitPrice(),
-                        lineAmount(item)))
-                .toList());
+        // 8) 초안 항목에 소속 결제를 스탬프해 청구 시점 스냅샷을 고정한다(SA §4 payment_items).
+        //    조건부 UPDATE(WHERE payment_id IS NULL)라 이미 스탬프된 항목은 대상이 아니다. 갱신 건수가 4)에서
+        //    센 초안 수와 다르면 락 밖 경로가 초안을 바꿨다는 뜻이므로, 총액과 어긋난 스냅샷을 커밋하지 않고
+        //    예외로 롤백한다 — payments.amount == sum(items.amount) 불변식이 이 대조로 지켜진다.
+        int stamped = paymentItemRepository.stampDraftsToPayment(reservationId, payment.getId());
+        if (stamped != drafts.size()) {
+            throw new ServiceException(PaymentErrorCode.PAYMENT_ITEM_ALREADY_CHARGED);
+        }
 
         boolean methodActive = method.getStatus() == PaymentMethodStatus.ACTIVE;
         return new PaymentPreRecord(
@@ -171,42 +182,6 @@ public class PaymentChargeService {
         return new FinalizeResult(payment, applied);
     }
 
-    /**
-     * 항목 합계로 최종 청구 금액을 계산한다(고도화 결제 3.1). 요청이 보낸 총액은 쓰지 않는다.
-     *
-     * <p>계산 순서가 곧 안전장치다 — 곱셈·합산을 long으로 먼저 수행해 int overflow를 막고, 그 다음 int 범위와
-     * 기존 절대 상한(설정값)을 검증한다. int로 먼저 곱하면 오버플로가 음수로 되감겨 상한 검증을 통과해버린다.
-     * 항목 구조 문제(빈 목록·항목명 누락·수량 0 이하)는 INVALID_PAYMENT_ITEM, 금액 범위 문제는 INVALID_AMOUNT다.
-     */
-    private int calculateAmount(List<PaymentItemCommand> items) {
-        if (items == null || items.isEmpty()) {
-            throw new ServiceException(PaymentErrorCode.INVALID_PAYMENT_ITEM);
-        }
-        long total = 0;
-        for (PaymentItemCommand item : items) {
-            total += lineAmount(item);
-        }
-        // 각 항목이 int 범위 안이어도 누적 합계는 넘칠 수 있다. long으로 더한 뒤 여기서 한 번에 판정한다.
-        if (total <= 0 || total > maxAmount) {
-            throw new ServiceException(PaymentErrorCode.INVALID_AMOUNT);
-        }
-        return (int) total;
-    }
-
-    /** 항목 금액(= 수량 × 단가). 곱셈을 long으로 해 int overflow를 막고, int 범위를 벗어나면 거부한다. */
-    private int lineAmount(PaymentItemCommand item) {
-        if (item == null || item.name() == null || item.name().isBlank()) {
-            throw new ServiceException(PaymentErrorCode.INVALID_PAYMENT_ITEM);
-        }
-        if (item.quantity() <= 0) {
-            throw new ServiceException(PaymentErrorCode.INVALID_PAYMENT_ITEM);
-        }
-        long lineAmount = (long) item.quantity() * item.unitPrice();
-        if (lineAmount < Integer.MIN_VALUE || lineAmount > Integer.MAX_VALUE) {
-            throw new ServiceException(PaymentErrorCode.INVALID_AMOUNT);
-        }
-        return (int) lineAmount;
-    }
 
     // MySQL이 UNIQUE 제약 위반(중복 키, ER_DUP_ENTRY)에 내려주는 SQLState·벤더 오류코드. 이 둘로 "중복 키
     // 위반인지"를 판별한다(NOT NULL 1048·FK 1452 등 다른 무결성 위반은 이 코드가 아니다). SQLState/벤더
