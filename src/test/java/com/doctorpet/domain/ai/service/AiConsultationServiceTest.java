@@ -479,7 +479,7 @@ class AiConsultationServiceTest {
                 )
         );
 
-        assertThat(response.hospitals()).isEmpty();
+        assertThat(response.hospitals()).containsExactly(hospital());
         assertThat(response.recommendations()).singleElement().satisfies(recommendation -> {
             assertThat(recommendation.hospital()).isEqualTo(hospital());
             assertThat(recommendation.recommendationScore()).isEqualTo(5);
@@ -684,7 +684,7 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.fallback()).isFalse();
-        assertThat(response.hospitals()).isEmpty();
+        assertThat(response.hospitals()).containsExactly(hospital());
         assertThat(response.structured().requiredCapabilities())
                 .containsExactly("ULTRASOUND", "XRAY");
     }
@@ -731,7 +731,7 @@ class AiConsultationServiceTest {
         assertThat(response.structured().urgencyLevel()).isEqualTo(UrgencyLevel.HIGH);
         assertThat(response.message()).contains("응급 가능성");
         assertThat(response.locationRecommended()).isTrue();
-        assertThat(response.hospitals()).isEmpty();
+        assertThat(response.hospitals()).containsExactly(hospital());
         verify(hospitalService).hospitalSearch(
                 1L, null, "서울", null, null, null,
                 List.of("XRAY"), List.of("DOG"), null, null,

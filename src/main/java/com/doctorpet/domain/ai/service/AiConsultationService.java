@@ -265,7 +265,7 @@ public class AiConsultationService {
                 memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
         return new AiConsultationResponse(
                 AiStructuredResult.from(result),
-                List.of(),
+                hospitals,
                 DISCLAIMER,
                 recommendationMessage(emergency, recommendations),
                 false,
