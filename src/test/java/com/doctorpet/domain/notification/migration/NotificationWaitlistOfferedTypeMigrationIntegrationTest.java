@@ -11,9 +11,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Level 3 — 실제 MySQL에서 기존 알림 enum 값 보존과 대기열 승급 알림 유형 추가를 검증한다. */
 @SpringBootTest(properties = {
-        "spring.datasource.url=jdbc:mysql://localhost:3307/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8",
-        "spring.datasource.username=root",
-        "spring.datasource.password=root",
+        "spring.datasource.url=${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}",
+        "spring.datasource.username=${SPRING_DATASOURCE_USERNAME:root}",
+        "spring.datasource.password=${SPRING_DATASOURCE_PASSWORD:root}",
         "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
         "spring.data.redis.host=localhost",
         "ai.gateway=fake",
