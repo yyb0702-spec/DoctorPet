@@ -75,7 +75,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
                      WHERE r.hospital_id IN (:hospitalIds)
                        AND CHAR_LENGTH(r.content) <= 300
                    ) ranked
-             WHERE ranked.rating_rank <= 2
+             WHERE ranked.rating_rank <= 1
              ORDER BY ranked.hospital_id, ranked.created_at DESC, ranked.id DESC
             """, nativeQuery = true)
     List<ReviewExcerptProjection> findLatestExcerptsByHospitalIds(

@@ -94,7 +94,7 @@ class ReviewDdlIntegrationTest {
     }
 
     @Test
-    @DisplayName("후보 병원별 리뷰 통계와 평점 구간별 최신 2개를 배치 조회한다")
+    @DisplayName("후보 병원별 리뷰 통계와 평점 구간별 최신 1개를 배치 조회한다")
     void reviewEvidence_queriesStatisticsAndLatestExcerptsInBatch() {
         long firstHospitalId = 92101L;
         long secondHospitalId = 92102L;
@@ -129,11 +129,8 @@ class ReviewDdlIntegrationTest {
                 .filter(item -> item.getHospitalId().equals(firstHospitalId))
                 .map(ReviewExcerptProjection::getContent))
                 .containsExactlyInAnyOrder(
-                        "긍정 중간",
                         "긍정 최신",
-                        "보통 중간",
                         "보통 최신",
-                        "부정 중간",
                         "부정 최신"
                 );
         assertThat(excerpts)

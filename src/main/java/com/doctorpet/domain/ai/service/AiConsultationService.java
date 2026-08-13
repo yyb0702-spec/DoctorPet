@@ -596,7 +596,10 @@ public class AiConsultationService {
         if (hospitals.isEmpty()) {
             return List.of();
         }
-        List<Long> hospitalIds = hospitals.stream()
+        List<HospitalSearchResponse> limitedHospitals = hospitals.stream()
+                .limit(HOSPITAL_SEARCH_SIZE)
+                .toList();
+        List<Long> hospitalIds = limitedHospitals.stream()
                 .map(HospitalSearchResponse::hospitalId)
                 .toList();
         Map<Long, List<CapabilityValue>> capabilitiesByHospitalId =
@@ -604,14 +607,15 @@ public class AiConsultationService {
         Map<Long, HospitalReviewEvidence> reviewsByHospitalId =
                 reviewQueryService.getEvidenceByHospitalIds(hospitalIds);
 
-        return hospitals.stream()
+        AiReviewInputBudget reviewInputBudget = new AiReviewInputBudget();
+        return limitedHospitals.stream()
                 .map(hospital -> toCandidateEvidence(
                         hospital,
                         capabilitiesByHospitalId.getOrDefault(hospital.hospitalId(), List.of()),
-                        reviewsByHospitalId.getOrDefault(
+                        reviewInputBudget.limit(reviewsByHospitalId.getOrDefault(
                                 hospital.hospitalId(),
                                 HospitalReviewEvidence.empty(hospital.hospitalId())
-                        )
+                        ))
                 ))
                 .toList();
     }
