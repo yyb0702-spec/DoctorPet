@@ -19,6 +19,8 @@ public interface HospitalCapabilityRepository
 
     List<HospitalCapability> findAllByHospitalId(Long hospitalId);
 
+    int countByHospitalId(Long hospitalId);
+
     @Modifying(flushAutomatically = true)
     @Query("DELETE FROM HospitalCapability capability "
             + "WHERE capability.hospital.id = :hospitalId")

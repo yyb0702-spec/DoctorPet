@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.dto.request.HospitalCapabilitiesUpdateReque
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.dto.response.MemberResponse;
@@ -25,13 +26,17 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @ActiveProfiles("local")
+@ExtendWith(OutputCaptureExtension.class)
 @SpringBootTest(properties = {
         "ai.openai.api-key=test-key",
         "payment.gateway=fake",
@@ -118,6 +123,38 @@ class HospitalCapabilityReplacementIntegrationTest {
                 Set.of(CapabilityValue.DOG, CapabilityValue.XRAY),
                 Set.of(CapabilityValue.CAT, CapabilityValue.MRI)
         );
+    }
+
+    @Test
+    void committedReplacementWritesStructuredChangeLog(CapturedOutput output) {
+        capabilityRepository.saveAll(List.of(
+                HospitalCapability.create(
+                        hospitalRepository.findById(hospitalId).orElseThrow(),
+                        CapabilityValue.DOG
+                )
+        ));
+
+        service.updateCapabilities(MEMBER_ID, new HospitalCapabilitiesUpdateRequest(
+                List.of(CapabilityValue.CAT, CapabilityValue.XRAY)
+        ));
+
+        assertThat(output.getOut()).contains(
+                "hospital_capabilities_updated hospitalId=" + hospitalId
+                        + " actorMemberId=" + MEMBER_ID
+                        + " beforeCount=1 afterCount=2"
+        );
+    }
+
+    @Test
+    void rolledBackReplacementDoesNotWriteSuccessLog(CapturedOutput output) {
+        transactionTemplate.executeWithoutResult(status -> {
+            service.updateCapabilities(MEMBER_ID, new HospitalCapabilitiesUpdateRequest(
+                    List.of(CapabilityValue.CAT)
+            ));
+            status.setRollbackOnly();
+        });
+
+        assertThat(output.getOut()).doesNotContain("hospital_capabilities_updated");
     }
 
     private void replaceAfterSignal(

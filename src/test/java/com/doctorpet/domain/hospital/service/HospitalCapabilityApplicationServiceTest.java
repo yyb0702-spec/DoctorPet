@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class HospitalCapabilityApplicationServiceTest {
@@ -37,6 +38,8 @@ class HospitalCapabilityApplicationServiceTest {
     private HospitalRepository hospitalRepository;
     @Mock
     private HospitalCapabilityRepository hospitalCapabilityRepository;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
     @Mock
     private Hospital hospital;
     @Mock
@@ -93,6 +96,7 @@ class HospitalCapabilityApplicationServiceTest {
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));
         given(hospital.getBusinessStatus()).willReturn(BusinessStatus.OPEN);
+        given(hospitalCapabilityRepository.countByHospitalId(HOSPITAL_ID)).willReturn(1);
         given(hospitalCapabilityRepository.saveAll(org.mockito.ArgumentMatchers.anyList()))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -101,6 +105,12 @@ class HospitalCapabilityApplicationServiceTest {
         assertThat(response.capabilities())
                 .containsExactly(CapabilityValue.DOG, CapabilityValue.XRAY);
         verify(hospitalCapabilityRepository).deleteAllByHospitalId(HOSPITAL_ID);
+        verify(eventPublisher).publishEvent(new HospitalCapabilitiesChangedEvent(
+                HOSPITAL_ID,
+                MEMBER_ID,
+                1,
+                2
+        ));
     }
 
     @Test
@@ -163,7 +173,8 @@ class HospitalCapabilityApplicationServiceTest {
         return new HospitalCapabilityApplicationService(
                 memberService,
                 hospitalRepository,
-                hospitalCapabilityRepository
+                hospitalCapabilityRepository,
+                eventPublisher
         );
     }
 
