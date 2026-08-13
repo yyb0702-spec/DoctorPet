@@ -224,6 +224,35 @@ jobs:
               docker compose up -d --wait mysql redis nginx prometheus grafana
             fi
 
+            # Grafana admin 비밀번호 1회성 회전(리뷰 지적 P1) — GF_SECURITY_ADMIN_PASSWORD는
+            # Grafana가 내부 admin 계정을 "처음" 만들 때만 적용된다. fail-closed(:?)로 바꾸기
+            # 전 버전이 이 서버에서 한 번이라도 떠서 공개 fallback 문자열로 grafana-data
+            # 볼륨을 이미 초기화했다면, .env를 이번에 채워도 이미 만들어진 admin 비밀번호는
+            # 저절로 바뀌지 않는다 — grafana-cli로 명시적으로 재설정해야 한다.
+            # .grafana_admin_password_rotated 마커 파일(.active_color와 동일한 패턴, git
+            # 비추적, EC2 로컬)로 서버당 딱 한 번만 실행되게 한다. 이미 fail-closed로만
+            # 부트스트랩된 신규 서버에서 실행해도 같은 값으로 다시 설정할 뿐이라 안전하다.
+            if [ ! -f .grafana_admin_password_rotated ]; then
+              GRAFANA_TARGET_PASSWORD="$(docker compose exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD)"
+              docker compose exec -T grafana grafana-cli admin reset-admin-password "$GRAFANA_TARGET_PASSWORD"
+              # reset-admin-password 직후 재기동하지 않으면 이전 비밀번호로도 로그인이 되는
+              # 사례가 보고돼 있다(grafana/grafana#61196) — --force-recreate로 재기동해
+              # healthcheck(/api/health)가 healthy를 반환할 때까지 기다린 뒤에만 검증한다.
+              docker compose up -d --wait --force-recreate grafana
+              # reset-admin-password는 내부 오류가 있어도 항상 0을 반환할 수 있어 종료 코드를
+              # 신뢰하지 않는다 — 새 비밀번호로 실제 로그인이 되는지 API 호출로 직접 검증한다.
+              GRAFANA_AUTH_CHECK="$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$GRAFANA_TARGET_PASSWORD" http://localhost:3000/api/org)"
+              if [ "$GRAFANA_AUTH_CHECK" = "200" ]; then
+                echo "rotated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .grafana_admin_password_rotated
+                echo "Grafana admin 비밀번호를 .env의 GRAFANA_ADMIN_PASSWORD로 재설정하고 검증했습니다(HTTP $GRAFANA_AUTH_CHECK)."
+              else
+                # Grafana는 nginx·app-blue/green과 달리 상시 보조 서비스라, 이 검증
+                # 실패만으로 배포 전체(앱 컷오버)를 막지는 않는다 — 마커를 남기지 않아
+                # 다음 배포에서 다시 시도되고, GitHub Actions 요약에 경고로 남는다.
+                echo "::warning::Grafana admin 비밀번호 재설정 검증 실패(HTTP $GRAFANA_AUTH_CHECK) — 마커를 남기지 않고 다음 배포에서 재시도합니다. 수동 확인: docker compose exec grafana grafana-cli admin reset-admin-password <값>"
+              fi
+            fi
+
             # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 대상 색에만 지정해서 띄운다
             # (리뷰 지적 P1과 동일한 이유) — 활성 색은 새 이미지를 pull·재시작하지 않으므로
             # 이 시점까지 운영 트래픽은 그대로 기존 색이 받는다.
