@@ -233,23 +233,30 @@ jobs:
             # 비추적, EC2 로컬)로 서버당 딱 한 번만 실행되게 한다. 이미 fail-closed로만
             # 부트스트랩된 신규 서버에서 실행해도 같은 값으로 다시 설정할 뿐이라 안전하다.
             if [ ! -f .grafana_admin_password_rotated ]; then
-              GRAFANA_TARGET_PASSWORD="$(docker compose exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD)"
-              docker compose exec -T grafana grafana-cli admin reset-admin-password "$GRAFANA_TARGET_PASSWORD"
-              # reset-admin-password 직후 재기동하지 않으면 이전 비밀번호로도 로그인이 되는
-              # 사례가 보고돼 있다(grafana/grafana#61196) — --force-recreate로 재기동해
-              # healthcheck(/api/health)가 healthy를 반환할 때까지 기다린 뒤에만 검증한다.
-              docker compose up -d --wait --force-recreate grafana
-              # reset-admin-password는 내부 오류가 있어도 항상 0을 반환할 수 있어 종료 코드를
-              # 신뢰하지 않는다 — 새 비밀번호로 실제 로그인이 되는지 API 호출로 직접 검증한다.
-              GRAFANA_AUTH_CHECK="$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$GRAFANA_TARGET_PASSWORD" http://localhost:3000/api/org)"
-              if [ "$GRAFANA_AUTH_CHECK" = "200" ]; then
+              # 이 스크립트는 맨 위 set -e 아래에서 실행된다 — printenv, grafana-cli reset,
+              # --force-recreate 재기동을 각각 낱개 statement로 두면 그중 하나만 실패해도
+              # set -e가 그 즉시 스크립트 전체를 끝내버려, 아래 else의 경고 분기에 도달하지
+              # 못한 채 앱 배포(컷오버)까지 통째로 중단된다(리뷰 지적 P2, 실제로 그랬다).
+              # set -e는 if/&&/|| 조건절 안의 명령은 실패해도 즉시 종료시키지 않으므로,
+              # 아래 네 단계(현재 목표 비밀번호 조회 → grafana-cli 재설정 → 재기동 →
+              # 재기동 뒤 그 비밀번호로 실제 로그인되는지 API 검증. reset-admin-password
+              # 자체는 내부 오류가 있어도 항상 0을 반환할 수 있어 종료 코드를 신뢰하지
+              # 않고 이 마지막 API 검증으로 실제 적용 여부를 확인한다. 재기동이 필요한
+              # 이유는 재설정 직후 재기동 없이는 이전 비밀번호로도 로그인되는 사례가
+              # 보고돼 있어서다, grafana/grafana#61196)를 하나의 && 체인으로 묶어 if의
+              # 조건절 전체로 삼는다 — 넷 중 하나라도 실패하면 체인 전체가 실패로
+              # 평가돼 아래 else로만 분기하고, 스크립트는 계속 진행된다.
+              if GRAFANA_TARGET_PASSWORD="$(docker compose exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD)" \
+                  && docker compose exec -T grafana grafana-cli admin reset-admin-password "$GRAFANA_TARGET_PASSWORD" \
+                  && docker compose up -d --wait --force-recreate grafana \
+                  && [ "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$GRAFANA_TARGET_PASSWORD" http://localhost:3000/api/org)" = "200" ]; then
                 echo "rotated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .grafana_admin_password_rotated
-                echo "Grafana admin 비밀번호를 .env의 GRAFANA_ADMIN_PASSWORD로 재설정하고 검증했습니다(HTTP $GRAFANA_AUTH_CHECK)."
+                echo "Grafana admin 비밀번호를 .env의 GRAFANA_ADMIN_PASSWORD로 재설정하고 검증했습니다."
               else
                 # Grafana는 nginx·app-blue/green과 달리 상시 보조 서비스라, 이 검증
                 # 실패만으로 배포 전체(앱 컷오버)를 막지는 않는다 — 마커를 남기지 않아
                 # 다음 배포에서 다시 시도되고, GitHub Actions 요약에 경고로 남는다.
-                echo "::warning::Grafana admin 비밀번호 재설정 검증 실패(HTTP $GRAFANA_AUTH_CHECK) — 마커를 남기지 않고 다음 배포에서 재시도합니다. 수동 확인: docker compose exec grafana grafana-cli admin reset-admin-password <값>"
+                echo "::warning::Grafana admin 비밀번호 재설정/검증에 실패했습니다 — 마커를 남기지 않고 다음 배포에서 재시도합니다. 수동 확인: docker compose exec grafana grafana-cli admin reset-admin-password <값>"
               fi
             fi
 
