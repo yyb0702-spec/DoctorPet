@@ -13,6 +13,7 @@ import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
 import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
 import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
@@ -89,6 +90,8 @@ class HospitalOperatingHoursApplicationServiceTest {
         );
         lenient().when(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .thenReturn(Optional.of(lockedHospital));
+        lenient().when(lockedHospital.getBusinessStatus())
+                .thenReturn(BusinessStatus.OPEN);
     }
 
     @Test
@@ -140,6 +143,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));
+        given(hospital.getBusinessStatus()).willReturn(BusinessStatus.OPEN);
         given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -214,6 +218,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));
+        given(hospital.getBusinessStatus()).willReturn(BusinessStatus.OPEN);
         given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
                 .willAnswer(invocation -> invocation.getArgument(0));
         given(closureRepository.findClosure(any(), any())).willReturn(Optional.empty());
@@ -240,6 +245,31 @@ class HospitalOperatingHoursApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq(TODAY.plusDays(13)),
                 any()
         );
+    }
+
+    @Test
+    void updateOperatingHoursDoesNotReplaceSlotsForClosedHospital() {
+        LocalDate effectiveFrom = TODAY.plusDays(1);
+        OperatingHoursUpdateRequest request = updateRequest(effectiveFrom);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(reservationService.findLatestReservedBusinessDate(
+                HOSPITAL_ID,
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.empty());
+        given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
+                .willReturn(Optional.empty());
+        given(lockedHospital.getBusinessStatus())
+                .willReturn(BusinessStatus.CLOSED_TEMP);
+        given(scheduleRepository.save(org.mockito.ArgumentMatchers.any()))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        service.updateOperatingHours(MEMBER_ID, request);
+
+        verify(reservationService, never())
+                .lockOpenSlotsForReplacement(any(), any(), any());
+        verify(reservationService, never())
+                .replaceOpenSlots(any(), any(), any());
     }
 
     @Test
@@ -469,6 +499,26 @@ class HospitalOperatingHoursApplicationServiceTest {
     }
 
     @Test
+    void cancelTemporaryClosureDoesNotCreateSlotsForClosedHospital() {
+        LocalDate businessDate = TODAY.plusDays(1);
+        HospitalTemporaryClosure closure = HospitalTemporaryClosure.create(
+                lockedHospital,
+                businessDate
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(lockedHospital.getBusinessStatus())
+                .willReturn(BusinessStatus.CLOSED);
+        given(closureRepository.findClosure(HOSPITAL_ID, businessDate))
+                .willReturn(Optional.of(closure));
+
+        service.cancelTemporaryClosure(MEMBER_ID, businessDate);
+
+        verify(closureRepository).delete(closure);
+        verify(reservationService, never())
+                .createOpenSlots(any(), any(), any());
+    }
+
+    @Test
     void cancelTemporaryClosureRejectsBusinessDateStartingToday() {
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
 
@@ -593,6 +643,17 @@ class HospitalOperatingHoursApplicationServiceTest {
                 .findEffectiveSchedule(any(), any());
         verify(reservationService, never())
                 .createOpenSlots(any(), any(), any());
+    }
+
+    @Test
+    void createSlotsSkipsClosedHospital() {
+        given(lockedHospital.getBusinessStatus()).willReturn(BusinessStatus.CLOSED);
+
+        assertThat(service.createSlots(HOSPITAL_ID, TODAY.plusDays(1))).isZero();
+
+        verify(closureRepository, never()).findClosure(any(), any());
+        verify(scheduleRepository, never()).findEffectiveSchedule(any(), any());
+        verify(reservationService, never()).createOpenSlots(any(), any(), any());
     }
 
     private OperatingHoursUpdateRequest updateRequest(LocalDate desiredEffectiveFrom) {

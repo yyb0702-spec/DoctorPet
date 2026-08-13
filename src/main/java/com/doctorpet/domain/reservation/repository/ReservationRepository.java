@@ -21,6 +21,24 @@ import jakarta.persistence.LockModeType;
 public interface ReservationRepository
         extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
 
+    @Query("""
+            select r
+              from Reservation r
+             where r.hospitalId = :hospitalId
+               and r.status = :status
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt > :now
+               )
+            """)
+    List<Reservation> findAllCancelableByHospitalIdAndStatus(
+            @Param("hospitalId") Long hospitalId,
+            @Param("status") ReservationStatus status,
+            @Param("now") LocalDateTime now
+    );
+
     Optional <Reservation> findByIdAndMemberId(
             Long reservationId,
             Long memberId
@@ -74,7 +92,7 @@ public interface ReservationRepository
                     r.memberId,
                     count(r),
                     sum(case when r.status = :completedStatus then 1L else 0L end),
-                    sum(case when r.status = :canceledStatus then 1L else 0L end),
+                    sum(case when r.status in :canceledStatuses then 1L else 0L end),
                     sum(case when r.status = :noShowStatus then 1L else 0L end)
             )
               from Reservation r
@@ -84,7 +102,7 @@ public interface ReservationRepository
     List<ReservationHistoryAggregate> findHistoryAggregates(
             @Param("memberIds") Collection<Long> memberIds,
             @Param("completedStatus") ReservationStatus completedStatus,
-            @Param("canceledStatus") ReservationStatus canceledStatus,
+            @Param("canceledStatuses") Collection<ReservationStatus> canceledStatuses,
             @Param("noShowStatus") ReservationStatus noShowStatus
     );
 
@@ -188,6 +206,12 @@ public interface ReservationRepository
              where r.id = :reservationId
                and r.hospitalId = :hospitalId
                and r.status = :confirmedStatus
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt > :now
+               )
             """)
     int cancelIfConfirmedByHospital(
             @Param("reservationId") Long reservationId,
@@ -196,7 +220,8 @@ public interface ReservationRepository
             @Param("hospitalCanceledStatus") ReservationStatus hospitalCanceledStatus,
             @Param("reason") String reason,
             @Param("canceledAt") LocalDateTime canceledAt,
-            @Param("updatedAt") LocalDateTime updatedAt
+            @Param("updatedAt") LocalDateTime updatedAt,
+            @Param("now") LocalDateTime now
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

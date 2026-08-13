@@ -64,6 +64,9 @@ public class ReservationApplicationService {
             );
         }
 
+        ReservationSlot slot = reservationService.findSlot(request.slotId());
+        hospitalService.assertReservationRequestAvailable(slot.getHospitalId());
+
         return reservationService.request(
                 memberId,
                 request,
