@@ -14,6 +14,7 @@ import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.review.dto.response.HospitalReviewEvidence;
@@ -158,7 +159,8 @@ public class AiConsultationService {
                         request,
                         result,
                         searchIntent,
-                        emergency
+                        emergency,
+                        CapabilityMatchMode.ALL
                 );
             } catch (RuntimeException exception) {
                 log.error("병원 검색 Tool 호출에 실패했습니다.", exception);
@@ -436,7 +438,8 @@ public class AiConsultationService {
                     request,
                     result,
                     new AiHospitalSearchIntent(true, false, hasLocation(request)),
-                    true
+                    true,
+                    CapabilityMatchMode.ALL
             );
         } catch (RuntimeException exception) {
             log.error("모델 HIGH 판정 후 응급 병원 검색에 실패했습니다.", exception);
@@ -495,7 +498,8 @@ public class AiConsultationService {
                     request,
                     call.analysis(),
                     intent,
-                    emergency
+                    emergency,
+                    CapabilityMatchMode.ALL
             ));
             List<AiHospitalCandidateEvidence> candidates =
                     buildCandidateEvidence(state.hospitals());
@@ -590,8 +594,14 @@ public class AiConsultationService {
             AiConsultationRequest request,
             AiAnalysisResult result,
             AiHospitalSearchIntent intent,
-            boolean emergency
+            boolean emergency,
+            CapabilityMatchMode capabilityMatchMode
     ) {
+        if (capabilityMatchMode != CapabilityMatchMode.ALL) {
+            throw new UnsupportedOperationException(
+                    "진료역량 완화 검색 호출 경로가 아직 연결되지 않았습니다."
+            );
+        }
         boolean distanceSort = hasLocation(request)
                 && (emergency || intent.distance());
         return hospitalService.hospitalSearch(
@@ -634,7 +644,14 @@ public class AiConsultationService {
         }
         List<HospitalSearchResponse> hospitals;
         try {
-            hospitals = searchHospitals(memberId, request, result, intent, true);
+            hospitals = searchHospitals(
+                    memberId,
+                    request,
+                    result,
+                    intent,
+                    true,
+                    CapabilityMatchMode.ALL
+            );
         } catch (RuntimeException exception) {
             log.error("응급 병원 검색 Tool 호출에 실패했습니다.", exception);
             aiConsultationRepository.save(AiConsultation.toolFailed(
