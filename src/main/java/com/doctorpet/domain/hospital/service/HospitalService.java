@@ -159,6 +159,36 @@ public class HospitalService {
                 && hospital.getBusinessStatus() == BusinessStatus.OPEN;
     }
 
+    @Transactional
+    public void assertReservationRequestAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findByIdForUpdate(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER
+                || hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            throw new ServiceException(
+                    HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE
+            );
+        }
+    }
+
+    @Transactional
+    public void assertReservationApprovalAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findByIdForUpdate(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER
+                || hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            throw new ServiceException(
+                    HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+            );
+        }
+    }
+
     @Transactional(readOnly = true)
     public HospitalSearchPageResponse hospitalSearch(
             String keyword,

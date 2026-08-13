@@ -9,6 +9,7 @@ import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalCoordinateC
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalDataNormalizer;
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalEntityMapper;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import com.doctorpet.global.config.QuerydslConfig;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import static org.mockito.Mockito.mock;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -49,7 +51,8 @@ class AnimalHospitalIdentityIntegrationTest {
                 new AnimalHospitalDataNormalizer(
                         new AnimalHospitalCoordinateConverter(properties)
                 ),
-                new AnimalHospitalEntityMapper()
+                new AnimalHospitalEntityMapper(),
+                mock(HospitalReservationApplicationService.class)
         );
     }
 

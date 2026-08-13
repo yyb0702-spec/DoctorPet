@@ -69,7 +69,7 @@ class PaymentChargeServiceTest {
 
     private void stubChargeableReservation() {
         given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
-        given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
+        given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                 new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, true)));
     }
 
@@ -134,7 +134,7 @@ class PaymentChargeServiceTest {
         @DisplayName("예약 병원과 스태프 소속 병원이 다르면 FORBIDDEN_HOSPITAL(타병원)")
         void otherHospital_forbidden() {
             given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(999L));
-            given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
+            given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                     new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, true)));
 
             assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))
@@ -146,7 +146,7 @@ class PaymentChargeServiceTest {
         @DisplayName("진료 완료 상태가 아니면 RESERVATION_NOT_CHARGEABLE")
         void notCompleted_notChargeable() {
             given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
-            given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(
+            given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                     new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, false)));
 
             assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, VALID_AMOUNT))

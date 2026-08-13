@@ -84,6 +84,9 @@ public class SecurityConfig {
                         // /actuator/**와 마찬가지로 인증 없이 열어야 Dockerfile HEALTHCHECK가
                         // 401로 오판하지 않는다.
                         .requestMatchers(HttpMethod.GET, "/healthz").permitAll()
+                        // 채팅 WebSocket은 HTTP Upgrade 단계에서는 STOMP CONNECT까지 통과시킨 뒤,
+                        // ChatChannelInterceptor가 CONNECT Authorization 헤더로 인증을 강제한다.
+                        .requestMatchers(HttpMethod.GET, "/ws/chat").permitAll()
                         // 인증/재발급 - 정책상 비인증 API (정책 결정 사항 §1, API 명세서 §1 참고)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/signup", "/api/auth/login", "/api/auth/reissue"
@@ -135,7 +138,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/payments").hasRole("GUARDIAN")
                         .requestMatchers(
                                 HttpMethod.PATCH,
-                                "/api/reservations/*/cancel"
+                                "/api/reservations/*/cancel",
+                                "/api/reservations/*/payment-method"
                         ).hasRole("GUARDIAN")
                         // 병원 예약 운영 API - 병원 스태프 전용 (SA §8-6)
                         .requestMatchers("/api/hospital/**")

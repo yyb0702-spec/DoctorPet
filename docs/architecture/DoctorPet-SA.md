@@ -258,7 +258,7 @@ erDiagram
 
 기존 예약이 있는 환경에서는 먼저 `approval_deadline_at`을 nullable로 추가하고, 각 `REQUESTED` 예약을 `min(requested_at + 1시간, slot.start_at - 2시간)`으로 백필한다. 검증이 끝난 뒤 `NOT NULL`과 `(status, approval_deadline_at)` 인덱스를 적용한다. `ReservationApprovalDeadlineMigrationRunner`는 MySQL `GET_LOCK`으로 다중 인스턴스 실행을 직렬화하고 `schema_migrations`의 `reservation_approval_deadline_v1` 마커로 일회성 실행을 보장한다. 마커와 실제 스키마가 다르면 부팅을 중단한다.
 
-하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션에서 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유를 원자적으로 처리하며, 충돌한 요청은 실패시킨다(§9-3).
+하나의 슬롯은 거절·취소·승인 타임아웃으로 반환된 뒤 다시 예약될 수 있으므로 예약 이력과는 1:N 관계다. 단, 같은 시점에 활성 예약은 1건만 허용한다. 예약 요청 트랜잭션은 병원 행을 `FOR UPDATE`로 잠그고 `business_status=OPEN`을 확인한 뒤, 잠금을 유지한 채 `reservation_slots.version` 낙관적 락으로 `OPEN → RESERVED` 점유와 `REQUESTED` 저장을 원자적으로 처리한다. 충돌한 요청은 실패시킨다(§9-3).
 
 ### reviews
 
@@ -352,6 +352,21 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | claim_token | VARCHAR(40) | 선점 소유권 펜스. 확정·실패 전이가 함께 검사한다 |
 | refunded_at | DATETIME NULL | 취소 확정 시각(COMPLETED에서만) |
 | created_at / updated_at | DATETIME | |
+
+### chat_messages
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| reservation_id | BIGINT NOT NULL | 예약당 1개 스레드의 논리 참조 |
+| sender_type | VARCHAR NOT NULL | GUARDIAN / HOSPITAL |
+| hospital_id | BIGINT NOT NULL | 예약 병원 ID. 병원 단위 접근·읽음 및 감사용 |
+| member_id | BIGINT NOT NULL | 실제 발신 보호자 또는 병원 스태프 ID(감사용) |
+| body | VARCHAR(1000) NOT NULL | 텍스트 본문 |
+| created_at | DATETIME NOT NULL | 생성 시각 |
+| read_at | DATETIME NULL | 상대 측이 읽은 시각. 병원 발신은 보호자, 보호자 발신은 병원 단위로 공유 |
+
+인덱스: 커서 조회용 `(reservation_id, created_at, id)`, 반대 발신자 미읽음 처리용 `(reservation_id, sender_type, read_at)`. 예약·병원·회원은 도메인 경계를 넘는 논리 참조로 DB FK를 두지 않는다. 메시지는 생성 시각부터 정확히 1년이 지난 시점에 hard delete한다.
 
 ### ai_consultations (상담 로그 + 운영·비용 측정)
 
@@ -455,7 +470,7 @@ stateDiagram-v2
 - REQUESTED 진입 전제: 프로필 + 빌링키 등록, 예약시각 4시간 전까지.
 - REJECTED: 병원 거절, 또는 승인 데드라인 경과 시 스케줄러 자동 거절(이력 `TIMEOUT_REJECTED`). 슬롯 반환, 후불이라 환불 불필요. 데드라인 = `min(요청시각+1시간, 예약시각−2시간)`.
 - CANCELED: 사용자 취소. REQUESTED·CONFIRMED 두 상태 모두 예약시각 2시간 전까지. 슬롯 반환.
-- HOSPITAL_CANCELED: 병원 스태프가 자병원의 `CONFIRMED` 예약을 진료 불가 사유와 함께 취소한다. `hospital_cancel_reason`와 `hospital_canceled_at`을 저장하고 슬롯을 `OPEN`으로 반환한다. `REQUESTED`는 병원 거절 API를 사용하며, `CHECKED_IN` 이후 상태와 종료 상태는 병원 취소 대상이 아니다. 취소 완료 후 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
+- HOSPITAL_CANCELED: 병원 스태프가 자병원의 `CONFIRMED` 예약을 진료 불가 사유와 함께 취소하거나, 정기 공공데이터 갱신에서 병원이 `OPEN → CLOSED_TEMP/CLOSED`로 전환될 때 시스템이 해당 병원의 진료 시작 전 `CONFIRMED` 예약을 자동 취소한다. 자동 취소 대상 조회와 상태 조건부 UPDATE 모두 `slot.start_at > now`를 요구하므로 `start_at == now`와 과거 예약은 제외한다. `hospital_cancel_reason`와 `hospital_canceled_at`을 저장하고 슬롯을 `OPEN`으로 반환한다. 자동 취소 이력의 `processed_by`는 NULL이다. `REQUESTED`와 `CHECKED_IN` 이후 상태 및 종료 상태는 자동 취소 대상이 아니다. 취소 완료 후 보호자에게 `RESERVATION_HOSPITAL_CANCELED` 알림을 저장한다.
 - NO_SHOW_PENDING: 예약시각 +10분 초과 시 자동 진입하며 기본 5분 동안 직원 도착 확인을 허용한다. 이 단계에서는 최종 노쇼 알림을 만들지 않는다.
 - NO_SHOW: 병원은 예약 시작 시각부터 수동 확정할 수 있고, 자동 처리는 +15분 초과 시 최종 판정한다(수동 판단 우선). 정정 시 CHECKED_IN 재전이.
 - `PAYMENT_COMPLETED`는 예약 상태에 두지 않는다. 진료 종료가 종착이고, 결제 완료 여부는 Payment 상태로 표현한다.
@@ -743,7 +758,9 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 `ReservationProgressStatus` 응답 값은 `RESERVATION_REQUESTED`, `RESERVATION_CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT`, `TREATMENT_COMPLETED`, `PAYMENT_COMPLETED`, `RESERVATION_REJECTED`, `RESERVATION_CANCELED`, `NO_SHOW`이다. 내부 예약 상태 `HOSPITAL_CANCELED`는 보호자 진행 상태에서 `RESERVATION_CANCELED`로 매핑하며, 병원 취소 사유는 예약 상세의 취소 사유 필드로 제공한다. `PAYMENT_COMPLETED`는 예약 상태가 `TREATMENT_COMPLETED`이고 결제 상태가 `PAID` 또는 `OFFLINE_PAID`일 때만 파생한다.
 
-권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 병원 취소는 인증된 스태프의 소속 병원과 예약의 `hospital_id`가 일치해야 하며 요청 body의 병원 ID를 신뢰하지 않는다. 취소 요청은 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. `CONFIRMED`에서만 `HOSPITAL_CANCELED`로 전이하고, 동일 예약에 대한 재요청·다른 상태와의 경합은 조건부 UPDATE 결과로 차단한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null이고, `REJECTED`·`CANCELED`·`HOSPITAL_CANCELED`·`TREATMENT_COMPLETED`·`NO_SHOW`처럼 이미 종료된 예약이면 phone 보유 여부와 무관하게 항상 null이다(§6-6 노출 범위 참고). `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
+신규 예약 요청과 예약 승인은 병원의 현재 영업상태가 `OPEN`일 때만 허용한다. 두 경로는 공공데이터 휴·폐업 갱신과 동일한 병원 행 `FOR UPDATE` 잠금을 사용한다. 신규 요청은 잠금 아래 상태를 확인한 뒤 슬롯 점유와 예약 저장까지 같은 트랜잭션에서 수행하여, 휴·폐업 전환이 완료된 뒤 `REQUESTED` 예약이나 `REQUESTED → CONFIRMED` 전이가 성립하는 경합을 막는다.
+
+권한은 모두 병원 스태프(자병원). 요청 목록은 `status`를 생략하면 `REQUESTED`를 기본값으로 사용하며, 체크인·진료 운영 대상은 필요한 상태를 명시해 조회한다. 병원 취소는 인증된 스태프의 소속 병원과 예약의 `hospital_id`가 일치해야 하며 요청 body의 병원 ID를 신뢰하지 않는다. 취소 요청은 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. `CONFIRMED`에서만 `HOSPITAL_CANCELED`로 전이하고, 동일 예약에 대한 재요청·다른 상태와의 경합은 조건부 UPDATE 결과로 차단한다. 직원 도착 확인은 body 없이 호출하고 `{ reservationId, status, checkedInAt }`을 반환한다. 같은 요청을 반복해도 최초 `checkedInAt`과 `CHECKED_IN` 이력 한 건만 유지한다. 일반 그레이스 +10분 후에는 `NO_SHOW_PENDING`에 진입하며 기본 5분의 추가 유예 안에는 체크인할 수 있다. 응답에 예약자 이력 `{ reservationHistory: { totalReservationCount, completedCount, cancelCount, noShowCount } }`과 보호자 연락처 `{ guardianPhone }`을 포함한다(§6-6, 기능 구멍 점검 대응 — 노쇼 직전 확인 전화 등 병원-보호자 연락 수단 확보). `cancelCount`는 현재 상태가 `CANCELED` 또는 `HOSPITAL_CANCELED`인 예약을 전 병원 통합으로 합산한다. `guardianPhone`은 보호자가 `phone` 없이 가입했던 기존 회원이면 null이고, `REJECTED`·`CANCELED`·`HOSPITAL_CANCELED`·`TREATMENT_COMPLETED`·`NO_SHOW`처럼 이미 종료된 예약이면 phone 보유 여부와 무관하게 항상 null이다(§6-6 노출 범위 참고). `noShowCount`는 현재 상태 `NO_SHOW`만 집계(전 병원 통합)하고 정정 건은 뺀다. 거절 요청은 `{ rejectReason }`(직원 부족/슬롯 등록 오류/진료 불가/기타). 노쇼 수동 확정·정정 요청은 각각 `{ reason }`이며 공백이 아닌 255자 이하 사유가 필수다. 수동 확정은 예약 시작 시각부터 허용하여 자동 판정 전에도 병원이 즉시 판단할 수 있다. 자동 판정이 먼저 끝났더라도 수동 이력을 멱등하게 추가하며, 정정은 현재 `NO_SHOW`일 때만 허용한다. 진료 완료와 진료비 청구는 별개 요청이다(한 트랜잭션에 묶지 않는다).
 
 ### 8-7. 결제
 
@@ -771,7 +788,16 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 네 엔드포인트 모두 호출자 recipient를 서버에서 해석해 동작한다(고도화 3.10) — 회원 principal은 (MEMBER, memberId), 병원 스태프 principal은 소속 (HOSPITAL, hospitalId)로 매핑하고(hospitalId는 요청값이 아니라 `MemberService.getMyInfo`로 해석), 회원은 자기 MEMBER 알림만·스태프는 자병원 HOSPITAL 알림만 조회·읽음할 수 있다(§4 notifications).
 
-미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴).
+  미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴).
+
+### 8-9. 예약 채팅
+
+| 명칭 | Method | Path | 권한 |
+| --- | --- | --- | --- |
+| 채팅 메시지 조회 | GET | /api/reservations/{reservationId}/chat/messages?afterMessageId={messageId}&size={n} | 예약 보호자 또는 자병원 스태프 |
+| 채팅 읽음 처리 | PATCH | /api/reservations/{reservationId}/chat/messages/read | 예약 보호자 또는 자병원 스태프 |
+
+조회는 WebSocket 재연결 후 누락 메시지 복구를 위한 인증된 API다. `{reservationId}`에서 예약과 회원·병원을 서버가 조회해 권한을 확인하고, 요청의 `memberId`·`hospitalId`는 받지 않는다. `afterMessageId`가 있으면 반드시 같은 예약 스레드에 속하는지 검증한 뒤 그 이후 메시지를 `createdAt ASC, id ASC`로 반환한다. `size`는 1~100이고 응답은 `{ messages, nextAfterMessageId, hasNext }`다. 메시지 항목은 `messageId`, `senderType`, `content`, `createdAt`, 화면 표시용 `senderName`만 포함한다. 보호자 메시지는 서버가 해석한 보호자 nickname, 병원 메시지는 병원명만 표시하며 실제 스태프 `memberId`·nickname은 노출하지 않는다. 조회는 종료 상태에서도 가능하지만 신규 전송은 §9-12의 허용 상태에서만 가능하다. 병원 스태프 한 명의 읽음은 병원 단위로 공유된다.
 
 ---
 
@@ -781,7 +807,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 검색 대상은 자체 DB(`hospitals` + `hospital_details` + `hospital_capabilities`)이고 공공데이터 실시간 호출은 없다. 조건은 `BooleanBuilder`/동적 `where`로 조합하고 null 조건은 무시한다. `requiredCapabilities` 다중 매칭은 `hospital_capabilities`를 조인해 요청 역량을 전부 가진 병원만 남긴다(AND 매칭). 축종(`supportedSpecies`)은 `capability_type='SPECIES'`의 확정 화이트리스트를 사용하며 복수 요청은 AND 매칭한다. 페이징은 count 쿼리를 분리하고 결과 DTO는 `Projections`로 직접 조회한다.
 
-반경 검색은 좌표 사각박스(좌표 ± N도)로 후보를 먼저 좁힌 뒤 애플리케이션에서 정밀 거리와 반경 포함 여부를 계산한다. 반경이 없는 거리순 검색은 MySQL `ST_Distance_Sphere`로 정렬하고 `(거리, 병원명, 병원 ID)` 순서로 DB 페이징하며, 좌표가 없는 병원은 좌표가 있는 병원 뒤에 둔다. 현재 영업 필터는 `open_hours` JSON의 요일·자정 넘김 판정 계약을 서버에 유지하되, 이름순 또는 거리순으로 정렬된 후보를 200건 단위로 읽어 요청 페이지의 결과와 전체 일치 건수만 보관한다. 따라서 무반경 거리순·현재 영업 검색은 전체 후보 목록을 한 번에 애플리케이션 메모리에 적재하지 않는다. 다만 현재 영업 검색은 정확한 `totalElements` 계산을 위해 조건 후보 전체를 끝까지 순회하므로 총 스캔 로우 수는 줄지 않고, 200건 단위 조회로 DB 왕복 횟수가 증가할 수 있다. 전국 데이터 기준 실행 계획·응답시간 측정과 영업시간 필터의 DB 전환 여부는 후속 성능 검증 대상으로 둔다. 영업상태는 폐업(`CLOSED`)을 기본 검색에서 제외하고 휴업(`CLOSED_TEMP`)은 포함하되 배지로 표시한다.
+반경 검색은 좌표 사각박스(좌표 ± N도)로 후보를 먼저 좁힌 뒤 애플리케이션에서 정밀 거리와 반경 포함 여부를 계산한다. 반경이 없는 거리순 검색은 MySQL `ST_Distance_Sphere`로 정렬하고 `(거리, 병원명, 병원 ID)` 순서로 DB 페이징하며, 좌표가 없는 병원은 좌표가 있는 병원 뒤에 둔다. 현재 영업 필터는 `open_hours` JSON의 요일·자정 넘김 판정 계약을 서버에 유지하되, 이름순 또는 거리순으로 정렬된 후보를 200건 단위로 읽어 요청 페이지의 결과와 전체 일치 건수만 보관한다. 따라서 무반경 거리순·현재 영업 검색은 전체 후보 목록을 한 번에 애플리케이션 메모리에 적재하지 않는다. 다만 현재 영업 검색은 정확한 `totalElements` 계산을 위해 조건 후보 전체를 끝까지 순회하므로 총 스캔 로우 수는 줄지 않고, 200건 단위 조회로 DB 왕복 횟수가 증가할 수 있다. 전국 데이터 기준 실행 계획·응답시간 측정과 영업시간 필터의 DB 전환 여부는 후속 성능 검증 대상으로 둔다. 일반 검색은 영업상태가 `OPEN`인 병원만 대상으로 하며 휴업(`CLOSED_TEMP`)·폐업(`CLOSED`) 병원은 Redis 캐시 HIT/MISS와 관계없이 제외한다.
 
 역량·축종·시설 필터는 제휴 병원만 대상이다. `hospital_capabilities`·`hospital_details`가 제휴 병원만 보강되므로, `requiredCapabilities`/`species`/야간·응급 조건이 걸리면 비제휴 병원은 결과에서 빠진다. 비제휴는 지역·거리 등 원본 필드 조건으로만 노출된다. 그래서 AI가 역량 조건으로 검색하면 사실상 제휴 병원이 추천되고 비제휴는 "인근 참고 병원"으로만 함께 보인다.
 
@@ -914,7 +940,7 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 ## 9-6. 공공데이터 배치 적재·2계층 매핑
 
-스케줄러가 전국 공공데이터를 수집해 `hospitals`에 적재·갱신한다. 조인 키는 `local_gov_code + mgmt_no`. 제휴 매핑은 운영 제휴 데이터를 같은 복합 키로 조인해 `partnership_status=PARTNER`로 표시하고 `hospital_details`·`hospital_capabilities`를 보강한다. 비제휴는 원본만 유지(`NON_PARTNER`)해 참고용으로 노출하고 예약은 막는다. 매주 월요일 03:00(`Asia/Seoul`)에 갱신하며, 여러 인스턴스의 중복 실행은 MySQL `GET_LOCK`으로 막는다. 외부 제휴 시스템이 생기기 전에는 저장소의 제휴 JSON을 재적용하고 임의의 제휴 API 계약은 만들지 않는다. 갱신 완료 후 기본 첫 페이지 Redis 캐시를 삭제하며, 캐시 삭제 실패는 원천 데이터 갱신을 실패시키지 않는다.
+스케줄러가 전국 공공데이터를 수집해 `hospitals`에 적재·갱신한다. 조인 키는 `local_gov_code + mgmt_no`. 제휴 매핑은 최초 데이터 구축에서만 저장소의 제휴 JSON을 같은 복합 키로 조인해 `partnership_status=PARTNER`로 표시하고 `hospital_details`·`hospital_capabilities`를 보강한다. 비제휴는 원본만 유지(`NON_PARTNER`)해 참고용으로 노출하고 예약은 막는다. 매일 03:00(`Asia/Seoul`) 갱신은 공공 원천 기본정보와 `business_status`만 갱신하고 제휴 JSON을 재적용하지 않는다. 병원별 갱신은 해당 병원 행을 `FOR UPDATE`로 잠그며 신규 예약 요청·승인과 같은 잠금을 공유한다. 이번 갱신에서 병원이 `OPEN → CLOSED_TEMP/CLOSED`로 전환되면 §5-1에 따라 `slot.start_at > now`인 `CONFIRMED` 예약만 `HOSPITAL_CANCELED`로 자동 취소하고, 조건부 UPDATE에도 같은 시간 조건을 적용한다. 여러 인스턴스의 중복 실행은 MySQL `GET_LOCK`으로 막는다. 갱신 완료 후 기본 첫 페이지 Redis 캐시를 삭제하며, 캐시 삭제 실패는 원천 데이터 갱신을 실패시키지 않는다.
 
 ## 9-7. 스케줄러
 
@@ -923,8 +949,9 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 | 노쇼 자동 판정 | 1분 | CONFIRMED 중 예약시각+10분 초과·미체크인 → NO_SHOW_PENDING, 기본 추가 유예 5분 초과 → NO_SHOW(수동 판정 우선, 최종 전이에만 보호자 알림) |
 | 예약 요청 타임아웃 | 1분 | REQUESTED 중 승인 데드라인(`min(요청+1h, 예약−2h)`) 경과·미승인 → 자동 REJECTED, 슬롯 반환 |
 | 결제 정산(reconcile) | 5분 | 일정 시간 이상 `PENDING`인 결제를 단건 조회로 `PAID`/`OFFLINE_REQUIRED` 확정. 단, 사유가 `AMOUNT_MISMATCH`/`INVALID_PG_RESULT`인 `PENDING`은 자동 확정하지 않고 운영자 수동 확인 대상으로 분류(금액·식별자 정합성이 깨져 자동 확정 시 잘못된 금액 확정 위험) |
-| 공공데이터 적재 | 매주 월요일 03:00(`Asia/Seoul`) | 전국 공공데이터 갱신 후 제휴 데이터를 재적용하고 검색 캐시를 삭제한다 (§9-6) |
+| 공공데이터 적재 | 매일 03:00(`Asia/Seoul`) | 전국 공공 원천정보 갱신, 휴·폐업 전환 병원의 시작 전 `CONFIRMED` 예약 자동 취소 후 검색 캐시를 삭제한다 (§9-6) |
 | 슬롯 생성 | 배치(일) | 향후 14일치 유지 (§9-9) |
+| 채팅 메시지 보존 | 매일 03:00(`Asia/Seoul`) | 공통 Clock 기준 생성 시각이 정확히 1년 지난 `chat_messages`를 hard delete한다 (§9-12) |
 
 노쇼 배치는 한 예약이 같은 실행에서 `CONFIRMED → NO_SHOW_PENDING → NO_SHOW`로 연달아 전이될 수 있다. 따라서 `maxScannedPerRun`은 조회·전이 시도 횟수 상한이며, `processed`는 한 번 이상 상태 전이에 성공한 예약 수를 뜻한다. `AUTO_NO_SHOW_PENDING`과 `AUTO_NO_SHOW`의 실제 전이 건수는 `reservation_events` 상태 이력으로 확인한다.
 
@@ -932,7 +959,9 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 병원 승인형 예약은 상태가 병원 액션에 따라 비동기로 바뀌므로 폴링 없이 즉시 받는 실시간 채널이 자연스럽다. 대상 이벤트는 예약 `CONFIRMED`/`REJECTED`, 결제 `PAID`/`OFFLINE_REQUIRED`, 노쇼 판정. 상태 전이 시 `notifications`에 저장한다.
 
-실시간 push는 MVP2에서 단방향 SSE로 확정한다. `NotificationPusher` 추상화 뒤에 SSE 구현을 두고, `EventSource`의 헤더 제약을 보완하기 위해 구독 티켓을 인증한다. 알림 저장 트랜잭션이 커밋된 뒤 push를 전송하며 회원당 연결 상한을 적용한다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 SSE는 부가 전달이다. 양방향 WebSocket+STOMP는 수의사·보호자 채팅 도입 시에만 별도 검토한다.
+실시간 push는 MVP2에서 단방향 SSE로 확정한다. `NotificationPusher` 추상화 뒤에 SSE 구현을 두고, `EventSource`의 헤더 제약을 보완하기 위해 구독 티켓을 인증한다. 알림 저장 트랜잭션이 커밋된 뒤 push를 전송하며 회원당 연결 상한을 적용한다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 SSE는 부가 전달이다.
+
+예약·결제 알림의 전송 계층은 SSE로 유지하며 WebSocket으로 이전하지 않는다. WebSocket은 §9-12의 병원↔회원 예약 채팅 전용으로 분리한다. 따라서 알림 저장과 SSE 전송의 AFTER_COMMIT 구조는 변경하지 않고, 채팅도 별도의 메시지 저장 커밋 뒤에만 전송한다.
 
 ## 9-9. 예약 슬롯 생성·운영
 
@@ -944,9 +973,9 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 기존 슬롯의 `business_date`는 최초 컬럼 추가 시 `date(start_at)`으로 채운 뒤, 후속 일회성 마이그레이션이 `hospital_details.open_hours`의 기존 야간 운영시간과 슬롯 시작 시각을 비교해 자정 이후 슬롯을 전날 영업일로 보정한다. 예를 들어 월요일 `20:00~02:00` 운영에서 화요일 01:00 슬롯의 `business_date`는 월요일이다. 보정은 슬롯 상태와 무관하게 `OPEN`과 `RESERVED` 모두에 적용하며 완료 여부는 `schema_migrations`의 `reservation_slot_overnight_business_date_v2`로 기록한다.
 
-진료시간 변경 요청은 희망 적용일을 받으며, 희망 적용일의 최솟값은 `Asia/Seoul` 기준 요청일의 다음 날이다. 서버는 요청 시점의 공개 범위(`오늘~오늘+13일`)에 존재하는 해당 병원의 `RESERVED` 슬롯을 `business_date` 기준으로 확인한다. 따라서 마지막 공개 영업일에 속하지만 `start_at`은 다음 날 자정 이후인 야간 예약도 가장 늦은 예약일 계산에 포함한다. 예약이 없으면 희망 적용일부터 변경하고, 예약이 있으면 `max(희망 적용일, 가장 늦은 예약 영업일+1일)`을 실제 적용일로 정한다. 공개 슬롯 교체 전 잠금도 같은 `business_date` 범위를 사용해 야간 예약을 누락하지 않는다. 실제 적용일 전날까지 기존 진료시간과 슬롯을 유지하며, 적용일부터 `OPEN` 슬롯만 제거한 뒤 새 진료시간 기준으로 재생성한다. `RESERVED` 슬롯은 삭제·이동·자동 취소하지 않는다. 적용일이 현재 공개 범위 밖이면 새 정책을 저장해 두고 해당 날짜가 공개 범위에 들어올 때부터 사용한다.
+진료시간 변경 요청은 희망 적용일을 받으며, 희망 적용일의 최솟값은 `Asia/Seoul` 기준 요청일의 다음 날이다. 서버는 요청 시점의 공개 범위(`오늘~오늘+13일`)에 존재하는 해당 병원의 `RESERVED` 슬롯을 `business_date` 기준으로 확인한다. 따라서 마지막 공개 영업일에 속하지만 `start_at`은 다음 날 자정 이후인 야간 예약도 가장 늦은 예약일 계산에 포함한다. 예약이 없으면 희망 적용일부터 변경하고, 예약이 있으면 `max(희망 적용일, 가장 늦은 예약 영업일+1일)`을 실제 적용일로 정한다. 공개 슬롯 교체 전 잠금도 같은 `business_date` 범위를 사용해 야간 예약을 누락하지 않는다. 실제 적용일 전날까지 기존 진료시간과 슬롯을 유지하며, 적용일부터 `OPEN` 슬롯만 제거한 뒤 새 진료시간 기준으로 재생성한다. `RESERVED` 슬롯은 삭제·이동·자동 취소하지 않는다. 적용일이 현재 공개 범위 밖이면 새 정책을 저장해 두고 해당 날짜가 공개 범위에 들어올 때부터 사용한다. 진료시간 교체는 병원 행 잠금 아래 `business_status=OPEN`일 때만 신규 슬롯을 생성한다.
 
-특정일 임시 휴무는 정기 진료시간과 별도로 저장하며, 요청일 다음 날 이후라면 14일 공개 범위 밖의 미래 날짜도 등록할 수 있다. 휴무 날짜는 `Asia/Seoul` 기준 운영 구간이 시작하는 `영업 기준일`이고 정기 진료시간보다 우선한다. 일반 구간은 시작·종료 시각이 모두 영업 기준일 안에 있고, 야간 구간은 영업 기준일에 시작해 다음 날 종료하더라도 하나의 영업일에 속한다. 예를 들어 15일 휴무와 `20:00~02:00` 운영시간이 겹치면 14일 20:00~15일 02:00 구간은 유지하고, 15일 20:00~16일 02:00 구간 전체를 생성하지 않는다. 해당 영업일에 속한 `RESERVED` 슬롯이 하나라도 있으면 휴무 등록을 거부한다. 예약이 없고 해당 영업일의 `OPEN` 슬롯이 이미 생성돼 있으면 휴무 등록과 함께 제거하며, 아직 슬롯이 생성되지 않았다면 향후 배치가 그 영업일을 건너뛴다. 기존 예약을 자동 취소하거나 다른 날짜로 옮기는 처리는 하지 않는다.
+특정일 임시 휴무는 정기 진료시간과 별도로 저장하며, 요청일 다음 날 이후라면 14일 공개 범위 밖의 미래 날짜도 등록할 수 있다. 휴무 날짜는 `Asia/Seoul` 기준 운영 구간이 시작하는 `영업 기준일`이고 정기 진료시간보다 우선한다. 일반 구간은 시작·종료 시각이 모두 영업 기준일 안에 있고, 야간 구간은 영업 기준일에 시작해 다음 날 종료하더라도 하나의 영업일에 속한다. 예를 들어 15일 휴무와 `20:00~02:00` 운영시간이 겹치면 14일 20:00~15일 02:00 구간은 유지하고, 15일 20:00~16일 02:00 구간 전체를 생성하지 않는다. 해당 영업일에 속한 `RESERVED` 슬롯이 하나라도 있으면 휴무 등록을 거부한다. 예약이 없고 해당 영업일의 `OPEN` 슬롯이 이미 생성돼 있으면 휴무 등록과 함께 제거하며, 아직 슬롯이 생성되지 않았다면 향후 배치가 그 영업일을 건너뛴다. 기존 예약을 자동 취소하거나 다른 날짜로 옮기는 처리는 하지 않는다. 임시 휴무 취소 후 슬롯 복구도 병원 행 잠금 아래 `business_status=OPEN`인 경우에만 실행한다. 일 배치 역시 같은 잠금과 상태 조건을 사용하므로 `CLOSED_TEMP`·`CLOSED` 병원에는 어떤 경로에서도 신규 슬롯을 만들지 않는다.
 
 공개 병원 검색·상세와 AI 추천의 `openNow` 판정에서도 임시 휴무가 정기 진료시간보다 우선한다. 자정 이후 이어지는 야간 진료는 현재 달력 날짜가 아니라 그 운영 구간이 시작한 전날 영업 기준일의 임시 휴무를 적용하며, 요일별 정기 운영시간 응답 자체는 변경하지 않는다.
 
@@ -971,6 +1000,18 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 `ProductionSafetyGuard`는 `payment.gateway`/`mail.provider`와 동일하게 `image.storage.provider=fake`인 채 `prod` 프로파일로 부팅하는 것을 막는다 — fake로 남으면 발급되는 URL이 존재하지 않는 로컬 호스트를 가리켜 업로드가 조용히 실패하기 때문이다. AWS 자격 증명은 설정 파일에 두지 않고 SDK 기본 체인(환경 변수·IAM 역할)을 그대로 쓴다.
 
 `imageUrl`은 인증된 클라이언트가 `PATCH /api/pets/{petId}`로 보내는 요청 값이라 신뢰 경계 밖에 있다(v1.51, 리뷰 지적). 업로드 절차(presigned URL 발급)를 거치지 않은 임의 외부 URL이나 다른 반려동물의 오브젝트 URL을 그대로 저장·노출하는 것을 막기 위해, `PetService.update()`는 저장 직전 `ImageStorageGateway.isManagedFileUrl(fileUrl, keyPrefix)`로 두 조건을 확인한다: (1) 이 스토리지가 실제로 발급 가능한 스킴·호스트(S3 버킷·리전 또는 Fake의 고정 base URL)인지, (2) key가 요청한 petId 네임스페이스(`pets/{petId}/`)로 시작하는지. 둘 중 하나라도 어긋나면 `PET_002 INVALID_IMAGE_URL`(400)로 거부하고 저장하지 않는다. 발급한 key를 회원·petId와 연결해 별도로 추적·확인하는 더 강한 보장(발급 기록 영속화)은 이번 범위에서 다루지 않는다 — 스킴·호스트·경로 검증만으로 최소 방어선을 둔다.
+
+## 9-12. 병원↔회원 예약 채팅
+
+채팅은 예약 1건당 1개의 스레드로 한정하며 상시 병원-회원 1:1 대화는 제공하지 않는다. 회원은 자신이 보호자인 예약 스레드만, 병원 스태프는 자신이 소속한 병원의 예약 스레드만 접근한다. 병원 측 접근·읽음의 공유 단위는 병원 단위다. 스레드 구독과 메시지 전송은 모두 서버가 인증 주체와 예약 관계로 인가하며 요청 body·구독 경로에 실린 `memberId`·`hospitalId`를 신뢰하지 않는다.
+
+메시지는 텍스트만 허용하고 최대 1,000자다. 메시지 송수신은 `REQUESTED`, `CONFIRMED`, `NO_SHOW_PENDING`, `CHECKED_IN`, `IN_TREATMENT` 상태에서만 허용한다. `REJECTED`, `CANCELED`, `HOSPITAL_CANCELED`, `TREATMENT_COMPLETED`, `NO_SHOW`는 기존 메시지 조회만 허용하는 읽기 전용 상태다. 메시지 수정·사용자 삭제, 이미지·파일 첨부, 신고·차단, 자동응답, 타이핑 인디케이터는 범위 밖이다. 발신자는 인증 주체로 결정하고, 회원 메시지는 회원 `memberId`, 병원 메시지는 실제 발신 스태프 `memberId`를 감사용으로 저장한다. 화면 표시명은 서버가 해석한다. 보호자 발신자는 보호자 nickname, 보호자 화면의 병원 발신자는 병원명으로 표시하고 스태프 개인 nickname은 기본 노출하지 않는다.
+
+채팅 본문은 생성일부터 1년 보존하고, 정확히 1년이 지난 메시지는 공통 Clock 기준으로 hard delete한다. 개인정보·진료 관련 내용이 포함될 수 있으므로 무기한 보관하지 않으며, 법적 보존 의무가 확인되면 보존 기간과 삭제 방식은 별도 정책 변경으로 재검토한다. 종료 상태 전이와 메시지 저장은 같은 예약 행에서 직렬화한다. 종료가 먼저 확정되면 메시지를 저장하지 않고, 메시지 저장이 먼저 확정된 경우에만 종료 전이와 직렬화된 메시지가 남는다.
+
+전용 `/ws/chat` HTTP Upgrade 경로만 HTTP 단계에서 JWT를 요구하지 않고 STOMP CONNECT까지 도달하도록 허용한다. 전송은 native WebSocket 위의 STOMP를 사용하며 SockJS fallback은 포함하지 않는다. JWT를 WebSocket URL 쿼리 파라미터로 전달하지 않고 STOMP CONNECT 프레임의 `Authorization: Bearer <accessToken>` 헤더로 보낸다. `ChannelInterceptor`가 Access Token을 검증해 인증 주체를 등록하고 만료·위조·Refresh Token·블랙리스트 토큰·미인증 CONNECT를 거부한다. CONNECT 뒤에도 세션별 principal·Access Token `jti`·만료 시각(원문 JWT는 보관하지 않음)을 기준으로 `SEND`·`SUBSCRIBE`·heartbeat와 채팅 `MESSAGE` 전달 직전에 재검증한다. 로그아웃 토큰 블랙리스트, 탈퇴 회원 블랙리스트 또는 만료가 확인되면 기존 연결은 이후 송신·신규 구독·기존 구독 수신이 모두 차단된다. 클라이언트 명령은 `CONNECT`, `SUBSCRIBE`, `/app/chat/reservations/{reservationId}/messages` 대상 `SEND`, `UNSUBSCRIBE`, `DISCONNECT`와 heartbeat만 허용하며 `MESSAGE`·`CONNECTED`·`ERROR` 등 서버 전용 명령은 거부한다. 예약 참여자는 `/topic/chat/reservations/{reservationId}`만 SUBSCRIBE하고 `/app/chat/reservations/{reservationId}/messages`만 SEND할 수 있다. 메시지는 저장 트랜잭션의 AFTER_COMMIT 이후에만 해당 스레드 구독자에게 전달하므로 롤백된 메시지는 전송하지 않는다. 전달 실패는 이미 커밋된 채팅 저장이나 원래 예약 트랜잭션을 되돌리지 않는다.
+
+기본 broker는 단일 애플리케이션 인스턴스의 Spring SimpleBroker다. Redis pub/sub 또는 외부 STOMP broker 기반 다중 인스턴스 fan-out은 후속 고도화로 분리한다. 재연결 중 누락된 메시지는 §8-9의 인증된 채팅 조회 API로 복구한다.
 
 ---
 
@@ -1071,7 +1112,7 @@ sequenceDiagram
 - GitHub Actions로 빌드·테스트 자동 실행, 이미지 빌드·배포.
 - k6로 검색·예약 처리량·응답시간을 비교한다. 검색 캐시는 최초 진입 기본 첫 페이지의 적용 전후만 비교한다.
 - 관찰성은 Spring Actuator + Micrometer(Prometheus 레지스트리) + 로그(MVP 수준, 이슈 #105). Grafana 등 시각화는 여력에 따라 확장.
-- 실시간 알림은 단방향 SSE로 확정했으며, 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다(§9-8).
+- 예약·결제 알림은 단방향 SSE를 유지하고, 병원↔회원 예약 채팅은 native WebSocket+STOMP로 분리한다(§9-8·§9-12).
 
 **관측성 지표·API 문서 노출 범위(이슈 #105)**: 액추에이터(health·prometheus)는 `management.server.port=8081`로 앱 포트(8080)와 분리하고, docker-compose가 8081을 호스트에 게시하지 않는다(mysql·redis와 동일 패턴) — 인터넷에서 지표·헬스체크가 직접 보이지 않는다. 다만 별도 포트라고 해서 Spring Security가 자동으로 인증을 면제해주지는 않으므로, `SecurityConfig`에 `securityMatcher("/actuator/**")`로 범위를 좁힌 전용 `SecurityFilterChain`을 두어 명시적으로 permitAll한다(그렇지 않으면 Dockerfile의 HEALTHCHECK가 401을 받아 배포 파이프라인이 정상 배포를 계속 롤백시킨다). Swagger UI/OpenAPI 문서(`springdoc-openapi`)는 기본값을 꺼둔 채(`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`), `local` 프로파일에서만 다시 켠다 — 지금 docker 프로파일로 배포되는 서버는 인터넷에 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나 공개된다.
 
@@ -1085,7 +1126,7 @@ sequenceDiagram
 
 # 부록 A. 미확정 결정 사항
 
-확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 주 1회 갱신한다. 낙관적 락, Redis 검색 캐시, 단방향 SSE 실시간 알림, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
+확정된 결정은 각 본문 절을 정본으로 따른다. 현재 진료역량 화이트리스트는 19개, AI 입력 축종은 8개이며 공공데이터는 전국 단위로 매일 03:00에 갱신한다. 낙관적 락, Redis 검색 캐시, 단방향 SSE 실시간 알림, 결제 재시도·상한·안전 분기, 슬롯 14일치, OpenAI `gpt-4.1-mini`, AI 안전·보존·Rate Limit, 회원 인증·탈퇴 정책도 본문 기준으로 확정되어 있다.
 
 남은 것:
 

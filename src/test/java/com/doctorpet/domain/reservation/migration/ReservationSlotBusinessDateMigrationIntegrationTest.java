@@ -58,6 +58,7 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
     @DisplayName("기존 야간 예약 슬롯은 실제 운영이 시작된 전날을 영업 기준일로 백필한다")
     void overnightSlotUsesPreviousBusinessDate() throws Exception {
         Hospital hospital = hospitalRepository.saveAndFlush(createHospital());
+        Hospital arrayTimeHospital = hospitalRepository.saveAndFlush(createHospital());
         hospitalDetailRepository.saveAndFlush(HospitalDetail.create(
                 hospital,
                 Map.of(
@@ -77,6 +78,20 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
                 true,
                 false
         ));
+        hospitalDetailRepository.saveAndFlush(HospitalDetail.create(
+                arrayTimeHospital,
+                Map.of(
+                        DayOfWeek.MONDAY,
+                        new DailyOperatingHours(
+                                LocalTime.of(20, 0),
+                                LocalTime.of(2, 0)
+                        )
+                ),
+                false,
+                false,
+                true,
+                false
+        ));
 
         ReservationSlot overnight = ReservationSlot.create(
                 hospital.getId(),
@@ -89,9 +104,15 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
                 LocalDateTime.of(2026, 8, 11, 10, 0),
                 LocalDateTime.of(2026, 8, 11, 10, 30)
         );
+        ReservationSlot arrayTimeOvernight = ReservationSlot.create(
+                arrayTimeHospital.getId(),
+                LocalDateTime.of(2026, 8, 11, 1, 0),
+                LocalDateTime.of(2026, 8, 11, 1, 30)
+        );
         reservationSlotRepository.saveAllAndFlush(List.of(
                 overnight,
-                daytime
+                daytime,
+                arrayTimeOvernight
         ));
 
         jdbcTemplate.update(
@@ -126,6 +147,16 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
                 """,
                 daytime.getId()
         );
+        jdbcTemplate.update(
+                """
+                update reservation_slots
+                   set start_at = '2026-08-11 01:00:00',
+                       end_at = '2026-08-11 01:30:00',
+                       business_date = '2026-08-11'
+                 where id = ?
+                """,
+                arrayTimeOvernight.getId()
+        );
 
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
@@ -142,10 +173,15 @@ class ReservationSlotBusinessDateMigrationIntegrationTest {
         ReservationSlot unchanged = reservationSlotRepository
                 .findById(daytime.getId())
                 .orElseThrow();
+        ReservationSlot arrayTimeCorrected = reservationSlotRepository
+                .findById(arrayTimeOvernight.getId())
+                .orElseThrow();
         assertThat(corrected.getBusinessDate())
                 .isEqualTo(LocalDate.of(2026, 8, 10));
         assertThat(unchanged.getBusinessDate())
                 .isEqualTo(LocalDate.of(2026, 8, 11));
+        assertThat(arrayTimeCorrected.getBusinessDate())
+                .isEqualTo(LocalDate.of(2026, 8, 10));
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from schema_migrations where migration_key = ?",
                 Integer.class,

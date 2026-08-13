@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
 import com.doctorpet.domain.hospital.dto.response.OperatingHoursResponse;
 import com.doctorpet.domain.hospital.dto.response.TemporaryClosureResponse;
 import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
 import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
@@ -91,7 +92,13 @@ public class HospitalOperatingHoursApplicationService {
                 ));
 
         HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
-        replacePublishedSlots(hospitalId, effectiveFrom, today, savedSchedule);
+        replacePublishedSlots(
+                hospital,
+                hospitalId,
+                effectiveFrom,
+                today,
+                savedSchedule
+        );
         return OperatingHoursResponse.from(savedSchedule);
     }
 
@@ -129,7 +136,7 @@ public class HospitalOperatingHoursApplicationService {
         Long hospitalId = getHospitalId(memberId);
         LocalDate today = LocalDate.now(applicationClock);
         validateTemporaryClosureCancellationDate(businessDate, today);
-        lockHospital(hospitalId);
+        Hospital hospital = lockHospital(hospitalId);
 
         HospitalTemporaryClosure closure = closureRepository
                 .findClosure(hospitalId, businessDate)
@@ -140,20 +147,27 @@ public class HospitalOperatingHoursApplicationService {
         closureRepository.flush();
 
         if (!businessDate.isAfter(today.plusDays(13))) {
-            createSlotsAfterHospitalLock(hospitalId, businessDate);
+            createSlotsAfterHospitalLock(hospital, hospitalId, businessDate);
         }
     }
 
     @Transactional
     public int createSlots(Long hospitalId, LocalDate businessDate) {
-        lockHospital(hospitalId);
-        return createSlotsAfterHospitalLock(hospitalId, businessDate);
+        Hospital hospital = lockHospital(hospitalId);
+        if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            return 0;
+        }
+        return createSlotsAfterHospitalLock(hospital, hospitalId, businessDate);
     }
 
     private int createSlotsAfterHospitalLock(
+            Hospital hospital,
             Long hospitalId,
             LocalDate businessDate
     ) {
+        if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            return 0;
+        }
         if (closureRepository.findClosure(hospitalId, businessDate).isPresent()) {
             return 0;
         }
@@ -213,11 +227,15 @@ public class HospitalOperatingHoursApplicationService {
     }
 
     private void replacePublishedSlots(
+            Hospital hospital,
             Long hospitalId,
             LocalDate effectiveFrom,
             LocalDate today,
             HospitalOperatingSchedule schedule
     ) {
+        if (hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            return;
+        }
         LocalDate publishedUntil = today.plusDays(13);
         if (effectiveFrom.isAfter(publishedUntil)) {
             return;

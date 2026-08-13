@@ -330,6 +330,34 @@ public class ReservationService {
         return reservation;
     }
 
+    /**
+     * 채팅 메시지 저장이 예약 종료 조건부 UPDATE와 같은 예약 행에서 직렬화되도록 쓴다.
+     * 채팅 도메인은 Repository를 직접 참조하지 않고 이 Service를 통해 예약을 얻는다.
+     */
+    public Reservation findReservationForChatForUpdate(Long reservationId) {
+        return reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new ServiceException(
+                        ReservationErrorCode.RESERVATION_NOT_FOUND
+                ));
+    }
+
+    public Reservation findReservationForChat(Long reservationId) {
+        return reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ServiceException(
+                        ReservationErrorCode.RESERVATION_NOT_FOUND
+                ));
+    }
+
+    /** 결제수단 재지정과 청구 선기록을 같은 예약 행 락으로 직렬화한다. */
+    public Reservation findMyReservationForUpdate(Long memberId, Long reservationId) {
+        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new ServiceException(ReservationErrorCode.RESERVATION_NOT_FOUND));
+        if (!reservation.isOwnedBy(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+        return reservation;
+    }
+
     public Page<Reservation> findMyReservations(
             Long memberId,
             ReservationListCondition condition
