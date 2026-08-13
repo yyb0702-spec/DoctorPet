@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,16 @@ public class MemberService {
                 .orElseThrow(() -> new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND));
 
         return MemberResponse.from(member);
+    }
+
+    /**
+     * 보존 이력처럼 탈퇴 회원의 부재가 예외가 아닌 경우에 쓰는 활성 회원 프로필 조회다.
+     * Member의 {@code @SQLRestriction} 때문에 탈퇴 회원은 빈 결과가 되며, 호출자가 안전한
+     * 대체 표시를 선택할 수 있다. 일반 내 정보 조회는 {@link #getMyInfo(Long)}를 사용한다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<MemberResponse> findActiveMemberProfile(Long memberId) {
+        return memberRepository.findById(memberId).map(MemberResponse::from);
     }
 
     /*
