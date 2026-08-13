@@ -44,5 +44,10 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             @Param("now") LocalDateTime now
     );
 
-    long deleteByCreatedAtLessThanEqual(LocalDateTime cutoff);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from ChatMessage m
+             where m.createdAt <= :cutoff
+            """)
+    int deleteExpiredMessages(@Param("cutoff") LocalDateTime cutoff);
 }

@@ -148,7 +148,7 @@ public class ChatMessageService {
 
     @Transactional
     public long deleteExpiredMessages() {
-        return chatMessageRepository.deleteByCreatedAtLessThanEqual(
+        return chatMessageRepository.deleteExpiredMessages(
                 LocalDateTime.now(applicationClock).minusYears(1));
     }
 

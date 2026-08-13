@@ -199,7 +199,7 @@ class ChatMessageServiceTest {
     void deletesMessagesAtExactOneYearBoundary() {
         chatMessageService.deleteExpiredMessages();
 
-        verify(chatMessageRepository).deleteByCreatedAtLessThanEqual(
+        verify(chatMessageRepository).deleteExpiredMessages(
                 LocalDateTime.of(2025, 8, 12, 9, 0));
     }
 

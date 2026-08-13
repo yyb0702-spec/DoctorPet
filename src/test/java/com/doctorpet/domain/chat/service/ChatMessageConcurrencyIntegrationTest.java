@@ -1,8 +1,11 @@
 package com.doctorpet.domain.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doAnswer;
 
 import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
@@ -16,25 +19,24 @@ import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
-import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
+import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.RepeatedTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -60,6 +62,7 @@ class ChatMessageConcurrencyIntegrationTest {
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationSlotRepository reservationSlotRepository;
     @Autowired private MemberRepository memberRepository;
+    @MockitoSpyBean private ReservationService reservationService;
     @MockitoBean private HospitalService hospitalService;
     @MockitoBean private ChatMemberProfilePort memberProfilePort;
 
@@ -83,58 +86,46 @@ class ChatMessageConcurrencyIntegrationTest {
         }
     }
 
-    @RepeatedTest(5)
-    @DisplayName("종료 전이와 채팅 전송이 경쟁해도 종료 후 저장은 발생하지 않는다")
-    void completeTreatmentAndSend_areSerialized() throws InterruptedException {
+    @org.junit.jupiter.api.Test
+    @DisplayName("종료 전이가 먼저 커밋되면 이미 시작된 전송도 잠금 재조회 후 거부된다")
+    void sendAfterCompletedTreatmentCommit_isRejectedWithoutPersistingMessage() throws Exception {
         RaceData data = saveInTreatmentReservation();
-        List<Throwable> unexpected = new CopyOnWriteArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(2);
+        CountDownLatch sendStartedBeforeLock = new CountDownLatch(1);
+        CountDownLatch allowSendToLock = new CountDownLatch(1);
 
-        executor.submit(() -> execute(ready, start, done, unexpected, () -> chatMessageService.send(
-                data.reservationId(), data.guardian(), new ChatMessageSendRequest("진료 중 문의"))));
-        executor.submit(() -> execute(ready, start, done, unexpected, () ->
-                hospitalReservationService.completeTreatment(
-                        data.staffMemberId(), data.reservationId())));
+        doAnswer(invocation -> {
+            sendStartedBeforeLock.countDown();
+            assertThat(allowSendToLock.await(10, TimeUnit.SECONDS)).isTrue();
+            return invocation.callRealMethod();
+        }).when(reservationService).findReservationForChatForUpdate(eq(data.reservationId()));
 
-        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdown();
-        assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        try {
+            Future<?> send = executor.submit(() -> chatMessageService.send(
+                    data.reservationId(), data.guardian(), new ChatMessageSendRequest("진료 중 문의")));
+            assertThat(sendStartedBeforeLock.await(10, TimeUnit.SECONDS)).isTrue();
 
-        assertThat(unexpected).isEmpty();
+            // completeTreatment()의 트랜잭션이 반환하기 전에 커밋까지 끝난다. 따라서 뒤이어
+            // 전송이 예약 행 잠금을 얻으면 반드시 TREATMENT_COMPLETED를 다시 읽어야 한다.
+            hospitalReservationService.completeTreatment(data.staffMemberId(), data.reservationId());
+            allowSendToLock.countDown();
+
+            Throwable failure = catchThrowable(() -> send.get(10, TimeUnit.SECONDS));
+            assertThat(failure).isInstanceOf(java.util.concurrent.ExecutionException.class);
+            assertThat(failure.getCause()).isInstanceOf(ServiceException.class);
+            assertThat(((ServiceException) failure.getCause()).getErrorCode())
+                    .isEqualTo(ChatErrorCode.MESSAGE_SEND_NOT_ALLOWED);
+        } finally {
+            allowSendToLock.countDown();
+            executor.shutdownNow();
+        }
+
         assertThat(reservationRepository.findById(data.reservationId()).orElseThrow().getStatus())
                 .isEqualTo(ReservationStatus.TREATMENT_COMPLETED);
         assertThat(chatMessageRepository
                 .findByReservationIdOrderByCreatedAtAscIdAsc(data.reservationId(),
                         org.springframework.data.domain.Pageable.unpaged()))
-                .hasSizeLessThanOrEqualTo(1);
-    }
-
-    private void execute(
-            CountDownLatch ready,
-            CountDownLatch start,
-            CountDownLatch done,
-            List<Throwable> unexpected,
-            Runnable action
-    ) {
-        ready.countDown();
-        try {
-            start.await();
-            action.run();
-        } catch (ServiceException e) {
-            if (e.getErrorCode() != ChatErrorCode.MESSAGE_SEND_NOT_ALLOWED
-                    && e.getErrorCode() != ReservationErrorCode.INVALID_STATUS) {
-                unexpected.add(e);
-            }
-        } catch (Throwable e) {
-            unexpected.add(e);
-        } finally {
-            done.countDown();
-        }
+                .isEmpty();
     }
 
     private RaceData saveInTreatmentReservation() {
