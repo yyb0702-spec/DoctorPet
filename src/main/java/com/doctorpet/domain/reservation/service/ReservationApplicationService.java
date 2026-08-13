@@ -87,7 +87,10 @@ public class ReservationApplicationService {
         memberService.assertActiveMember(memberId);
         Reservation reservation = reservationService.findMyReservationForUpdate(memberId, reservationId);
         paymentMethodService.assertActiveAndOwnedBy(memberId, request.paymentMethodId());
-        if (paymentQueryService.existsByReservationId(reservationId)) {
+        // 일반 exists 조회는 REPEATABLE READ의 일관 읽기 스냅샷에 묶여, 바로 앞 청구 트랜잭션이
+        // 예약 행 잠금을 해제하며 커밋한 Payment를 보지 못할 수 있다. FOR UPDATE 현재 읽기로
+        // 선기록을 확인해 같은 직렬화 경합에서 PAYMENT_ALREADY_STARTED을 일관되게 반환한다.
+        if (paymentQueryService.findStatusByReservationIdForUpdate(reservationId).isPresent()) {
             throw new ServiceException(ReservationErrorCode.PAYMENT_ALREADY_STARTED);
         }
         reservation.changePaymentMethod(request.paymentMethodId());

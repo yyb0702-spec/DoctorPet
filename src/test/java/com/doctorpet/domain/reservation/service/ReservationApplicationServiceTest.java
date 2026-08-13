@@ -14,6 +14,7 @@ import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.payment.service.PaymentMethodService;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
+import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.domain.pet.service.PetService;
@@ -191,7 +192,7 @@ class ReservationApplicationServiceTest {
         Reservation reservation = reservation();
         ReservationPaymentMethodUpdateRequest request = new ReservationPaymentMethodUpdateRequest(8L);
         given(reservationService.findMyReservationForUpdate(MEMBER_ID, 10L)).willReturn(reservation);
-        given(paymentQueryService.existsByReservationId(10L)).willReturn(false);
+        given(paymentQueryService.findStatusByReservationIdForUpdate(10L)).willReturn(Optional.empty());
 
         applicationService.changePaymentMethod(MEMBER_ID, 10L, request);
 
@@ -204,7 +205,8 @@ class ReservationApplicationServiceTest {
     void changePaymentMethod_afterPaymentStarted_throws() {
         Reservation reservation = reservation();
         given(reservationService.findMyReservationForUpdate(MEMBER_ID, 10L)).willReturn(reservation);
-        given(paymentQueryService.existsByReservationId(10L)).willReturn(true);
+        given(paymentQueryService.findStatusByReservationIdForUpdate(10L))
+                .willReturn(Optional.of(PaymentStatus.PENDING));
 
         assertThatThrownBy(() -> applicationService.changePaymentMethod(
                 MEMBER_ID,
