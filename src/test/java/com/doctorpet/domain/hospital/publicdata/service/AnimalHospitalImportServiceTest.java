@@ -9,11 +9,13 @@ import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalCoordinateC
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalDataNormalizer;
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalEntityMapper;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -31,6 +33,8 @@ class AnimalHospitalImportServiceTest {
 
     @Mock
     private HospitalRepository hospitalRepository;
+    @Mock
+    private HospitalReservationApplicationService reservationService;
 
     private final AnimalHospitalDataNormalizer normalizer =
             new AnimalHospitalDataNormalizer(
@@ -48,7 +52,8 @@ class AnimalHospitalImportServiceTest {
         importService = new AnimalHospitalImportService(
                 hospitalRepository,
                 normalizer,
-                entityMapper
+                entityMapper,
+                reservationService
         );
     }
 
@@ -108,7 +113,64 @@ class AnimalHospitalImportServiceTest {
         then(hospitalRepository).should(never()).save(any(Hospital.class));
     }
 
+    @Test
+    void openHospitalBecomingTemporarilyClosedCancelsConfirmedReservations() {
+        Hospital existingHospital = existingHospital(BusinessStatus.OPEN);
+        ReflectionTestUtils.setField(existingHospital, "id", 17L);
+        given(hospitalRepository.findByLocalGovCodeAndMgmtNo(
+                "3130000",
+                "313000001020260004"
+        )).willReturn(Optional.of(existingHospital));
+
+        importService.importHospital(createItem("휴업 병원", null, "02"));
+
+        then(reservationService).should().cancelConfirmedByBusinessStatusChange(
+                17L,
+                "공공데이터에서 병원 휴업이 확인되었습니다."
+        );
+    }
+
+    @Test
+    void alreadyClosedHospitalDoesNotRepeatCancellation() {
+        Hospital existingHospital = existingHospital(BusinessStatus.CLOSED);
+        given(hospitalRepository.findByLocalGovCodeAndMgmtNo(
+                "3130000",
+                "313000001020260004"
+        )).willReturn(Optional.of(existingHospital));
+
+        importService.importHospital(createItem("폐업 병원", null, "03"));
+
+        then(reservationService).shouldHaveNoInteractions();
+    }
+
+    private Hospital existingHospital(BusinessStatus businessStatus) {
+        return Hospital.createFromPublicData(
+                "313000001020260004",
+                "3130000",
+                "기존 병원",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                LocalDate.of(2026, 7, 20),
+                businessStatus,
+                null,
+                null,
+                null
+        );
+    }
+
     private AnimalHospitalItem createItem(String name, String telephoneNumber) {
+        return createItem(name, telephoneNumber, "01");
+    }
+
+    private AnimalHospitalItem createItem(
+            String name,
+            String telephoneNumber,
+            String businessStatusCode
+    ) {
         return new AnimalHospitalItem(
                 name,
                 "",
@@ -130,7 +192,7 @@ class AnimalHospitalImportServiceTest {
                 "서울특별시 마포구 모래내로1길 9",
                 "03938",
                 "",
-                "01",
+                businessStatusCode,
                 "영업/정상",
                 "",
                 "",

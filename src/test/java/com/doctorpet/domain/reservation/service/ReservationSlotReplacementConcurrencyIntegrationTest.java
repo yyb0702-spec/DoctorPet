@@ -3,6 +3,9 @@ package com.doctorpet.domain.reservation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
@@ -75,12 +78,16 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
     private PaymentMethodRepository paymentMethodRepository;
 
     @Autowired
+    private HospitalRepository hospitalRepository;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private final List<Long> slotIds = new ArrayList<>();
+    private final List<Long> hospitalIds = new ArrayList<>();
     private Long memberId;
     private Long petId;
     private Long paymentMethodId;
@@ -137,13 +144,16 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
         if (memberId != null) {
             jdbcTemplate.update("delete from members where id = ?", memberId);
         }
+        if (!hospitalIds.isEmpty()) {
+            hospitalRepository.deleteAllById(hospitalIds);
+        }
     }
 
     @Test
     @DisplayName("동일 슬롯의 예약과 진료시간 재배치가 경합하면 정확히 한 작업만 성공한다")
     void concurrentReservationAndReplacement_onlyOneSucceeds() throws InterruptedException {
         for (int attempt = 0; attempt < RACE_ATTEMPTS; attempt++) {
-            long hospitalId = System.nanoTime();
+            long hospitalId = createOpenPartnerHospital();
             LocalDate businessDate = LocalDate.now().plusDays(3 + attempt);
             LocalDateTime startAt = businessDate.atTime(10, 0);
             ReservationSlot original = reservationSlotRepository.saveAndFlush(
@@ -223,7 +233,7 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
     void concurrentReservationAndTemporaryClosureSlotRemoval_onlyOneSucceeds()
             throws InterruptedException {
         for (int attempt = 0; attempt < RACE_ATTEMPTS; attempt++) {
-            long hospitalId = System.nanoTime();
+            long hospitalId = createOpenPartnerHospital();
             LocalDate businessDate = LocalDate.now().plusDays(8 + attempt);
             ReservationSlot original = saveSlot(hospitalId, businessDate, 10);
             ReservationRequest request = new ReservationRequest(
@@ -285,7 +295,7 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
     @Test
     @DisplayName("공개 범위를 잠그면 아직 재배치하지 않은 날짜에도 예약이 끼어들 수 없다")
     void replacementRangeLock_blocksReservationOnLaterDate() throws Exception {
-        long hospitalId = System.nanoTime();
+        long hospitalId = createOpenPartnerHospital();
         LocalDate fromDate = LocalDate.now().plusDays(4);
         LocalDate toDate = fromDate.plusDays(2);
         List<ReservationSlot> originalSlots = List.of(
@@ -448,6 +458,29 @@ class ReservationSlotReplacementConcurrencyIntegrationTest {
         ));
         slotIds.add(slot.getId());
         return slot;
+    }
+
+    private long createOpenPartnerHospital() {
+        Hospital hospital = Hospital.createFromPublicData(
+                "SLOT-REPLACEMENT-" + System.nanoTime(),
+                "TEST-LOCAL-GOV",
+                "슬롯 재배치 동시성 테스트 병원",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                BusinessStatus.OPEN,
+                null,
+                null,
+                null
+        );
+        hospital.markAsPartner();
+        Hospital saved = hospitalRepository.saveAndFlush(hospital);
+        hospitalIds.add(saved.getId());
+        return saved.getId();
     }
 
     private List<ReservationSlotCreateCommand> replacementAt(LocalDate businessDate, int hour) {

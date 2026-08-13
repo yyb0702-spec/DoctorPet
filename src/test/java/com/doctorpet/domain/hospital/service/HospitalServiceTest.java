@@ -423,6 +423,18 @@ class HospitalServiceTest {
     }
 
     @Test
+    void 폐업한_제휴_병원은_슬롯_조회와_신규_예약이_불가능하다() {
+        Hospital hospital = createHospital(BusinessStatus.CLOSED, true);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        boolean available =
+                hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID);
+
+        assertThat(available).isFalse();
+    }
+
+    @Test
     void 비제휴_병원은_슬롯_조회가_불가능하다() {
         Hospital hospital = createHospital(BusinessStatus.OPEN, false);
         given(hospitalRepository.findById(HOSPITAL_ID))
@@ -432,6 +444,56 @@ class HospitalServiceTest {
                 hospitalService.isReservationSlotLookupAvailable(HOSPITAL_ID);
 
         assertThat(available).isFalse();
+    }
+
+    @Test
+    void 운영중인_제휴_병원은_행_잠금_후_예약을_요청할_수_있다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        hospitalService.assertReservationRequestAvailable(HOSPITAL_ID);
+    }
+
+    @Test
+    void 휴업중인_병원은_행_잠금_후에도_예약을_요청할_수_없다() {
+        Hospital hospital = createHospital(BusinessStatus.CLOSED_TEMP, true);
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        assertThatThrownBy(() ->
+                hospitalService.assertReservationRequestAvailable(HOSPITAL_ID)
+        )
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE
+                );
+    }
+
+    @Test
+    void 운영중인_제휴_병원은_행_잠금_후_예약을_승인할_수_있다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        hospitalService.assertReservationApprovalAvailable(HOSPITAL_ID);
+    }
+
+    @Test
+    void 휴업중인_병원은_행_잠금_후에도_예약을_승인할_수_없다() {
+        Hospital hospital = createHospital(BusinessStatus.CLOSED_TEMP, true);
+        given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        assertThatThrownBy(() ->
+                hospitalService.assertReservationApprovalAvailable(HOSPITAL_ID)
+        )
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+                );
     }
 
     @Test

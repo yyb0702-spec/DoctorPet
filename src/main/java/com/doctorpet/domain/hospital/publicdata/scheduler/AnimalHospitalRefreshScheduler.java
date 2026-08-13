@@ -29,7 +29,7 @@ public class AnimalHospitalRefreshScheduler {
     private final TaskScheduler taskScheduler;
 
     @Scheduled(
-            cron = "${public-data.animal-hospital.refresh-cron:0 0 3 * * MON}",
+            cron = "${public-data.animal-hospital.refresh-cron:0 0 3 * * *}",
             zone = "Asia/Seoul"
     )
     public void refresh() {
