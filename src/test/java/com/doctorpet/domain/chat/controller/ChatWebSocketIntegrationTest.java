@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.member.entity.MemberRole;
+import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
@@ -17,6 +18,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -52,6 +55,8 @@ class ChatWebSocketIntegrationTest {
     @Autowired private ChatMessageRepository chatMessageRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationSlotRepository reservationSlotRepository;
+    @Autowired private SimpMessagingTemplate messagingTemplate;
+    @Autowired private RefreshTokenRepository refreshTokenRepository;
     @MockitoBean private HospitalService hospitalService;
     @MockitoBean private ChatMemberProfilePort memberProfilePort;
 
@@ -162,6 +167,37 @@ class ChatWebSocketIntegrationTest {
         // MessageMapping의 상태 거부는 broker 단계의 destination 거부와 달리 STOMP ERROR 프레임을
         // 보장하지 않는다. 정책상 불변식은 종료 상태 메시지가 전달·저장되지 않는 것이다.
         assertThat(frames.pollFrame()).isNull();
+        assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).isEmpty();
+    }
+
+    @Test
+    void loggedOutSession_cannotSendOrReceiveExistingChatMessages() throws Exception {
+        ChatFixture fixture = saveWritableReservation();
+        String accessToken = jwtTokenProvider.generateAccessToken(
+                fixture.guardianId(), "guardian@example.com", MemberRole.GUARDIAN.name());
+        StompFrames frames = connect(accessToken);
+        frames.send(frame("SUBSCRIBE", List.of(
+                "id:chat-logout",
+                "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
+        messagingTemplate.convertAndSend(
+                "/topic/chat/reservations/" + fixture.reservationId(),
+                "before-logout"
+        );
+        assertThat(frames.awaitFrame()).startsWith("MESSAGE");
+
+        refreshTokenRepository.blacklistAccessToken(
+                jwtTokenProvider.getJti(accessToken), Duration.ofMinutes(30));
+        messagingTemplate.convertAndSend(
+                "/topic/chat/reservations/" + fixture.reservationId(),
+                "logout-after-subscribe"
+        );
+        assertThat(frames.pollFrame()).isNull();
+
+        frames.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
+                "content-type:application/json"), "{\"content\":\"무효화 후 전송\"}"));
+        assertThat(frames.awaitFrame()).startsWith("ERROR");
         assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
                 fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).isEmpty();
     }

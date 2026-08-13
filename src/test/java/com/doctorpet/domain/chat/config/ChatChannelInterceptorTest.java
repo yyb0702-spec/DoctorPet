@@ -15,6 +15,10 @@ import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,11 +44,15 @@ class ChatChannelInterceptorTest {
     @Mock private ChatMessageService chatMessageService;
 
     private ChatChannelInterceptor interceptor;
+    private ChatSessionAuthenticationStore sessionAuthenticationStore;
 
     @BeforeEach
     void setUp() {
+        sessionAuthenticationStore = new ChatSessionAuthenticationStore(
+                memberBlacklistPort, accessTokenBlacklistPort, Clock.systemUTC());
         interceptor = new ChatChannelInterceptor(
-                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, chatMessageService);
+                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, chatMessageService,
+                sessionAuthenticationStore, Clock.systemUTC());
     }
 
     @Test
@@ -56,6 +64,7 @@ class ChatChannelInterceptorTest {
         given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
         given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
         given(jwtTokenProvider.getJti("access-token")).willReturn("jti");
+        given(jwtTokenProvider.getRemainingTtl("access-token")).willReturn(Duration.ofMinutes(30));
 
         Message<?> result = interceptor.preSend(
                 stompMessage(StompCommand.CONNECT, null, "Bearer access-token"), null);
@@ -112,13 +121,13 @@ class ChatChannelInterceptorTest {
     void subscribesOnlyToAuthorizedReservationDestination() {
         MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
                 MemberRole.GUARDIAN.name());
-        Message<?> authorized = authenticatedStompMessage(
+        Message<?> authorized = connectedStompMessage(
                 StompCommand.SUBSCRIBE, "/topic/chat/reservations/123", principal);
 
         interceptor.preSend(authorized, null);
 
         verify(chatMessageService).assertAccessible(123L, principal);
-        assertThatThrownBy(() -> interceptor.preSend(authenticatedStompMessage(
+        assertThatThrownBy(() -> interceptor.preSend(connectedStompMessage(
                 StompCommand.SUBSCRIBE, "/topic/chat/reservations/123/other", principal), null))
                 .isInstanceOf(AccessDeniedException.class);
     }
@@ -132,6 +141,7 @@ class ChatChannelInterceptorTest {
         given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
         given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
         given(jwtTokenProvider.getJti("access-token")).willReturn("jti");
+        given(jwtTokenProvider.getRemainingTtl("access-token")).willReturn(Duration.ofMinutes(30));
         Map<String, Object> sessionAttributes = new HashMap<>();
 
         StompHeaderAccessor connect = StompHeaderAccessor.create(StompCommand.CONNECT);
@@ -152,6 +162,57 @@ class ChatChannelInterceptorTest {
                 .getUser()).getPrincipal()).isEqualTo(principal);
     }
 
+    @Test
+    @DisplayName("CONNECT 뒤 회원이 블랙리스트에 오르면 기존 세션의 구독과 전송을 차단한다")
+    void blocksExistingSessionWhenMemberBecomesBlacklisted() {
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
+                MemberRole.GUARDIAN.name());
+        Message<?> subscribe = connectedStompMessage(
+                StompCommand.SUBSCRIBE, "/topic/chat/reservations/123", principal);
+        given(memberBlacklistPort.isBlacklisted(principal.memberId())).willReturn(true);
+
+        assertThatThrownBy(() -> interceptor.preSend(subscribe, null))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(chatMessageService);
+    }
+
+    @Test
+    @DisplayName("CONNECT 뒤 Access Token 만료 시 기존 세션의 구독과 전송을 차단한다")
+    void blocksExistingSessionAfterAccessTokenExpires() {
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-08-13T00:00:00Z"), ZoneOffset.UTC);
+        ChatSessionAuthenticationStore expiredSessionStore = new ChatSessionAuthenticationStore(
+                memberBlacklistPort, accessTokenBlacklistPort, fixedClock);
+        ChatChannelInterceptor expiredSessionInterceptor = new ChatChannelInterceptor(
+                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, chatMessageService,
+                expiredSessionStore, fixedClock);
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
+                MemberRole.GUARDIAN.name());
+        Map<String, Object> sessionAttributes = new HashMap<>();
+        given(jwtTokenProvider.validateToken("expired-after-connect-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("expired-after-connect-token")).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal("expired-after-connect-token")).willReturn(principal);
+        given(jwtTokenProvider.getJti("expired-after-connect-token")).willReturn("expired-jti");
+        given(jwtTokenProvider.getRemainingTtl("expired-after-connect-token")).willReturn(Duration.ZERO);
+
+        StompHeaderAccessor connect = StompHeaderAccessor.create(StompCommand.CONNECT);
+        connect.setSessionId("expired-session");
+        connect.setSessionAttributes(sessionAttributes);
+        connect.addNativeHeader("Authorization", "Bearer expired-after-connect-token");
+        expiredSessionInterceptor.preSend(
+                MessageBuilder.createMessage(new byte[0], connect.getMessageHeaders()), null);
+
+        StompHeaderAccessor subscribe = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        subscribe.setSessionId("expired-session");
+        subscribe.setSessionAttributes(sessionAttributes);
+        subscribe.setDestination("/topic/chat/reservations/123");
+        assertThatThrownBy(() -> expiredSessionInterceptor.preSend(
+                MessageBuilder.createMessage(new byte[0], subscribe.getMessageHeaders()), null))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(chatMessageService);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"MESSAGE", "CONNECTED", "RECEIPT", "ERROR", "ACK", "NACK", "BEGIN", "COMMIT", "ABORT"})
     @DisplayName("서버 전용 또는 트랜잭션 STOMP 명령은 인증된 클라이언트라도 차단한다")
@@ -168,6 +229,7 @@ class ChatChannelInterceptorTest {
 
     private Message<?> stompMessage(StompCommand command, String destination, String authorization) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
+        accessor.setSessionId("session-" + command);
         accessor.setDestination(destination);
         if (authorization != null) {
             accessor.addNativeHeader("Authorization", authorization);
@@ -181,6 +243,33 @@ class ChatChannelInterceptorTest {
         accessor.setDestination(destination);
         accessor.setUser(new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                 principal, null));
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private Message<?> connectedStompMessage(
+            StompCommand command,
+            String destination,
+            MemberPrincipal principal
+    ) {
+        String accessToken = "access-token-" + command + '-' + destination;
+        String sessionId = "session-" + command + '-' + destination;
+        Map<String, Object> sessionAttributes = new HashMap<>();
+        given(jwtTokenProvider.validateToken(accessToken)).willReturn(true);
+        given(jwtTokenProvider.getTokenType(accessToken)).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal(accessToken)).willReturn(principal);
+        given(jwtTokenProvider.getJti(accessToken)).willReturn("jti-" + command + '-' + destination);
+        given(jwtTokenProvider.getRemainingTtl(accessToken)).willReturn(Duration.ofMinutes(30));
+
+        StompHeaderAccessor connect = StompHeaderAccessor.create(StompCommand.CONNECT);
+        connect.setSessionId(sessionId);
+        connect.setSessionAttributes(sessionAttributes);
+        connect.addNativeHeader("Authorization", "Bearer " + accessToken);
+        interceptor.preSend(MessageBuilder.createMessage(new byte[0], connect.getMessageHeaders()), null);
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
+        accessor.setSessionId(sessionId);
+        accessor.setSessionAttributes(sessionAttributes);
+        accessor.setDestination(destination);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -84,7 +85,7 @@ class PaymentMethodControllerTest {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
         PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");
         given(paymentMethodService.register(eq(MEMBER_ID), any(PaymentMethodRegisterRequest.class)))
-                .willReturn(new PaymentMethodResponse(100L, "SHINHAN", "1234", "ACTIVE", LocalDateTime.now()));
+                .willReturn(new PaymentMethodResponse(100L, "SHINHAN", "1234", "ACTIVE", true, LocalDateTime.now()));
 
         mockMvc.perform(post("/api/payment-methods")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -94,7 +95,8 @@ class PaymentMethodControllerTest {
                 .andExpect(jsonPath("$.data.id").value(100))
                 .andExpect(jsonPath("$.data.cardBrand").value("SHINHAN"))
                 .andExpect(jsonPath("$.data.cardLast4").value("1234"))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.isDefault").value(true));
 
         verify(paymentMethodService).register(eq(MEMBER_ID), any(PaymentMethodRegisterRequest.class));
     }
@@ -132,7 +134,7 @@ class PaymentMethodControllerTest {
     void getMyPaymentMethods_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
         given(paymentMethodService.getMyPaymentMethods(MEMBER_ID)).willReturn(List.of(
-                new PaymentMethodResponse(100L, "SHINHAN", "1234", "ACTIVE", LocalDateTime.now())));
+                new PaymentMethodResponse(100L, "SHINHAN", "1234", "ACTIVE", true, LocalDateTime.now())));
 
         mockMvc.perform(get("/api/payment-methods"))
                 .andExpect(status().isOk())
@@ -195,6 +197,22 @@ class PaymentMethodControllerTest {
         mockMvc.perform(delete("/api/payment-methods/{id}", 999L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PAYMENT_METHOD_003"));
+    }
+
+    @Test
+    @DisplayName("기본 결제수단 지정은 인증된 회원 ID만 사용하고 기본값 정보를 반환한다")
+    void setDefault_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
+        given(paymentMethodService.setDefault(MEMBER_ID, 100L))
+                .willReturn(new PaymentMethodResponse(
+                        100L, "SHINHAN", "1234", "ACTIVE", true, LocalDateTime.now()));
+
+        mockMvc.perform(patch("/api/payment-methods/{paymentMethodId}/default", 100L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.isDefault").value(true));
+
+        verify(paymentMethodService).setDefault(MEMBER_ID, 100L);
     }
 
     private Authentication memberAuthentication(Long memberId) {

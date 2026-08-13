@@ -138,7 +138,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/payments").hasRole("GUARDIAN")
                         .requestMatchers(
                                 HttpMethod.PATCH,
-                                "/api/reservations/*/cancel"
+                                "/api/reservations/*/cancel",
+                                "/api/reservations/*/payment-method"
                         ).hasRole("GUARDIAN")
                         // 병원 예약 운영 API - 병원 스태프 전용 (SA §8-6)
                         .requestMatchers("/api/hospital/**")

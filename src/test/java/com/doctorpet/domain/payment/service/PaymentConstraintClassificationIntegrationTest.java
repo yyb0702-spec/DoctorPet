@@ -64,9 +64,9 @@ class PaymentConstraintClassificationIntegrationTest {
                 PaymentMethod.issue(GUARDIAN_ID, billingKeyCryptor.encrypt("test-billing-key"), "VISA", "1234")).getId();
 
         given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
-        given(reservationLookupPort.findForCharge(firstReservationId)).willReturn(Optional.of(
+        given(reservationLookupPort.findForChargeForUpdate(firstReservationId)).willReturn(Optional.of(
                 new ReservationChargeView(firstReservationId, HOSPITAL_ID, GUARDIAN_ID, paymentMethodId, true)));
-        given(reservationLookupPort.findForCharge(secondReservationId)).willReturn(Optional.of(
+        given(reservationLookupPort.findForChargeForUpdate(secondReservationId)).willReturn(Optional.of(
                 new ReservationChargeView(secondReservationId, HOSPITAL_ID, GUARDIAN_ID, paymentMethodId, true)));
         // 두 청구 모두 같은 merchant_payment_id를 발급받아 두 번째 선기록이 merchant UNIQUE 제약에 걸리게 한다.
         given(merchantPaymentIdGenerator.generate()).willReturn(FIXED_MERCHANT_ID);

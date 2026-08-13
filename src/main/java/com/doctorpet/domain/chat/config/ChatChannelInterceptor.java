@@ -6,6 +6,8 @@ import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Map;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -41,21 +43,34 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     private final MemberBlacklistPort memberBlacklistPort;
     private final AccessTokenBlacklistPort accessTokenBlacklistPort;
     private final ChatMessageService chatMessageService;
+    private final ChatSessionAuthenticationStore sessionAuthenticationStore;
+    private final Clock applicationClock;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
         StompCommand command = accessor.getCommand();
         if (command == null) {
-            // STOMP heartbeat는 command가 없다. payload·destination을 갖지 않아 메시지 주입 경로가 아니다.
+            // Heartbeat도 CONNECT 뒤 세션이면 블랙리스트·만료를 다시 확인한다. command가 없는
+            // 최초 프레임은 인증 상태가 없으므로 그대로 통과시킨다.
+            if (sessionAuthenticationStore.hasSession(accessor)) {
+                sessionAuthenticationStore.requireUsableAuthentication(accessor);
+            }
             return message;
         }
         if (command == StompCommand.CONNECT) {
-            Authentication authentication = authenticate(accessor);
+            AuthenticatedSession authenticatedSession = authenticate(accessor);
+            Authentication authentication = authenticatedSession.authentication();
             Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
             if (sessionAttributes != null) {
                 sessionAttributes.put(AUTHENTICATED_USER_ATTRIBUTE, authentication);
             }
+            sessionAuthenticationStore.register(
+                    accessor,
+                    authentication,
+                    authenticatedSession.accessTokenJti(),
+                    authenticatedSession.expiresAt()
+            );
             // wrap()으로 얻은 accessor에 user를 설정한 뒤 원 Message를 그대로 반환하면,
             // STOMP 세션에 Principal 변경이 반영되지 않을 수 있다. CONNECT 뒤 프레임도 같은
             // MemberPrincipal로 인가되도록 변경된 헤더의 Message를 명시적으로 반환한다.
@@ -69,7 +84,12 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
             authorizeDestination(accessor, SEND_DESTINATION);
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
-        if (command == StompCommand.UNSUBSCRIBE || command == StompCommand.DISCONNECT) {
+        if (command == StompCommand.DISCONNECT) {
+            // 로그아웃·탈퇴·만료로 이미 무효화된 세션도 정상 종료는 허용해 메모리와 구독을 즉시 정리한다.
+            sessionAuthenticationStore.remove(accessor);
+            return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
+        }
+        if (command == StompCommand.UNSUBSCRIBE) {
             requireAuthenticatedUser(accessor);
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
@@ -79,7 +99,7 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
         throw new AccessDeniedException("허용되지 않은 채팅 STOMP 명령입니다.");
     }
 
-    private Authentication authenticate(StompHeaderAccessor accessor) {
+    private AuthenticatedSession authenticate(StompHeaderAccessor accessor) {
         String authorization = accessor.getFirstNativeHeader(AUTHORIZATION);
         if (!StringUtils.hasText(authorization) || !authorization.startsWith(BEARER_PREFIX)) {
             throw new AccessDeniedException("STOMP CONNECT Authorization 헤더가 필요합니다.");
@@ -90,14 +110,19 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
             throw new AccessDeniedException("유효하지 않은 STOMP Access Token입니다.");
         }
         MemberPrincipal principal = jwtTokenProvider.getMemberPrincipal(token);
+        String accessTokenJti = jwtTokenProvider.getJti(token);
         if (memberBlacklistPort.isBlacklisted(principal.memberId())
-                || accessTokenBlacklistPort.isBlacklisted(jwtTokenProvider.getJti(token))) {
+                || accessTokenBlacklistPort.isBlacklisted(accessTokenJti)) {
             throw new AccessDeniedException("사용할 수 없는 STOMP Access Token입니다.");
         }
         Authentication authentication = new UsernamePasswordAuthenticationToken(
                 principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + principal.role())));
         accessor.setUser(authentication);
-        return authentication;
+        return new AuthenticatedSession(
+                authentication,
+                accessTokenJti,
+                Instant.now(applicationClock).plus(jwtTokenProvider.getRemainingTtl(token))
+        );
     }
 
     private void authorizeDestination(StompHeaderAccessor accessor, Pattern destinationPattern) {
@@ -116,11 +141,8 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     }
 
     private Authentication requireAuthenticatedUser(StompHeaderAccessor accessor) {
-        restoreAuthenticatedUser(accessor);
-        if (!(accessor.getUser() instanceof Authentication authentication)
-                || !(authentication.getPrincipal() instanceof MemberPrincipal)) {
-            throw new AccessDeniedException("인증되지 않은 STOMP 요청입니다.");
-        }
+        Authentication authentication = sessionAuthenticationStore.requireUsableAuthentication(accessor);
+        accessor.setUser(authentication);
         return authentication;
     }
 
@@ -137,5 +159,12 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
                 && authentication.getPrincipal() instanceof MemberPrincipal) {
             accessor.setUser(authentication);
         }
+    }
+
+    private record AuthenticatedSession(
+            Authentication authentication,
+            String accessTokenJti,
+            Instant expiresAt
+    ) {
     }
 }

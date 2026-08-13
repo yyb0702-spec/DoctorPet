@@ -14,6 +14,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final ChatChannelInterceptor chatChannelInterceptor;
+    private final ChatOutboundChannelInterceptor chatOutboundChannelInterceptor;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -30,5 +31,10 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(chatChannelInterceptor);
+    }
+
+    @Override
+    public void configureClientOutboundChannel(ChannelRegistration registration) {
+        registration.interceptors(chatOutboundChannelInterceptor);
     }
 }
