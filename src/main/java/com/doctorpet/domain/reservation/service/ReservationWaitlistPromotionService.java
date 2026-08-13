@@ -42,6 +42,9 @@ public class ReservationWaitlistPromotionService {
                             offeredAt,
                             offeredAt.plusMinutes(properties.getOfferValidityMinutes())
                     );
+                    // 슬롯 반환을 동시에 처리한 두 트랜잭션이 같은 FIFO 대기자를 읽어도,
+                    // @Version 충돌을 이 경계에서 즉시 감지해 한 쪽만 후속 처리를 계속한다.
+                    reservationWaitlistRepository.flush();
                     return waitlist;
                 });
     }
