@@ -6,10 +6,12 @@ import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.payment.service.PaymentMethodService;
+import com.doctorpet.domain.payment.service.PaymentQueryService;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.service.PetService;
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
 import com.doctorpet.domain.reservation.dto.response.ReservationDetailResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationPageResponse;
@@ -38,6 +40,7 @@ public class ReservationApplicationService {
     private final MemberService memberService;
     private final PetService petService;
     private final PaymentMethodService paymentMethodService;
+    private final PaymentQueryService paymentQueryService;
     private final HospitalService hospitalService;
 
     @Transactional
@@ -73,6 +76,24 @@ public class ReservationApplicationService {
     public void cancel(Long memberId, Long reservationId) {
         memberService.assertActiveMember(memberId);
         reservationService.cancel(memberId, reservationId);
+    }
+
+    @Transactional
+    public void changePaymentMethod(
+            Long memberId,
+            Long reservationId,
+            ReservationPaymentMethodUpdateRequest request
+    ) {
+        memberService.assertActiveMember(memberId);
+        Reservation reservation = reservationService.findMyReservationForUpdate(memberId, reservationId);
+        paymentMethodService.assertActiveAndOwnedBy(memberId, request.paymentMethodId());
+        // 일반 exists 조회는 REPEATABLE READ의 일관 읽기 스냅샷에 묶여, 바로 앞 청구 트랜잭션이
+        // 예약 행 잠금을 해제하며 커밋한 Payment를 보지 못할 수 있다. FOR UPDATE 현재 읽기로
+        // 선기록을 확인해 같은 직렬화 경합에서 PAYMENT_ALREADY_STARTED을 일관되게 반환한다.
+        if (paymentQueryService.findStatusByReservationIdForUpdate(reservationId).isPresent()) {
+            throw new ServiceException(ReservationErrorCode.PAYMENT_ALREADY_STARTED);
+        }
+        reservation.changePaymentMethod(request.paymentMethodId());
     }
 
     public ReservationDetailResponse getMyReservation(

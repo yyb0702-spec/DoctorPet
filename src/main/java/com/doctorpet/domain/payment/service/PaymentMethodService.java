@@ -11,9 +11,12 @@ import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.payment.PaymentGateway;
 import com.doctorpet.global.gateway.payment.PaymentGatewayException;
 import com.doctorpet.global.gateway.payment.dto.BillingKeyIssueResult;
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
 /*
@@ -24,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class PaymentMethodService {
+
+    private static final String ACTIVE_DEFAULT_UNIQUE_CONSTRAINT =
+            "uk_payment_methods_active_default_member_id";
 
     private final PaymentGateway paymentGateway;
     private final BillingKeyCryptor billingKeyCryptor;
@@ -40,8 +46,11 @@ public class PaymentMethodService {
         }
 
         String billingKeyEnc = billingKeyCryptor.encrypt(request.billingKey());
-        PaymentMethod saved = paymentMethodRepository.save(
-                PaymentMethod.issue(memberId, billingKeyEnc, result.cardBrand(), result.cardLast4()));
+        PaymentMethod saved = saveAsFirstDefaultOrNonDefault(
+                memberId,
+                billingKeyEnc,
+                result
+        );
         return PaymentMethodResponse.from(saved);
     }
 
@@ -67,6 +76,42 @@ public class PaymentMethodService {
         );
     }
 
+    /** 예약 결제수단 재지정용 소유권·활성 상태 검증이다. */
+    @Transactional(readOnly = true)
+    public void assertActiveAndOwnedBy(Long memberId, Long paymentMethodId) {
+        PaymentMethod paymentMethod = paymentMethodRepository
+                .findByIdAndMemberId(paymentMethodId, memberId)
+                .orElseThrow(() -> new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND));
+        if (paymentMethod.getStatus() != PaymentMethodStatus.ACTIVE) {
+            throw new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_ACTIVE);
+        }
+    }
+
+    /**
+     * 회원의 ACTIVE 결제수단 행을 잠가 기본값 변경을 직렬화한다. DB 생성 컬럼 UNIQUE가 최종 방어선이고,
+     * 행 잠금은 정상 동시 요청을 재시도·500 없이 순차 적용하기 위한 상위 보호다.
+     */
+    @Transactional
+    public PaymentMethodResponse setDefault(Long memberId, Long paymentMethodId) {
+        List<PaymentMethod> activeMethods = paymentMethodRepository.findActiveByMemberIdForUpdate(memberId);
+        PaymentMethod target = activeMethods.stream()
+                .filter(paymentMethod -> paymentMethod.getId().equals(paymentMethodId))
+                .findFirst()
+                .orElseGet(() -> requireActiveOwnedPaymentMethod(memberId, paymentMethodId));
+
+        for (PaymentMethod paymentMethod : activeMethods) {
+            if (!paymentMethod.getId().equals(target.getId())) {
+                paymentMethod.clearDefault();
+            }
+        }
+        // Hibernate의 UPDATE 실행 순서는 엔티티 목록 순서와 무관하다. 기존 기본값 해제와 새 기본값 지정을
+        // 한 flush에 섞으면 새 행 UPDATE가 먼저 실행돼 생성 컬럼 UNIQUE를 일시적으로 위반할 수 있으므로,
+        // 해제를 먼저 DB에 반영한 뒤 대상만 지정한다.
+        paymentMethodRepository.flush();
+        target.markDefault();
+        return PaymentMethodResponse.from(target);
+    }
+
     /**
      * 소프트 삭제. 진행 중 예약이 참조하더라도 삭제를 허용한다(SA §4-2).
      * 청구 시점의 status 재확인·OFFLINE_REQUIRED 전이는 #34의 책임이다.
@@ -77,6 +122,62 @@ public class PaymentMethodService {
                 .findByIdAndMemberId(paymentMethodId, memberId)
                 .orElseThrow(() -> new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND));
         paymentMethod.markDeleted();
+    }
+
+    private PaymentMethod saveAsFirstDefaultOrNonDefault(
+            Long memberId,
+            String billingKeyEnc,
+            BillingKeyIssueResult result
+    ) {
+        // 기존 활성 결제수단이 있으나 기본값이 비어 있는 레거시 회원에게 신규 카드를 기본값으로
+        // 부여하지 않는다. 기본값의 부재가 "첫 등록"을 뜻하지는 않는다.
+        if (paymentMethodRepository.existsByMemberIdAndStatus(memberId, PaymentMethodStatus.ACTIVE)) {
+            return paymentMethodRepository.save(PaymentMethod.issue(
+                    memberId,
+                    billingKeyEnc,
+                    result.cardBrand(),
+                    result.cardLast4()
+            ));
+        }
+        try {
+            return paymentMethodRepository.save(PaymentMethod.issueAsDefault(
+                    memberId,
+                    billingKeyEnc,
+                    result.cardBrand(),
+                    result.cardLast4()
+            ));
+        } catch (DataIntegrityViolationException exception) {
+            if (!isActiveDefaultDuplicate(exception)) {
+                throw exception;
+            }
+            return paymentMethodRepository.save(PaymentMethod.issue(
+                    memberId,
+                    billingKeyEnc,
+                    result.cardBrand(),
+                    result.cardLast4()
+            ));
+        }
+    }
+
+    private PaymentMethod requireActiveOwnedPaymentMethod(Long memberId, Long paymentMethodId) {
+        PaymentMethod paymentMethod = paymentMethodRepository
+                .findByIdAndMemberId(paymentMethodId, memberId)
+                .orElseThrow(() -> new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_FOUND));
+        if (paymentMethod.getStatus() != PaymentMethodStatus.ACTIVE) {
+            throw new ServiceException(PaymentMethodErrorCode.PAYMENT_METHOD_NOT_ACTIVE);
+        }
+        return paymentMethod;
+    }
+
+    private boolean isActiveDefaultDuplicate(DataIntegrityViolationException exception) {
+        if (!(exception.getMostSpecificCause() instanceof SQLException sqlException)) {
+            return false;
+        }
+        String message = sqlException.getMessage();
+        return "23000".equals(sqlException.getSQLState())
+                && sqlException.getErrorCode() == 1062
+                && message != null
+                && message.toLowerCase(Locale.ROOT).contains(ACTIVE_DEFAULT_UNIQUE_CONSTRAINT);
     }
 
     private BillingKeyIssueResult verifyBillingKey(String billingKey) {
