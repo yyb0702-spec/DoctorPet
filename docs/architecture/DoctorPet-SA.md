@@ -1075,7 +1075,7 @@ sequenceDiagram
 
 blue/green 특성상 평소엔 활성 색 하나만 컨테이너가 떠 있어, Prometheus에서 비활성 색 타겟이 `up=0`으로 보이는 게 정상이다 — 장애가 아니므로 Grafana 쿼리·알림 규칙은 반드시 `up==1`인 인스턴스만 필터링해야 한다. Grafana 관리자 비밀번호는 `.env`의 `GRAFANA_ADMIN_PASSWORD`로 주입한다(다른 시크릿과 동일 패턴, `.env.example` 참고).
 
-**로컬 실기동 검증**: 2026-08-13, WSL Docker에서 `docker compose up -d prometheus grafana`로 기존 mysql/redis/app-green(활성 색)과 함께 기동 — `docker compose ps` 기준 둘 다 정상 기동, `prometheus`는 설계대로 호스트 포트 미게시, `grafana`만 `127.0.0.1:3000` 게시 확인. Grafana Explore에서 Prometheus 데이터소스로 `up` 쿼리 실행해 `up{instance="localhost:9090", job="prometheus"} 1`(자체 스크레이프), `up{instance="app-green:8081", job="doctorpet-app", color="green"} 1`(활성 색 정상 수집), `up{instance="app-blue:8081", job="doctorpet-app", color="blue"} 0`(비활성 색, 컨테이너 없음 — 예상된 정상 상태)까지 전체 스크레이프→쿼리 파이프라인이 실제로 동작함을 확인했다.
+**로컬 실기동 검증**: 2026-08-13, WSL Docker에서 `docker compose up -d prometheus grafana`로 기존 mysql/redis/app-green(활성 색)과 함께 기동 — `docker compose ps` 기준 둘 다 정상 기동, `prometheus`는 설계대로 호스트 포트 미게시, `grafana`만 `127.0.0.1:3000` 게시 확인. Grafana Explore에서 Prometheus 데이터소스로 `up` 쿼리 실행해 `up{instance="localhost:9090", job="prometheus"} 1`(자체 스크레이프), `up{instance="app-green:8081", job="doctorpet-app", color="green"} 1`(활성 색 정상 수집), `up{instance="app-blue:8081", job="doctorpet-app", color="blue"} 0`(비활성 색, 컨테이너 없음 — 예상된 정상 상태)까지 전체 스크레이프→쿼리 파이프라인이 실제로 동작함을 확인했다. 이어서 Grafana에서 커뮤니티 대시보드 "JVM (Micrometer)"(ID 4701)를 Prometheus 데이터소스로 임포트해, `app-green:8081` 인스턴스의 Heap/Non-Heap 메모리·CPU·Load·Threads 등이 실데이터로 표시됨을 확인했다(Errors·Utilisation·JVM Process Memory 패널은 각각 "에러 미발생으로 라벨 자체 없음"·"현재 안 내보내는 지표"라 No data — 정상).
 
 성능 목표는 검색 응답시간 P95 300ms 이하, 처리량 100 RPS, 오류율 1% 이하(PRD §9 성과지표와 동일 수치). 도전 과제는 MVP 완성 이후 진행하며, 미완 시 문서·부분 구성으로 대체한다.
 
