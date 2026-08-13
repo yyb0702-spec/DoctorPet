@@ -156,6 +156,9 @@ springdoc:
     enabled: false
 
 reservation:
+  # 대기열 테이블은 Hibernate ddl-auto가 아니라 선행 마이그레이션 러너가 생성·검증한다.
+  waitlist-migration:
+    enabled: ${RESERVATION_WAITLIST_MIGRATION_ENABLED:true}
   slot-business-date-migration:
     enabled: ${RESERVATION_SLOT_BUSINESS_DATE_MIGRATION_ENABLED:true}
   no-show:
