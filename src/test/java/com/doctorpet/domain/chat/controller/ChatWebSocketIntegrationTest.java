@@ -180,11 +180,7 @@ class ChatWebSocketIntegrationTest {
         frames.send(frame("SUBSCRIBE", List.of(
                 "id:chat-logout",
                 "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
-        messagingTemplate.convertAndSend(
-                "/topic/chat/reservations/" + fixture.reservationId(),
-                "before-logout"
-        );
-        assertThat(frames.awaitFrame()).startsWith("MESSAGE");
+        awaitActiveSubscription(frames, fixture.reservationId());
 
         refreshTokenRepository.blacklistAccessToken(
                 jwtTokenProvider.getJti(accessToken), Duration.ofMinutes(30));
@@ -200,6 +196,18 @@ class ChatWebSocketIntegrationTest {
         assertThat(frames.awaitFrame()).startsWith("ERROR");
         assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
                 fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).isEmpty();
+    }
+
+    private void awaitActiveSubscription(StompFrames frames, Long reservationId) throws InterruptedException {
+        String delivered = null;
+        for (int attempt = 1; attempt <= 5 && delivered == null; attempt++) {
+            messagingTemplate.convertAndSend(
+                    "/topic/chat/reservations/" + reservationId,
+                    "before-logout-" + attempt
+            );
+            delivered = frames.pollFrame();
+        }
+        assertThat(delivered).as("활성화된 STOMP 구독의 사전 MESSAGE").startsWith("MESSAGE");
     }
 
     private StompFrames open(String query) throws Exception {
