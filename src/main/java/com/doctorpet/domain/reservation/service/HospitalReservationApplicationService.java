@@ -170,6 +170,7 @@ public class HospitalReservationApplicationService {
                 ReservationStatus.HOSPITAL_CANCELED,
                 reason,
                 now,
+                now,
                 now
         );
         if (updated == 0) {
@@ -199,12 +200,13 @@ public class HospitalReservationApplicationService {
             Long hospitalId,
             String reason
     ) {
-        List<Reservation> confirmedReservations = reservationRepository
-                .findAllByHospitalIdAndStatus(
-                        hospitalId,
-                        ReservationStatus.CONFIRMED
-                );
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        List<Reservation> confirmedReservations = reservationRepository
+                .findAllCancelableByHospitalIdAndStatus(
+                        hospitalId,
+                        ReservationStatus.CONFIRMED,
+                        now
+                );
         int canceledCount = 0;
 
         for (Reservation reservation : confirmedReservations) {
@@ -217,6 +219,7 @@ public class HospitalReservationApplicationService {
                     ReservationStatus.CONFIRMED,
                     ReservationStatus.HOSPITAL_CANCELED,
                     reason,
+                    now,
                     now,
                     now
             );

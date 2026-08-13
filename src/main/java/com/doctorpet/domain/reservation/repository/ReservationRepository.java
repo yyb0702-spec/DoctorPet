@@ -21,9 +21,22 @@ import jakarta.persistence.LockModeType;
 public interface ReservationRepository
         extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
 
-    List<Reservation> findAllByHospitalIdAndStatus(
-            Long hospitalId,
-            ReservationStatus status
+    @Query("""
+            select r
+              from Reservation r
+             where r.hospitalId = :hospitalId
+               and r.status = :status
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt > :now
+               )
+            """)
+    List<Reservation> findAllCancelableByHospitalIdAndStatus(
+            @Param("hospitalId") Long hospitalId,
+            @Param("status") ReservationStatus status,
+            @Param("now") LocalDateTime now
     );
 
     Optional <Reservation> findByIdAndMemberId(
@@ -173,6 +186,12 @@ public interface ReservationRepository
              where r.id = :reservationId
                and r.hospitalId = :hospitalId
                and r.status = :confirmedStatus
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt > :now
+               )
             """)
     int cancelIfConfirmedByHospital(
             @Param("reservationId") Long reservationId,
@@ -181,7 +200,8 @@ public interface ReservationRepository
             @Param("hospitalCanceledStatus") ReservationStatus hospitalCanceledStatus,
             @Param("reason") String reason,
             @Param("canceledAt") LocalDateTime canceledAt,
-            @Param("updatedAt") LocalDateTime updatedAt
+            @Param("updatedAt") LocalDateTime updatedAt,
+            @Param("now") LocalDateTime now
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

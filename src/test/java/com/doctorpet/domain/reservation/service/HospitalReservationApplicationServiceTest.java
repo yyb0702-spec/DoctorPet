@@ -268,7 +268,7 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation));
         given(reservationRepository.cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
         ReservationSlot reservedSlot = slot();
         given(reservationSlotRepository.findById(SLOT_ID))
@@ -281,7 +281,7 @@ class HospitalReservationApplicationServiceTest {
         );
 
         verify(reservationRepository).cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         );
         verify(reservationSlotRepository).findById(SLOT_ID);
         assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
@@ -313,7 +313,7 @@ class HospitalReservationApplicationServiceTest {
 
         verify(memberService, never()).getMyInfo(any());
         verify(reservationRepository, never()).cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 
@@ -326,7 +326,7 @@ class HospitalReservationApplicationServiceTest {
                         ReservationStatus.REQUESTED
                 )));
         given(reservationRepository.cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(0);
 
         assertThatThrownBy(() -> hospitalReservationService.cancelConfirmedByHospital(
@@ -929,12 +929,13 @@ class HospitalReservationApplicationServiceTest {
                 HOSPITAL_ID,
                 ReservationStatus.CONFIRMED
         );
-        given(reservationRepository.findAllByHospitalIdAndStatus(
-                HOSPITAL_ID,
-                ReservationStatus.CONFIRMED
+        given(reservationRepository.findAllCancelableByHospitalIdAndStatus(
+                eq(HOSPITAL_ID),
+                eq(ReservationStatus.CONFIRMED),
+                any()
         )).willReturn(List.of(reservation));
         given(reservationRepository.cancelIfConfirmedByHospital(
-                any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
         ReservationSlot reservedSlot = slot();
         given(reservationSlotRepository.findById(SLOT_ID))
