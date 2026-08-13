@@ -149,6 +149,42 @@ class HospitalSearchCacheRepositoryTest {
     }
 
     @Test
+    void OPEN_병원만_담긴_캐시는_HIT로_반환한다() throws Exception {
+        HospitalSearchCachedPage page = new HospitalSearchCachedPage(
+                List.of(candidate(BusinessStatus.OPEN)),
+                1L
+        );
+        given(valueOperations.get(CACHE_KEY)).willReturn("cached json");
+        given(objectMapper.readValue(
+                "cached json",
+                HospitalSearchCachedPage.class
+        )).willReturn(page);
+
+        HospitalSearchCacheLookupResult result =
+                cacheRepository.findInitialPage();
+
+        assertThat(result.status())
+                .isEqualTo(HospitalSearchCacheLookupStatus.HIT);
+        assertThat(result.cachedPageOptional()).contains(page);
+    }
+
+    @Test
+    void 휴업이나_폐업_병원이_담긴_캐시는_MISS로_처리한다()
+            throws Exception {
+        given(valueOperations.get(CACHE_KEY)).willReturn("cached json");
+        given(objectMapper.readValue(
+                "cached json",
+                HospitalSearchCachedPage.class
+        )).willReturn(new HospitalSearchCachedPage(
+                List.of(candidate(BusinessStatus.CLOSED_TEMP)),
+                1L
+        ));
+
+        assertThat(cacheRepository.findInitialPage().status())
+                .isEqualTo(HospitalSearchCacheLookupStatus.MISS);
+    }
+
+    @Test
     void 캐시_저장에_실패해도_예외를_전파하지_않는다()
             throws Exception {
         HospitalSearchCachedPage page =
@@ -194,6 +230,10 @@ class HospitalSearchCacheRepositoryTest {
     }
 
     private HospitalSearchCandidate validCandidate() {
+        return candidate(BusinessStatus.OPEN);
+    }
+
+    private HospitalSearchCandidate candidate(BusinessStatus status) {
         return new HospitalSearchCandidate(
                 1L,
                 "제휴 병원",
@@ -201,7 +241,7 @@ class HospitalSearchCacheRepositoryTest {
                 "서울특별시 중구 지번주소",
                 null,
                 null,
-                BusinessStatus.OPEN,
+                status,
                 PartnershipStatus.PARTNER,
                 null
         );

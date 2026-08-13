@@ -171,8 +171,7 @@ public class HospitalRepositoryCustomImpl
             HospitalSearchCondition condition
     ) {
         return new BooleanExpression[]{
-                // 폐업 병원은 제외하고 휴업 병원은 검색 결과에 포함합니다.
-                hospital.businessStatus.ne(BusinessStatus.CLOSED),
+                hospital.businessStatus.eq(BusinessStatus.OPEN),
                 keywordContains(condition.keyword()),
                 regionContains(condition.region()),
                 partnerOnly(condition.partnerOnly()),
