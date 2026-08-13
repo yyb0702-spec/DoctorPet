@@ -19,7 +19,7 @@ reservation_slots 1 ── 0..N reservations
 reservations 1 ── 0..N reservation_events
 reservations 1 ── 0..1 payments   (정정 재청구 도입 후 0..N, 활성 1건)
 payments 1 ── 0..1 payment_refunds
-payments 1 ── 0..N payment_items   (항목화 도입 후 신규 청구는 1..N, 기존 결제는 0)
+payments 1 ── 0..N payment_items   (항목화 후 일반 신규·정정 청구는 1..N, 기존 결제와 그 레거시 셀프 재청구는 0)
 reservations 1 ── 0..N payment_items   (청구 전 초안 — payment_id IS NULL)
 members 1 ── 0..N payment_methods
 members 1 ── 0..N ai_consultations
@@ -186,7 +186,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `paid_at` | DATETIME | 결제 완료 시각, `NULL` 가능 |
 | `refunded_at` | DATETIME | 전액 환불 확정 시각, `NULL` 가능 |
 
-정정 재청구 도입 시 추가·교체할 항목(계약 확정, 구현 후속): `correction_of`(정정한 이전 결제 id, `NULL` 가능), `superseded_at`(대체된 시각 — `NULL`이 활성 마커), 생성 컬럼 `active_reservation_id`(활성일 때만 `reservation_id`)와 `UNIQUE(active_reservation_id)`. 이 UNIQUE가 기존 `UNIQUE(reservation_id)`를 대신해 "예약당 활성 결제 1건"을 강제하며, 환불·대체된 과거 결제는 `NULL`이라 제약을 타지 않고 이력으로 남는다.
+정정 재청구·셀프 재청구 도입 시 추가·교체할 항목(계약 확정, 구현 후속): `correction_of`(정정한 이전 결제 id, `NULL` 가능), `recovery_of`(셀프 재청구로 대체한 이전 결제 id, `NULL` 가능이며 `correction_of`와 동시 사용 금지), `superseded_at`(대체된 시각 — `NULL`이 활성 마커), 생성 컬럼 `active_reservation_id`(활성일 때만 `reservation_id`)와 `UNIQUE(active_reservation_id)`. `CHECK (NOT (correction_of IS NOT NULL AND recovery_of IS NOT NULL))`가 두 체인의 동시 소속을 막는다. 이 UNIQUE가 기존 `UNIQUE(reservation_id)`를 대신해 "예약당 활성 결제 1건"을 강제하며, 환불·대체된 과거 결제는 `NULL`이라 제약을 타지 않고 이력으로 남는다.
 
 교체 순서는 expand/contract를 지킨다 — ① 새 컬럼·생성 컬럼·`UNIQUE(active_reservation_id)` 추가(구 UNIQUE 유지) → ② 중복 활성 검사와 마커 기록 → ③ `UNIQUE(reservation_id)` 제거 → ④ 다음 배포에서 재청구 경로 활성화. ③을 ①보다 먼저 하면 두 제약이 모두 없는 창에서 활성 결제가 2건 생긴다.
 
@@ -220,7 +220,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `created_at` | DATETIME | 생성 시각 |
 인덱스: `(reservation_id, payment_id)`, `(payment_id)`.
 
-항목은 청구 선기록 전 예약에 매달린 초안으로 만들고(그 시점에는 `payments` 행이 없다), 청구 선기록이 같은 트랜잭션에서 `payment_id`를 스탬프해 스냅샷을 고정한다. 수정·삭제는 `WHERE payment_id IS NULL` 조건부로만 수행하고 0건이면 이미 청구된 것으로 거부한다. 불변식은 스탬프된 항목에 한해 `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 결제당 항목은 `0..N`이며 항목화 이전 결제는 항목이 없고 백필하지 않는다.
+항목은 일반 청구 선기록 전 예약에 매달린 초안으로 만들고(그 시점에는 `payments` 행이 없다), 청구 선기록이 같은 트랜잭션에서 `payment_id`를 스탬프해 스냅샷을 고정한다. 수정·삭제는 `WHERE payment_id IS NULL` 조건부로만 수행하고 0건이면 이미 청구된 것으로 거부한다. 불변식은 스탬프된 항목에 한해 `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 결제당 항목은 `0..N`이며 항목화 이전 결제는 항목이 없고 백필하지 않는다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구도 가짜 항목을 만들지 않아 0건을 유지하고 원 총액만 승계한다.
 ## 6. AI·알림
 ### `ai_consultations`
 | 필드 | 타입 | 제약·설명 |
