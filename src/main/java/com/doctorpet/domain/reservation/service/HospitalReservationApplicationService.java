@@ -75,6 +75,7 @@ public class HospitalReservationApplicationService {
     private final ReservationEventRepository reservationEventRepository;
     private final ReservationNotificationPublisher notificationPublisher;
     private final ReservationNoShowProperties noShowProperties;
+    private final ReservationSlotReleaseService reservationSlotReleaseService;
 
     /**
      * 병원 스태프가 자기 병원의 REQUESTED 예약을 승인한다(SA §5-1, §6-2).
@@ -133,8 +134,7 @@ public class HospitalReservationApplicationService {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
 
-        ReservationSlot slot = findSlot(reservation.getSlotId());
-        slot.open();
+        reservationSlotReleaseService.release(reservation.getSlotId());
         notificationPublisher.publishRejected(
                 reservation.getMemberId(),
                 reservationId,
@@ -172,8 +172,7 @@ public class HospitalReservationApplicationService {
         if (updated == 0) {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
-        ReservationSlot slot = findSlot(slotId);
-        slot.open();
+        reservationSlotReleaseService.release(slotId);
         reservationEventRepository.appendIfAbsent(
                 reservationId,
                 ReservationEventType.HOSPITAL_CANCELED.name(),
