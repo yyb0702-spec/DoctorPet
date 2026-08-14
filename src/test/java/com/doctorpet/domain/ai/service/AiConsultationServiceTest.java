@@ -515,15 +515,16 @@ class AiConsultationServiceTest {
         HospitalSearchResponse strict = hospital(10L, "엄격 일치 병원", "1.0");
         HospitalSearchResponse partialOne = hospital(20L, "부분 일치 병원 1", "2.0");
         HospitalSearchResponse partialTwo = hospital(30L, "부분 일치 병원 2", "3.0");
+        AtomicReference<String> toolOutput = new AtomicReference<>();
         doAnswer(invocation -> {
             AiToolExecutor executor = invocation.getArgument(1);
-            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+            toolOutput.set(executor.searchNearbyVets(new AiHospitalSearchToolCall(
                     result,
                     null,
                     false,
                     false,
                     HospitalSearchSort.NAME
-            ));
+            )));
             return new AiGatewayConsultationResult(
                     result,
                     false,
@@ -570,7 +571,7 @@ class AiConsultationServiceTest {
                         10L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY,
                                 CapabilityValue.ULTRASOUND),
                         20L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY),
-                        30L, List.of(CapabilityValue.DOG)
+                        30L, List.of(CapabilityValue.DOG, CapabilityValue.DENTAL_CARE)
                 ));
         given(reviewQueryService.getEvidenceByHospitalIds(List.of(10L, 20L, 30L)))
                 .willReturn(Map.of());
@@ -584,6 +585,12 @@ class AiConsultationServiceTest {
         assertThat(response.recommendations())
                 .extracting(recommendation -> recommendation.hospital().hospitalId())
                 .containsExactly(10L, 20L, 30L);
+        assertThat(response.recommendations().get(2).recommendationReason())
+                .isEqualTo("병원의 실제 정보를 바탕으로 추천했습니다.");
+        assertThat(response.fallback()).isFalse();
+        assertThat(toolOutput.get())
+                .contains("\"hospitalId\":30", "\"capabilities\":[]")
+                .doesNotContain("DENTAL_CARE");
         verify(hospitalService).hospitalSearchWithCapabilityMatchMode(
                 1L, null, "서울", null, null, null,
                 List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
@@ -620,7 +627,37 @@ class AiConsultationServiceTest {
                 service,
                 "toRecommendationResponses",
                 List.of(recommendation),
-                List.of(candidate)
+                List.of(candidate),
+                List.of("XRAY")
+        )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
+                assertThat(exception.getFailureReason())
+                        .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
+    }
+
+    @Test
+    void 요청과_무관한_보유_역량은_추천_근거로_거부한다() {
+        AiHospitalCandidateEvidence candidate = new AiHospitalCandidateEvidence(
+                hospital(),
+                List.of(CapabilityValue.DOG),
+                List.of(CapabilityValue.DENTAL_CARE),
+                HospitalReviewEvidence.empty(10L)
+        );
+        AiHospitalRecommendationResult recommendation =
+                new AiHospitalRecommendationResult(
+                        10L,
+                        5,
+                        List.of(new AiRecommendationEvidenceResult(
+                                AiRecommendationEvidenceType.CAPABILITY,
+                                "DENTAL_CARE"
+                        ))
+                );
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(recommendation),
+                List.of(candidate),
+                List.of("XRAY")
         )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
                 assertThat(exception.getFailureReason())
                         .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
@@ -637,7 +674,8 @@ class AiConsultationServiceTest {
                 service,
                 "toRecommendationResponses",
                 List.of(recommendation(10L, 5)),
-                candidates
+                candidates,
+                List.of("XRAY")
         )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
                 assertThat(exception.getFailureReason())
                         .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
@@ -704,7 +742,8 @@ class AiConsultationServiceTest {
                 service,
                 "toRecommendationResponses",
                 List.of(),
-                List.of()
+                List.of(),
+                List.of("XRAY")
         );
 
         assertThat(result).isEmpty();
@@ -727,7 +766,8 @@ class AiConsultationServiceTest {
                 service,
                 "toRecommendationResponses",
                 recommendations,
-                candidates
+                candidates,
+                List.of("XRAY")
         );
 
         assertThat(result)

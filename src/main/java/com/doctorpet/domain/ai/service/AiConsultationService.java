@@ -264,7 +264,8 @@ public class AiConsultationService {
         List<HospitalSearchResponse> hospitals = toolState.hospitals();
         List<AiHospitalRecommendationResponse> recommendations = toRecommendationResponses(
                 gatewayResult.recommendations(),
-                toolState.candidates()
+                toolState.candidates(),
+                result.requiredCapabilities()
         );
         aiConsultationRepository.save(AiConsultation.success(
                 memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
@@ -282,7 +283,8 @@ public class AiConsultationService {
 
     private List<AiHospitalRecommendationResponse> toRecommendationResponses(
             List<AiHospitalRecommendationResult> recommendations,
-            List<AiHospitalCandidateEvidence> candidates
+            List<AiHospitalCandidateEvidence> candidates,
+            List<String> requiredCapabilities
     ) {
         Map<Long, AiHospitalCandidateEvidence> candidatesById = candidates.stream()
                 .collect(Collectors.toMap(
@@ -305,7 +307,8 @@ public class AiConsultationService {
         return recommendations.stream()
                 .map(recommendation -> toRecommendationResponse(
                         recommendation,
-                        candidatesById.get(recommendation.hospitalId())
+                        candidatesById.get(recommendation.hospitalId()),
+                        requiredCapabilities
                 ))
                 .sorted(Comparator
                         .comparingInt(AiHospitalRecommendationResponse::recommendationScore)
@@ -319,7 +322,8 @@ public class AiConsultationService {
 
     private AiHospitalRecommendationResponse toRecommendationResponse(
             AiHospitalRecommendationResult recommendation,
-            AiHospitalCandidateEvidence candidate
+            AiHospitalCandidateEvidence candidate,
+            List<String> requiredCapabilities
     ) {
         if (candidate == null) {
             throw invalidRecommendation("검색 후보에 없는 병원을 추천했습니다.");
@@ -332,7 +336,7 @@ public class AiConsultationService {
             throw invalidRecommendation("AI 추천의 객관적 근거가 비어 있습니다.");
         }
         recommendation.evidence().forEach(evidence ->
-                validateRecommendationEvidence(evidence, candidate));
+                validateRecommendationEvidence(evidence, candidate, requiredCapabilities));
         return new AiHospitalRecommendationResponse(
                 candidate.hospital(),
                 recommendation.recommendationScore(),
@@ -381,7 +385,8 @@ public class AiConsultationService {
 
     private void validateRecommendationEvidence(
             AiRecommendationEvidenceResult evidence,
-            AiHospitalCandidateEvidence candidate
+            AiHospitalCandidateEvidence candidate,
+            List<String> requiredCapabilities
     ) {
         boolean valid = switch (evidence.type()) {
             case SUPPORTED_SPECIES -> candidate.supportedSpecies().stream()
@@ -389,7 +394,8 @@ public class AiConsultationService {
                     .anyMatch(evidence.value()::equals);
             case CAPABILITY -> candidate.capabilities().stream()
                     .map(Enum::name)
-                    .anyMatch(evidence.value()::equals);
+                    .anyMatch(evidence.value()::equals)
+                    && requiredCapabilities.contains(evidence.value());
             case DISTANCE_KM -> candidate.hospital().distanceKm() != null
                     && decimalMatches(candidate.hospital().distanceKm(), evidence.value());
             case BUSINESS_STATUS ->
@@ -514,8 +520,10 @@ public class AiConsultationService {
                             emergency,
                             hospitals
                     );
-            List<AiHospitalCandidateEvidence> candidates =
-                    buildCandidateEvidence(recommendationCandidates);
+            List<AiHospitalCandidateEvidence> candidates = buildCandidateEvidence(
+                    recommendationCandidates,
+                    call.analysis().requiredCapabilities()
+            );
             state.updateCandidates(candidates);
             return objectMapper.writeValueAsString(Map.of(
                     "hospitals",
@@ -591,7 +599,8 @@ public class AiConsultationService {
     }
 
     private List<AiHospitalCandidateEvidence> buildCandidateEvidence(
-            List<HospitalSearchResponse> hospitals
+            List<HospitalSearchResponse> hospitals,
+            List<String> requiredCapabilities
     ) {
         if (hospitals.isEmpty()) {
             return List.of();
@@ -615,7 +624,8 @@ public class AiConsultationService {
                         reviewInputBudget.limit(reviewsByHospitalId.getOrDefault(
                                 hospital.hospitalId(),
                                 HospitalReviewEvidence.empty(hospital.hospitalId())
-                        ))
+                        )),
+                        requiredCapabilities
                 ))
                 .toList();
     }
@@ -623,7 +633,8 @@ public class AiConsultationService {
     private AiHospitalCandidateEvidence toCandidateEvidence(
             HospitalSearchResponse hospital,
             List<CapabilityValue> capabilityValues,
-            HospitalReviewEvidence reviews
+            HospitalReviewEvidence reviews,
+            List<String> requiredCapabilities
     ) {
         Map<Boolean, List<CapabilityValue>> partitionedCapabilities =
                 capabilityValues.stream()
@@ -633,7 +644,9 @@ public class AiConsultationService {
         return new AiHospitalCandidateEvidence(
                 hospital,
                 partitionedCapabilities.get(true),
-                partitionedCapabilities.get(false),
+                partitionedCapabilities.get(false).stream()
+                        .filter(value -> requiredCapabilities.contains(value.name()))
+                        .toList(),
                 reviews
         );
     }
