@@ -1,0 +1,22 @@
+# 대시보드 자동 로드 설정. 이 디렉터리(monitoring/grafana/provisioning/dashboards)에 대시보드
+# JSON 파일을 두면 Grafana가 기동 시 자동으로 읽어 들인다.
+#
+# jvm-micrometer.json — 커뮤니티 대시보드 "JVM (Micrometer)"(grafana.com ID 4701)를 커밋해뒀다
+# (리뷰 지적 P2 반영 — 예전엔 이 디렉터리가 비어 있어 신규 환경에서는 데이터소스만 준비되고
+# 매번 사람이 Import를 수동으로 해야 시각화가 나타났다). grafana.com에서 받은 원본 JSON은
+# `"datasource": "${DS_PROMETHEUS}"` 플레이스홀더를 쓰는데, 이건 Import 마법사가 대신
+# 치환해주는 값이라 파일 기반 프로비저닝에서는 그대로 두면 패널이 데이터소스를 못 찾는다 —
+# 그래서 실제 데이터소스 이름("Prometheus", datasources/prometheus.yml의 고정 uid와 함께)으로
+# 미리 치환해서 커밋했다. schemaVersion 14(구버전 rows 레이아웃)는 그대로 뒀다 — Grafana가
+# 기동 시 최신 그리드 레이아웃으로 자동 마이그레이션한다.
+apiVersion: 1
+
+providers:
+  - name: doctorpet
+    orgId: 1
+    folder: DoctorPet
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
