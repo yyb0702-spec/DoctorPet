@@ -243,18 +243,16 @@ class ChatWebSocketIntegrationTest {
                 "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
                 "content-type:application/json"),
                 "{\"content\":\"guardian message\",\"clientMessageId\":\"22222222-2222-4222-8222-222222222222\"}"));
-        String guardianFrames = guardian.awaitFrame() + guardian.awaitFrame();
-        assertThat(guardianFrames).contains(
-                "guardian message", "22222222-2222-4222-8222-222222222222");
+        guardian.awaitFrameContaining("guardian message");
+        guardian.awaitFrameContaining("\"clientMessageId\":\"22222222-2222-4222-8222-222222222222\"");
         staff.awaitFrameContaining("guardian message");
 
         staff.send(frame("SEND", List.of(
                 "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
                 "content-type:application/json"),
                 "{\"content\":\"staff reply\",\"clientMessageId\":\"33333333-3333-4333-8333-333333333333\"}"));
-        String staffFrames = staff.awaitFrame() + staff.awaitFrame();
-        assertThat(staffFrames).contains(
-                "staff reply", "33333333-3333-4333-8333-333333333333");
+        staff.awaitFrameContaining("staff reply");
+        staff.awaitFrameContaining("\"clientMessageId\":\"33333333-3333-4333-8333-333333333333\"");
         guardian.awaitFrameContaining("staff reply");
 
         assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
@@ -372,8 +370,11 @@ class ChatWebSocketIntegrationTest {
         public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
             buffer.append(data);
             if (last) {
-                frames.add(buffer.toString());
-                buffer.setLength(0);
+                int frameEnd;
+                while ((frameEnd = buffer.indexOf("\u0000")) >= 0) {
+                    frames.add(buffer.substring(0, frameEnd));
+                    buffer.delete(0, frameEnd + 1);
+                }
             }
             webSocket.request(1);
             return CompletableFuture.completedFuture(null);
