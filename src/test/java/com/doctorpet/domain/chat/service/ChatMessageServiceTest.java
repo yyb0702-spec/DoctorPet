@@ -87,6 +87,19 @@ class ChatMessageServiceTest {
     }
 
     @Test
+    @DisplayName("clientMessageId가 없거나 UUID 형식이 아니면 저장 전에 거절한다")
+    void rejectsMissingOrMalformedClientMessageId() {
+        for (String clientMessageId : List.of("", "not-a-uuid", "00000000-0000-0111-8111-111111111111")) {
+            assertThatThrownBy(() -> chatMessageService.send(
+                    RESERVATION_ID, GUARDIAN,
+                    new ChatMessageSendRequest("메시지", clientMessageId)))
+                    .isInstanceOf(ServiceException.class)
+                    .extracting(error -> ((ServiceException) error).getErrorCode())
+                    .isEqualTo(CommonErrorCode.VALIDATION_FAILED);
+        }
+    }
+
+    @Test
     @DisplayName("1000자 보호자 메시지는 예약 병원 ID를 감사 정보로 저장하고 병원명만 표시한다")
     void sendsBoundaryMessageWithReservationHospitalId() {
         Reservation reservation = requestedReservation();

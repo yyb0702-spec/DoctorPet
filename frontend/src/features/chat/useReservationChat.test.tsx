@@ -166,7 +166,7 @@ describe('useReservationChat', () => {
     await waitFor(() => expect(result.current.sendState).toBe('idle'))
   })
 
-  it('전송 echo가 유실되면 타임아웃 뒤 REST 이력으로 저장 여부를 재확인한다', async () => {
+  it('전송 ACK와 echo가 유실돼도 REST 복구의 clientMessageId로 전송 성공을 확정한다', async () => {
     const sentMessage = { ...message, messageId: 2, content: 'REST 재확인 메시지' }
     getMessages
       .mockResolvedValueOnce({
@@ -179,10 +179,13 @@ describe('useReservationChat', () => {
         nextAfterMessageId: null,
         hasNext: false,
       })
-      .mockResolvedValueOnce({
-        messages: [sentMessage],
-        nextAfterMessageId: null,
-        hasNext: false,
+      .mockImplementationOnce(() => {
+        const published = client.publish.mock.calls[0]?.[0]
+        return Promise.resolve({
+          messages: [{ ...sentMessage, clientMessageId: JSON.parse(published.body).clientMessageId }],
+          nextAfterMessageId: null,
+          hasNext: false,
+        })
       })
 
     const { result } = renderHook(() => useReservationChat(11))
@@ -198,7 +201,7 @@ describe('useReservationChat', () => {
     })
 
     await act(async () => {
-      await expect(sending).resolves.toBe(false)
+      await expect(sending).resolves.toBe(true)
     })
     expect(getMessages).toHaveBeenCalledTimes(3)
     expect(getMessages).toHaveBeenLastCalledWith(11, 1)

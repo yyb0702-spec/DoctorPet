@@ -6,7 +6,10 @@ import com.doctorpet.domain.chat.entity.ChatMessage;
 import com.doctorpet.domain.chat.entity.ChatSenderType;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +36,7 @@ class ChatMessageDdlIntegrationTest {
     void chatMessages_usesRequiredColumnsAndCursorIndex() throws Exception {
         Set<String> nonNullable = new HashSet<>();
         Set<String> indexes = new HashSet<>();
+        Map<Short, String> idempotencyUniqueColumns = new TreeMap<>();
         try (var connection = jdbcTemplate.getDataSource().getConnection()) {
             DatabaseMetaData metaData = connection.getMetaData();
             try (ResultSet columns = metaData.getColumns(connection.getCatalog(), null, "chat_messages", null)) {
@@ -50,6 +54,11 @@ class ChatMessageDdlIntegrationTest {
                     String name = indexRows.getString("INDEX_NAME");
                     if (name != null) {
                         indexes.add(name.toLowerCase());
+                        if ("uk_chat_messages_reservation_member_client".equalsIgnoreCase(name)
+                                && !indexRows.getBoolean("NON_UNIQUE")) {
+                            idempotencyUniqueColumns.put(indexRows.getShort("ORDINAL_POSITION"),
+                                    indexRows.getString("COLUMN_NAME").toLowerCase());
+                        }
                     }
                 }
             }
@@ -59,5 +68,7 @@ class ChatMessageDdlIntegrationTest {
                 "reservation_id", "sender_type", "hospital_id", "member_id", "body", "client_message_id", "created_at");
         assertThat(indexes).contains(
                 "idx_chat_messages_reservation_created", "uk_chat_messages_reservation_member_client");
+        assertThat(new ArrayList<>(idempotencyUniqueColumns.values()))
+                .containsExactly("reservation_id", "member_id", "client_message_id");
     }
 }

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
@@ -37,6 +38,8 @@ import org.springframework.util.StringUtils;
 public class ChatMessageService {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final Pattern UUID_CLIENT_MESSAGE_ID = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
     private static final EnumSet<ReservationStatus> WRITABLE_STATUSES = EnumSet.of(
             ReservationStatus.REQUESTED,
             ReservationStatus.CONFIRMED,
@@ -66,7 +69,8 @@ public class ChatMessageService {
             ChatMessageSendRequest request
     ) {
         if (request == null || !StringUtils.hasText(request.content())
-                || request.content().length() > 1000) {
+                || request.content().length() > 1000
+                || !isValidClientMessageId(request.clientMessageId())) {
             throw new ServiceException(CommonErrorCode.VALIDATION_FAILED);
         }
         // 종료 상태 조건부 UPDATE와 이 행 잠금을 공유해, 종료가 먼저 확정된 뒤에는 저장되지 않는다.
@@ -76,14 +80,12 @@ public class ChatMessageService {
             throw new ServiceException(ChatErrorCode.MESSAGE_SEND_NOT_ALLOWED);
         }
 
-        if (StringUtils.hasText(request.clientMessageId())) {
-            ChatMessage existing = chatMessageRepository
-                    .findByReservationIdAndMemberIdAndClientMessageId(
-                            reservationId, principal.memberId(), request.clientMessageId())
-                    .orElse(null);
-            if (existing != null) {
-                return toResponse(existing, hospitalName(reservation.getHospitalId()));
-            }
+        ChatMessage existing = chatMessageRepository
+                .findByReservationIdAndMemberIdAndClientMessageId(
+                        reservationId, principal.memberId(), request.clientMessageId())
+                .orElse(null);
+        if (existing != null) {
+            return toResponse(existing, hospitalName(reservation.getHospitalId()));
         }
 
         ChatMessage saved = chatMessageRepository.saveAndFlush(ChatMessage.create(
@@ -98,6 +100,13 @@ public class ChatMessageService {
         ChatMessageResponse response = toResponse(saved, hospitalName(reservation.getHospitalId()));
         eventPublisher.publishEvent(new ChatMessageCreatedEvent(reservationId, response));
         return response;
+    }
+
+    private boolean isValidClientMessageId(String clientMessageId) {
+        if (!StringUtils.hasText(clientMessageId) || clientMessageId.length() != 36) {
+            return false;
+        }
+        return UUID_CLIENT_MESSAGE_ID.matcher(clientMessageId).matches();
     }
 
     @Transactional(readOnly = true)
