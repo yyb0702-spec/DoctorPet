@@ -110,6 +110,7 @@ members 1 ── 0..N notifications
 | `version` | BIGINT | 낙관적 락 버전 |
 제약: `UNIQUE(hospital_id, start_at)` — 중복 슬롯을 방지하고 슬롯 생성 배치의 재실행 멱등성을 보장한다. 인덱스는 `(hospital_id, status, start_at)`이다.
 ### `reservations`
+집계용 인덱스: `idx_reservations_hospital_requested_at(hospital_id, requested_at)` — 병원 상세의 최근 90일 응답률·평균 승인 시간 실시간 집계 범위를 제한한다.
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
 | `id` | BIGINT | PK |
