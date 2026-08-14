@@ -1,5 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItems;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.persistDraft;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -14,6 +16,8 @@ import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
@@ -58,6 +62,7 @@ class PaymentChargeE2EIntegrationTest {
 
     @Autowired private PaymentApplicationService paymentApplicationService;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private PaymentItemRepository paymentItemRepository;
     @Autowired private PaymentMethodRepository paymentMethodRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private MemberRepository memberRepository;
@@ -91,7 +96,14 @@ class PaymentChargeE2EIntegrationTest {
     @AfterEach
     void tearDown() {
         for (Long reservationId : reservationIds) {
-            paymentRepository.findByReservationId(reservationId).ifPresent(paymentRepository::delete);
+            Long paymentId = paymentRepository.findByReservationId(reservationId)
+                    .map(payment -> {
+                        Long id = payment.getId();
+                        paymentRepository.delete(payment);
+                        return id;
+                    })
+                    .orElse(null);
+            deleteItems(paymentItemRepository, reservationId, paymentId);
             reservationRepository.deleteById(reservationId);
         }
         paymentMethodRepository.deleteById(paymentMethodId);
@@ -106,7 +118,7 @@ class PaymentChargeE2EIntegrationTest {
         Long reservationId = persistReservation(true);
 
         PaymentChargeResponse response =
-                paymentApplicationService.charge(reservationId, staffMemberId, AMOUNT);
+                paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(response.cardLast4Snapshot()).isEqualTo("1234");
@@ -123,7 +135,7 @@ class PaymentChargeE2EIntegrationTest {
         Long reservationId = persistReservation(false);
 
         assertThatThrownBy(() ->
-                paymentApplicationService.charge(reservationId, staffMemberId, AMOUNT))
+                paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
 
@@ -152,8 +164,10 @@ class PaymentChargeE2EIntegrationTest {
         assertThat(reservation.getPaymentMethodId()).isEqualTo(replacementPaymentMethodId);
         ReflectionTestUtils.setField(reservation, "status", ReservationStatus.TREATMENT_COMPLETED);
         reservationRepository.saveAndFlush(reservation);
+        // 진료 완료로 전환된 시점에 초안 항목을 깐다(persistReservation(false)에는 초안이 없다).
+        persistDraft(paymentItemRepository, reservationId, AMOUNT);
 
-        paymentApplicationService.charge(reservationId, staffMemberId, AMOUNT);
+        paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         Payment payment = paymentRepository.findByReservationId(reservationId).orElseThrow();
         assertThat(payment.getPaymentMethodId()).isEqualTo(replacementPaymentMethodId);
@@ -191,7 +205,7 @@ class PaymentChargeE2EIntegrationTest {
 
         try {
             Future<PaymentChargeResponse> charge = executor.submit(() ->
-                    paymentApplicationService.charge(reservationId, staffMemberId, AMOUNT));
+                    paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId)));
             assertThat(chargeLockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
 
             Future<?> reassignment = executor.submit(() -> reservationApplicationService.changePaymentMethod(
@@ -232,6 +246,10 @@ class PaymentChargeE2EIntegrationTest {
         ReflectionTestUtils.setField(reservation, "confirmedAt", now);
         Long reservationId = reservationRepository.saveAndFlush(reservation).getId();
         reservationIds.add(reservationId);
+        if (treatmentCompleted) {
+            // 청구 가능한 예약에는 초안 항목을 함께 깐다 — 청구는 초안 합계로 총액을 산출한다(SA §9-4 청구 항목).
+            persistDraft(paymentItemRepository, reservationId, AMOUNT);
+        }
         return reservationId;
     }
 }

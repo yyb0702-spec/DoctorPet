@@ -1,5 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItems;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.persistDraft;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
@@ -11,6 +13,8 @@ import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
@@ -47,6 +51,7 @@ class PaymentChargeConcurrencyTest {
 
     @Autowired private PaymentApplicationService paymentApplicationService;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private PaymentItemRepository paymentItemRepository;
     @Autowired private PaymentMethodRepository paymentMethodRepository;
     @Autowired private BillingKeyCryptor billingKeyCryptor;
 
@@ -66,12 +71,22 @@ class PaymentChargeConcurrencyTest {
         given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
         given(reservationLookupPort.findForChargeForUpdate(reservationId)).willReturn(Optional.of(
                 new ReservationChargeView(reservationId, HOSPITAL_ID, GUARDIAN_ID, paymentMethodId, true)));
+
+        // 청구는 초안 항목 합계로 총액을 산출하므로 초안을 먼저 깐다(SA §9-4 청구 항목).
+        persistDraft(paymentItemRepository, reservationId, AMOUNT);
     }
 
     @AfterEach
     void tearDown() {
         // 커밋된 테스트 데이터를 정리해 영속 볼륨에 잔여가 쌓이지 않게 한다.
-        paymentRepository.findByReservationId(reservationId).ifPresent(paymentRepository::delete);
+        Long paymentId = paymentRepository.findByReservationId(reservationId)
+                .map(payment -> {
+                    Long id = payment.getId();
+                    paymentRepository.delete(payment);
+                    return id;
+                })
+                .orElse(null);
+        deleteItems(paymentItemRepository, reservationId, paymentId);
         paymentMethodRepository.deleteById(paymentMethodId);
     }
 
@@ -93,7 +108,7 @@ class PaymentChargeConcurrencyTest {
                 try {
                     startLatch.await();
                     PaymentChargeResponse response =
-                            paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, AMOUNT);
+                            paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
                     if (response.status() == PaymentStatus.PAID) {
                         success.incrementAndGet();
                     }

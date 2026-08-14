@@ -1,17 +1,17 @@
 package com.doctorpet.domain.payment.dto.request;
 
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotBlank;
 
 /*
-  진료비 청구 요청(#34). 병원 스태프가 진료 완료 후 최종 금액만 입력한다.
-  - 결제수단·보호자·병원은 요청이 아니라 예약(확정된 결제수단)과 인증 주체에서 얻는다(신뢰 금지, SA §9-4·보안).
-  - 항목(line items)은 저장하지 않는다(MVP에 소비처 없음). 절대 상한 검증은 Service에서 설정값으로 수행한다.
-  - @Positive는 0·음수를 400(VALIDATION_FAILED)으로 거른다. 상한 초과는 Service가 INVALID_AMOUNT로 처리한다.
+  진료비 청구 요청(SA §8-7·§9-4). **금액도 항목도 받지 않는다** — 총액은 서버가 저장된 초안 항목의
+  합계로 산출한다(클라이언트 결과 신뢰 금지).
+
+  받는 것은 초안 낙관적 검증 토큰 하나뿐이다. 초안 저장(PUT)과 청구(POST) 사이에는 예약 행 잠금이
+  유지되지 않아, 그 틈에 다른 스태프가 초안을 교체하면 화면에서 확인한 금액이 아닌 남의 초안이 청구된다.
+  조회·저장 응답이 준 토큰을 되보내면 서버가 잠금 아래에서 다시 계산해 대조하고, 다르면 409로 거부한다.
  */
 public record PaymentChargeRequest(
-        @NotNull(message = "청구 금액을 입력해주세요.")
-        @Positive(message = "청구 금액은 0보다 커야 합니다.")
-        Integer amount
+        @NotBlank(message = "청구 항목 토큰이 필요합니다.")
+        String draftToken
 ) {
 }
