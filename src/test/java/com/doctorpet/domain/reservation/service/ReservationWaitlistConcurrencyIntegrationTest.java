@@ -14,6 +14,7 @@ import com.doctorpet.domain.reservation.exception.ReservationWaitlistErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
+import com.doctorpet.domain.reservation.scheduler.ReservationWaitlistExpirationLock;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,6 +75,9 @@ class ReservationWaitlistConcurrencyIntegrationTest {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private ReservationWaitlistExpirationLock expirationLock;
 
     @MockitoBean
     private ReservationApplicationService reservationApplicationService;
@@ -227,6 +231,60 @@ class ReservationWaitlistConcurrencyIntegrationTest {
         assertThat(invalidStateCount).isZero();
     }
 
+    @Test
+    @DisplayName("종료한 대기열은 실제 MySQL에서 같은 RESERVED 슬롯의 FIFO 맨 뒤로 다시 등록된다")
+    void reregisterTerminalWaitlist_reactivatesSameRowAsWaiting() throws InterruptedException {
+        ReservationSlot slot = ReservationSlot.create(
+                System.nanoTime(),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2).withNano(0),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2).withNano(0).plusMinutes(30)
+        );
+        slot.reserve();
+        slot = reservationSlotRepository.saveAndFlush(slot);
+        slotId = slot.getId();
+
+        ReservationWaitlist terminal = reservationWaitlistRepository.saveAndFlush(
+                ReservationWaitlist.waiting(601L, slotId)
+        );
+        LocalDateTime firstRegisteredAt = terminal.getCreatedAt();
+        terminal.cancel(LocalDateTime.now(SEOUL_ZONE_ID));
+        reservationWaitlistRepository.saveAndFlush(terminal);
+        Thread.sleep(5L);
+
+        var response = reservationWaitlistService.register(601L, slotId);
+        ReservationWaitlist reactivated = reservationWaitlistRepository
+                .findById(response.waitlistId())
+                .orElseThrow();
+
+        assertThat(response.waitlistId()).isEqualTo(terminal.getId());
+        assertThat(reactivated.getStatus()).isEqualTo(ReservationWaitlistStatus.WAITING);
+        assertThat(reactivated.getCreatedAt()).isAfter(firstRegisteredAt);
+        assertThat(reactivated.getCanceledAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("다른 인스턴스가 대기열 만료 잠금을 보유하면 두 번째 실행은 스킵한다")
+    void expirationLock_allowsOnlyOneInstance() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch acquired = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            var first = executor.submit(() -> expirationLock.executeIfAcquired(0, () -> {
+                acquired.countDown();
+                await(release);
+                return true;
+            }));
+            assertThat(acquired.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(expirationLock.executeIfAcquired(0, () -> true)).isEmpty();
+            release.countDown();
+            assertThat(first.get(10, TimeUnit.SECONDS)).contains(true);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     private WaitlistRaceData saveOfferedWaitlistWithNextWaiting() {
         long hospitalId = System.nanoTime();
         LocalDateTime startAt = LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2).withNano(0);
@@ -341,6 +399,17 @@ class ReservationWaitlistConcurrencyIntegrationTest {
             }
         }
         return false;
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("동시성 테스트 대기 시간이 초과되었습니다.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("동시성 테스트가 중단되었습니다.", exception);
+        }
     }
 
     private boolean isExpectedRegisterReleaseRaceLoss(Throwable throwable) {

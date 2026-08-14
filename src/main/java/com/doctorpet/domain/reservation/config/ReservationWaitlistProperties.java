@@ -27,4 +27,8 @@ public class ReservationWaitlistProperties {
 
     @Positive
     private int expirationBatchSize = 100;
+
+    /** 다른 인스턴스가 만료 배치를 실행 중이면 기다리지 않고 다음 주기에 재시도한다. */
+    @PositiveOrZero
+    private int expirationLockWaitSeconds = 0;
 }

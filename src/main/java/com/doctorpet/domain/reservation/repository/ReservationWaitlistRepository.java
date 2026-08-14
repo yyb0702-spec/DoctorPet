@@ -2,9 +2,10 @@ package com.doctorpet.domain.reservation.repository;
 
 import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
-import java.util.List;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -33,6 +34,34 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
             @Param("slotId") Long slotId
     );
 
+    /**
+     * 종료된 기존 행은 UNIQUE(member_id, slot_id)를 유지한 채 다시 WAITING으로 사용한다.
+     * created_at을 애플리케이션 기준 시각으로 새로 기록해 재등록은 FIFO의 맨 뒤에 선다. 슬롯도 아직
+     * RESERVED일 때만 갱신하므로 반환과 등록이 경합해 OPEN 슬롯에 WAITING 행이 남지 않는다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            update reservation_waitlists waitlist
+            join reservation_slots slot on slot.id = waitlist.slot_id
+               set waitlist.status = 'WAITING',
+                   waitlist.offered_at = null,
+                   waitlist.offer_expires_at = null,
+                   waitlist.responded_at = null,
+                   waitlist.canceled_at = null,
+                   waitlist.created_at = :reRegisteredAt,
+                   waitlist.updated_at = :reRegisteredAt,
+                   waitlist.version = waitlist.version + 1
+             where waitlist.member_id = :memberId
+               and waitlist.slot_id = :slotId
+               and waitlist.status in ('CANCELED', 'REJECTED', 'EXPIRED')
+               and slot.status = 'RESERVED'
+            """, nativeQuery = true)
+    int reactivateTerminalIfSlotReserved(
+            @Param("memberId") Long memberId,
+            @Param("slotId") Long slotId,
+            @Param("reRegisteredAt") LocalDateTime reRegisteredAt
+    );
+
     Optional<ReservationWaitlist> findByMemberIdAndSlotId(Long memberId, Long slotId);
 
     List<ReservationWaitlist> findAllByMemberIdOrderByCreatedAtDescIdDesc(Long memberId);
@@ -51,7 +80,8 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
 
     List<ReservationWaitlist> findByStatusAndOfferExpiresAtLessThanEqualOrderByOfferExpiresAtAscIdAsc(
             ReservationWaitlistStatus status,
-            LocalDateTime offerExpiresAt
+            LocalDateTime offerExpiresAt,
+            Pageable pageable
     );
 
     /**

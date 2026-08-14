@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.dto.response.ReservationWaitlistResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
@@ -28,10 +29,12 @@ public class ReservationWaitlistService {
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationApplicationService reservationApplicationService;
     private final ReservationSlotReleaseService reservationSlotReleaseService;
+    private final MemberService memberService;
     private final Clock clock;
 
     @Transactional
     public ReservationWaitlistResponse register(Long memberId, Long slotId) {
+        memberService.assertActiveMember(memberId);
         ReservationSlot slot = reservationSlotRepository.findById(slotId)
                 .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
 
@@ -39,6 +42,13 @@ public class ReservationWaitlistService {
             throw new ServiceException(ReservationWaitlistErrorCode.SLOT_NOT_RESERVED);
         }
         validateLeadTime(slot, LocalDateTime.now(clock));
+        if (reservationWaitlistRepository.reactivateTerminalIfSlotReserved(
+                memberId,
+                slotId,
+                LocalDateTime.now(clock)
+        ) == 1) {
+            return findWaitlistResponse(memberId, slotId);
+        }
         if (reservationWaitlistRepository.existsByMemberIdAndSlotId(memberId, slotId)) {
             throw new ServiceException(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
         }
@@ -50,6 +60,10 @@ public class ReservationWaitlistService {
             }
             throw new ServiceException(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
         }
+        return findWaitlistResponse(memberId, slotId);
+    }
+
+    private ReservationWaitlistResponse findWaitlistResponse(Long memberId, Long slotId) {
         ReservationWaitlist waitlist = reservationWaitlistRepository
                 .findByMemberIdAndSlotId(memberId, slotId)
                 .orElseThrow(() -> new IllegalStateException("저장한 예약 대기열을 찾을 수 없습니다."));

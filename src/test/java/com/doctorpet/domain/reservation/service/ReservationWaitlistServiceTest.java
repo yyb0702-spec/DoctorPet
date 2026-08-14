@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
@@ -48,6 +49,9 @@ class ReservationWaitlistServiceTest {
     @Mock
     private ReservationSlotReleaseService reservationSlotReleaseService;
 
+    @Mock
+    private MemberService memberService;
+
     private ReservationWaitlistService reservationWaitlistService;
 
     @BeforeEach
@@ -57,6 +61,7 @@ class ReservationWaitlistServiceTest {
                 reservationSlotRepository,
                 reservationApplicationService,
                 reservationSlotReleaseService,
+                memberService,
                 Clock.fixed(
                         LocalDateTime.of(2026, 8, 13, 10, 0)
                                 .atZone(ZoneId.of("Asia/Seoul")).toInstant(),
@@ -126,6 +131,27 @@ class ReservationWaitlistServiceTest {
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
+    }
+
+    @Test
+    @DisplayName("종료된 대기열은 같은 슬롯이 RESERVED일 때 FIFO 맨 뒤 WAITING으로 재등록할 수 있다")
+    void register_terminalWaitlist_reactivatesAsWaiting() {
+        ReservationWaitlist reactivated = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        ReflectionTestUtils.setField(reactivated, "id", 10L);
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(Optional.of(reservedSlot()));
+        given(reservationWaitlistRepository.reactivateTerminalIfSlotReserved(
+                MEMBER_ID,
+                SLOT_ID,
+                LocalDateTime.of(2026, 8, 13, 10, 0)
+        ))
+                .willReturn(1);
+        given(reservationWaitlistRepository.findByMemberIdAndSlotId(MEMBER_ID, SLOT_ID))
+                .willReturn(Optional.of(reactivated));
+
+        var result = reservationWaitlistService.register(MEMBER_ID, SLOT_ID);
+
+        assertThat(result.status()).isEqualTo(ReservationWaitlistStatus.WAITING);
+        verify(reservationWaitlistRepository, never()).insertWaitingIfSlotReserved(any(), any());
     }
 
     @Test
