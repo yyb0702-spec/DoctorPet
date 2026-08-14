@@ -29,6 +29,7 @@ import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
@@ -70,6 +71,9 @@ class HospitalReservationApplicationServiceTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Mock
+    private ReservationWaitlistRepository reservationWaitlistRepository;
+
+    @Mock
     private ReservationEventRepository reservationEventRepository;
 
     @Mock
@@ -90,6 +94,7 @@ class HospitalReservationApplicationServiceTest {
                 hospitalService,
                 reservationRepository,
                 reservationSlotRepository,
+                reservationWaitlistRepository,
                 reservationEventRepository,
                 notificationPublisher,
                 noShowProperties,

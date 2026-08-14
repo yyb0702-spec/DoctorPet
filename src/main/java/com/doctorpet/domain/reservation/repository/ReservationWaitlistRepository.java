@@ -120,6 +120,21 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
             @Param("canceledAt") LocalDateTime canceledAt
     );
 
+    /** 휴업·폐업 처리 시 확정 예약과 무관하게 병원의 활성 대기열 슬롯을 찾는다. */
+    @Query("""
+            select distinct waitlist.slotId
+              from ReservationWaitlist waitlist, ReservationSlot slot
+             where waitlist.slotId = slot.id
+               and slot.hospitalId = :hospitalId
+               and slot.startAt > :now
+               and waitlist.status in :statuses
+            """)
+    List<Long> findActiveSlotIdsByHospitalId(
+            @Param("hospitalId") Long hospitalId,
+            @Param("statuses") List<ReservationWaitlistStatus> statuses,
+            @Param("now") LocalDateTime now
+    );
+
     List<ReservationWaitlist> findByStatusAndOfferExpiresAtLessThanEqualOrderByOfferExpiresAtAscIdAsc(
             ReservationWaitlistStatus status,
             LocalDateTime offerExpiresAt,

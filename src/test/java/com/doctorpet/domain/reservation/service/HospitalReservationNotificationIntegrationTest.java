@@ -80,6 +80,7 @@ class HospitalReservationNotificationIntegrationTest {
 
     private Long reservationId;
     private Long slotId;
+    private Long offeredOnlySlotId;
     private Long staffMemberId;
     private Long hospitalId;
 
@@ -95,6 +96,10 @@ class HospitalReservationNotificationIntegrationTest {
         if (slotId != null) {
             jdbcTemplate.update("delete from reservation_waitlists where slot_id = ?", slotId);
             jdbcTemplate.update("delete from reservation_slots where id = ?", slotId);
+        }
+        if (offeredOnlySlotId != null) {
+            jdbcTemplate.update("delete from reservation_waitlists where slot_id = ?", offeredOnlySlotId);
+            jdbcTemplate.update("delete from reservation_slots where id = ?", offeredOnlySlotId);
         }
         if (staffMemberId != null) {
             jdbcTemplate.update("delete from members where id = ?", staffMemberId);
@@ -274,6 +279,39 @@ class HospitalReservationNotificationIntegrationTest {
                 data.reservationId(),
                 NotificationType.RESERVATION_HOSPITAL_CANCELED
         )).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("휴·폐업 자동 취소는 CONFIRMED 예약 없이 OFFERED 대기열만 있는 슬롯도 종료한다")
+    void businessStatusChange_cancelsOfferedWaitlistWithoutConfirmedReservation() {
+        TestReservation data = saveRequestedReservation();
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        LocalDateTime offeredOnlyStartAt = now.plusDays(2).withNano(0).plusMinutes(30);
+        ReservationSlot offeredOnlySlot = ReservationSlot.create(
+                data.hospitalId(),
+                offeredOnlyStartAt,
+                offeredOnlyStartAt.plusMinutes(30)
+        );
+        offeredOnlySlot.reserve();
+        offeredOnlySlot = reservationSlotRepository.saveAndFlush(offeredOnlySlot);
+        offeredOnlySlotId = offeredOnlySlot.getId();
+
+        ReservationWaitlist offered = ReservationWaitlist.waiting(
+                data.guardianMemberId() + 200,
+                offeredOnlySlotId
+        );
+        offered.offer(now.minusMinutes(1), now.plusMinutes(9));
+        offered = reservationWaitlistRepository.saveAndFlush(offered);
+
+        int canceledCount = hospitalReservationService.cancelConfirmedByBusinessStatusChange(
+                data.hospitalId(),
+                "공공데이터에서 병원 폐업이 확인되었습니다."
+        );
+
+        assertThat(canceledCount).isZero();
+        assertThat(reservationWaitlistRepository.findById(offered.getId()).orElseThrow().getStatus())
+                .isEqualTo(ReservationWaitlistStatus.CANCELED);
+        assertThat(slotStatus(offeredOnlySlotId)).isEqualTo(ReservationSlotStatus.OPEN);
     }
 
     private TestReservation saveRequestedReservation() {

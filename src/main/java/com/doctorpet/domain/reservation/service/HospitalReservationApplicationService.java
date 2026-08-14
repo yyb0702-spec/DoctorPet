@@ -16,6 +16,7 @@ import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.dto.response.HospitalReservationListItemResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationCheckInResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationHistoryResponse;
@@ -24,6 +25,7 @@ import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -74,6 +76,7 @@ public class HospitalReservationApplicationService {
     private final HospitalService hospitalService;
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
+    private final ReservationWaitlistRepository reservationWaitlistRepository;
     private final ReservationEventRepository reservationEventRepository;
     private final ReservationNotificationPublisher notificationPublisher;
     private final ReservationNoShowProperties noShowProperties;
@@ -242,6 +245,16 @@ public class HospitalReservationApplicationService {
                     reason
             );
             canceledCount++;
+        }
+
+        // 기존 예약 취소 뒤 이미 OFFERED가 된 슬롯에는 CONFIRMED 예약이 없다. 휴업·폐업 시에는
+        // 이런 활성 대기열도 병원 단위로 종료해야 만료 후 다음 대기자가 다시 승급되지 않는다.
+        for (Long slotId : reservationWaitlistRepository.findActiveSlotIdsByHospitalId(
+                hospitalId,
+                List.of(ReservationWaitlistStatus.WAITING, ReservationWaitlistStatus.OFFERED),
+                now
+        )) {
+            reservationSlotReleaseService.releaseForBusinessStatusChange(slotId);
         }
         return canceledCount;
     }

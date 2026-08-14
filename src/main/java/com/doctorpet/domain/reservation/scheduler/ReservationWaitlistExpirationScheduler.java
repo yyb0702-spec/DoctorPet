@@ -1,6 +1,5 @@
 package com.doctorpet.domain.reservation.scheduler;
 
-import com.doctorpet.domain.reservation.config.ReservationWaitlistProperties;
 import com.doctorpet.domain.reservation.service.ReservationWaitlistExpirationBatchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Component;
 public class ReservationWaitlistExpirationScheduler {
 
     private final ReservationWaitlistExpirationBatchService batchService;
-    private final ReservationWaitlistProperties properties;
 
     @Scheduled(
             fixedDelayString = "#{@reservationWaitlistProperties.expirationIntervalMs}",
