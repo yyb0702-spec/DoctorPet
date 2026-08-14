@@ -76,6 +76,16 @@ public class ChatMessageService {
             throw new ServiceException(ChatErrorCode.MESSAGE_SEND_NOT_ALLOWED);
         }
 
+        if (StringUtils.hasText(request.clientMessageId())) {
+            ChatMessage existing = chatMessageRepository
+                    .findByReservationIdAndMemberIdAndClientMessageId(
+                            reservationId, principal.memberId(), request.clientMessageId())
+                    .orElse(null);
+            if (existing != null) {
+                return toResponse(existing, hospitalName(reservation.getHospitalId()));
+            }
+        }
+
         ChatMessage saved = chatMessageRepository.saveAndFlush(ChatMessage.create(
                 reservationId,
                 participant.senderType(),
@@ -83,7 +93,7 @@ public class ChatMessageService {
                 // chat_messages.hospital_id의 감사·격리 키가 NULL이 되지 않게 한다.
                 reservation.getHospitalId(),
                 principal.memberId(),
-                request.content()
+                request.content(), request.clientMessageId()
         ));
         ChatMessageResponse response = toResponse(saved, hospitalName(reservation.getHospitalId()));
         eventPublisher.publishEvent(new ChatMessageCreatedEvent(reservationId, response));

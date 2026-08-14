@@ -12,6 +12,7 @@ const READ_DEBOUNCE_MS = 500
 const SEND_CONFIRM_TIMEOUT_MS = 5_000
 
 type PendingSend = {
+  clientMessageId: string
   content: string
   senderType: ChatSenderType
   minMessageId?: number
@@ -40,6 +41,7 @@ export function useReservationChat(reservationId: number, enabled = true) {
   const subscriptionReadyRef = useRef(false)
   const historySyncedRef = useRef(false)
   const pendingSendRef = useRef<PendingSend | null>(null)
+  const retryClientMessageRef = useRef<{ content: string; clientMessageId: string } | null>(null)
   const recoverRef = useRef<((afterMessageId?: number) => Promise<void>) | null>(null)
 
   const markReadDebounced = useCallback(() => {
@@ -58,6 +60,9 @@ export function useReservationChat(reservationId: number, enabled = true) {
 
     clearTimeout(pending.timer)
     pendingSendRef.current = null
+    retryClientMessageRef.current = sent
+      ? null
+      : { content: pending.content, clientMessageId: pending.clientMessageId }
     setSendState(sent ? 'idle' : 'failed')
     pending.resolve(sent)
   }, [])
@@ -73,18 +78,6 @@ export function useReservationChat(reservationId: number, enabled = true) {
     lastMessageIdRef.current = merged.at(-1)?.messageId
     setMessages(merged)
 
-    const pending = pendingSendRef.current
-    if (
-      pending &&
-      incoming.some(
-        (message) =>
-          (pending.minMessageId == null || message.messageId > pending.minMessageId) &&
-          message.senderType === pending.senderType &&
-          message.content === pending.content,
-      )
-    ) {
-      settlePendingSend(true)
-    }
   }, [settlePendingSend])
 
   useEffect(() => {
@@ -175,6 +168,16 @@ export function useReservationChat(reservationId: number, enabled = true) {
         onMessage: (message) => {
           appendMessages([message])
           markReadDebounced()
+        },
+        onAcknowledged: (clientMessageId) => {
+          if (pendingSendRef.current?.clientMessageId === clientMessageId) {
+            settlePendingSend(true)
+          }
+        },
+        onSubscriptionReady: () => {
+          // SimpleBroker는 SUBSCRIBE receipt를 발급하지 않는다. topic으로 되돌아온 제어 프레임을
+          // 실제 구독 활성화 증거로 삼아, 최초 조회와 구독 사이의 누락 구간을 최종 복구한다.
+          void recover(lastMessageIdRef.current)
         },
         onClosed: () => {
           subscriptionReadyRef.current = false
@@ -287,7 +290,12 @@ export function useReservationChat(reservationId: number, enabled = true) {
         const timer = setTimeout(() => {
           void confirmPendingSendAfterTimeout()
         }, SEND_CONFIRM_TIMEOUT_MS)
+        const retry = retryClientMessageRef.current
+        const clientMessageId = retry?.content === normalized
+          ? retry.clientMessageId
+          : crypto.randomUUID()
         pendingSendRef.current = {
+          clientMessageId,
           content: normalized,
           senderType,
           minMessageId: lastMessageIdRef.current,
@@ -298,7 +306,10 @@ export function useReservationChat(reservationId: number, enabled = true) {
         try {
           client.publish({
             destination: `/app/chat/reservations/${reservationId}/messages`,
-            body: JSON.stringify({ content: normalized }),
+            body: JSON.stringify({
+              content: normalized,
+              clientMessageId,
+            }),
           })
         } catch {
           settlePendingSend(false)

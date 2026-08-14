@@ -153,18 +153,14 @@ describe('useReservationChat', () => {
       sending = result.current.sendMessage('전송 확인 메시지', 'GUARDIAN')
     })
     expect(result.current.sendState).toBe('sending')
-    expect(client.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: JSON.stringify({ content: '전송 확인 메시지' }),
-      }),
-    )
+    const published = client.publish.mock.calls[0]?.[0]
+    expect(JSON.parse(published.body)).toMatchObject({
+      content: '전송 확인 메시지',
+      clientMessageId: expect.any(String),
+    })
 
     act(() => {
-      callbacks?.onMessage({
-        ...message,
-        messageId: 2,
-        content: '전송 확인 메시지',
-      })
+      callbacks?.onAcknowledged(JSON.parse(published.body).clientMessageId)
     })
     await expect(sending).resolves.toBe(true)
     await waitFor(() => expect(result.current.sendState).toBe('idle'))
@@ -202,7 +198,7 @@ describe('useReservationChat', () => {
     })
 
     await act(async () => {
-      await expect(sending).resolves.toBe(true)
+      await expect(sending).resolves.toBe(false)
     })
     expect(getMessages).toHaveBeenCalledTimes(3)
     expect(getMessages).toHaveBeenLastCalledWith(11, 1)

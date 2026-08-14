@@ -16,6 +16,8 @@ function websocketUrl(): string {
 export interface ChatStompCallbacks {
   onConnected: (subscribe: () => void) => void
   onMessage: (message: ChatMessage) => void
+  onAcknowledged: (clientMessageId: string) => void
+  onSubscriptionReady: () => void
   onClosed: () => void
   onFailed: () => void
 }
@@ -37,13 +39,30 @@ export function createChatStompClient(
   })
 
   client.onConnect = () => {
+    client.subscribe('/user/queue/chat/send-acks', (frame) => {
+      try {
+        const ack = JSON.parse(frame.body) as { clientMessageId?: string }
+        if (ack.clientMessageId) callbacks.onAcknowledged(ack.clientMessageId)
+      } catch {
+        // 잘못된 ACK 프레임은 채팅 수신을 중단시키지 않는다.
+      }
+    })
     callbacks.onConnected(() => {
       client.subscribe(`/topic/chat/reservations/${reservationId}`, (frame) => {
         try {
-          callbacks.onMessage(JSON.parse(frame.body) as ChatMessage)
+          const payload = JSON.parse(frame.body) as ChatMessage | { type?: string }
+          if ('type' in payload && payload.type === 'SUBSCRIPTION_READY') {
+            callbacks.onSubscriptionReady()
+            return
+          }
+          callbacks.onMessage(payload as ChatMessage)
         } catch {
           // 단일 깨진 프레임이 이후 실시간 수신을 막지 않게 한다.
         }
+      })
+      client.publish({
+        destination: `/app/chat/reservations/${reservationId}/subscription-ready`,
+        body: '',
       })
     })
   }
