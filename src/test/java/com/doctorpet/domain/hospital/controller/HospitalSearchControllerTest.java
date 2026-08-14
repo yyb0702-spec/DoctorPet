@@ -2,6 +2,7 @@ package com.doctorpet.domain.hospital.controller;
 
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.service.HospitalService;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -148,6 +150,73 @@ class HospitalSearchControllerTest {
                 eq(20),
                 eq("name")
         );
+    }
+
+    @Test
+    void 제휴_병원_상세에_예약_응답_지표를_반환한다() throws Exception {
+        given(hospitalService.getHospitalDetail(1L, null))
+                .willReturn(new HospitalDetailResponse(
+                        1L,
+                        "닥터펫 동물병원",
+                        "서울특별시 중구 세종대로 110",
+                        "02-1234-5678",
+                        BusinessStatus.OPEN,
+                        PartnershipStatus.PARTNER,
+                        null,
+                        true,
+                        true,
+                        true,
+                        false,
+                        false,
+                        List.of(),
+                        List.of(),
+                        null,
+                        0L,
+                        false,
+                        80,
+                        15
+                ));
+
+        mockMvc.perform(get("/api/hospitals/{hospitalId}", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.reservationResponseRate").value(80))
+                .andExpect(jsonPath("$.data.averageApprovalMinutes").value(15));
+
+        verify(hospitalService).getHospitalDetail(1L, null);
+    }
+
+    @Test
+    void 비제휴_병원_상세의_예약_응답_지표는_null이다() throws Exception {
+        given(hospitalService.getHospitalDetail(2L, null))
+                .willReturn(new HospitalDetailResponse(
+                        2L,
+                        "비제휴 동물병원",
+                        "서울특별시 중구",
+                        "02-9876-5432",
+                        BusinessStatus.OPEN,
+                        PartnershipStatus.NON_PARTNER,
+                        "제휴 전 병원입니다.",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0L,
+                        false,
+                        null,
+                        null
+                ));
+
+        mockMvc.perform(get("/api/hospitals/{hospitalId}", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reservationResponseRate").value(nullValue()))
+                .andExpect(jsonPath("$.data.averageApprovalMinutes").value(nullValue()));
+
+        verify(hospitalService).getHospitalDetail(2L, null);
     }
 
     @Test
