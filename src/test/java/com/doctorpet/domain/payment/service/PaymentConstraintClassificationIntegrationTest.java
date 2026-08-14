@@ -1,18 +1,23 @@
 package com.doctorpet.domain.payment.service;
 
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.deleteItems;
+import static com.doctorpet.domain.payment.support.PaymentItemTestSupport.persistDraft;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
 import com.doctorpet.domain.payment.entity.PaymentMethod;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
+import com.doctorpet.domain.payment.repository.PaymentItemRepository;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
 import com.doctorpet.global.exception.ServiceException;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +50,7 @@ class PaymentConstraintClassificationIntegrationTest {
 
     @Autowired private PaymentChargeService paymentChargeService;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private PaymentItemRepository paymentItemRepository;
     @Autowired private PaymentMethodRepository paymentMethodRepository;
     @Autowired private BillingKeyCryptor billingKeyCryptor;
 
@@ -60,6 +66,9 @@ class PaymentConstraintClassificationIntegrationTest {
     void setUp() {
         firstReservationId = System.nanoTime();
         secondReservationId = firstReservationId + 1;
+        // 청구는 초안 항목 합계로 총액을 산출하므로 두 예약 모두 초안을 먼저 깐다(SA §9-4 청구 항목).
+        persistDraft(paymentItemRepository, firstReservationId, AMOUNT);
+        persistDraft(paymentItemRepository, secondReservationId, AMOUNT);
         paymentMethodId = paymentMethodRepository.saveAndFlush(
                 PaymentMethod.issue(GUARDIAN_ID, billingKeyCryptor.encrypt("test-billing-key"), "VISA", "1234")).getId();
 
@@ -74,8 +83,16 @@ class PaymentConstraintClassificationIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        paymentRepository.findByReservationId(firstReservationId).ifPresent(paymentRepository::delete);
-        paymentRepository.findByReservationId(secondReservationId).ifPresent(paymentRepository::delete);
+        List.of(firstReservationId, secondReservationId).forEach(id -> {
+            Long paymentId = paymentRepository.findByReservationId(id)
+                    .map(payment -> {
+                        Long paymentRowId = payment.getId();
+                        paymentRepository.delete(payment);
+                        return paymentRowId;
+                    })
+                    .orElse(null);
+            deleteItems(paymentItemRepository, id, paymentId);
+        });
         paymentMethodRepository.deleteById(paymentMethodId);
     }
 
@@ -83,11 +100,11 @@ class PaymentConstraintClassificationIntegrationTest {
     @DisplayName("merchant_payment_id UNIQUE 충돌은 DUPLICATE_CHARGE가 아니라 원 예외로 전파된다(실제 MySQL 제약 구분)")
     void merchantPaymentIdCollision_propagatesInsteadOfDuplicateCharge() {
         // 첫 청구는 정상 선기록(merchant_payment_id = FIXED_MERCHANT_ID로 커밋).
-        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, AMOUNT);
+        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, firstReservationId));
 
         // 두 번째는 예약이 달라 reservation_id UNIQUE는 통과하지만, 같은 merchant_payment_id라 그 UNIQUE에 걸린다.
         // 이 위반은 예약에 결제가 없으므로 DUPLICATE_CHARGE(ServiceException)가 아니라 원 무결성 예외로 전파돼야 한다.
-        assertThatThrownBy(() -> paymentChargeService.preRecord(secondReservationId, STAFF_MEMBER_ID, AMOUNT))
+        assertThatThrownBy(() -> paymentChargeService.preRecord(secondReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, secondReservationId)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .isNotInstanceOf(ServiceException.class);
 
@@ -100,9 +117,9 @@ class PaymentConstraintClassificationIntegrationTest {
     @DisplayName("사전 체크로 걸러지는 이중 청구는 그대로 DUPLICATE_CHARGE다(제약 구분이 정상 경로를 바꾸지 않는다)")
     void duplicateReservation_stillDuplicateCharge() {
         // 같은 예약으로 두 번 청구하면 두 번째는 existsByReservationId 사전 체크에서 DUPLICATE_CHARGE로 거부된다.
-        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, AMOUNT);
+        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, firstReservationId));
 
-        assertThatThrownBy(() -> paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, AMOUNT))
+        assertThatThrownBy(() -> paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, firstReservationId)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
     }
