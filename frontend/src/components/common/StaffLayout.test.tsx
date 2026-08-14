@@ -20,8 +20,16 @@ vi.mock('@/features/notifications/api', () => ({
   },
 }))
 // 레이아웃 헤더가 쓰는 회원·병원·로그아웃 훅은 이 테스트의 관심사가 아니라 고정값으로 둔다.
+// role은 벨이 리소스 이동 경로를 고를 때 쓰므로 스태프로 채운다(경로 자체 검증은 NotificationBell.test.tsx).
 vi.mock('@/features/members/hooks', () => ({
-  useMe: () => ({ data: { nickname: '스태프', email: 'staff@example.com', hospitalId: 7 } }),
+  useMe: () => ({
+    data: {
+      nickname: '스태프',
+      email: 'staff@example.com',
+      hospitalId: 7,
+      role: 'HOSPITAL_STAFF',
+    },
+  }),
 }))
 vi.mock('@/features/hospitals/hooks', () => ({
   useHospitalDetail: () => ({ data: { name: '행복동물병원' } }),

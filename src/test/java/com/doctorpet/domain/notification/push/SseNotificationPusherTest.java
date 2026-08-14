@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -70,6 +71,20 @@ class SseNotificationPusherTest {
         // hospitalId 자체를 연결 키로 쓰지 않는다(레지스트리 키는 계속 memberId다).
         verify(registry, never()).send(eq(HOSPITAL_ID), any(), any());
         verifyNoMoreInteractions(registry);
+    }
+
+    @Test
+    @DisplayName("한 스태프 전송이 런타임 예외로 실패해도 나머지 스태프에게는 계속 전송한다")
+    void hospitalRecipient_isolatesFailurePerStaff() {
+        given(memberService.findActiveHospitalStaffMemberIds(HOSPITAL_ID)).willReturn(List.of(21L, 22L));
+        // 레지스트리가 흡수하지 않는 런타임 예외(직렬화·연결 상태 등)를 첫 스태프에서 터뜨린다.
+        willThrow(new IllegalStateException("첫 스태프 전송 채널 장애")).given(registry).send(21L, EVENT_NAME, payload);
+
+        assertThatCode(() -> pusher.push(NotificationRecipientType.HOSPITAL, HOSPITAL_ID, payload))
+                .doesNotThrowAnyException();
+
+        // 앞선 실패가 뒤 스태프의 전달을 삼키지 않는다(리뷰 지적 P2).
+        verify(registry).send(22L, EVENT_NAME, payload);
     }
 
     @Test

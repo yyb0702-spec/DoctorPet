@@ -78,10 +78,10 @@ export function StaffLayout() {
           <div className="flex items-center gap-3">
             {/*
               병원 수신 알림은 병원 단위로 1건 저장·공유 읽음이고, 서버가 인증 principal로 수신자를
-              해석한다 — 프론트는 보호자와 같은 API·SSE 훅을 그대로 쓰고 예약 상세 경로만 스태프
-              화면 기준으로 바꿔 넘긴다.
+              해석한다 — 프론트는 보호자와 같은 API·SSE 훅을 그대로 쓴다. 리소스 이동 경로도 벨이
+              로그인 회원의 role로 직접 고르므로 레이아웃은 아무것도 주입하지 않는다.
             */}
-            <NotificationBell reservationBasePath="/staff/reservations" />
+            <NotificationBell />
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {me.data?.nickname ?? me.data?.email}
             </span>

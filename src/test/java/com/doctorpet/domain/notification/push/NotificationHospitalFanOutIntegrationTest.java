@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.repository.MemberRepository;
+import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
@@ -20,6 +21,8 @@ import com.doctorpet.domain.notification.service.NotificationService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,6 +34,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -38,11 +42,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 실제 리스너 배선으로 검증한다(고도화 3.10 후속 — SSE 병원 라우팅). 저장은 병원 단위 1건 그대로이고, 여기서
  * 확인하는 것은 전달 대상뿐이다.
  *
- * <p>전송 대상 관찰은 {@link SseEmitterRegistry}를 스파이로 감싸 {@code send(memberId, ...)} 호출로 한다 —
- * 레지스트리가 {@link SseEmitter}를 내부에서 생성하므로 개별 연결이 받은 바이트를 테스트에서 읽을 수는 없다.
- * 한 스태프의 여러 연결(다중 탭)에 모두 전달되는지는 레지스트리의 계약이며
- * ({@link SseEmitterRegistryTest#send_toMultipleConnections_keepsAllConnections()}), 여기서는 fan-out 후에도
- * 그 연결들이 유지되는지로 확인한다.
+ * <p>전송 대상 관찰은 {@link SseEmitterRegistry}를 스파이로 감싸 {@code send(memberId, ...)} 호출로 한다.
+ * 다만 호출 검증만으로는 "한 회원의 첫 연결에만 보내는" 구현도 통과하므로(연결 수는 그대로 유지된다),
+ * 한 스태프의 여러 연결(다중 탭)에 실제로 payload가 들어갔는지는 각 {@link SseEmitter}의 미전송 버퍼를 읽어
+ * 확인한다 — 테스트 emitter에는 HTTP 핸들러가 붙지 않아 {@code send}가 버퍼에 쌓이므로 연결별 수신 내용을
+ * 그대로 관찰할 수 있다({@link #deliveredData(SseEmitter)}).
  *
  * <p>전체 컨텍스트(MySQL·Redis·env)가 필요하다 — 없으면 BLOCKED.
  */
@@ -118,14 +122,14 @@ class NotificationHospitalFanOutIntegrationTest {
     @Test
     @DisplayName("병원 알림은 그 병원에 현재 소속된 연결 스태프 모두에게 전송되고, 타 병원·탈퇴·소속 해제 스태프에게는 가지 않는다")
     void hospitalNotification_fansOutToCurrentStaffOnly() {
-        connect(staffA);
-        connect(staffA); // 같은 스태프의 두 번째 탭
-        connect(staffB);
-        connect(otherHospitalStaff);
-        connect(withdrawnStaff);
-        connect(unassignedStaff);
+        SseEmitter staffAtab1 = connect(staffA);
+        SseEmitter staffAtab2 = connect(staffA); // 같은 스태프의 두 번째 탭
+        SseEmitter staffBtab = connect(staffB);
+        SseEmitter otherHospitalTab = connect(otherHospitalStaff);
+        SseEmitter withdrawnTab = connect(withdrawnStaff);
+        SseEmitter unassignedTab = connect(unassignedStaff);
 
-        createHospitalNotification();
+        Long notificationId = createHospitalNotification();
 
         verify(registry).send(eq(staffA), eq(EVENT_NAME), any());
         verify(registry).send(eq(staffB), eq(EVENT_NAME), any());
@@ -134,6 +138,16 @@ class NotificationHospitalFanOutIntegrationTest {
         verify(registry, never()).send(eq(unassignedStaff), any(), any());
         // 병원 자체를 연결 키로 쓰지 않는다 — 레지스트리 키는 계속 memberId다.
         verify(registry, never()).send(eq(hospitalId), any(), any());
+
+        // 대상 확인만으로는 "회원의 첫 연결에만 보내는" 구현도 통과하므로, 연결마다 payload가 실제로 들어갔는지
+        // 본다. 다중 탭(상한 5)은 정상 사용이라 두 번째 탭이 조용히 빠지면 스태프가 알림을 놓친다.
+        assertDelivered(staffAtab1, notificationId);
+        assertDelivered(staffAtab2, notificationId);
+        assertDelivered(staffBtab, notificationId);
+        // 수신 대상이 아닌 스태프의 연결에는 payload가 들어가지 않는다(연결 유지 여부와 별개).
+        assertNotDelivered(otherHospitalTab);
+        assertNotDelivered(withdrawnTab);
+        assertNotDelivered(unassignedTab);
 
         // 다중 탭 연결이 fan-out 뒤에도 모두 살아 있다(전송 실패로 정리되지 않았다).
         assertThat(registry.connectionCount(staffA)).isEqualTo(2);
@@ -203,8 +217,27 @@ class NotificationHospitalFanOutIntegrationTest {
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Long savedId = transactionTemplate.execute(status -> createHospitalNotification());
 
-        // 전송 예외는 NotificationPushListener가 삼켜 호출자에게 전파되지 않고, 저장은 이미 커밋을 마쳤다.
+        // 전송 예외는 SseNotificationPusher가 대상별로 삼키고(그 밖의 누락은 NotificationPushListener가 받는다)
+        // 호출자에게 전파되지 않으며, 저장은 이미 커밋을 마쳤다.
         verify(registry).send(eq(staffA), eq(EVENT_NAME), any());
+        assertThat(rowExists(savedId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("한 스태프 연결 전송이 실패해도 같은 병원 나머지 스태프는 알림을 받는다")
+    void fanOutFailure_isIsolatedPerStaff() {
+        SseEmitter staffAtab = connect(staffA);
+        SseEmitter staffBtab = connect(staffB);
+        // 레지스트리가 흡수하지 않는 런타임 예외를 staffA 전송에서만 터뜨린다. 전송 순서는 쿼리 결과 순서라
+        // 보장하지 않지만, 대상별 격리가 되어 있으면 순서와 무관하게 staffB는 받아야 한다.
+        doThrow(new IllegalStateException("스태프 A 전송 채널 장애"))
+                .when(registry).send(eq(staffA), eq(EVENT_NAME), any());
+
+        Long savedId = createHospitalNotification();
+
+        verify(registry).send(eq(staffB), eq(EVENT_NAME), any());
+        assertDelivered(staffBtab, savedId);
+        assertNotDelivered(staffAtab);
         assertThat(rowExists(savedId)).isTrue();
     }
 
@@ -219,10 +252,51 @@ class NotificationHospitalFanOutIntegrationTest {
         return id;
     }
 
-    private void connect(Long memberId) {
+    private SseEmitter connect(Long memberId) {
         SseEmitter emitter = registry.tryRegister(memberId, CAP);
         assertThat(emitter).isNotNull();
         openedEmitters.add(emitter);
+        return emitter;
+    }
+
+    /*
+      연결 1개가 실제로 받은 내용을 확인한다. 테스트 emitter에는 HTTP 응답 핸들러가 붙지 않으므로
+      ResponseBodyEmitter.send는 전송 대신 미전송 버퍼(earlySendAttempts)에 쌓아 둔다 — 그래서 연결별 수신
+      내용을 그대로 읽을 수 있다. 이벤트 이름은 문자열 프레임(event:notification)으로, payload는 버퍼에 담긴
+      NotificationResponse 객체로 확인한다(직렬화는 실제 전송 시점에 일어난다).
+     */
+    private void assertDelivered(SseEmitter emitter, Long notificationId) {
+        List<Object> delivered = deliveredData(emitter);
+        String frames = delivered.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .collect(Collectors.joining());
+        assertThat(frames).as("이벤트 이름 프레임").contains("event:" + EVENT_NAME);
+        assertThat(delivered)
+                .as("이 연결이 받은 알림 payload")
+                .anySatisfy(data -> assertThat(data)
+                        .isInstanceOfSatisfying(
+                                NotificationResponse.class,
+                                payload -> assertThat(payload.id()).isEqualTo(notificationId)));
+    }
+
+    private void assertNotDelivered(SseEmitter emitter) {
+        assertThat(deliveredData(emitter))
+                .as("수신 대상이 아닌 연결")
+                .noneMatch(NotificationResponse.class::isInstance);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> deliveredData(SseEmitter emitter) {
+        Set<ResponseBodyEmitter.DataWithMediaType> attempts =
+                (Set<ResponseBodyEmitter.DataWithMediaType>)
+                        ReflectionTestUtils.getField(emitter, "earlySendAttempts");
+        if (attempts == null) {
+            return List.of();
+        }
+        return attempts.stream()
+                .map(ResponseBodyEmitter.DataWithMediaType::getData)
+                .toList();
     }
 
     private Long createHospitalNotification() {
