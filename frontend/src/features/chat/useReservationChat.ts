@@ -182,7 +182,9 @@ export function useReservationChat(reservationId: number, enabled = true) {
         onSubscriptionReady: () => {
           // SimpleBroker는 SUBSCRIBE receipt를 발급하지 않는다. topic으로 되돌아온 제어 프레임을
           // 실제 구독 활성화 증거로 삼아, 최초 조회와 구독 사이의 누락 구간을 최종 복구한다.
-          void recover(lastMessageIdRef.current)
+          void recover(lastMessageIdRef.current).catch(() => {
+            // 최종 커서 복구 실패는 전송·수신 루프를 끊지 않고, 다음 재연결에서 다시 시도한다.
+          })
         },
         onClosed: () => {
           subscriptionReadyRef.current = false

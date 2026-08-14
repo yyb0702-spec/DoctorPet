@@ -97,6 +97,30 @@ describe('useReservationChat', () => {
     })
   })
 
+  it('SUBSCRIPTION_READY 후 최종 복구 실패를 처리하고 다음 재연결에 맡긴다', async () => {
+    getMessages
+      .mockResolvedValueOnce({
+        messages: [message],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+      .mockRejectedValueOnce(new Error('initial gap recovery failed'))
+      .mockRejectedValueOnce(new Error('final gap recovery failed'))
+
+    const { result } = renderHook(() => useReservationChat(11))
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+    await waitFor(() => expect(getMessages).toHaveBeenCalledTimes(2))
+
+    act(() => {
+      callbacks?.onSubscriptionReady()
+    })
+    await waitFor(() => expect(getMessages).toHaveBeenCalledTimes(3))
+    expect(result.current.connectionState).toBe('connected')
+  })
+
   it('100건 초과 이력은 다음 커서까지 모두 복구한 뒤 읽음 처리한다', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       ...message,
