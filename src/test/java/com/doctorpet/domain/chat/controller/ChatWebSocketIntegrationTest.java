@@ -118,7 +118,7 @@ class ChatWebSocketIntegrationTest {
 
         valid.send(frame("SEND", List.of(
                 "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
-                "content-type:application/json"), "{\"content\":\"실시간 메시지\"}"));
+                "content-type:application/json"), "{\"content\":\"실시간 메시지\",\"clientMessageId\":\"11111111-1111-4111-8111-111111111111\"}"));
         String delivered = valid.awaitFrame();
         assertThat(delivered).startsWith("MESSAGE");
         assertThat(delivered).contains("실시간 메시지");
