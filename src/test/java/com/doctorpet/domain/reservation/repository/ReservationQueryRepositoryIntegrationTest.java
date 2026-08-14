@@ -29,6 +29,8 @@ import java.util.List;
 @Import({JpaAuditingConfig.class, QuerydslConfig.class})
 class ReservationQueryRepositoryIntegrationTest {
 
+    private static final long RESPONSE_METRICS_HOSPITAL_ID = 9_000_000_119L;
+
     @Autowired
     private ReservationRepository reservationRepository;
 
@@ -318,7 +320,7 @@ class ReservationQueryRepositoryIntegrationTest {
     void findResponseMetricsAggregate_appliesResponsePolicy() {
         LocalDateTime from = LocalDateTime.of(2026, 5, 16, 0, 0);
         LocalDateTime to = LocalDateTime.of(2026, 8, 14, 0, 0);
-        long hospitalId = 9_000_000_000L + Math.floorMod(System.nanoTime(), 1_000_000L);
+        long hospitalId = RESPONSE_METRICS_HOSPITAL_ID;
 
         saveMetricsReservation(
                 501L,
@@ -366,6 +368,14 @@ class ReservationQueryRepositoryIntegrationTest {
                 from.plusDays(3),
                 ReservationStatus.CONFIRMED,
                 from.plusDays(3).plusMinutes(40),
+                false
+        );
+        saveMetricsReservation(
+                507L,
+                hospitalId,
+                from.plusDays(4),
+                ReservationStatus.REQUESTED,
+                null,
                 false
         );
 
