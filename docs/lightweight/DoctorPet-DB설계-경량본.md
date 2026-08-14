@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.58, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.59, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 관계 요약
@@ -17,7 +17,10 @@ hospitals 1 ── 0..N hospital_favorites
 hospitals 1 ── 0..N reservation_slots
 reservation_slots 1 ── 0..N reservations
 reservations 1 ── 0..N reservation_events
-reservations 1 ── 0..1 payments
+reservations 1 ── 0..1 payments   (정정 재청구 도입 후 0..N, 활성 1건)
+payments 1 ── 0..1 payment_refunds
+payments 1 ── 0..N payment_items   (항목화 후 일반 신규·정정 청구는 1..N, 기존 결제와 그 레거시 셀프 재청구는 0)
+reservations 1 ── 0..N payment_items   (청구 전 초안 — payment_id IS NULL)
 members 1 ── 0..N payment_methods
 members 1 ── 0..N ai_consultations
 members 1 ── 0..N notifications
@@ -158,7 +161,10 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `card_brand` | VARCHAR | 카드사, `NULL` 가능 |
 | `card_last4` | VARCHAR | 카드 끝 4자리, `NULL` 가능 |
 | `status` | VARCHAR | `ACTIVE`, `EXPIRED`, `DELETED` |
+| `is_default` | BOOLEAN | 기본 결제수단 여부, `NOT NULL DEFAULT false` |
+| `active_default_member_id` | BIGINT | 생성 컬럼 — `ACTIVE`이고 기본값일 때만 `member_id`, 아니면 `NULL` |
 | `created_at` | DATETIME | 생성 시각 |
+제약: `UNIQUE(active_default_member_id)` — 회원별 활성 기본 결제수단을 최대 1건으로 제한한다. 기본값 변경 시 활성 수단 조회는 `idx_payment_methods_member_id_status(member_id, status)`를 사용한다.
 ### `payments`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -169,7 +175,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `card_brand_snapshot` | VARCHAR | 결제 당시 카드사, `NULL` 가능 |
 | `card_last4_snapshot` | VARCHAR | 결제 당시 카드 끝 4자리, `NULL` 가능 |
 | `amount` | INT | `0 < amount ≤ 3,000,000` |
-| `status` | VARCHAR | `PENDING`, `PAID`, `OFFLINE_REQUIRED`, `OFFLINE_PAID` |
+| `status` | VARCHAR | `PENDING`, `PAID`, `OFFLINE_REQUIRED`, `OFFLINE_PAID`, `REFUNDED` |
 | `payment_channel` | VARCHAR | `BILLING_KEY`, `OFFLINE` |
 | `retry_count` | INT | 재시도 횟수 |
 | `failure_reason` | VARCHAR | 실패 사유, `NULL` 가능 |
@@ -179,6 +185,43 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `offline_settled_by` | BIGINT | 정산 처리자, `NULL` 가능 |
 | `created_at` | DATETIME | 생성 시각 |
 | `paid_at` | DATETIME | 결제 완료 시각, `NULL` 가능 |
+| `refunded_at` | DATETIME | 전액 환불 확정 시각, `NULL` 가능 |
+
+정정 재청구·셀프 재청구 도입 시 추가·교체할 항목(계약 확정, 구현 후속): `correction_of`(정정한 이전 결제 id, `NULL` 가능), `recovery_of`(셀프 재청구로 대체한 이전 결제 id, `NULL` 가능이며 `correction_of`와 동시 사용 금지), `superseded_at`(대체된 시각 — `NULL`이 활성 마커), 생성 컬럼 `active_reservation_id`(활성일 때만 `reservation_id`)와 `UNIQUE(active_reservation_id)`. `CHECK (NOT (correction_of IS NOT NULL AND recovery_of IS NOT NULL))`가 두 체인의 동시 소속을 막는다. 이 UNIQUE가 기존 `UNIQUE(reservation_id)`를 대신해 "예약당 활성 결제 1건"을 강제하며, 환불·대체된 과거 결제는 `NULL`이라 제약을 타지 않고 이력으로 남는다.
+
+교체 순서는 expand/contract를 지킨다 — ① 새 컬럼·생성 컬럼·`UNIQUE(active_reservation_id)` 추가(구 UNIQUE 유지) → ② 중복 활성 검사와 마커 기록 → ③ `UNIQUE(reservation_id)` 제거 → ④ 다음 배포에서 재청구 경로 활성화. ③을 ①보다 먼저 하면 두 제약이 모두 없는 창에서 활성 결제가 2건 생긴다.
+
+### `payment_refunds`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `payment_id` | BIGINT | 결제 FK, UNIQUE — 이 제약이 환불 선점이다 |
+| `merchant_refund_id` | VARCHAR | PG 취소 멱등키, UNIQUE. 재시도에도 재사용 |
+| `amount` | INT | 환불 금액. 전액 환불만 지원하므로 `payments.amount`와 같다 |
+| `reason` | VARCHAR | 스태프 입력 사유. 감사용이며 보호자 알림·응답·영수증에 노출하지 않는다 |
+| `status` | VARCHAR | `REQUESTED`, `COMPLETED`, `FAILED` |
+| `pg_cancel_id` | VARCHAR | 공급자 취소 식별자, `NULL` 가능 |
+| `failure_reason` | VARCHAR | 실패 분류값, `NULL` 가능 |
+| `refunded_by` | BIGINT | 환불을 실행한 스태프 member_id |
+| `claimed_at` | DATETIME | 선점 시각 |
+| `claim_token` | VARCHAR | 선점 소유권 펜스 |
+| `refunded_at` | DATETIME | 취소 확정 시각, `COMPLETED`에서만 |
+| `created_at` / `updated_at` | DATETIME | 생성·갱신 시각 |
+
+### `payment_items` `(계약 확정, 구현 후속)`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `reservation_id` | BIGINT | 예약 FK, `NOT NULL`. 청구 전 초안도 이 값으로 존재한다 |
+| `payment_id` | BIGINT | 결제 FK, `NULL` 가능. `NULL`이 "아직 청구되지 않은 초안" |
+| `name` | VARCHAR | 항목 명칭 |
+| `quantity` | INT | 항상 양수(요청 DTO `@Positive`) |
+| `unit_price` | INT | signed — 할인·조정은 음수. `UNSIGNED` 금지 |
+| `amount` | INT | signed — 서버가 `quantity * unit_price`로 산출. `UNSIGNED` 금지 |
+| `created_at` | DATETIME | 생성 시각 |
+인덱스: `(reservation_id, payment_id)`, `(payment_id)`. 제약: `CHECK chk_payment_items_quantity_positive (quantity > 0)`, `CHECK chk_payment_items_line_amount (amount = quantity * unit_price)` — `ddl-auto=update`가 CHECK를 만들지 않으므로 `payment_item_constraints_v1` 마이그레이션에서 추가·검증한다.
+
+항목은 일반 청구 선기록 전 예약에 매달린 초안으로 만들고(그 시점에는 `payments` 행이 없다), 선기록은 같은 트랜잭션에서 `payments`를 먼저 INSERT해 채번된 id를 얻은 뒤 그 id로 초안을 스탬프해 스냅샷을 고정한다(`payments.id`가 IDENTITY라 순서를 뒤집을 수 없다). 스탬프 건수가 재조회한 초안 수와 다르면 전체를 롤백한다. 수정·삭제는 `WHERE payment_id IS NULL` 조건부로만 수행하고 0건이면 이미 청구된 것으로 거부한다. 불변식은 스탬프된 항목에 한해 `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 결제당 항목은 `0..N`이며 항목화 이전 결제는 항목이 없고 백필하지 않는다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구도 가짜 항목을 만들지 않아 0건을 유지하고 원 총액만 승계한다.
 ## 6. AI·알림·채팅
 ### `ai_consultations`
 | 필드 | 타입 | 제약·설명 |
@@ -249,3 +292,7 @@ Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "�
 - `reservation_slots.version`은 낙관적 락에 사용한다.
 - 노쇼 처리 시 슬롯 상태는 `RESERVED`를 유지한다.
 - 오프라인 정산은 결제 상태가 `OFFLINE_REQUIRED`일 때만 수행한다.
+- 보호자 셀프 재청구도 `OFFLINE_REQUIRED`에서만 허용하고 `PENDING`에서는 허용하지 않는다.
+- 활성 결제는 상태가 아니라 `payments.superseded_at IS NULL`로 판정한다. 대체는 `OFFLINE_REQUIRED`·`REFUNDED`에서만 허용하고 `PAID`·`OFFLINE_PAID`는 대체하지 않는다.
+- 오프라인 정산과 셀프 재청구는 둘 다 활성 조건을 포함한 조건부 UPDATE로만 성립해 하나만 이긴다(이중 수납 방지).
+- 할인·조정은 별도 할인 필드가 아니라 음수 금액 항목으로 기록하므로 `payment_items.unit_price`·`amount`를 `UNSIGNED`로 만들지 않는다.
