@@ -69,12 +69,15 @@ export function ChatPanel({
 }) {
   const [content, setContent] = useState('')
   const [sendError, setSendError] = useState(false)
-  const { data: me } = useMe()
+  const { data: me, isLoading: isMeLoading } = useMe()
   const { messages, historyState, connectionState, sendState, sendMessage } =
     useReservationChat(reservationId)
   const writable = WRITABLE_STATUSES.includes(reservationStatus)
+  const roleResolved =
+    !isMeLoading &&
+    (me?.role === MemberRole.GUARDIAN || me?.role === MemberRole.HOSPITAL_STAFF)
   const canSend =
-    writable && connectionState === 'connected' && isValidChatContent(content)
+    roleResolved && writable && connectionState === 'connected' && isValidChatContent(content)
   const ownSender =
     me?.role === MemberRole.HOSPITAL_STAFF ? 'HOSPITAL' : 'GUARDIAN'
 
@@ -150,6 +153,9 @@ export function ChatPanel({
             전송을 확인하지 못했습니다. 입력한 내용은 유지되며, 연결을 확인한 뒤 다시 보낼 수 있습니다.
           </p>
         )}
+        {!roleResolved && writable && (
+          <p className="text-xs text-muted-foreground">사용자 권한을 확인하는 중이에요.</p>
+        )}
 
         <div className="flex gap-2">
           <textarea
@@ -157,7 +163,7 @@ export function ChatPanel({
             className="min-h-20 flex-1 rounded-md border bg-background p-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             value={content}
             maxLength={CHAT_MAX_LENGTH}
-            disabled={!writable || connectionState !== 'connected' || sendState === 'sending'}
+            disabled={!canSend || sendState === 'sending'}
             onChange={(event) => {
               setContent(event.target.value)
               setSendError(false)

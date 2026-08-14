@@ -1,20 +1,21 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemberRole, ReservationStatus } from '@/types/enums'
+import { useMe } from '@/features/members/hooks'
 import { ChatPanel } from './ChatPanel'
 import { useReservationChat } from './useReservationChat'
 
-vi.mock('@/features/members/hooks', () => ({
-  useMe: () => ({ data: { role: MemberRole.GUARDIAN } }),
-}))
+vi.mock('@/features/members/hooks', () => ({ useMe: vi.fn() }))
 vi.mock('./useReservationChat', () => ({ useReservationChat: vi.fn() }))
 
 const mockedUseReservationChat = vi.mocked(useReservationChat)
+const mockedUseMe = vi.mocked(useMe)
 const sendMessage = vi.fn(async () => true)
 
 describe('ChatPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockedUseMe.mockReturnValue({ data: { role: MemberRole.GUARDIAN }, isLoading: false } as ReturnType<typeof useMe>)
     mockedUseReservationChat.mockReturnValue({
       messages: [],
       historyState: 'ready',
@@ -105,5 +106,15 @@ describe('ChatPanel', () => {
     )
     expect(screen.getByLabelText('메시지 입력')).toBeDisabled()
     expect(screen.getByText(/이전 대화만 확인/)).toBeInTheDocument()
+  })
+
+  it('사용자 역할 조회가 끝나기 전에는 전송을 막는다', () => {
+    mockedUseMe.mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useMe>)
+    render(<ChatPanel reservationId={11} reservationStatus={ReservationStatus.CONFIRMED} />)
+
+    fireEvent.change(screen.getByLabelText('메시지 입력'), { target: { value: '권한 확인 전' } })
+    expect(screen.getByLabelText('메시지 입력')).toBeDisabled()
+    expect(screen.getByRole('button', { name: '메시지 전송' })).toBeDisabled()
+    expect(screen.getByText('사용자 권한을 확인하는 중이에요.')).toBeInTheDocument()
   })
 })
