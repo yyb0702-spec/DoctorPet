@@ -218,7 +218,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `unit_price` | INT | signed — 할인·조정은 음수. `UNSIGNED` 금지 |
 | `amount` | INT | signed — 서버가 `quantity * unit_price`로 산출. `UNSIGNED` 금지 |
 | `created_at` | DATETIME | 생성 시각 |
-인덱스: `(reservation_id, payment_id)`, `(payment_id)`.
+인덱스: `(reservation_id, payment_id)`, `(payment_id)`. 제약: `CHECK chk_payment_items_quantity_positive (quantity > 0)`, `CHECK chk_payment_items_line_amount (amount = quantity * unit_price)` — `ddl-auto=update`가 CHECK를 만들지 않으므로 `payment_item_constraints_v1` 마이그레이션에서 추가·검증한다.
 
 항목은 일반 청구 선기록 전 예약에 매달린 초안으로 만들고(그 시점에는 `payments` 행이 없다), 청구 선기록이 같은 트랜잭션에서 `payment_id`를 스탬프해 스냅샷을 고정한다. 수정·삭제는 `WHERE payment_id IS NULL` 조건부로만 수행하고 0건이면 이미 청구된 것으로 거부한다. 불변식은 스탬프된 항목에 한해 `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 결제당 항목은 `0..N`이며 항목화 이전 결제는 항목이 없고 백필하지 않는다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구도 가짜 항목을 만들지 않아 0건을 유지하고 원 총액만 승계한다.
 ## 6. AI·알림
