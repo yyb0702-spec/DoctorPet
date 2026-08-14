@@ -207,7 +207,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `refunded_at` | DATETIME | 취소 확정 시각, `COMPLETED`에서만 |
 | `created_at` / `updated_at` | DATETIME | 생성·갱신 시각 |
 
-### `payment_items` `(계약 확정, 구현 후속)`
+### `payment_items`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
 | `id` | BIGINT | PK |

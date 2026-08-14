@@ -76,6 +76,33 @@ public class ReservationApplicationService {
     }
 
     @Transactional
+    public ReservationResponse requestFromWaitlist(
+            Long memberId,
+            Long petId,
+            Long paymentMethodId,
+            Long slotId
+    ) {
+        memberService.assertActiveMember(memberId);
+        PetResponse pet = petService.findOwnedActivePet(memberId, petId)
+                .orElseThrow(() -> new ServiceException(ReservationErrorCode.PROFILE_REQUIRED));
+        if (!paymentMethodService.isActiveAndOwnedBy(memberId, paymentMethodId)) {
+            throw new ServiceException(ReservationErrorCode.PAYMENT_METHOD_REQUIRED);
+        }
+        ReservationSlot slot = reservationService.findSlot(slotId);
+        // 대기열 제안 이후 병원이 휴무·폐업 상태로 바뀔 수 있으므로, 일반 예약과 동일하게
+        // REQUESTED 생성 직전에 병원의 현재 예약 가능 상태를 다시 확인한다.
+        hospitalService.assertReservationRequestAvailable(slot.getHospitalId());
+        return reservationService.requestFromWaitlist(
+                memberId,
+                petId,
+                paymentMethodId,
+                slotId,
+                pet.name(),
+                pet.species().name()
+        );
+    }
+
+    @Transactional
     public void cancel(Long memberId, Long reservationId) {
         memberService.assertActiveMember(memberId);
         reservationService.cancel(memberId, reservationId);

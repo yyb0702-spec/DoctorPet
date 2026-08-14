@@ -44,6 +44,7 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationLockStrategy reservationLockStrategy;
+    private final ReservationSlotReleaseService reservationSlotReleaseService;
 
     /*
       회원 탈퇴 전 활성 예약(CONFIRMED·NO_SHOW_PENDING·CHECKED_IN) 보유 여부 확인용(SA §6-3, 부록A 확정).
@@ -255,6 +256,42 @@ public class ReservationService {
         return ReservationResponse.from(reservationRepository.save(reservation));
     }
 
+    /**
+     * 유효한 승급 제안을 수락한 보호자의 REQUESTED 예약을 만든다.
+     * 슬롯은 OFFERED 동안 이미 RESERVED이므로 다시 reserve()하지 않는다.
+     */
+    @Transactional
+    public ReservationResponse requestFromWaitlist(
+            Long memberId,
+            Long petId,
+            Long paymentMethodId,
+            Long slotId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot
+    ) {
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        ReservationSlot slot = findSlot(slotId);
+        if (slot.getStartAt().isBefore(now.plus(LEAD_TIME))) {
+            throw new ServiceException(ReservationErrorCode.LEAD_TIME_VIOLATION);
+        }
+        if (slot.getStatus() != ReservationSlotStatus.RESERVED) {
+            throw new ServiceException(SlotErrorCode.INVALID_STATUS);
+        }
+
+        Reservation reservation = Reservation.request(
+                memberId,
+                petId,
+                slot.getHospitalId(),
+                slotId,
+                paymentMethodId,
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                now,
+                slot.getStartAt()
+        );
+        return ReservationResponse.from(reservationRepository.save(reservation));
+    }
+
     @Transactional
     public void cancel(Long memberId, Long reservationId) {
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
@@ -279,7 +316,7 @@ public class ReservationService {
             throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
         }
 
-        slot.open();
+        reservationSlotReleaseService.release(slot.getId());
     }
 
     public Reservation findMyReservation(Long memberId, Long reservationId) {

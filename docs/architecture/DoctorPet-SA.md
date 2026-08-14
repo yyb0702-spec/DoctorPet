@@ -357,7 +357,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | refunded_at | DATETIME NULL | 취소 확정 시각(COMPLETED에서만) |
 | created_at / updated_at | DATETIME | |
 
-**payment_items** (청구 항목 — 계약 확정, 구현은 항목화 PR)
+**payment_items** (청구 항목 — PR #158 구현 완료)
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
@@ -831,9 +831,13 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 결제수단 삭제 | DELETE | /api/payment-methods/{paymentMethodId} | 보호자(본인) |
 | 기본 결제수단 지정 | PATCH | /api/payment-methods/{paymentMethodId}/default | 보호자(본인) |
 | 예약 결제수단 재지정 | PATCH | /api/reservations/{reservationId}/payment-method | 보호자(본인) |
+| 청구 항목 초안 조회 | GET | /api/hospital/reservations/{reservationId}/payment-items | 병원 스태프(자병원) |
+| 청구 항목 초안 저장 | PUT | /api/hospital/reservations/{reservationId}/payment-items | 병원 스태프(자병원) |
 | 진료비 청구 | POST | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
 | 결제 내역 조회 | GET | /api/reservations/{reservationId}/payments | 보호자(본인) |
 | 결제 내역 조회(병원) | GET | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
+| 영수증 조회 | GET | /api/payments/{paymentId}/receipt | 보호자(본인) |
+| 영수증 조회(병원) | GET | /api/hospital/payments/{paymentId}/receipt | 병원 스태프(자병원) |
 | 오프라인 정산 | PATCH | /api/hospital/payments/{paymentId}/offline-settle | 병원 스태프(자병원) |
 | 결제 웹훅(확장) | POST | /api/payments/webhook | 서명 검증 |
 
@@ -845,9 +849,13 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 - 예약 재지정은 `{ "paymentMethodId": number }`를 받고 성공은 `200 ApiResponse<Void>`다. 인증 보호자 소유의 `ACTIVE` 결제수단만 지정할 수 있고, 예약이 `REQUESTED`·`CONFIRMED`일 때만 허용한다. **결제 선기록이 이미 있으면 상태와 무관하게** `RESERVATION_019(PAYMENT_ALREADY_STARTED)`, 진료가 시작된 뒤의 상태는 `RESERVATION_018(PAYMENT_METHOD_CHANGE_NOT_ALLOWED)`로 거부한다. 경로는 예약 리소스지만 계약은 결제 쪽이라 여기에 둔다.
 - 재지정과 청구 선기록은 같은 예약 행을 `PESSIMISTIC_WRITE`로 잠가 직렬화한다. 청구가 먼저 커밋되면 이후 재지정이 결제를 발견해 거부되고, 재지정이 먼저 커밋되면 이후 청구가 교체된 결제수단의 brand·last4 스냅샷을 쓴다.
 
-청구 항목 작성·수정, JSON 영수증 조회, 보호자 셀프 재청구, 정정 재청구의 **정책 계약은 §9-4에서 확정했고 엔드포인트는 아직 없다** — 경로·요청/응답 스키마는 각 구현 PR에서 이 표에 추가한다.
+청구 항목 초안·영수증(고도화 3.1·3.4, PR #158 구현 완료) — 항목 초안은 **전체 교체(PUT)** 방식이다. 요청은 `{ items: [{ name, quantity, unitPrice }] }`이고 항목 금액과 총액은 받지 않는다(서버가 `quantity * unitPrice`로 산출). 성공은 `200 ApiResponse<PaymentItemDraftResponse>`이며 저장된 초안 전체와 **낙관적 검증 토큰(`draftToken`)**을 함께 돌려준다(조회 응답도 같은 형태다). 예약 행 잠금 아래에서 기존 초안을 지우고 다시 저장한다. 전제는 **자병원 예약**(불일치 시 `FORBIDDEN_HOSPITAL`)이고 **진료 완료 상태**(아니면 `RESERVATION_NOT_CHARGEABLE`)이며, 저장 전에 합계까지 검증해 어차피 청구할 수 없는 구성이 초안으로 남지 않게 한다(청구가 최종 게이트다). **거부 게이트는 항목 상태가 아니라 결제 존재 여부**다 — 현재 구현은 `exists(reservation_id)`라 그 예약에 결제 행이 하나라도 있으면 `PAYMENT_ITEM_ALREADY_CHARGED`(409)로 거부한다. 정정 재청구는 환불된 과거 결제가 남은 상태에서 새 초안을 만들어야 하므로, 그 구현 PR이 이 게이트를 **활성 결제의 상태까지 보는 술어로 교체**한다 — 활성 결제가 없거나 `REFUNDED`일 때만 허용하고 나머지 상태는 거부한다(§9-4 "교체 후 초안 게이트의 정확한 술어" 표. 청구 선기록 게이트와 함께 두 곳이 교체 대상이다).
 
-일반 진료비 청구는 청구 전 저장된 초안 항목을 확정하는 요청이므로 **요청 body에 `amount`나 항목을 받지 않는다**. 서버가 예약 행 잠금 아래 `payment_id IS NULL` 초안 항목을 재조회해 합계를 산출하고, 초안이 0건이면 `PAYMENT_ITEM_REQUIRED`(409 — 요청이 잘못된 게 아니라 청구 전제(초안 항목)가 서버에 없으므로 상태 충돌이다), 합계가 0 이하·절대 상한 초과면 `INVALID_AMOUNT`(400)로 거부한다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구는 이 일반 청구 경로가 아니라 §9-4의 원 총액 승계 규칙을 따른다. 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다. **셀프 복구·정정 재청구 도입 후에는 전제조건에 `superseded_at IS NULL`(활성)이 함께 들어간다** — 대체된 결제를 현장 수납으로 확정하면 새 결제와 이중 수납이 된다(§9-4 "현장 수납과의 경합").
+영수증은 보호자용(`/api/payments/{paymentId}/receipt`)과 병원용(`/api/hospital/payments/{paymentId}/receipt`)을 나눠 인가 주체를 분리한다 — 보호자는 자기 예약의 결제만, 스태프는 자병원 결제만 조회한다. 발급 대상이 아닌 상태(`PENDING`·`OFFLINE_REQUIRED`)는 `RECEIPT_NOT_AVAILABLE`(409)다.
+
+보호자 셀프 재청구와 정정 재청구의 **정책 계약은 §9-4에서 확정했고 엔드포인트는 아직 없다** — 경로·요청/응답 스키마는 각 구현 PR에서 이 표에 추가한다.
+
+일반 진료비 청구는 청구 전 저장된 초안 항목을 확정하는 요청이므로 **요청 body에 `amount`나 항목을 받지 않고 `{ "draftToken": "..." }`만 받는다**(§9-4 "초안 교체 경합"). 서버가 예약 행 잠금 아래 `payment_id IS NULL` 초안 항목을 재조회해 합계를 산출하고, 초안이 0건이면 `PAYMENT_ITEM_REQUIRED`(409 — 요청이 잘못된 게 아니라 청구 전제(초안 항목)가 서버에 없으므로 상태 충돌이다), 합계가 0 이하·절대 상한 초과면 `INVALID_AMOUNT`(400)로 거부한다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구는 이 일반 청구 경로가 아니라 §9-4의 원 총액 승계 규칙을 따른다. 예약에 확정된 결제수단으로 청구하며 카드 스냅샷을 남긴다. 서버가 `merchant_payment_id`로 멱등 처리하고 단건 조회로 금액·상태를 검증한다. 실패 시 §9-4 원인별 분기. 오프라인 정산은 전제조건이 `Payment.status == OFFLINE_REQUIRED`(위반 시 409)이고, 처리 후 예약은 `TREATMENT_COMPLETED` 유지, 전체 결제완료는 조합으로 표현한다. **셀프 복구·정정 재청구 도입 후에는 전제조건에 `superseded_at IS NULL`(활성)이 함께 들어간다** — 대체된 결제를 현장 수납으로 확정하면 새 결제와 이중 수납이 된다(§9-4 "현장 수납과의 경합").
 
 ### 8-8. 알림
 
@@ -941,7 +949,7 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 - "이미 취소됨" 재요청 뒤 단건조회에서 취소 내역(취소 금액)을 확인할 수 없으면 전액 취소로 단정하지 않고 미확정으로 올린다 — 상태만으로는 부분 취소(`PARTIAL_CANCELLED`)를 구분할 수 없어, 일부만 취소된 결제가 전액 환불로 확정될 수 있다(PR #112 리뷰 P1).
 - `PAID→REFUNDED` 확정이 성립하면 같은 Tx2에서 해당 예약의 리뷰를 Hard Delete하고 `reservations.reviewed_at`을 NULL로 초기화한다. 사용자 직접 리뷰 삭제와 달리 환불은 현재 유효한 결제 자격을 없애므로 작성권도 되돌린다. 리뷰 삭제·작성권 초기화가 실패하면 결제 전이와 환불 이력 확정도 함께 롤백해 PG 취소 결과를 다음 동일 멱등키 재시도로 복구한다.
 
-청구 항목 (고도화 3.1 — 계약 확정, 구현은 항목화 PR. 스키마는 §4 payment_items)
+청구 항목 (고도화 3.1 — PR #158 구현 완료. 스키마는 §4 payment_items, API는 §8-7)
 
 - **작성·수정 주체와 창**: 병원 스태프(자병원)만, **진료 완료 후부터 청구 선기록 전까지**만 항목을 작성·수정한다. 이 창의 항목은 예약에 매달린 초안(`payment_id IS NULL`)이다(§4 payment_items). 선기록(Payment `PENDING` 생성) 이후에는 항목을 **절대 수정·삭제하지 않는다**.
 - **왜 절대인가**: 항목은 청구 시점 스냅샷이라는 데이터 정합성 이유만이 아니다. 이미 시작된 결제의 금액을 항목 수정으로 바꿀 수 있으면 환불·재청구 이력을 남기는 정정 재청구 절차를 우회해 금액을 조용히 바꿀 수 있다. 이 금지는 그 **우회 구현을 막는 경계**이므로, 금액 정정은 예외 없이 아래 정정 재청구만 쓴다.
@@ -949,6 +957,11 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
   - **청구 선기록(순서 고정)**: 일반 청구는 한 트랜잭션에서 **① 예약 행 락 → ② 초안 항목(`payment_id IS NULL`) 재조회·합계 산출 → ③ `payments`(`PENDING`) INSERT → ④ 방금 얻은 `payments.id`로 초안 스탬프(`WHERE payment_id IS NULL` 조건부 UPDATE)** 순서로 수행한다. **③이 ④보다 먼저인 것은 선택이 아니다** — `payments.id`는 DB 채번(IDENTITY)이라 INSERT 전에는 스탬프할 값이 존재하지 않는다. 순서를 뒤집어 쓰면 구현이 불가능하고, `payment_id`에 FK를 걸면 즉시 실패한다.
   - **스탬프 건수 대조**: ④의 갱신 건수가 ②에서 센 초안 수와 다르면 락 밖 경로가 그 사이 초안을 바꿨다는 뜻이므로 `PAYMENT_ITEM_ALREADY_CHARGED`로 **전체 트랜잭션을 롤백**한다(선기록한 `payments`도 함께 사라진다). 이 대조가 `payments.amount == sum(items.amount)` 불변식을 지키는 마지막 장치다.
   - **거부 조건**: ②의 초안이 0건이면 `PAYMENT_ITEM_REQUIRED`(409)로 거부한다. 이중 청구 사전 차단(활성 결제 존재 검사)은 **초안 조회보다 먼저** 본다 — 청구가 끝나면 초안이 스탬프돼 0건이 되므로, 순서를 뒤집으면 재청구 시도가 `DUPLICATE_CHARGE` 대신 `PAYMENT_ITEM_REQUIRED`로 답해 이중 청구 차단 계약이 흐려진다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구만은 아래 복구 트랜잭션에서 원 총액을 승계하는 예외다.
+  - **초안 교체 경합(STRICT — 요청 간 잠금 공백)**: 초안 저장과 청구는 **별도 HTTP 요청**이라 그 사이에는 예약 행 잠금이 유지되지 않는다. 직원 A가 저장한 뒤 청구하기 전에 직원 B가 같은 예약의 초안을 교체하면, A의 청구가 **A가 화면에서 확인한 금액이 아니라 B의 초안 합계**로 성립한다. 이를 막기 위해 초안 조회·저장 응답이 **낙관적 검증 토큰(`draftToken`)**을 내려주고, 청구 요청이 그 토큰을 되보내면 서버가 **잠금 아래에서 현재 초안으로 다시 계산해 대조**한다 — 다르면 `PAYMENT_ITEM_CHANGED`(409)로 거부하고 결제를 만들지 않는다.
+    - 토큰은 초안 행의 `id`·명칭·수량·단가를 정규화해 요약한 **서버 산출 값**이다. 클라이언트가 금액을 정하지 못한다는 원칙은 그대로다(총액은 여전히 서버가 항목 합계로 산출한다).
+    - 초안 전체 교체는 삭제 후 재삽입이라 `id`가 새로 발급되므로, 내용이 같아도 교체를 감지한다. 즉 "누가 언제 바꿨는가"가 아니라 **"내가 본 그 초안인가"**를 검사한다.
+    - 저장과 선기록을 한 API로 합치는 대안도 있으나, 그러면 "진료 완료 후 청구 전까지 항목을 작성·수정한다"는 창(위 "작성·수정 주체와 창")이 사라진다. 창을 유지하면서 경합만 막기 위해 낙관적 검증을 택했다.
+    - 검증: 저장(A) → 저장(B) → 청구(A) 순서를 실제 MySQL로 재현해 A의 청구가 409로 거부되고 결제 행이 생기지 않는지 확인한다.
   - **총액의 출처**: 총액은 **서버가 항목 합계로 산출**한다("클라이언트 결과를 믿지 않는다"는 위 검증 원칙과 같다). 청구 요청은 **총액도 항목도 body로 받지 않는다**(§8-7) — 받아서 검증하는 방식이 아니라 받지 않는 방식으로 고정한다. 총액을 요청에서 받는 형태로 되돌리지 않는다.
   - **항목 수정**: 락을 잡은 뒤 `WHERE payment_id IS NULL` 조건부 UPDATE/DELETE로만 반영한다. 0건이면 이미 청구된 것이므로 `PAYMENT_ITEM_ALREADY_CHARGED`(409)로 거부한다. 청구가 먼저 커밋되면 이후 수정은 이 조건에서 반드시 0건이 된다.
   - **초안 쓰기 게이트(정정 재청구 도입 시 함께 교체)**: 항목 쓰기는 락 아래에서 "이 예약에 이미 결제가 있는가"를 먼저 보고 거부한다. 현재 구현은 `exists(reservation_id)`라 **예약에 결제 행이 하나라도 있으면 새 초안을 만들 수 없다** — 정정 재청구는 환불된 과거 결제가 남은 상태에서 새 초안을 작성해야 하므로 이 검사를 그대로 두면 성립하지 않는다. 따라서 정정 재청구 구현 PR은 청구 선기록의 `exists(reservation_id)`와 **이 초안 게이트를 함께** 바꾼다(두 곳 모두 교체 대상).
@@ -966,7 +979,7 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
 - **기존 결제**: 항목화 이전 결제는 항목이 없고 백필하지 않는다(§4 payment_items). 불변식은 항목이 있는 결제에만 적용한다.
 - **제외**: 세율·부가세 분리, 진료 항목 마스터 코드 표준화.
 
-영수증 (고도화 3.4 — 계약 확정, 구현은 영수증 PR)
+영수증 (고도화 3.4 — PR #158 구현 완료. API는 §8-7)
 
 - **형식**: 구조화 JSON만. PDF·전자문서, 세금계산서, 현금영수증 국세청 연동, 진료확인서는 제외한다.
 - **대상**: `PAID`·`OFFLINE_PAID`·`REFUNDED` 결제. 그 밖의 상태(`PENDING`·`OFFLINE_REQUIRED`)는 아직 확정된 수납 사실이 없어 발급하지 않는다.

@@ -223,6 +223,29 @@ class ReservationApplicationServiceTest {
     }
 
     @Test
+    @DisplayName("대기열 수락도 REQUESTED 생성 직전에 병원 예약 가능 상태를 다시 확인한다")
+    void requestFromWaitlist_unavailableHospital_throwsHospitalReservationNotAvailable() {
+        given(petService.findOwnedActivePet(MEMBER_ID, PET_ID))
+                .willReturn(Optional.of(pet("초코", PetSpecies.DOG)));
+        given(paymentMethodService.isActiveAndOwnedBy(MEMBER_ID, PAYMENT_METHOD_ID)).willReturn(true);
+        given(reservationService.findSlot(SLOT_ID)).willReturn(slot());
+        org.mockito.Mockito.doThrow(new ServiceException(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE
+                ))
+                .when(hospitalService)
+                .assertReservationRequestAvailable(HOSPITAL_ID);
+
+        assertThatThrownBy(() -> applicationService.requestFromWaitlist(
+                MEMBER_ID, PET_ID, PAYMENT_METHOD_ID, SLOT_ID))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE);
+
+        verify(reservationService, never()).requestFromWaitlist(
+                any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("보호자는 결제가 시작되기 전 REQUESTED 예약의 활성 본인 결제수단을 재지정할 수 있다")
     void changePaymentMethod_beforePayment_updatesReservation() {
         Reservation reservation = reservation();

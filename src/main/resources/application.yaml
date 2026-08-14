@@ -156,6 +156,17 @@ springdoc:
     enabled: false
 
 reservation:
+  waitlist:
+    offer-validity-minutes: ${RESERVATION_WAITLIST_OFFER_VALIDITY_MINUTES:10}
+    expiration-interval-ms: ${RESERVATION_WAITLIST_EXPIRATION_INTERVAL_MS:60000}
+    expiration-initial-delay-ms: ${RESERVATION_WAITLIST_EXPIRATION_INITIAL_DELAY_MS:60000}
+    expiration-batch-size: ${RESERVATION_WAITLIST_EXPIRATION_BATCH_SIZE:100}
+    # 여러 인스턴스가 같은 만료 대상을 중복 처리하지 않도록 MySQL named lock을 사용한다.
+    # 기본값 0은 다른 인스턴스가 실행 중이면 기다리지 않고 다음 주기에 재시도한다.
+    expiration-lock-wait-seconds: ${RESERVATION_WAITLIST_EXPIRATION_LOCK_WAIT_SECONDS:0}
+  # 대기열 테이블은 Hibernate ddl-auto가 아니라 선행 마이그레이션 러너가 생성·검증한다.
+  waitlist-migration:
+    enabled: ${RESERVATION_WAITLIST_MIGRATION_ENABLED:true}
   slot-business-date-migration:
     enabled: ${RESERVATION_SLOT_BUSINESS_DATE_MIGRATION_ENABLED:true}
   no-show:
