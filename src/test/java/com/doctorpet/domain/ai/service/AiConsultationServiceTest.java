@@ -1,6 +1,7 @@
 package com.doctorpet.domain.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
@@ -10,7 +11,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.ai.dto.request.AiConsultationRequest;
+import com.doctorpet.domain.ai.dto.AiHospitalCandidateEvidence;
 import com.doctorpet.domain.ai.dto.response.AiConsultationResponse;
+import com.doctorpet.domain.ai.dto.response.AiHospitalRecommendationResponse;
 import com.doctorpet.domain.ai.entity.AiConsultation;
 import com.doctorpet.domain.ai.entity.AiConsultationStatus;
 import com.doctorpet.domain.ai.entity.AiToolCallStatus;
@@ -21,8 +24,14 @@ import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.review.dto.response.HospitalReviewEvidence;
+import com.doctorpet.domain.review.dto.response.ReviewExcerpt;
+import com.doctorpet.domain.review.model.ReviewRatingBand;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.global.gateway.ai.AiGateway;
 import com.doctorpet.global.gateway.ai.AiGatewayException;
@@ -30,12 +39,18 @@ import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiHospitalRecommendationResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceType;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,6 +58,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -60,6 +76,9 @@ class AiConsultationServiceTest {
     @Mock
     private EmergencyKeywordDetector emergencyKeywordDetector;
 
+    @Mock
+    private ReviewQueryService reviewQueryService;
+
     private AiConsultationService service;
 
     @BeforeEach
@@ -72,6 +91,7 @@ class AiConsultationServiceTest {
                 hospitalService,
                 new AiHospitalSearchIntentExtractor(),
                 emergencyKeywordDetector,
+                reviewQueryService,
                 new ObjectMapper()
         );
     }
@@ -282,6 +302,59 @@ class AiConsultationServiceTest {
     }
 
     @Test
+    @DisplayName("Tool 성공 후 2차 OpenAI 실패는 1차 사용량과 Tool 성공을 보존한다")
+    void consult_secondOpenAiCallFailure_preservesFirstCallUsageAndToolSuccess() {
+        AiAnalysisResult firstAnalysis = new AiAnalysisResult(
+                List.of("GENERAL"),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of("ONSET_TIME"),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v8",
+                100,
+                20
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    firstAnalysis,
+                    null,
+                    null,
+                    null,
+                    HospitalSearchSort.NAME
+            ));
+            throw new AiGatewayException(
+                    AiGatewayFailureReason.TIMEOUT,
+                    "second call timeout"
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("검사 가능한 병원을 알려줘", PetSpecies.DOG, "서울")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        AiConsultation saved = captor.getValue();
+        assertThat(response.fallback()).isTrue();
+        assertThat(saved.getStatus()).isEqualTo(AiConsultationStatus.FAILED);
+        assertThat(saved.getErrorType()).isEqualTo(AiGatewayFailureReason.TIMEOUT);
+        assertThat(saved.getModel()).isEqualTo("gpt-4.1-mini");
+        assertThat(saved.getPromptVersion()).isEqualTo("doctorpet-ai-v8");
+        assertThat(saved.getPromptTokens()).isEqualTo(100);
+        assertThat(saved.getCompletionTokens()).isEqualTo(20);
+        assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.SUCCESS);
+        assertThat(saved.isSchemaParseSuccess()).isFalse();
+    }
+
+    @Test
     @DisplayName("위치와 현재·야간·거리 의도를 병원 검색 조건으로 전달한다")
     void consult_searchIntent_passesAllowedConditions() {
         AiAnalysisResult result = result(List.of("BLOOD_TEST"));
@@ -336,20 +409,35 @@ class AiConsultationServiceTest {
     @DisplayName("Tool Calling Gateway가 선택한 조건으로 병원을 검색하고 서버 안내를 반환한다")
     void consult_toolCallingGateway_executesModelSelectedSearch() {
         AiAnalysisResult result = result(List.of("XRAY"));
+        AtomicReference<String> toolOutput = new AtomicReference<>();
         doAnswer(invocation -> {
             AiToolExecutor executor = invocation.getArgument(1);
-            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+            toolOutput.set(executor.searchNearbyVets(new AiHospitalSearchToolCall(
                     result,
                     null,
                     true,
                     true,
                     HospitalSearchSort.DISTANCE
-            ));
+            )));
             return new AiGatewayConsultationResult(
                     result,
                     false,
                     true,
-                    true
+                    true,
+                    List.of(new AiHospitalRecommendationResult(
+                            10L,
+                            5,
+                            List.of(
+                                    new AiRecommendationEvidenceResult(
+                                            AiRecommendationEvidenceType.CAPABILITY,
+                                            "XRAY"
+                                    ),
+                                    new AiRecommendationEvidenceResult(
+                                            AiRecommendationEvidenceType.OPEN_NOW,
+                                            "true"
+                                    )
+                            )
+                    ))
             );
         }).when(aiGateway).consult(any(), any());
         BigDecimal latitude = new BigDecimal("37.5665");
@@ -359,6 +447,27 @@ class AiConsultationServiceTest {
                 List.of("XRAY"), List.of("DOG"), null, null,
                 true, null, false, true, 1, 20, "distance"
         )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+        given(hospitalService.getCapabilitiesByHospitalIds(List.of(10L)))
+                .willReturn(Map.of(
+                        10L,
+                        List.of(CapabilityValue.DOG, CapabilityValue.XRAY)
+                ));
+        given(reviewQueryService.getEvidenceByHospitalIds(List.of(10L)))
+                .willReturn(Map.of(10L, new HospitalReviewEvidence(
+                        10L,
+                        new BigDecimal("4.5"),
+                        10L,
+                        8L,
+                        1L,
+                        1L,
+                        List.of(new ReviewExcerpt(
+                                11L,
+                                new BigDecimal("5.0"),
+                                ReviewRatingBand.POSITIVE,
+                                "친절하고 설명이 자세해요",
+                                LocalDateTime.of(2026, 8, 12, 10, 0)
+                        ))
+                )));
 
         AiConsultationResponse response = service.consult(
                 1L,
@@ -372,12 +481,298 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.hospitals()).containsExactly(hospital());
-        assertThat(response.message()).isEqualTo("조건에 맞는 동물병원 1곳을 찾았습니다.");
+        assertThat(response.recommendations()).singleElement().satisfies(recommendation -> {
+            assertThat(recommendation.hospital()).isEqualTo(hospital());
+            assertThat(recommendation.recommendationScore()).isEqualTo(5);
+            assertThat(recommendation.recommendationReason())
+                    .isEqualTo("필요한 진료 역량을 보유하고 있습니다. 현재 진료 중입니다.");
+            assertThat(recommendation.evidence())
+                    .extracting(AiRecommendationEvidenceResult::type)
+                    .containsExactly(
+                            AiRecommendationEvidenceType.CAPABILITY,
+                            AiRecommendationEvidenceType.OPEN_NOW
+                    );
+        });
+        assertThat(toolOutput.get()).contains(
+                "\"supportedSpecies\":[\"DOG\"]",
+                "\"capabilities\":[\"XRAY\"]",
+                "\"averageRating\":4.5",
+                "\"positiveReviewCount\":8",
+                "친절하고 설명이 자세해요"
+        );
+        assertThat(response.message()).isEqualTo("조건에 맞는 동물병원 1곳을 추천합니다.");
         verify(hospitalService).hospitalSearch(
                 1L, null, null, latitude, longitude, null,
                 List.of("XRAY"), List.of("DOG"), null, null,
                 true, null, false, true, 1, 20, "distance"
         );
+    }
+
+    @Test
+    @DisplayName("엄격·OR 검색 후보가 부족하면 진료역량 조건 없이 추천 후보를 보충한다")
+    void consult_toolCallingGateway_supplementsOnlyRecommendationCandidates() {
+        AiAnalysisResult result = result(List.of("XRAY", "ULTRASOUND"));
+        HospitalSearchResponse strict = hospital(10L, "엄격 일치 병원", "1.0");
+        HospitalSearchResponse partialOne = hospital(20L, "부분 일치 병원 1", "2.0");
+        HospitalSearchResponse partialTwo = hospital(30L, "부분 일치 병원 2", "3.0");
+        AtomicReference<String> toolOutput = new AtomicReference<>();
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            toolOutput.set(executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    result,
+                    null,
+                    false,
+                    false,
+                    HospitalSearchSort.NAME
+            )));
+            return new AiGatewayConsultationResult(
+                    result,
+                    false,
+                    true,
+                    true,
+                    List.of(
+                            recommendation(10L, 5),
+                            recommendation(20L, 4),
+                            businessStatusRecommendation(30L, 3)
+                    )
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(strict), 1, 20, 1, 1));
+        given(hospitalService.hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.ANY
+        )).willReturn(HospitalSearchPageResponse.of(
+                List.of(strict, partialOne),
+                1,
+                20,
+                2,
+                1
+        ));
+        given(hospitalService.hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.NONE
+        )).willReturn(HospitalSearchPageResponse.of(
+                List.of(strict, partialOne, partialTwo),
+                1,
+                20,
+                3,
+                1
+        ));
+        given(hospitalService.getCapabilitiesByHospitalIds(List.of(10L, 20L, 30L)))
+                .willReturn(Map.of(
+                        10L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY,
+                                CapabilityValue.ULTRASOUND),
+                        20L, List.of(CapabilityValue.DOG, CapabilityValue.XRAY),
+                        30L, List.of(CapabilityValue.DOG, CapabilityValue.DENTAL_CARE)
+                ));
+        given(reviewQueryService.getEvidenceByHospitalIds(List.of(10L, 20L, 30L)))
+                .willReturn(Map.of());
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("검사 가능한 병원을 찾아줘", PetSpecies.DOG, "서울")
+        );
+
+        assertThat(response.hospitals()).containsExactly(strict);
+        assertThat(response.recommendations())
+                .extracting(recommendation -> recommendation.hospital().hospitalId())
+                .containsExactly(10L, 20L, 30L);
+        assertThat(response.recommendations().get(2).recommendationReason())
+                .isEqualTo("병원의 실제 정보를 바탕으로 추천했습니다.");
+        assertThat(response.fallback()).isFalse();
+        assertThat(toolOutput.get())
+                .contains("\"hospitalId\":30", "\"capabilities\":[]")
+                .doesNotContain("DENTAL_CARE");
+        verify(hospitalService).hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.ANY
+        );
+        verify(hospitalService).hospitalSearchWithCapabilityMatchMode(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY", "ULTRASOUND"), List.of("DOG"),
+                null, null, null, null, false, false, 1, 20, "name",
+                CapabilityMatchMode.NONE
+        );
+    }
+
+    @Test
+    void 실제_후보와_일치하지_않는_추천_근거는_거부한다() {
+        AiHospitalCandidateEvidence candidate = new AiHospitalCandidateEvidence(
+                hospital(),
+                List.of(CapabilityValue.DOG),
+                List.of(CapabilityValue.XRAY),
+                HospitalReviewEvidence.empty(10L)
+        );
+        AiHospitalRecommendationResult recommendation =
+                new AiHospitalRecommendationResult(
+                        10L,
+                        5,
+                        List.of(new AiRecommendationEvidenceResult(
+                                AiRecommendationEvidenceType.CAPABILITY,
+                                "MRI"
+                        ))
+                );
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(recommendation),
+                List.of(candidate),
+                List.of("XRAY")
+        )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
+                assertThat(exception.getFailureReason())
+                        .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
+    }
+
+    @Test
+    void 요청과_무관한_보유_역량은_추천_근거로_거부한다() {
+        AiHospitalCandidateEvidence candidate = new AiHospitalCandidateEvidence(
+                hospital(),
+                List.of(CapabilityValue.DOG),
+                List.of(CapabilityValue.DENTAL_CARE),
+                HospitalReviewEvidence.empty(10L)
+        );
+        AiHospitalRecommendationResult recommendation =
+                new AiHospitalRecommendationResult(
+                        10L,
+                        5,
+                        List.of(new AiRecommendationEvidenceResult(
+                                AiRecommendationEvidenceType.CAPABILITY,
+                                "DENTAL_CARE"
+                        ))
+                );
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(recommendation),
+                List.of(candidate),
+                List.of("XRAY")
+        )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
+                assertThat(exception.getFailureReason())
+                        .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
+    }
+
+    @Test
+    void 검색_후보가_있는데_추천_개수가_부족하면_거부한다() {
+        List<AiHospitalCandidateEvidence> candidates = List.of(
+                candidate(hospital(10L, "첫 병원", "1.0")),
+                candidate(hospital(20L, "둘째 병원", "2.0"))
+        );
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(recommendation(10L, 5)),
+                candidates,
+                List.of("XRAY")
+        )).isInstanceOfSatisfying(AiGatewayException.class, exception ->
+                assertThat(exception.getFailureReason())
+                        .isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE));
+    }
+
+    @Test
+    void 추천_후검증_실패는_OpenAI_사용량과_Tool_성공을_보존한다() {
+        AiAnalysisResult result = new AiAnalysisResult(
+                List.of(),
+                List.of("XRAY"),
+                UrgencyLevel.MODERATE,
+                List.of(),
+                true,
+                "gpt-4.1-mini",
+                "doctorpet-ai-v8",
+                180,
+                50
+        );
+        doAnswer(invocation -> {
+            AiToolExecutor executor = invocation.getArgument(1);
+            executor.searchNearbyVets(new AiHospitalSearchToolCall(
+                    result,
+                    null,
+                    null,
+                    null,
+                    HospitalSearchSort.NAME
+            ));
+            return new AiGatewayConsultationResult(
+                    result,
+                    false,
+                    true,
+                    true,
+                    List.of()
+            );
+        }).when(aiGateway).consult(any(), any());
+        given(hospitalService.hospitalSearch(
+                1L, null, "서울", null, null, null,
+                List.of("XRAY"), List.of("DOG"), null, null,
+                null, null, false, false, 1, 20, "name"
+        )).willReturn(HospitalSearchPageResponse.of(List.of(hospital()), 1, 20, 1, 1));
+
+        AiConsultationResponse response = service.consult(
+                1L,
+                request("검사 가능한 병원을 알려줘", PetSpecies.DOG, "서울")
+        );
+
+        ArgumentCaptor<AiConsultation> captor = ArgumentCaptor.forClass(AiConsultation.class);
+        verify(repository).save(captor.capture());
+        AiConsultation saved = captor.getValue();
+        assertThat(response.fallback()).isTrue();
+        assertThat(saved.getStatus()).isEqualTo(AiConsultationStatus.FAILED);
+        assertThat(saved.getErrorType()).isEqualTo(AiGatewayFailureReason.INVALID_RESPONSE);
+        assertThat(saved.getModel()).isEqualTo("gpt-4.1-mini");
+        assertThat(saved.getPromptVersion()).isEqualTo("doctorpet-ai-v8");
+        assertThat(saved.getPromptTokens()).isEqualTo(180);
+        assertThat(saved.getCompletionTokens()).isEqualTo(50);
+        assertThat(saved.getToolCallStatus()).isEqualTo(AiToolCallStatus.SUCCESS);
+        assertThat(saved.isSchemaParseSuccess()).isFalse();
+    }
+
+    @Test
+    void 검색_후보가_없으면_빈_추천을_허용한다() {
+        List<AiHospitalRecommendationResponse> result = ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                List.of(),
+                List.of(),
+                List.of("XRAY")
+        );
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void 추천은_점수_내림차순이고_동점이면_거리순으로_정렬한다() {
+        HospitalSearchResponse first = hospital(10L, "첫 병원", "2.0");
+        HospitalSearchResponse second = hospital(20L, "둘째 병원", "1.0");
+        HospitalSearchResponse third = hospital(30L, "셋째 병원", "3.0");
+        List<AiHospitalCandidateEvidence> candidates = List.of(
+                candidate(first), candidate(second), candidate(third));
+        List<AiHospitalRecommendationResult> recommendations = List.of(
+                recommendation(10L, 4),
+                recommendation(30L, 5),
+                recommendation(20L, 4)
+        );
+
+        List<AiHospitalRecommendationResponse> result = ReflectionTestUtils.invokeMethod(
+                service,
+                "toRecommendationResponses",
+                recommendations,
+                candidates,
+                List.of("XRAY")
+        );
+
+        assertThat(result)
+                .extracting(response -> response.hospital().hospitalId())
+                .containsExactly(30L, 20L, 10L);
     }
 
     @Test
@@ -398,7 +793,8 @@ class AiConsultationServiceTest {
                     finalAnalysis,
                     false,
                     true,
-                    true
+                    true,
+                    List.of(businessStatusRecommendation(10L, 5))
             );
         }).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
@@ -448,7 +844,8 @@ class AiConsultationServiceTest {
                     finalAnalysis,
                     false,
                     true,
-                    true
+                    true,
+                    List.of(businessStatusRecommendation(10L, 5))
             );
         }).when(aiGateway).consult(any(), any());
         given(hospitalService.hospitalSearch(
@@ -463,7 +860,7 @@ class AiConsultationServiceTest {
         );
 
         assertThat(response.structured().urgencyLevel()).isEqualTo(UrgencyLevel.HIGH);
-        assertThat(response.message()).contains("응급 상황");
+        assertThat(response.message()).contains("응급 가능성");
         assertThat(response.locationRecommended()).isTrue();
         assertThat(response.hospitals()).containsExactly(hospital());
         verify(hospitalService).hospitalSearch(
@@ -794,6 +1191,55 @@ class AiConsultationServiceTest {
                 null,
                 true,
                 false
+        );
+    }
+
+    private HospitalSearchResponse hospital(Long hospitalId, String name, String distanceKm) {
+        return new HospitalSearchResponse(
+                hospitalId,
+                name,
+                "서울특별시 중구",
+                new BigDecimal(distanceKm),
+                BusinessStatus.OPEN,
+                PartnershipStatus.PARTNER,
+                true,
+                null,
+                true,
+                false
+        );
+    }
+
+    private AiHospitalCandidateEvidence candidate(HospitalSearchResponse hospital) {
+        return new AiHospitalCandidateEvidence(
+                hospital,
+                List.of(CapabilityValue.DOG),
+                List.of(CapabilityValue.XRAY),
+                HospitalReviewEvidence.empty(hospital.hospitalId())
+        );
+    }
+
+    private AiHospitalRecommendationResult recommendation(Long hospitalId, int score) {
+        return new AiHospitalRecommendationResult(
+                hospitalId,
+                score,
+                List.of(new AiRecommendationEvidenceResult(
+                        AiRecommendationEvidenceType.CAPABILITY,
+                        "XRAY"
+                ))
+        );
+    }
+
+    private AiHospitalRecommendationResult businessStatusRecommendation(
+            Long hospitalId,
+            int score
+    ) {
+        return new AiHospitalRecommendationResult(
+                hospitalId,
+                score,
+                List.of(new AiRecommendationEvidenceResult(
+                        AiRecommendationEvidenceType.BUSINESS_STATUS,
+                        "OPEN"
+                ))
         );
     }
 }

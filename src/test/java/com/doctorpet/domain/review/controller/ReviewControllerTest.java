@@ -124,6 +124,42 @@ class ReviewControllerTest {
     }
 
     @Test
+    @DisplayName("리뷰 내용은 300자까지 작성할 수 있다")
+    void create_contentWith300Characters_returnsCreated() throws Exception {
+        String content = "가".repeat(300);
+        ReviewRequest request = new ReviewRequest(new BigDecimal("4.5"), content);
+        LocalDateTime now = LocalDateTime.of(2026, 8, 13, 0, 0);
+        given(reviewApplicationService.create(
+                eq(1L), eq(10L), any(ReviewRequest.class)
+        )).willReturn(new ReviewResponse(
+                100L, 10L, 3L, 1L, new BigDecimal("4.5"), content, now, now
+        ));
+
+        mockMvc.perform(post("/api/reservations/{reservationId}/reviews", 10L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.content").value(content));
+    }
+
+    @Test
+    @DisplayName("301자인 리뷰 내용은 400으로 거부한다")
+    void create_contentWith301Characters_returnsBadRequest() throws Exception {
+        ReviewRequest request = new ReviewRequest(
+                new BigDecimal("4.5"),
+                "가".repeat(301)
+        );
+
+        mockMvc.perform(post("/api/reservations/{reservationId}/reviews", 10L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
     @DisplayName("병원 스태프는 보호자 리뷰를 작성할 수 없다")
     void create_hospitalStaff_returnsForbidden() throws Exception {
         mockMvc.perform(post("/api/reservations/{reservationId}/reviews", 10L)
@@ -175,6 +211,22 @@ class ReviewControllerTest {
         ReviewRequest request = new ReviewRequest(
                 new BigDecimal("4.3"),
                 "수정한 리뷰입니다."
+        );
+
+        mockMvc.perform(put("/api/reviews/{reviewId}", 100L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("수정할 리뷰 내용도 300자를 초과하면 400으로 거부한다")
+    void update_contentWith301Characters_returnsBadRequest() throws Exception {
+        ReviewRequest request = new ReviewRequest(
+                new BigDecimal("4.5"),
+                "가".repeat(301)
         );
 
         mockMvc.perform(put("/api/reviews/{reviewId}", 100L)

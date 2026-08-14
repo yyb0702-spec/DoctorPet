@@ -17,6 +17,7 @@ import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 
@@ -70,6 +72,26 @@ public class HospitalService {
     @Transactional(readOnly = true)
     public boolean exists(Long hospitalId) {
         return hospitalRepository.existsById(hospitalId);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, List<CapabilityValue>> getCapabilitiesByHospitalIds(
+            Collection<Long> hospitalIds
+    ) {
+        List<Long> distinctHospitalIds = hospitalIds.stream()
+                .distinct()
+                .toList();
+        if (distinctHospitalIds.isEmpty()) {
+            return Map.of();
+        }
+        return hospitalCapabilityRepository.findAllByHospitalIdIn(distinctHospitalIds).stream()
+                .collect(Collectors.groupingBy(
+                        capability -> capability.getHospital().getId(),
+                        Collectors.mapping(
+                                HospitalCapability::getCapabilityValue,
+                                Collectors.toUnmodifiableList()
+                        )
+                ));
     }
 
     @Transactional(readOnly = true)
@@ -323,6 +345,57 @@ public class HospitalService {
         ));
     }
 
+    @Transactional(readOnly = true)
+    public HospitalSearchPageResponse hospitalSearchWithCapabilityMatchMode(
+            Long memberId,
+            String keyword,
+            String region,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            List<String> requiredCapabilities,
+            List<String> supportedSpecies,
+            Boolean surgery,
+            Boolean hospitalization,
+            Boolean nightCare,
+            Boolean emergency,
+            boolean partnerOnly,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort,
+            CapabilityMatchMode capabilityMatchMode
+    ) {
+        validateLocationCondition(latitude, longitude, radiusKm);
+        HospitalSearchSort normalizedSort = normalizeSort(sort, latitude, longitude);
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                keyword,
+                region,
+                latitude,
+                longitude,
+                radiusKm,
+                parseCapabilities(requiredCapabilities),
+                parseSupportedSpecies(supportedSpecies),
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
+                partnerOnly
+        );
+
+        return withFavorites(memberId, searchWithPostProcessing(
+                condition,
+                latitude,
+                longitude,
+                radiusKm,
+                openNowOnly,
+                page,
+                size,
+                normalizedSort,
+                capabilityMatchMode
+        ));
+    }
+
     private HospitalSearchPageResponse withFavorites(
             Long memberId,
             HospitalSearchPageResponse response
@@ -523,9 +596,33 @@ public class HospitalService {
             int size,
             HospitalSearchSort sort
     ) {
+        return searchWithPostProcessing(
+                condition,
+                latitude,
+                longitude,
+                radiusKm,
+                openNowOnly,
+                page,
+                size,
+                sort,
+                CapabilityMatchMode.ALL
+        );
+    }
+
+    private HospitalSearchPageResponse searchWithPostProcessing(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            boolean openNowOnly,
+            int page,
+            int size,
+            HospitalSearchSort sort,
+            CapabilityMatchMode capabilityMatchMode
+    ) {
         List<HospitalSearchResponse> searchedHospitals =
                 toSearchResults(
-                        hospitalRepository.searchAll(condition),
+                        hospitalRepository.searchAll(condition, capabilityMatchMode),
                         latitude,
                         longitude
                 ).stream()

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -25,4 +26,6 @@ public interface HospitalCapabilityRepository
     @Query("DELETE FROM HospitalCapability capability "
             + "WHERE capability.hospital.id = :hospitalId")
     int deleteAllByHospitalId(@Param("hospitalId") Long hospitalId);
+
+    List<HospitalCapability> findAllByHospitalIdIn(Collection<Long> hospitalIds);
 }
