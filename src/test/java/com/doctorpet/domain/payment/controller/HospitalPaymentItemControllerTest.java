@@ -183,6 +183,21 @@ class HospitalPaymentItemControllerTest {
                 .andExpect(jsonPath("$.code").value("PAYMENT_001"));
     }
 
+    @Test
+    @DisplayName("항목 목록에 null 원소가 있으면 400과 COMMON_001(VALIDATION_FAILED)을 반환하고 서비스를 호출하지 않는다")
+    void replaceDrafts_nullItemElement() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(staffAuthentication());
+
+        // @Valid의 캐스케이드는 null 원소를 건너뛰므로 원소 @NotNull이 없으면 컨트롤러 매핑에서 NPE(500)가 난다.
+        mockMvc.perform(put(ITEMS_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[null]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        verifyNoInteractions(paymentItemDraftService);
+    }
+
     private Authentication staffAuthentication() {
         MemberPrincipal principal =
                 new MemberPrincipal(STAFF_MEMBER_ID, "staff@example.com", "HOSPITAL_STAFF");
