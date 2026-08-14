@@ -92,7 +92,9 @@ describe('useReservationChat', () => {
     })
 
     await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(11, 1))
-    expect(result.current.messages.map((item) => item.messageId)).toEqual([1, 2])
+    await waitFor(() => {
+      expect(result.current.messages.map((item) => item.messageId)).toEqual([1, 2])
+    })
   })
 
   it('100건 초과 이력은 다음 커서까지 모두 복구한 뒤 읽음 처리한다', async () => {

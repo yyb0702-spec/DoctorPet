@@ -92,7 +92,6 @@ export function useReservationChat(reservationId: number, enabled = true) {
     stoppedRef.current = false
     intentionalDisconnectRef.current = false
     retryAttemptRef.current = 0
-    setSendState('idle')
     messagesRef.current = []
     lastMessageIdRef.current = undefined
     subscriptionReadyRef.current = false
