@@ -2,12 +2,14 @@ package com.doctorpet.domain.member.service;
 
 import com.doctorpet.domain.member.dto.response.MemberResponse;
 import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -102,6 +104,23 @@ public class MemberService {
         memberRepository.findAllById(memberIds)
                 .forEach(member -> phonesByMemberId.put(member.getId(), member.getPhone()));
         return phonesByMemberId;
+    }
+
+    /*
+     * 병원에 현재 소속된 활성 스태프의 memberId 목록. 병원(HOSPITAL) 수신 알림을 접속 중인 스태프의 SSE
+     * 연결로 fan-out할 때 대상 회원을 서버에서 확정하기 위해 알림 도메인이 호출한다(구현 가드레일 — 다른
+     * 도메인은 Member의 Repository를 직접 참조하지 않고 이 Service를 경유한다).
+     *
+     * 전송 시점의 현재 소속만 반환한다 — 탈퇴 회원은 Member의 @SQLRestriction("deleted_at is null")으로,
+     * 소속이 해제됐거나 스태프가 아닌 회원은 hospital_id·role 조건으로 빠진다. 호출부는 이 결과 밖의
+     * 회원(예: 프론트가 들고 있는 옛 소속 정보)에게 병원 알림을 보내면 안 된다.
+     */
+    @Transactional(readOnly = true)
+    public List<Long> findActiveHospitalStaffMemberIds(Long hospitalId) {
+        if (hospitalId == null) {
+            return List.of();
+        }
+        return memberRepository.findIdsByHospitalIdAndRole(hospitalId, MemberRole.HOSPITAL_STAFF);
     }
 
     /*

@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { useMe } from '@/features/members/hooks'
 import { useHospitalDetail } from '@/features/hospitals/hooks'
 import { useLogout } from '@/features/auth/hooks'
+import { NotificationBell } from '@/features/notifications/NotificationBell'
 import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 
 // 결제 관리(GET /api/hospital/payments)·슬롯 관리(GET/PATCH /api/hospital/slots*)는
@@ -75,6 +76,12 @@ export function StaffLayout() {
             {hospital.data?.name ?? '병원 운영'}
           </div>
           <div className="flex items-center gap-3">
+            {/*
+              병원 수신 알림은 병원 단위로 1건 저장·공유 읽음이고, 서버가 인증 principal로 수신자를
+              해석한다 — 프론트는 보호자와 같은 API·SSE 훅을 그대로 쓰고 예약 상세 경로만 스태프
+              화면 기준으로 바꿔 넘긴다.
+            */}
+            <NotificationBell reservationBasePath="/staff/reservations" />
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {me.data?.nickname ?? me.data?.email}
             </span>
