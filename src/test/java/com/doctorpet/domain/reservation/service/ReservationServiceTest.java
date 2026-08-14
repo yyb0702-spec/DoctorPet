@@ -61,6 +61,9 @@ class ReservationServiceTest {
  
     @Mock
     private ReservationLockStrategy reservationLockStrategy;
+
+    @Mock
+    private ReservationSlotReleaseService reservationSlotReleaseService;
  
     private ReservationService reservationService;
  
@@ -69,7 +72,8 @@ class ReservationServiceTest {
         reservationService = new ReservationService(
                 reservationRepository,
                 reservationSlotRepository,
-                reservationLockStrategy
+                reservationLockStrategy,
+                reservationSlotReleaseService
         );
     }
  

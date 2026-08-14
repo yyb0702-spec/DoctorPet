@@ -769,6 +769,8 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 
 병원 리뷰 목록은 `createdAt DESC, id DESC`로 안정 정렬하고 페이지네이션한다. 목록에서 리뷰 표시 정보를 모두 제공하므로 별도 상세 조회 API는 두지 않는다. 공개 목록 항목은 `reviewId`, `rating`, `content`, `createdAt`, `updatedAt`만 반환하고 내부 식별자인 `reservationId`, `hospitalId`, `memberId`는 노출하지 않는다. 병원 상세 응답에는 `averageRating`, `reviewCount`를 추가한다. 집계는 `reviews` 실데이터의 `AVG(rating)`·`COUNT(*)`를 조회 시 계산해 별도 누적 카운터와의 불일치를 만들지 않는다. 리뷰가 없으면 `averageRating=null`, `reviewCount=0`이고, 평균은 소수점 첫째 자리로 반환한다.
 
+제휴 병원 상세 응답에는 nullable 정수 `reservationResponseRate`, `averageApprovalMinutes`를 추가한다. 조회 시각 직전 90일(`requested_at >= from AND requested_at < to`)을 실시간 집계한다. 승인은 `confirmed_at IS NOT NULL`, 직접 거절은 `confirmed_at IS NULL AND status=REJECTED`이면서 `TIMEOUT_REJECTED` 이벤트가 없는 건, 자동 만료는 해당 이벤트가 있는 건이다. 응답률은 `(승인+직접 거절)/(승인+직접 거절+자동 만료)`를 정수 백분율로 반올림하며 분모 10건 미만이면 `null`이다. 평균 승인 시간은 승인별 `TIMESTAMPDIFF(SECOND, requested_at, confirmed_at)`의 평균을 정수 분으로 반올림하며 승인 10건 미만이면 `null`이다. 응답 전 보호자 취소와 아직 `REQUESTED`인 건은 제외하고 표본 수는 노출하지 않는다. 비제휴 병원은 두 필드를 `null`로 반환한다.
+
 ### 8-4. AI 상담
 
 | 명칭 | Method | Path | 권한 |

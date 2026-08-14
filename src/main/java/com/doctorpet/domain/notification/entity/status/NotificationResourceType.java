@@ -4,5 +4,6 @@ package com.doctorpet.domain.notification.entity.status;
 // 유형이 늘어도 스키마 변경 없이 값만 추가하면 된다.
 public enum NotificationResourceType {
     RESERVATION,
+    RESERVATION_WAITLIST,
     PAYMENT
 }

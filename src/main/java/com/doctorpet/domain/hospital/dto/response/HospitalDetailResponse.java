@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.dto.query.HospitalResponseMetrics;
 import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
 
 import java.math.BigDecimal;
@@ -31,7 +32,9 @@ public record HospitalDetailResponse(
         List<CapabilityValue> capabilities,
         BigDecimal averageRating,
         long reviewCount,
-        boolean favorite
+        boolean favorite,
+        Integer reservationResponseRate,
+        Integer averageApprovalMinutes
 ) {
 
     private static final String NON_PARTNER_NOTICE =
@@ -42,7 +45,8 @@ public record HospitalDetailResponse(
             HospitalDetail detail,
             List<HospitalCapability> hospitalCapabilities,
             Boolean openNow,
-            ReviewRatingSummary ratingSummary
+            ReviewRatingSummary ratingSummary,
+            HospitalResponseMetrics responseMetrics
     ) {
         boolean partner = hospital.getPartnershipStatus()
                 == PartnershipStatus.PARTNER;
@@ -64,7 +68,9 @@ public record HospitalDetailResponse(
                 partner ? toCapabilities(hospitalCapabilities) : null,
                 ratingSummary.averageRating(),
                 ratingSummary.reviewCount(),
-                false
+                false,
+                partner ? responseMetrics.reservationResponseRate() : null,
+                partner ? responseMetrics.averageApprovalMinutes() : null
         );
     }
 
@@ -86,7 +92,38 @@ public record HospitalDetailResponse(
                 capabilities,
                 averageRating,
                 reviewCount,
-                favorite
+                favorite,
+                reservationResponseRate,
+                averageApprovalMinutes
+        );
+    }
+
+    public HospitalDetailResponse withResponseMetrics(
+            HospitalResponseMetrics responseMetrics
+    ) {
+        if (partnershipStatus != PartnershipStatus.PARTNER) {
+            return this;
+        }
+        return new HospitalDetailResponse(
+                hospitalId,
+                name,
+                address,
+                phoneNumber,
+                businessStatus,
+                partnershipStatus,
+                partnershipNotice,
+                openNow,
+                surgeryAvailable,
+                hospitalizationAvailable,
+                nightCare,
+                emergency,
+                businessHours,
+                capabilities,
+                averageRating,
+                reviewCount,
+                favorite,
+                responseMetrics.reservationResponseRate(),
+                responseMetrics.averageApprovalMinutes()
         );
     }
 
