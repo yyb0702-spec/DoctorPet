@@ -158,10 +158,47 @@ describe('useReservationChat', () => {
       callbacks?.onConnected(() => undefined)
     })
     await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(11, 101))
+
+    // 구독이 실제로 활성화되기 전에는 읽음을 보내지 않는다.
+    expect(markRead).not.toHaveBeenCalled()
+
+    act(() => {
+      callbacks?.onSubscriptionReady()
+    })
     await waitFor(() => expect(markRead).toHaveBeenCalledWith(11))
 
     expect(result.current.messages).toHaveLength(101)
     expect(result.current.messages.at(-1)?.content).toBe('최신 메시지')
+  })
+
+  it('SUBSCRIPTION_READY 전에는 읽음 처리하지 않고, 최종 복구로 누락분을 병합한 뒤에만 읽음 처리한다', async () => {
+    const gapMessage = { ...message, messageId: 2, content: '구독 직전에 저장된 메시지' }
+    getMessages
+      // 최초 이력
+      .mockResolvedValueOnce({ messages: [message], nextAfterMessageId: null, hasNext: false })
+      // onConnected 예비 복구 — 아직 누락분이 보이지 않는다
+      .mockResolvedValueOnce({ messages: [], nextAfterMessageId: null, hasNext: false })
+      // SUBSCRIPTION_READY 최종 복구 — 구독 직전에 저장된 메시지를 여기서 받는다
+      .mockResolvedValueOnce({ messages: [gapMessage], nextAfterMessageId: null, hasNext: false })
+
+    const { result } = renderHook(() => useReservationChat(11))
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+    // 예비 복구가 끝나도 준비 상태가 아니므로 읽음을 보내면 안 된다 — 보내면 아직 화면에 없는
+    // gapMessage까지 읽음이 된다.
+    await waitFor(() => expect(getMessages).toHaveBeenCalledTimes(2))
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(markRead).not.toHaveBeenCalled()
+
+    act(() => {
+      callbacks?.onSubscriptionReady()
+    })
+    await waitFor(() => expect(result.current.messages).toHaveLength(2))
+    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11))
+    expect(result.current.messages.at(-1)?.content).toBe('구독 직전에 저장된 메시지')
   })
 
   it('서버가 방송한 자신의 메시지를 받은 뒤에만 전송 성공으로 처리한다', async () => {

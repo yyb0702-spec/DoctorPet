@@ -159,16 +159,12 @@ export function useReservationChat(reservationId: number, enabled = true) {
           subscribe()
           retryAttemptRef.current = 0
           setConnectionState('connected')
-          subscriptionReadyRef.current = true
-          void recover(lastMessageIdRef.current)
-            .then(() => {
-              if (stoppedRef.current || client !== activeClient) return
-              historySyncedRef.current = true
-              markReadDebounced()
-            })
-            .catch(() => {
-              // 누락 구간 복구 전에는 읽음 처리를 보류하고 다음 재연결에서 다시 복구한다.
-            })
+          // SUBSCRIBE 호출은 broker 구독 활성화를 보장하지 않는다(SimpleBroker는 receipt를 발급하지
+          // 않는다). 여기서는 예비 복구만 하고, 준비 상태·읽음 처리는 실제 SUBSCRIPTION_READY 이후로
+          // 미룬다 — 그 전에 읽음을 보내면 아직 화면에 병합되지 않은 메시지까지 읽음이 된다.
+          void recover(lastMessageIdRef.current).catch(() => {
+            // 예비 복구 실패는 최종 복구에서 다시 시도한다.
+          })
         },
         onMessage: (message) => {
           appendMessages([message])
@@ -182,9 +178,19 @@ export function useReservationChat(reservationId: number, enabled = true) {
         onSubscriptionReady: () => {
           // SimpleBroker는 SUBSCRIBE receipt를 발급하지 않는다. topic으로 되돌아온 제어 프레임을
           // 실제 구독 활성화 증거로 삼아, 최초 조회와 구독 사이의 누락 구간을 최종 복구한다.
-          void recover(lastMessageIdRef.current).catch(() => {
-            // 최종 커서 복구 실패는 전송·수신 루프를 끊지 않고, 다음 재연결에서 다시 시도한다.
-          })
+          if (stoppedRef.current || client !== activeClient) return
+          subscriptionReadyRef.current = true
+          void recover(lastMessageIdRef.current)
+            .then(() => {
+              // 누락 구간이 병합된 뒤에만 읽음을 보낸다. 최종 복구가 실패하면 읽음을 보류하고
+              // 다음 재연결에서 다시 복구한다 — 못 본 메시지를 읽음 처리하는 것보다 안전하다.
+              if (stoppedRef.current || client !== activeClient) return
+              historySyncedRef.current = true
+              markReadDebounced()
+            })
+            .catch(() => {
+              // 최종 커서 복구 실패는 전송·수신 루프를 끊지 않고, 다음 재연결에서 다시 시도한다.
+            })
         },
         onClosed: () => {
           subscriptionReadyRef.current = false
