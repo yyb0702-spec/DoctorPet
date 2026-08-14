@@ -32,8 +32,18 @@ x-app-common-env: &app-common-env
   # SPRING_PROFILES_ACTIVE를 참고할 것 — 실연동 준비 전에는 절대 prod로 바꾸지 말 것
   # (payment.gateway/mail.provider가 fake면 부팅 자체가 막힌다).
   SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-  SPRING_DATASOURCE_USERNAME: root
+  # DB 접속 정보를 .env에서 덮어쓸 수 있게 한다(RDS 이관 대응) — 기본값은 로컬 mysql 서비스를
+  # 그대로 가리키므로 로컬 개발·기존 EC2 동작은 변경이 없다. RDS로 전환하려면 EC2의 git
+  # 비추적 .env에 SPRING_DATASOURCE_URL/USERNAME을 RDS 엔드포인트·마스터 사용자명으로 채우면
+  # 된다(RDS는 마스터 사용자명으로 root를 쓸 수 없다 — 보통 admin 등).
+  # 비밀번호는 별도 변수를 새로 만들지 않고 기존 MYSQL_ROOT_PASSWORD를 그대로 재사용한다 —
+  # Docker Compose는 `${A:-${B:-c}}` 같은 중첩 변수 참조를 지원하지 않으므로(공식 문서에
+  # 관련 언급 자체가 없음, 지원 시 오동작 위험), "SPRING_DATASOURCE_PASSWORD가 없으면
+  # MYSQL_ROOT_PASSWORD를 쓰고, 그것도 없으면 root" 3단 폴백을 compose 문법만으로 표현할
+  # 수 없다. RDS 컷오버 시에는 로컬 mysql 컨테이너를 더 이상 쓰지 않으므로, EC2 .env의
+  # MYSQL_ROOT_PASSWORD 값을 RDS 마스터 비밀번호로 바꿔치기해서 그대로 쓴다.
+  SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}
+  SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
   SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
   SPRING_DATA_REDIS_HOST: redis
   SPRING_DATA_REDIS_PORT: "6379"
