@@ -163,4 +163,43 @@ public class AiConsultation {
         consultation.schemaParseSuccess = false;
         return consultation;
     }
+
+    public static AiConsultation responseValidationFailed(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason errorType,
+            int latencyMs
+    ) {
+        AiConsultation consultation = new AiConsultation(memberId, maskedSymptomText, latencyMs);
+        consultation.structuredResult = AiStructuredResult.from(result);
+        consultation.requiredCapabilities = List.copyOf(result.requiredCapabilities());
+        consultation.urgencyLevel = result.urgencyLevel();
+        consultation.model = result.model();
+        consultation.promptVersion = result.promptVersion();
+        consultation.promptTokens = result.promptTokens();
+        consultation.completionTokens = result.completionTokens();
+        consultation.status = AiConsultationStatus.FAILED;
+        consultation.errorType = errorType;
+        consultation.fallbackUsed = true;
+        consultation.toolCallStatus = AiToolCallStatus.SUCCESS;
+        consultation.schemaParseSuccess = false;
+        return consultation;
+    }
+
+    public static AiConsultation gatewayFailedAfterToolCall(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason errorType,
+            int latencyMs
+    ) {
+        return responseValidationFailed(
+                memberId,
+                maskedSymptomText,
+                result,
+                errorType,
+                latencyMs
+        );
+    }
 }
