@@ -3,7 +3,9 @@ package com.doctorpet.domain.reservation.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationEvent;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.dto.query.ReservationHistoryAggregate;
 import com.doctorpet.global.config.JpaAuditingConfig;
@@ -32,6 +34,9 @@ class ReservationQueryRepositoryIntegrationTest {
 
     @Autowired
     private ReservationSlotRepository reservationSlotRepository;
+
+    @Autowired
+    private ReservationEventRepository reservationEventRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -308,6 +313,71 @@ class ReservationQueryRepositoryIntegrationTest {
         });
     }
 
+    @Test
+    @DisplayName("병원 응답 지표는 기간 내 승인·직접 거절·자동 만료를 정책대로 집계한다")
+    void findResponseMetricsAggregate_appliesResponsePolicy() {
+        LocalDateTime from = LocalDateTime.of(2026, 5, 16, 0, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 8, 14, 0, 0);
+        long hospitalId = 9_000_000_000L + Math.floorMod(System.nanoTime(), 1_000_000L);
+
+        saveMetricsReservation(
+                501L,
+                hospitalId,
+                from,
+                ReservationStatus.TREATMENT_COMPLETED,
+                from.plusMinutes(20),
+                false
+        );
+        saveMetricsReservation(
+                502L,
+                hospitalId,
+                to.minusSeconds(1),
+                ReservationStatus.REJECTED,
+                null,
+                false
+        );
+        saveMetricsReservation(
+                503L,
+                hospitalId,
+                from.plusDays(1),
+                ReservationStatus.REJECTED,
+                null,
+                true
+        );
+        saveMetricsReservation(
+                504L,
+                hospitalId,
+                from.plusDays(2),
+                ReservationStatus.CANCELED,
+                null,
+                false
+        );
+        saveMetricsReservation(
+                505L,
+                hospitalId,
+                from.minusSeconds(1),
+                ReservationStatus.CONFIRMED,
+                from.plusMinutes(10),
+                false
+        );
+        saveMetricsReservation(
+                506L,
+                hospitalId + 1L,
+                from.plusDays(3),
+                ReservationStatus.CONFIRMED,
+                from.plusDays(3).plusMinutes(40),
+                false
+        );
+
+        ReservationResponseMetricsProjection result = reservationRepository
+                .findResponseMetricsAggregate(hospitalId, from, to);
+
+        assertThat(result.getResponseSampleCount()).isEqualTo(3L);
+        assertThat(result.getRespondedCount()).isEqualTo(2L);
+        assertThat(result.getApprovedCount()).isEqualTo(1L);
+        assertThat(result.getAverageApprovalSeconds()).isEqualByComparingTo("1200.0000");
+    }
+
     private Reservation saveReservationWithStatus(
             Long memberId,
             LocalDateTime startAt,
@@ -316,6 +386,48 @@ class ReservationQueryRepositoryIntegrationTest {
         Reservation reservation = saveReservation(memberId, startAt, false);
         ReflectionTestUtils.setField(reservation, "status", status);
         return reservationRepository.saveAndFlush(reservation);
+    }
+
+    private Reservation saveMetricsReservation(
+            Long memberId,
+            Long hospitalId,
+            LocalDateTime requestedAt,
+            ReservationStatus status,
+            LocalDateTime confirmedAt,
+            boolean timeoutRejected
+    ) {
+        ReservationSlot slot = reservationSlotRepository.saveAndFlush(
+                ReservationSlot.create(
+                        hospitalId,
+                        requestedAt.plusHours(4),
+                        requestedAt.plusHours(4).plusMinutes(30)
+                )
+        );
+        Reservation reservation = Reservation.request(
+                memberId,
+                10L,
+                hospitalId,
+                slot.getId(),
+                20L,
+                "초코",
+                "DOG",
+                requestedAt,
+                requestedAt.plusHours(4)
+        );
+        ReflectionTestUtils.setField(reservation, "status", status);
+        ReflectionTestUtils.setField(reservation, "confirmedAt", confirmedAt);
+        Reservation saved = reservationRepository.saveAndFlush(reservation);
+
+        if (timeoutRejected) {
+            reservationEventRepository.saveAndFlush(ReservationEvent.create(
+                    saved,
+                    ReservationEventType.TIMEOUT_REJECTED,
+                    "승인 시간 만료",
+                    null,
+                    requestedAt.plusHours(1)
+            ));
+        }
+        return saved;
     }
 
     private int cancelByHospital(Long reservationId, LocalDateTime now) {
