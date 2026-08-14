@@ -112,6 +112,11 @@ volumes:
 # 메인 스택을 먼저 기동해 doctorpet_default가 존재하는 상태에서만 이 파일을 올릴 것 — 없는
 # 상태로 올리면 "network doctorpet_default declared as external, but could not be found"로
 # 명확하게 실패한다(조용히 새 네트워크를 만들어버리는 것보다 이 실패가 안전하다).
+#
+# doctorpet_default라는 이름은 메인 프로젝트 이름이 doctorpet일 때만 맞다(Compose 기본값은
+# 클론 디렉터리 basename) — 재재검토 지적 P2. .env의 COMPOSE_PROJECT_NAME=doctorpet(.env.example
+# 참고)로 이걸 디렉터리 이름과 무관하게 고정해뒀으니, 클론 디렉터리명이 DoctorPet이 아니어도
+# 이 리터럴이 항상 맞게 된다.
 networks:
   default:
     name: doctorpet_default
