@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import java.util.UUID;
 
 @Entity
 @Table(
@@ -56,7 +57,7 @@ public class ChatMessage extends BaseEntity {
     @Column(name = "body", nullable = false, length = 1000)
     private String body;
 
-    @Column(name = "client_message_id", length = 36)
+    @Column(name = "client_message_id", nullable = false, length = 36)
     private String clientMessageId;
 
     @Column(name = "read_at")
@@ -85,7 +86,7 @@ public class ChatMessage extends BaseEntity {
             Long memberId,
             String body
     ) {
-        return new ChatMessage(reservationId, senderType, hospitalId, memberId, body, null);
+        return new ChatMessage(reservationId, senderType, hospitalId, memberId, body, UUID.randomUUID().toString());
     }
 
     public static ChatMessage create(

@@ -110,6 +110,13 @@ class ChatWebSocketIntegrationTest {
                 "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
 
         valid.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/subscription-ready",
+                "content-type:application/json"), ""));
+        String ready = valid.awaitFrame();
+        assertThat(ready).startsWith("MESSAGE");
+        assertThat(ready).contains("SUBSCRIPTION_READY");
+
+        valid.send(frame("SEND", List.of(
                 "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
                 "content-type:application/json"), "{\"content\":\"실시간 메시지\"}"));
         String delivered = valid.awaitFrame();

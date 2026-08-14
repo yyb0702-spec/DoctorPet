@@ -29,6 +29,8 @@ describe('ChatPanel', () => {
     render(<ChatPanel reservationId={11} reservationStatus={ReservationStatus.CONFIRMED} />)
 
     expect(screen.getByText('아직 주고받은 메시지가 없어요.')).toBeInTheDocument()
+    expect(screen.getByLabelText('메시지 입력')).toBeEnabled()
+    expect(screen.getByRole('button', { name: '메시지 전송' })).toBeDisabled()
   })
 
   it('이력 조회 실패를 안내한다', () => {

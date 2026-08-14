@@ -78,6 +78,7 @@ export function ChatPanel({
     (me?.role === MemberRole.GUARDIAN || me?.role === MemberRole.HOSPITAL_STAFF)
   const canSend =
     roleResolved && writable && connectionState === 'connected' && isValidChatContent(content)
+  const canEdit = roleResolved && writable && connectionState === 'connected'
   const ownSender =
     me?.role === MemberRole.HOSPITAL_STAFF ? 'HOSPITAL' : 'GUARDIAN'
 
@@ -163,7 +164,7 @@ export function ChatPanel({
             className="min-h-20 flex-1 rounded-md border bg-background p-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             value={content}
             maxLength={CHAT_MAX_LENGTH}
-            disabled={!canSend || sendState === 'sending'}
+            disabled={!canEdit || sendState === 'sending'}
             onChange={(event) => {
               setContent(event.target.value)
               setSendError(false)

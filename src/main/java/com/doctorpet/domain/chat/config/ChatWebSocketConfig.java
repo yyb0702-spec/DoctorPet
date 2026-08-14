@@ -30,6 +30,9 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
+        // SUBSCRIBE 뒤 subscription-ready SEND가 역전되면 준비 프레임 자체가 유실될 수 있다.
+        // 단일 인스턴스 SimpleBroker 채팅 범위에서 inbound STOMP 프레임을 순서대로 처리한다.
+        registration.taskExecutor().corePoolSize(1).maxPoolSize(1);
         registration.interceptors(chatChannelInterceptor);
     }
 

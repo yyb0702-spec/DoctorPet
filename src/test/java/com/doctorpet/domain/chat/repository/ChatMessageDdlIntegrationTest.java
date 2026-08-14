@@ -56,7 +56,8 @@ class ChatMessageDdlIntegrationTest {
         }
 
         assertThat(nonNullable).contains(
-                "reservation_id", "sender_type", "hospital_id", "member_id", "body", "created_at");
-        assertThat(indexes).contains("idx_chat_messages_reservation_created");
+                "reservation_id", "sender_type", "hospital_id", "member_id", "body", "client_message_id", "created_at");
+        assertThat(indexes).contains(
+                "idx_chat_messages_reservation_created", "uk_chat_messages_reservation_member_client");
     }
 }
