@@ -78,6 +78,48 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
 
     boolean existsBySlotIdAndStatus(Long slotId, ReservationWaitlistStatus status);
 
+    /**
+     * 승급 마감(슬롯 시작 4시간 전) 이후에는 새 OFFERED를 만들 수 없으므로, 남아 있는 WAITING을
+     * 시스템 취소한다. 슬롯 상태도 RESERVED일 때만 갱신해 이미 반환된 슬롯의 대기열을 건드리지 않는다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            update reservation_waitlists waitlist
+            join reservation_slots slot on slot.id = waitlist.slot_id
+               set waitlist.status = 'CANCELED',
+                   waitlist.canceled_at = :canceledAt,
+                   waitlist.updated_at = :canceledAt,
+                   waitlist.version = waitlist.version + 1
+             where waitlist.slot_id = :slotId
+               and waitlist.status = 'WAITING'
+               and slot.status = 'RESERVED'
+               and slot.start_at <= :promotionDeadline
+            """, nativeQuery = true)
+    int cancelWaitingIfPromotionDeadlinePassed(
+            @Param("slotId") Long slotId,
+            @Param("promotionDeadline") LocalDateTime promotionDeadline,
+            @Param("canceledAt") LocalDateTime canceledAt
+    );
+
+    /**
+     * 휴업·폐업 같은 병원 운영 상태 변경에서는 새 예약 기회를 제안하지 않고 활성 대기열을 종료한다.
+     * OFFERED도 함께 취소해야 보호자가 수락할 수 없는 제안으로 슬롯이 계속 점유되지 않는다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            update reservation_waitlists
+               set status = 'CANCELED',
+                   canceled_at = :canceledAt,
+                   updated_at = :canceledAt,
+                   version = version + 1
+             where slot_id = :slotId
+               and status in ('WAITING', 'OFFERED')
+            """, nativeQuery = true)
+    int cancelActiveForBusinessStatusChange(
+            @Param("slotId") Long slotId,
+            @Param("canceledAt") LocalDateTime canceledAt
+    );
+
     List<ReservationWaitlist> findByStatusAndOfferExpiresAtLessThanEqualOrderByOfferExpiresAtAscIdAsc(
             ReservationWaitlistStatus status,
             LocalDateTime offerExpiresAt,

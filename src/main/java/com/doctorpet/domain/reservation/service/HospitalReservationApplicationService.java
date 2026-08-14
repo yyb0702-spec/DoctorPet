@@ -226,7 +226,9 @@ public class HospitalReservationApplicationService {
                 continue;
             }
 
-            findSlot(slotId).open();
+            // 휴업·폐업 상태에서는 새 승급 제안을 만들지 않는다. 활성 대기열을 시스템 취소한 뒤
+            // 슬롯을 반환하는 대기열 인지 경로를 사용해, WAITING이 남은 OPEN 슬롯을 만들지 않는다.
+            reservationSlotReleaseService.releaseForBusinessStatusChange(slotId);
             reservationEventRepository.appendIfAbsent(
                     reservationId,
                     ReservationEventType.HOSPITAL_CANCELED.name(),

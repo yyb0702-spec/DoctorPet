@@ -942,18 +942,14 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.cancelIfConfirmedByHospital(
                 any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
-        ReservationSlot reservedSlot = slot();
-        given(reservationSlotRepository.findById(SLOT_ID))
-                .willReturn(Optional.of(reservedSlot));
-
         int canceledCount = hospitalReservationService
                 .cancelConfirmedByBusinessStatusChange(
                         HOSPITAL_ID,
                         "공공데이터에서 병원 휴업이 확인되었습니다."
-                );
+        );
 
         assertThat(canceledCount).isEqualTo(1);
-        assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
+        verify(reservationSlotReleaseService).releaseForBusinessStatusChange(SLOT_ID);
         verify(reservationEventRepository).appendIfAbsent(
                 eq(RESERVATION_ID),
                 eq(ReservationEventType.HOSPITAL_CANCELED.name()),

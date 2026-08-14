@@ -16,11 +16,14 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.service.NotificationService;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.entity.status.ReservationRejectReason;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import org.junit.jupiter.api.AfterEach;
@@ -60,6 +63,9 @@ class HospitalReservationNotificationIntegrationTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Autowired
+    private ReservationWaitlistRepository reservationWaitlistRepository;
+
+    @Autowired
     private MemberRepository memberRepository;
 
     @Autowired
@@ -87,6 +93,7 @@ class HospitalReservationNotificationIntegrationTest {
             jdbcTemplate.update("delete from reservations where id = ?", reservationId);
         }
         if (slotId != null) {
+            jdbcTemplate.update("delete from reservation_waitlists where slot_id = ?", slotId);
             jdbcTemplate.update("delete from reservation_slots where id = ?", slotId);
         }
         if (staffMemberId != null) {
@@ -241,6 +248,9 @@ class HospitalReservationNotificationIntegrationTest {
                 "update reservations set status = 'CONFIRMED' where id = ?",
                 data.reservationId()
         );
+        ReservationWaitlist waiting = reservationWaitlistRepository.saveAndFlush(
+                ReservationWaitlist.waiting(data.guardianMemberId() + 100, data.slotId())
+        );
 
         int canceledCount = hospitalReservationService
                 .cancelConfirmedByBusinessStatusChange(
@@ -252,6 +262,8 @@ class HospitalReservationNotificationIntegrationTest {
         assertThat(reservationStatus(data.reservationId()))
                 .isEqualTo(ReservationStatus.HOSPITAL_CANCELED);
         assertThat(slotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.OPEN);
+        assertThat(reservationWaitlistRepository.findById(waiting.getId()).orElseThrow().getStatus())
+                .isEqualTo(ReservationWaitlistStatus.CANCELED);
         assertThat(jdbcTemplate.queryForObject(
                 "select processed_by from reservation_events "
                         + "where reservation_id = ? and event_type = 'HOSPITAL_CANCELED'",

@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +45,9 @@ class ReservationCancellationIntegrationTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Autowired
+    private ReservationWaitlistRepository reservationWaitlistRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Long createdSlotId;
@@ -49,6 +55,7 @@ class ReservationCancellationIntegrationTest {
     @AfterEach
     void cleanUp() {
         if (createdSlotId != null) {
+            jdbcTemplate.update("delete from reservation_waitlists where slot_id = ?", createdSlotId);
             jdbcTemplate.update(
                     "delete from reservations where slot_id = ?",
                     createdSlotId
@@ -88,6 +95,26 @@ class ReservationCancellationIntegrationTest {
 
         assertReservationStatus(data.reservationId(), ReservationStatus.CANCELED);
         assertSlotStatus(data.slotId(), ReservationSlotStatus.OPEN);
+    }
+
+    @Test
+    @DisplayName("승급 마감 뒤 보호자 취소는 WAITING을 시스템 취소하고 슬롯을 반환한다")
+    void cancel_afterPromotionDeadline_cancelsWaitingAndOpensSlot() {
+        TestReservation data = saveReservation(
+                LocalDateTime.now().plusHours(3),
+                ReservationStatus.REQUESTED,
+                true
+        );
+        ReservationWaitlist waitlist = reservationWaitlistRepository.saveAndFlush(
+                ReservationWaitlist.waiting(data.memberId() + 100, data.slotId())
+        );
+
+        reservationService.cancel(data.memberId(), data.reservationId());
+
+        assertReservationStatus(data.reservationId(), ReservationStatus.CANCELED);
+        assertSlotStatus(data.slotId(), ReservationSlotStatus.OPEN);
+        assertThat(reservationWaitlistRepository.findById(waitlist.getId()).orElseThrow().getStatus())
+                .isEqualTo(ReservationWaitlistStatus.CANCELED);
     }
 
     @Test

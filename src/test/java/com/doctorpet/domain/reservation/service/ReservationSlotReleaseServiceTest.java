@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
+import java.time.Clock;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +37,8 @@ class ReservationSlotReleaseServiceTest {
         releaseService = new ReservationSlotReleaseService(
                 reservationSlotRepository,
                 reservationWaitlistRepository,
-                promotionService
+                promotionService,
+                Clock.systemUTC()
         );
     }
 
@@ -55,11 +57,11 @@ class ReservationSlotReleaseServiceTest {
     @DisplayName("WAITING 대기자가 없을 때만 슬롯을 OPEN으로 반환한다")
     void release_withoutWaitingCandidate_opensSlot() {
         given(promotionService.offerFirstWaiting(SLOT_ID)).willReturn(Optional.empty());
-        given(reservationSlotRepository.openIfNoWaitingWaitlist(SLOT_ID)).willReturn(1);
+        given(reservationSlotRepository.openIfNoActiveWaitlist(SLOT_ID)).willReturn(1);
 
         releaseService.release(SLOT_ID);
 
-        verify(reservationSlotRepository).openIfNoWaitingWaitlist(SLOT_ID);
+        verify(reservationSlotRepository).openIfNoActiveWaitlist(SLOT_ID);
     }
 
     @Test
@@ -67,7 +69,7 @@ class ReservationSlotReleaseServiceTest {
     void release_waitlistRegisteredDuringOpenCheck_retriesPromotion() {
         given(promotionService.offerFirstWaiting(SLOT_ID)).willReturn(
                 Optional.empty(), Optional.of(ReservationWaitlist.waiting(1L, SLOT_ID)));
-        given(reservationSlotRepository.openIfNoWaitingWaitlist(SLOT_ID)).willReturn(0);
+        given(reservationSlotRepository.openIfNoActiveWaitlist(SLOT_ID)).willReturn(0);
 
         releaseService.release(SLOT_ID);
 
@@ -78,7 +80,7 @@ class ReservationSlotReleaseServiceTest {
     @DisplayName("슬롯 반환 또는 승급이 최종적으로 성립하지 않으면 상위 예약 변경을 롤백한다")
     void release_neitherOpenNorOffer_throwsInvalidStatus() {
         given(promotionService.offerFirstWaiting(SLOT_ID)).willReturn(Optional.empty(), Optional.empty());
-        given(reservationSlotRepository.openIfNoWaitingWaitlist(SLOT_ID)).willReturn(0);
+        given(reservationSlotRepository.openIfNoActiveWaitlist(SLOT_ID)).willReturn(0);
         given(reservationWaitlistRepository.existsBySlotIdAndStatus(
                 SLOT_ID, com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED))
                 .willReturn(false);
@@ -87,5 +89,39 @@ class ReservationSlotReleaseServiceTest {
                 .isInstanceOf(com.doctorpet.global.exception.ServiceException.class)
                 .extracting("errorCode")
                 .isEqualTo(com.doctorpet.domain.reservation.exception.SlotErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("승급 마감 후 WAITING이 남으면 시스템 취소하고 슬롯을 OPEN으로 반환한다")
+    void release_afterPromotionDeadline_cancelsWaitingAndOpensSlot() {
+        given(promotionService.offerFirstWaiting(SLOT_ID)).willReturn(Optional.empty());
+        given(reservationSlotRepository.openIfNoActiveWaitlist(SLOT_ID)).willReturn(0, 1);
+        given(reservationWaitlistRepository.existsBySlotIdAndStatus(
+                SLOT_ID, com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED))
+                .willReturn(false);
+        given(reservationWaitlistRepository.cancelWaitingIfPromotionDeadlinePassed(
+                org.mockito.ArgumentMatchers.eq(SLOT_ID),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+
+        releaseService.release(SLOT_ID);
+
+        verify(reservationWaitlistRepository).cancelWaitingIfPromotionDeadlinePassed(
+                org.mockito.ArgumentMatchers.eq(SLOT_ID),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("휴업·폐업 취소는 승급 없이 활성 대기열을 종료하고 슬롯을 반환한다")
+    void releaseForBusinessStatusChange_cancelsActiveWaitlistsAndOpensSlot() {
+        given(reservationSlotRepository.openIfNoActiveWaitlist(SLOT_ID)).willReturn(1);
+
+        releaseService.releaseForBusinessStatusChange(SLOT_ID);
+
+        verify(reservationWaitlistRepository).cancelActiveForBusinessStatusChange(
+                org.mockito.ArgumentMatchers.eq(SLOT_ID), org.mockito.ArgumentMatchers.any());
+        verify(promotionService, org.mockito.Mockito.never()).offerFirstWaiting(SLOT_ID);
     }
 }

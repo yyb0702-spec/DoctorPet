@@ -103,8 +103,9 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
     );
 
     /**
-     * WAITING 대기자가 없는 RESERVED 슬롯만 OPEN으로 반환한다. 등록 INSERT와 DB 조건에서 다시
-     * 판정하므로, 조회 뒤 등록이 끼어들어 OPEN 슬롯에 WAITING 행이 남는 경합을 막는다.
+     * 활성 대기열(WAITING 또는 OFFERED)이 없는 RESERVED 슬롯만 OPEN으로 반환한다. 등록 INSERT와
+     * DB 조건에서 다시 판정하므로, 조회 뒤 등록이 끼어들어 OPEN 슬롯에 WAITING 행이 남는 경합과
+     * OFFERED 제안 중인 슬롯이 OPEN으로 반환되는 상태를 함께 막는다.
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
@@ -117,8 +118,8 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
                     select 1
                       from reservation_waitlists waitlist
                      where waitlist.slot_id = slot.id
-                       and waitlist.status = 'WAITING'
+                       and waitlist.status in ('WAITING', 'OFFERED')
                )
             """, nativeQuery = true)
-    int openIfNoWaitingWaitlist(@Param("slotId") Long slotId);
+    int openIfNoActiveWaitlist(@Param("slotId") Long slotId);
 }

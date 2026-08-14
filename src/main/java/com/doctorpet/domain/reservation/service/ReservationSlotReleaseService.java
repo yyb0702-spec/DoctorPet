@@ -5,9 +5,13 @@ import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository
 import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.global.exception.ServiceException;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
 
 /**
  * 예약이 슬롯을 반환할 때의 단일 진입점이다.
@@ -24,6 +28,7 @@ public class ReservationSlotReleaseService {
     private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationWaitlistRepository reservationWaitlistRepository;
     private final ReservationWaitlistPromotionService promotionService;
+    private final Clock clock;
 
     @Transactional
     public void release(Long slotId) {
@@ -32,7 +37,7 @@ public class ReservationSlotReleaseService {
             return;
         }
 
-        if (reservationSlotRepository.openIfNoWaitingWaitlist(slotId) == 1) {
+        if (reservationSlotRepository.openIfNoActiveWaitlist(slotId) == 1) {
             return;
         }
 
@@ -46,8 +51,36 @@ public class ReservationSlotReleaseService {
             return;
         }
 
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 보호자 예약 취소는 시작 2시간 전까지 허용되지만, 승급은 4시간 전까지만 가능하다. 이 구간의
+        // WAITING을 그대로 두면 슬롯을 OPEN으로 반환할 수 없으므로 시스템 취소 후 반환한다.
+        int canceledWaiting = reservationWaitlistRepository.cancelWaitingIfPromotionDeadlinePassed(
+                slotId,
+                now.plus(LEAD_TIME),
+                now
+        );
+        if (canceledWaiting > 0
+                && reservationSlotRepository.openIfNoActiveWaitlist(slotId) == 1) {
+            return;
+        }
+
         // 반환 대상이 이미 OPEN이면 현재 호출은 슬롯 반환을 성립시키지 못한 것이다. 예약 상태만
         // 취소된 채 커밋되지 않도록 예외를 전파해 상위 취소·거절 트랜잭션을 함께 롤백한다.
+        throw new ServiceException(SlotErrorCode.INVALID_STATUS);
+    }
+
+    /**
+     * 휴업·폐업 등 병원 운영 상태 변경으로 예약을 취소할 때의 반환 경로다. 이 경우에는 병원이 새
+     * 예약을 받을 수 없으므로 FIFO 승급을 만들지 않고 WAITING·OFFERED를 모두 시스템 취소한 뒤
+     * 슬롯을 OPEN으로 반환한다.
+     */
+    @Transactional
+    public void releaseForBusinessStatusChange(Long slotId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        reservationWaitlistRepository.cancelActiveForBusinessStatusChange(slotId, now);
+        if (reservationSlotRepository.openIfNoActiveWaitlist(slotId) == 1) {
+            return;
+        }
         throw new ServiceException(SlotErrorCode.INVALID_STATUS);
     }
 }
