@@ -1,9 +1,9 @@
 package com.doctorpet.domain.chat.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.partnerHospital;
 
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
-import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -246,8 +246,7 @@ class ChatWebSocketIntegrationTest {
         reservation = reservationRepository.saveAndFlush(reservation);
         reservationIds.add(reservation.getId());
         org.mockito.BDDMockito.given(hospitalService.getHospitalDetail(hospitalId))
-                .willReturn(new HospitalDetailResponse(hospitalId, "테스트동물병원", null, null, null,
-                        null, null, null, null, null, null, null, null, null, null, 0L, false));
+                .willReturn(partnerHospital(hospitalId, "테스트동물병원"));
         org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardianId))
                 .willReturn("테스트보호자");
         return new ChatFixture(reservation.getId(), guardianId);

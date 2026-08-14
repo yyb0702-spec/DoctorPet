@@ -74,48 +74,6 @@ public record HospitalDetailResponse(
         );
     }
 
-    public HospitalDetailResponse(
-            Long hospitalId,
-            String name,
-            String address,
-            String phoneNumber,
-            BusinessStatus businessStatus,
-            PartnershipStatus partnershipStatus,
-            String partnershipNotice,
-            Boolean openNow,
-            Boolean surgeryAvailable,
-            Boolean hospitalizationAvailable,
-            Boolean nightCare,
-            Boolean emergency,
-            List<HospitalBusinessHourResponse> businessHours,
-            List<CapabilityValue> capabilities,
-            BigDecimal averageRating,
-            long reviewCount,
-            boolean favorite
-    ) {
-        this(
-                hospitalId,
-                name,
-                address,
-                phoneNumber,
-                businessStatus,
-                partnershipStatus,
-                partnershipNotice,
-                openNow,
-                surgeryAvailable,
-                hospitalizationAvailable,
-                nightCare,
-                emergency,
-                businessHours,
-                capabilities,
-                averageRating,
-                reviewCount,
-                favorite,
-                null,
-                null
-        );
-    }
-
     public HospitalDetailResponse withFavorite(boolean favorite) {
         return new HospitalDetailResponse(
                 hospitalId,

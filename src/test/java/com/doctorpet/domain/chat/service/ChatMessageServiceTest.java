@@ -1,6 +1,8 @@
 package com.doctorpet.domain.chat.service;
 
+import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.partnerHospital;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -15,7 +17,6 @@ import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.port.ChatStaffHospitalPort;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
-import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.reservation.entity.Reservation;
@@ -220,9 +221,6 @@ class ChatMessageServiceTest {
     }
 
     private HospitalDetailResponse hospitalDetail() {
-        return new HospitalDetailResponse(
-                HOSPITAL_ID, "우리동물병원", null, null, null, null,
-                null, null, null, null, null, null, null, null,
-                null, 0L, false);
+        return partnerHospital(HOSPITAL_ID, "우리동물병원");
     }
 }
