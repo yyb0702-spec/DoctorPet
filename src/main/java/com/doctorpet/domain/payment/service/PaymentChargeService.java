@@ -77,7 +77,7 @@ public class PaymentChargeService {
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL));
 
         // 2) 예약 로드(port 경유 — 예약 Repository 직접 호출 금지).
-        ReservationChargeView reservation = reservationLookupPort.findForCharge(reservationId)
+        ReservationChargeView reservation = reservationLookupPort.findForChargeForUpdate(reservationId)
                 .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND));
 
         // 3) 자병원·진료완료·금액 검증.

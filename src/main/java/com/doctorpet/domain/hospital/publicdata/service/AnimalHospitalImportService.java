@@ -1,11 +1,13 @@
 package com.doctorpet.domain.hospital.publicdata.service;
 
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.publicdata.dto.response.AnimalHospitalItem;
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalDataNormalizer;
 import com.doctorpet.domain.hospital.publicdata.mapper.AnimalHospitalEntityMapper;
 import com.doctorpet.domain.hospital.publicdata.model.NormalizedAnimalHospitalData;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.reservation.service.HospitalReservationApplicationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,7 @@ public class AnimalHospitalImportService {
     private final HospitalRepository hospitalRepository;
     private final AnimalHospitalDataNormalizer normalizer;
     private final AnimalHospitalEntityMapper entityMapper;
+    private final HospitalReservationApplicationService reservationService;
 
     /**
      * 지자체 코드·관리번호 복합 키를 기준으로 병원 정보를 저장하거나 갱신합니다.
@@ -42,6 +45,7 @@ public class AnimalHospitalImportService {
             Hospital hospital,
             NormalizedAnimalHospitalData data
     ) {
+        BusinessStatus previousStatus = hospital.getBusinessStatus();
         hospital.updateFromPublicData(
                 data.name(),
                 data.phone(),
@@ -56,6 +60,19 @@ public class AnimalHospitalImportService {
                 data.area(),
                 data.sourceModifiedAt()
         );
+        if (previousStatus == BusinessStatus.OPEN
+                && data.businessStatus() != BusinessStatus.OPEN) {
+            reservationService.cancelConfirmedByBusinessStatusChange(
+                    hospital.getId(),
+                    cancellationReason(data.businessStatus())
+            );
+        }
         return hospital;
+    }
+
+    private String cancellationReason(BusinessStatus businessStatus) {
+        return businessStatus == BusinessStatus.CLOSED_TEMP
+                ? "공공데이터에서 병원 휴업이 확인되었습니다."
+                : "공공데이터에서 병원 폐업이 확인되었습니다.";
     }
 }

@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.entity.CapabilityValue;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.global.config.QuerydslConfig;
 import org.junit.jupiter.api.Test;
@@ -253,7 +254,7 @@ class HospitalSearchRepositoryIntegrationTest {
     }
 
     @Test
-    void 폐업을_제외하고_요청한_역량을_모두_가진_병원만_조회한다() {
+    void 휴업과_폐업을_제외하고_요청한_역량을_모두_가진_OPEN_병원만_조회한다() {
         Hospital matched = saveHospital(
                 "MATCHED",
                 "닥터펫 동물병원",
@@ -270,6 +271,12 @@ class HospitalSearchRepositoryIntegrationTest {
                 "CLOSED",
                 "닥터펫 폐업병원",
                 BusinessStatus.CLOSED,
+                true
+        );
+        Hospital temporarilyClosed = saveHospital(
+                "CLOSED-TEMP",
+                "닥터펫 휴업병원",
+                BusinessStatus.CLOSED_TEMP,
                 true
         );
 
@@ -292,6 +299,14 @@ class HospitalSearchRepositoryIntegrationTest {
                 ),
                 HospitalCapability.create(
                         closed,
+                        CapabilityValue.XRAY
+                ),
+                HospitalCapability.create(
+                        temporarilyClosed,
+                        CapabilityValue.DOG
+                ),
+                HospitalCapability.create(
+                        temporarilyClosed,
                         CapabilityValue.XRAY
                 )
         ));
@@ -322,6 +337,116 @@ class HospitalSearchRepositoryIntegrationTest {
         assertThat(result)
                 .extracting(HospitalSearchCandidate::hospitalId)
                 .containsExactly(matched.getId());
+    }
+
+    @Test
+    void ANY_검색은_요청한_진료역량을_하나라도_가진_병원을_조회한다() {
+        Hospital allMatched = saveHospital(
+                "ANY-ALL",
+                "역량OR검색 전체일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital partiallyMatched = saveHospital(
+                "ANY-PARTIAL",
+                "역량OR검색 부분일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital notMatched = saveHospital(
+                "ANY-NONE",
+                "역량OR검색 불일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital wrongSpecies = saveHospital(
+                "ANY-WRONG-SPECIES",
+                "역량OR검색 축종불일치병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        hospitalCapabilityRepository.saveAll(List.of(
+                HospitalCapability.create(allMatched, CapabilityValue.DOG),
+                HospitalCapability.create(allMatched, CapabilityValue.XRAY),
+                HospitalCapability.create(allMatched, CapabilityValue.ULTRASOUND),
+                HospitalCapability.create(partiallyMatched, CapabilityValue.DOG),
+                HospitalCapability.create(partiallyMatched, CapabilityValue.XRAY),
+                HospitalCapability.create(notMatched, CapabilityValue.DOG),
+                HospitalCapability.create(notMatched, CapabilityValue.BLOOD_TEST),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.CAT),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.XRAY)
+        ));
+        hospitalCapabilityRepository.flush();
+
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                "역량OR검색",
+                null,
+                null,
+                null,
+                null,
+                List.of(CapabilityValue.XRAY, CapabilityValue.ULTRASOUND),
+                List.of(CapabilityValue.DOG),
+                null,
+                null,
+                null,
+                null,
+                false
+        );
+
+        List<HospitalSearchCandidate> result = hospitalRepository.searchAll(
+                condition,
+                CapabilityMatchMode.ANY
+        );
+
+        assertThat(result)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactlyInAnyOrder(allMatched.getId(), partiallyMatched.getId());
+    }
+
+    @Test
+    void NONE_검색은_진료역량을_생략하고_지원_축종은_유지한다() {
+        Hospital supportedSpecies = saveHospital(
+                "NONE-DOG",
+                "역량없음검색 지원축종병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        Hospital wrongSpecies = saveHospital(
+                "NONE-CAT",
+                "역량없음검색 미지원축종병원",
+                BusinessStatus.OPEN,
+                true
+        );
+        hospitalCapabilityRepository.saveAll(List.of(
+                HospitalCapability.create(supportedSpecies, CapabilityValue.DOG),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.CAT),
+                HospitalCapability.create(wrongSpecies, CapabilityValue.XRAY)
+        ));
+        hospitalCapabilityRepository.flush();
+
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                "역량없음검색",
+                null,
+                null,
+                null,
+                null,
+                List.of(CapabilityValue.XRAY),
+                List.of(CapabilityValue.DOG),
+                null,
+                null,
+                null,
+                null,
+                false
+        );
+
+        List<HospitalSearchCandidate> result = hospitalRepository.searchAll(
+                condition,
+                CapabilityMatchMode.NONE
+        );
+
+        assertThat(result)
+                .extracting(HospitalSearchCandidate::hospitalId)
+                .containsExactly(supportedSpecies.getId());
     }
 
     @Test

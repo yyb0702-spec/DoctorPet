@@ -51,6 +51,26 @@ public enum HospitalErrorCode implements ErrorCode {
             HttpStatus.BAD_REQUEST,
             "HOSPITAL_011",
             "임시 휴무는 휴무 영업일 전날까지만 취소할 수 있습니다."
+    ),
+    DUPLICATE_CAPABILITY(
+            HttpStatus.BAD_REQUEST,
+            "HOSPITAL_012",
+            "진료 역량을 중복해서 입력할 수 없습니다."
+    ),
+    CLOSED_HOSPITAL_CAPABILITY_UPDATE_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_013",
+            "폐업한 병원의 진료 역량은 수정할 수 없습니다."
+    ),
+    HOSPITAL_RESERVATION_NOT_AVAILABLE(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_014",
+            "현재 병원에는 예약을 요청할 수 없습니다."
+    ),
+    HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE(
+            HttpStatus.CONFLICT,
+            "HOSPITAL_015",
+            "현재 병원은 예약을 승인할 수 없습니다."
     );
 
     private final HttpStatus httpStatus;

@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.controller;
 
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
 import com.doctorpet.domain.reservation.dto.response.ReservationDetailResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationPageResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
@@ -46,6 +47,16 @@ public class ReservationController {
             @PathVariable Long reservationId
     ) {
         reservationApplicationService.cancel(principal.memberId(), reservationId);
+        return ApiResponse.success();
+    }
+
+    @PatchMapping("/{reservationId}/payment-method")
+    public ApiResponse<Void> changePaymentMethod(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable @Positive Long reservationId,
+            @Valid @RequestBody ReservationPaymentMethodUpdateRequest request
+    ) {
+        reservationApplicationService.changePaymentMethod(principal.memberId(), reservationId, request);
         return ApiResponse.success();
     }
 

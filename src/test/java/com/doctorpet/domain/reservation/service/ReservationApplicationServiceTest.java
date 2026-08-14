@@ -13,11 +13,14 @@ import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.payment.service.PaymentMethodService;
+import com.doctorpet.domain.payment.service.PaymentQueryService;
+import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.pet.dto.response.PetResponse;
 import com.doctorpet.domain.pet.entity.PetSpecies;
 import com.doctorpet.domain.pet.service.PetService;
 import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
 import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationPaymentMethodUpdateRequest;
 import com.doctorpet.domain.reservation.dto.response.ReservationPageResponse;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
 import com.doctorpet.domain.reservation.entity.Reservation;
@@ -60,6 +63,9 @@ class ReservationApplicationServiceTest {
     private PaymentMethodService paymentMethodService;
 
     @Mock
+    private PaymentQueryService paymentQueryService;
+
+    @Mock
     private HospitalService hospitalService;
 
     private ReservationApplicationService applicationService;
@@ -71,6 +77,7 @@ class ReservationApplicationServiceTest {
                 memberService,
                 petService,
                 paymentMethodService,
+                paymentQueryService,
                 hospitalService
         );
     }
@@ -95,6 +102,7 @@ class ReservationApplicationServiceTest {
 
         given(petService.findOwnedActivePet(MEMBER_ID, PET_ID))
                 .willReturn(Optional.of(pet));
+        given(reservationService.findSlot(SLOT_ID)).willReturn(slot());
         given(paymentMethodService.isActiveAndOwnedBy(
                 MEMBER_ID,
                 PAYMENT_METHOD_ID
@@ -118,12 +126,47 @@ class ReservationApplicationServiceTest {
                 MEMBER_ID,
                 PAYMENT_METHOD_ID
         );
+        verify(hospitalService).assertReservationRequestAvailable(HOSPITAL_ID);
         verify(reservationService).request(
                 MEMBER_ID,
                 request,
                 "초코",
                 "DOG"
         );
+    }
+
+    @Test
+    @DisplayName("폐업 등으로 예약할 수 없는 병원에는 새 예약을 요청할 수 없다")
+    void request_unavailableHospital_throwsHospitalReservationNotAvailable() {
+        ReservationRequest request = new ReservationRequest(
+                PET_ID,
+                SLOT_ID,
+                PAYMENT_METHOD_ID
+        );
+        given(reservationService.findSlot(SLOT_ID)).willReturn(slot());
+        given(petService.findOwnedActivePet(MEMBER_ID, PET_ID))
+                .willReturn(Optional.of(pet("초코", PetSpecies.DOG)));
+        given(paymentMethodService.isActiveAndOwnedBy(
+                MEMBER_ID,
+                PAYMENT_METHOD_ID
+        )).willReturn(true);
+        org.mockito.Mockito.doThrow(new ServiceException(
+                        HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE
+                ))
+                .when(hospitalService)
+                .assertReservationRequestAvailable(HOSPITAL_ID);
+
+        assertThatThrownBy(() -> applicationService.request(MEMBER_ID, request))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE);
+
+        verify(petService).findOwnedActivePet(MEMBER_ID, PET_ID);
+        verify(paymentMethodService).isActiveAndOwnedBy(
+                MEMBER_ID,
+                PAYMENT_METHOD_ID
+        );
+        verify(reservationService, never()).request(any(), any(), any(), any());
     }
 
     @Test
@@ -177,6 +220,39 @@ class ReservationApplicationServiceTest {
                 any(),
                 any()
         );
+    }
+
+    @Test
+    @DisplayName("보호자는 결제가 시작되기 전 REQUESTED 예약의 활성 본인 결제수단을 재지정할 수 있다")
+    void changePaymentMethod_beforePayment_updatesReservation() {
+        Reservation reservation = reservation();
+        ReservationPaymentMethodUpdateRequest request = new ReservationPaymentMethodUpdateRequest(8L);
+        given(reservationService.findMyReservationForUpdate(MEMBER_ID, 10L)).willReturn(reservation);
+        given(paymentQueryService.findStatusByReservationIdForUpdate(10L)).willReturn(Optional.empty());
+
+        applicationService.changePaymentMethod(MEMBER_ID, 10L, request);
+
+        assertThat(reservation.getPaymentMethodId()).isEqualTo(8L);
+        verify(paymentMethodService).assertActiveAndOwnedBy(MEMBER_ID, 8L);
+    }
+
+    @Test
+    @DisplayName("Payment 선기록이 있으면 예약 결제수단 재지정을 차단한다")
+    void changePaymentMethod_afterPaymentStarted_throws() {
+        Reservation reservation = reservation();
+        given(reservationService.findMyReservationForUpdate(MEMBER_ID, 10L)).willReturn(reservation);
+        given(paymentQueryService.findStatusByReservationIdForUpdate(10L))
+                .willReturn(Optional.of(PaymentStatus.PENDING));
+
+        assertThatThrownBy(() -> applicationService.changePaymentMethod(
+                MEMBER_ID,
+                10L,
+                new ReservationPaymentMethodUpdateRequest(8L)
+        ))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.PAYMENT_ALREADY_STARTED);
+        assertThat(reservation.getPaymentMethodId()).isEqualTo(PAYMENT_METHOD_ID);
     }
 
     @Test

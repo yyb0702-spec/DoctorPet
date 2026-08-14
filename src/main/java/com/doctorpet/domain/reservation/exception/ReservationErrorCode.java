@@ -103,6 +103,24 @@ public enum ReservationErrorCode implements ErrorCode {
             HttpStatus.INTERNAL_SERVER_ERROR,
             "RESERVATION_016",
             "체크인 이력을 찾을 수 없습니다."
+    ),
+
+    HOSPITAL_CANCEL_REASON_REQUIRED(
+            HttpStatus.BAD_REQUEST,
+            "RESERVATION_017",
+            "병원 예약 취소 사유는 필수이며 255자 이하여야 합니다."
+    ),
+
+    PAYMENT_METHOD_CHANGE_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "RESERVATION_018",
+            "현재 예약 상태에서는 결제수단을 변경할 수 없습니다."
+    ),
+
+    PAYMENT_ALREADY_STARTED(
+            HttpStatus.CONFLICT,
+            "RESERVATION_019",
+            "결제가 시작된 예약은 결제수단을 변경할 수 없습니다."
     );
 
     private final HttpStatus httpStatus;

@@ -68,16 +68,26 @@
 
 ### 결제·오프라인 정산 (STRICT)
 
-- 필수: PRD §6-7, SA §5-2(결제 상태), SA §9-4(멱등·실패 분기), SA §8-7, SA §4 payments·payment_methods
-- 조건부: 결제수단 등록·삭제가 바뀌면 SA §4 payment_methods 삭제 정책 절을 추가한다.
+- 필수: PRD §6-7, SA §5-2(결제 상태), SA §9-4(멱등·실패 분기·항목·영수증·셀프 복구·정정 재청구), SA §8-7, SA §4 payments·payment_methods
+- 조건부: 결제수단 등록·삭제·기본값이 바뀌면 SA §4 payment_methods 절을, 청구 항목·영수증을 다루면 SA §4 payment_items를 추가한다.
 - 제외: AI·검색 문서는 읽지 않는다.
-- 환불: 빌링키 자동결제 **전액 환불은 MVP+에서 구현됨**(SA §5-2·§9-4, `payments.REFUNDED`·`payment_refunds`) — 유지보수는 이 hot path다. **정정 재청구·부분 환불은 미도입**으로, 고도화 결제.md에서 제안 단계로 다루며 정본(AGENTS·SA) 갱신 전에는 구현하지 않는다.
+- 환불: 빌링키 자동결제 **전액 환불은 MVP+에서 구현됨**(SA §5-2·§9-4, `payments.REFUNDED`·`payment_refunds`) — 유지보수는 이 hot path다.
+- 결제수단 기본값·예약 결제수단 재지정: **구현 완료**(PR #152, SA §4 payment_methods·§8-7).
+- 항목화·JSON 영수증·`OFFLINE_REQUIRED` 셀프 복구·정정 재청구: **정책은 정본(AGENTS 확정 결정·PRD §6-7·SA §4·§9-4)에서 확정됐고 구현은 미착수**다. 구현 순서·상세는 고도화 [결제.md](../enhancement/결제.md)를 함께 읽는다. 정정 재청구 구현 PR은 `payments.UNIQUE(reservation_id)` → 활성 결제 UNIQUE 교체를 포함하므로 STRICT다.
+- 부분 환불: **여전히 계약 미확정**이다. PRD·SA에 계약이 확정 반영되기 전에는 구현하지 않는다(결제.md 3.5-b).
 
 ### 알림
 
 - 필수: SA §9-8(MVP 폴링 + MVP2 단방향 SSE 확정·NotificationPusher 추상화·티켓 인증·커밋 후 전송 불변식), SA §8-8, SA §4 notifications
 - 조건부: 예약·노쇼 이벤트 발행이 쟁점이면 예약 hot path(SA §5-1)와 `ReservationNotificationPublisher`(#88 연동)를 추가한다.
-- 주의: 양방향 채널(WebSocket+STOMP)은 채팅 도입 시에만 재논의한다 — 단방향 알림은 SSE로 확정(SA 부록 A #1).
+- 주의: 알림 전송은 SSE를 유지한다. WebSocket은 채팅 전용이므로 알림 hot path에 포함하지 않는다.
+
+### 병원↔회원 채팅
+
+- 필수: [채팅 고도화 문서](../enhancement/채팅.md), SA §6(인증·인가), SA §9-8(알림=SSE), SA §4 reservations, [코드컨벤션](../architecture/DoctorPet-코드컨벤션.md)
+- 전송: 채팅은 native WebSocket 위의 STOMP를 사용하고, 단일 인스턴스 Spring SimpleBroker를 기준으로 한다. 다중 인스턴스 fan-out은 후속 범위다.
+- 인증·인가: 전용 `/ws/chat` HTTP Upgrade 경로만 CONNECT까지 도달하도록 허용하고, STOMP CONNECT `Authorization: Bearer <accessToken>`을 `ChannelInterceptor`에서 검증한다. URL 쿼리 JWT와 클라이언트가 전달한 `memberId`·`hospitalId`는 신뢰하지 않으며, 구독·전송 권한은 서버가 예약 관계로 확인한다.
+- 주의: 채팅 정책은 `docs/enhancement/채팅.md` 델타를 기준으로 하며, 구현 PR에서 SA의 채팅 절로 승격한다. 채팅 메시지는 AFTER_COMMIT 이후 전달하고, 재연결 누락분은 인증된 채팅 조회 API로 복구한다.
 
 ### 병원 진료시간·임시 휴무·슬롯 생성
 
