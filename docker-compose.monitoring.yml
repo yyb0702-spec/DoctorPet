@@ -9,11 +9,23 @@
 # 보여줄 서버였다 — blue/green 컷오버 로직과 무관하게 nginx처럼 배포 주기와 상관없이 상시
 # 떠 있는 보조 서비스로 취급한다.
 #
-# 실행은 메인 파일과 분리해서 한다: `docker compose -f docker-compose.monitoring.yml up -d
-# --wait prometheus grafana`. 별도 파일이지만 -p(프로젝트 이름)를 따로 지정하지 않는 한
-# Compose는 디렉터리 이름을 프로젝트 이름으로 쓰므로, 메인 파일이 만든 것과 같은 기본
-# 네트워크에 자동으로 붙는다 — prometheus가 app-blue/app-green을 서비스명으로 스크레이프할
-# 수 있는 이유다(monitoring/prometheus.yml 참고).
+# 실행은 메인 파일과 분리해서 한다: `docker compose -p doctorpet-monitoring
+# -f docker-compose.monitoring.yml up -d --wait prometheus grafana`.
+#
+# 프로젝트 이름을 doctorpet-monitoring으로 명시한다(재재검토 지적 P2-1) — 예전엔 -p를 따로
+# 지정하지 않아 두 compose 파일이 같은 디렉터리에서 실행된다는 이유만으로 같은 프로젝트
+# ("doctorpet")로 묶였다. 이러면 한쪽 파일만 대상으로 하는 모든 compose 명령이 다른 쪽
+# 컨테이너를 "orphan"으로 보고 매번 `Found orphan containers ... --remove-orphans` 경고를
+# 낸다 — 그 경고를 보고 반사적으로 --remove-orphans를 붙이면(메인 파일에 붙이면
+# prometheus/grafana가, 이 파일에 붙이면 mysql/redis/nginx/app-blue/green이 삭제된다) 운영
+# 스택이 통째로 내려갈 수 있는 지뢰였다. 프로젝트를 분리하면 orphan 판정이 프로젝트별로
+# 이뤄져 이 위험이 구조적으로 사라진다.
+#
+# 프로젝트를 분리해도 스크레이프는 그대로 동작한다 — 아래 networks.default.external로 메인
+# 프로젝트("doctorpet")가 만드는 doctorpet_default 네트워크를 이름으로 직접 참조하기
+# 때문이다(아래 volumes 다음 networks 섹션 참고). prometheus가 app-blue/app-green을
+# 서비스명으로 스크레이프할 수 있는 이유는 두 프로젝트가 물리적으로 같은 네트워크를 쓰기
+# 때문이지, 같은 프로젝트에 속해서가 아니다.
 services:
   prometheus:
     image: prom/prometheus:v2.53.0
@@ -92,3 +104,15 @@ services:
 volumes:
   prometheus-data:
   grafana-data:
+
+# 메인 docker-compose.yml이 만드는 기본 네트워크(프로젝트명 doctorpet → doctorpet_default)를
+# 이름으로 직접 참조한다(재재검토 지적 P2-1). external: true는 "이 네트워크는 이 프로젝트가
+# 만들거나 관리하지 않고, 이미 존재하는 걸 그대로 쓴다"는 뜻이라 위에서 -p로 프로젝트를
+# 분리해도 실제 컨테이너 간 연결(prometheus → app-blue:8081 등)은 그대로 유지된다.
+# 메인 스택을 먼저 기동해 doctorpet_default가 존재하는 상태에서만 이 파일을 올릴 것 — 없는
+# 상태로 올리면 "network doctorpet_default declared as external, but could not be found"로
+# 명확하게 실패한다(조용히 새 네트워크를 만들어버리는 것보다 이 실패가 안전하다).
+networks:
+  default:
+    name: doctorpet_default
+    external: true
