@@ -9,7 +9,9 @@ import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.exception.ReservationWaitlistErrorCode;
+import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.global.exception.ServiceException;
@@ -75,6 +77,9 @@ class ReservationWaitlistConcurrencyIntegrationTest {
 
     @MockitoBean
     private ReservationApplicationService reservationApplicationService;
+
+    @MockitoBean
+    private MemberService memberService;
 
     private Long slotId;
 
@@ -344,8 +349,9 @@ class ReservationWaitlistConcurrencyIntegrationTest {
         }
         for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
             if (cause instanceof ServiceException serviceException
-                    && serviceException.getErrorCode()
-                    == ReservationWaitlistErrorCode.SLOT_NOT_RESERVED) {
+                    && (serviceException.getErrorCode()
+                    == ReservationWaitlistErrorCode.SLOT_NOT_RESERVED
+                    || serviceException.getErrorCode() == SlotErrorCode.INVALID_STATUS)) {
                 return true;
             }
         }

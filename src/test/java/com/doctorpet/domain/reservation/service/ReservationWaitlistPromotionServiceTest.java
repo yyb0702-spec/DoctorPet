@@ -13,6 +13,9 @@ import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
+import com.doctorpet.domain.member.exception.MemberErrorCode;
+import com.doctorpet.domain.member.service.MemberService;
+import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -39,6 +42,9 @@ class ReservationWaitlistPromotionServiceTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Mock
+    private MemberService memberService;
+
+    @Mock
     private ReservationNotificationPublisher notificationPublisher;
 
     private ReservationWaitlistPromotionService promotionService;
@@ -54,6 +60,7 @@ class ReservationWaitlistPromotionServiceTest {
         promotionService = new ReservationWaitlistPromotionService(
                 reservationWaitlistRepository,
                 reservationSlotRepository,
+                memberService,
                 notificationPublisher,
                 properties,
                 fixedClock
@@ -106,6 +113,52 @@ class ReservationWaitlistPromotionServiceTest {
         assertThat(promotionService.offerFirstWaiting(SLOT_ID)).isEmpty();
         verify(notificationPublisher, never()).publishWaitlistOffered(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("4시간 경계 전 10분보다 짧은 제안은 리드타임 마감 시각에 만료된다")
+    void offerFirstWaiting_nearLeadTime_capsExpirationAtLatestAcceptTime() {
+        ReservationSlot slot = ReservationSlot.create(
+                3L, NOW.plusHours(4).plusMinutes(5), NOW.plusHours(4).plusMinutes(35));
+        ReservationWaitlist waitlist = ReservationWaitlist.waiting(1L, SLOT_ID);
+        ReflectionTestUtils.setField(waitlist, "id", 11L);
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(java.util.Optional.of(slot));
+        given(reservationWaitlistRepository.findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(
+                SLOT_ID, ReservationWaitlistStatus.WAITING)).willReturn(List.of(waitlist));
+
+        ReservationWaitlist offered = promotionService.offerFirstWaiting(SLOT_ID).orElseThrow();
+
+        assertThat(offered.getOfferExpiresAt()).isEqualTo(NOW.plusMinutes(5));
+        verify(notificationPublisher).publishWaitlistOffered(1L, 11L, NOW.plusMinutes(5));
+    }
+
+    @Test
+    @DisplayName("정확히 4시간 전에는 수락 가능한 시간이 없어 승급 제안을 만들지 않는다")
+    void offerFirstWaiting_atLeadTimeBoundary_returnsEmpty() {
+        ReservationSlot slot = ReservationSlot.create(
+                3L, NOW.plusHours(4), NOW.plusHours(4).plusMinutes(30));
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(java.util.Optional.of(slot));
+
+        assertThat(promotionService.offerFirstWaiting(SLOT_ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("탈퇴한 FIFO 첫 대기자는 CANCELED로 건너뛰고 다음 활성 보호자에게 제안한다")
+    void offerFirstWaiting_skipsWithdrawnMember() {
+        ReservationWaitlist withdrawn = ReservationWaitlist.waiting(1L, SLOT_ID);
+        ReservationWaitlist active = ReservationWaitlist.waiting(2L, SLOT_ID);
+        ReflectionTestUtils.setField(active, "id", 12L);
+        given(reservationSlotRepository.findById(SLOT_ID)).willReturn(java.util.Optional.of(reservableSlot()));
+        given(reservationWaitlistRepository.findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(
+                SLOT_ID, ReservationWaitlistStatus.WAITING)).willReturn(List.of(withdrawn, active));
+        org.mockito.Mockito.doThrow(new ServiceException(MemberErrorCode.MEMBER_NOT_FOUND))
+                .when(memberService).assertActiveMember(1L);
+
+        ReservationWaitlist offered = promotionService.offerFirstWaiting(SLOT_ID).orElseThrow();
+
+        assertThat(withdrawn.getStatus()).isEqualTo(ReservationWaitlistStatus.CANCELED);
+        assertThat(offered).isSameAs(active);
+        verify(notificationPublisher).publishWaitlistOffered(2L, 12L, NOW.plusMinutes(10));
     }
 
     @Test

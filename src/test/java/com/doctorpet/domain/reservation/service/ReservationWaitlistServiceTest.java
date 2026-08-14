@@ -283,6 +283,23 @@ class ReservationWaitlistServiceTest {
                 .isEqualTo(ReservationWaitlistErrorCode.CANCELLATION_NOT_ALLOWED);
     }
 
+    @Test
+    @DisplayName("회원 탈퇴 시 WAITING은 취소하고 OFFERED는 슬롯 반환까지 처리한다")
+    void cancelAllForWithdrawal_cancelsWaitingAndReleasesOfferedSlot() {
+        ReservationWaitlist waiting = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        ReservationWaitlist offered = offeredWaitlist(11L);
+        given(reservationWaitlistRepository.findByMemberIdAndStatusIn(
+                MEMBER_ID,
+                List.of(ReservationWaitlistStatus.WAITING, ReservationWaitlistStatus.OFFERED)))
+                .willReturn(List.of(waiting, offered));
+
+        reservationWaitlistService.cancelAllForWithdrawal(MEMBER_ID);
+
+        assertThat(waiting.getStatus()).isEqualTo(ReservationWaitlistStatus.CANCELED);
+        assertThat(offered.getStatus()).isEqualTo(ReservationWaitlistStatus.CANCELED);
+        verify(reservationSlotReleaseService).release(SLOT_ID);
+    }
+
     private ReservationSlot reservedSlot() {
         LocalDateTime startAt = LocalDateTime.now().plusDays(1);
         ReservationSlot slot = ReservationSlot.create(3L, startAt, startAt.plusMinutes(30));

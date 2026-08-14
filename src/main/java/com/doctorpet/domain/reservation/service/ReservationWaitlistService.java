@@ -76,6 +76,31 @@ public class ReservationWaitlistService {
         waitlist.cancel(LocalDateTime.now(clock));
     }
 
+    /**
+     * 회원 탈퇴 확정 전 남은 대기열을 종료한다. OFFERED는 슬롯을 실제로 점유하고 있으므로 상태를
+     * 먼저 flush한 뒤 반환·다음 승급을 같은 트랜잭션에서 이어간다.
+     */
+    @Transactional
+    public void cancelAllForWithdrawal(Long memberId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<ReservationWaitlist> waitlists = reservationWaitlistRepository.findByMemberIdAndStatusIn(
+                memberId,
+                List.of(
+                        com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.WAITING,
+                        com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED
+                )
+        );
+        for (ReservationWaitlist waitlist : waitlists) {
+            boolean offered = waitlist.getStatus()
+                    == com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED;
+            waitlist.cancelForWithdrawal(now);
+            reservationWaitlistRepository.flush();
+            if (offered) {
+                reservationSlotReleaseService.release(waitlist.getSlotId());
+            }
+        }
+    }
+
     @Transactional
     public ReservationResponse accept(
             Long memberId,

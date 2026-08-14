@@ -37,10 +37,17 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
 
     List<ReservationWaitlist> findAllByMemberIdOrderByCreatedAtDescIdDesc(Long memberId);
 
+    List<ReservationWaitlist> findByMemberIdAndStatusIn(
+            Long memberId,
+            List<ReservationWaitlistStatus> statuses
+    );
+
     List<ReservationWaitlist> findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(
             Long slotId,
             ReservationWaitlistStatus status
     );
+
+    boolean existsBySlotIdAndStatus(Long slotId, ReservationWaitlistStatus status);
 
     List<ReservationWaitlist> findByStatusAndOfferExpiresAtLessThanEqualOrderByOfferExpiresAtAscIdAsc(
             ReservationWaitlistStatus status,

@@ -1,6 +1,10 @@
 package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
+import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
+import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReservationSlotReleaseService {
 
     private final ReservationSlotRepository reservationSlotRepository;
+    private final ReservationWaitlistRepository reservationWaitlistRepository;
     private final ReservationWaitlistPromotionService promotionService;
 
     @Transactional
@@ -33,6 +38,16 @@ public class ReservationSlotReleaseService {
 
         // 대기열 등록이 후보 조회와 OPEN 조건부 UPDATE 사이에 커밋됐을 수 있다. 다시 FIFO 승급을
         // 시도하면 새 WAITING을 OFFERED로 전이하고, 이미 다른 반환 처리에서 승급된 경우에는 no-op이다.
-        promotionService.offerFirstWaiting(slotId);
+        if (promotionService.offerFirstWaiting(slotId).isPresent()) {
+            return;
+        }
+        if (reservationWaitlistRepository.existsBySlotIdAndStatus(
+                slotId, ReservationWaitlistStatus.OFFERED)) {
+            return;
+        }
+
+        // 반환 대상이 이미 OPEN이면 현재 호출은 슬롯 반환을 성립시키지 못한 것이다. 예약 상태만
+        // 취소된 채 커밋되지 않도록 예외를 전파해 상위 취소·거절 트랜잭션을 함께 롤백한다.
+        throw new ServiceException(SlotErrorCode.INVALID_STATUS);
     }
 }

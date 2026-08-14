@@ -8,6 +8,8 @@ import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
+import com.doctorpet.domain.member.exception.MemberErrorCode;
+import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -32,6 +34,7 @@ public class ReservationWaitlistPromotionService {
 
     private final ReservationWaitlistRepository reservationWaitlistRepository;
     private final ReservationSlotRepository reservationSlotRepository;
+    private final MemberService memberService;
     private final ReservationNotificationPublisher notificationPublisher;
     private final ReservationWaitlistProperties properties;
     private final Clock clock;
@@ -41,32 +44,45 @@ public class ReservationWaitlistPromotionService {
         ReservationSlot slot = reservationSlotRepository.findById(slotId)
                 .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
         LocalDateTime offeredAt = LocalDateTime.now(clock);
-        // 제안도 일반 예약과 같은 리드타임을 적용한다. 4시간 이내에는 새 OFFERED를 만들지 않고
-        // 슬롯 반환 서비스가 OPEN으로 되돌린다.
-        if (slot.getStartAt().isBefore(offeredAt.plus(LEAD_TIME))) {
+        LocalDateTime latestAcceptAt = slot.getStartAt().minus(LEAD_TIME);
+        // 제안 시각부터 수락 마감까지 유효한 구간이 있어야 한다. 정확히 4시간 전이거나 그 뒤면
+        // OFFERED를 만들지 않고 슬롯 반환 서비스가 OPEN으로 되돌린다.
+        if (!latestAcceptAt.isAfter(offeredAt)) {
             return Optional.empty();
         }
-        return reservationWaitlistRepository
-                .findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(
-                        slotId,
-                        ReservationWaitlistStatus.WAITING
-                )
-                .stream()
-                .findFirst()
-                .map(waitlist -> {
-                    LocalDateTime expiresAt = offeredAt.plusMinutes(properties.getOfferValidityMinutes());
-                    waitlist.offer(
-                            offeredAt,
-                            expiresAt
-                    );
-                    // 슬롯 반환을 동시에 처리한 두 트랜잭션이 같은 FIFO 대기자를 읽어도,
-                    // @Version 충돌을 이 경계에서 즉시 감지해 한 쪽만 후속 처리를 계속한다.
-                    reservationWaitlistRepository.flush();
-                    // OFFERED 전이가 실제로 저장된 경우에만 같은 트랜잭션에 알림을 저장한다.
-                    // NotificationService의 AFTER_COMMIT 리스너가 SSE 전송을 별도로 수행한다.
-                    notificationPublisher.publishWaitlistOffered(
-                            waitlist.getMemberId(), waitlist.getId(), expiresAt);
-                    return waitlist;
-                });
+        for (ReservationWaitlist waitlist : reservationWaitlistRepository
+                .findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(slotId, ReservationWaitlistStatus.WAITING)) {
+            if (!isActiveMember(waitlist)) {
+                waitlist.cancelForWithdrawal(offeredAt);
+                reservationWaitlistRepository.flush();
+                continue;
+            }
+            LocalDateTime expiresAt = offeredAt.plusMinutes(properties.getOfferValidityMinutes());
+            if (expiresAt.isAfter(latestAcceptAt)) {
+                expiresAt = latestAcceptAt;
+            }
+            waitlist.offer(offeredAt, expiresAt);
+            // 슬롯 반환을 동시에 처리한 두 트랜잭션이 같은 FIFO 대기자를 읽어도,
+            // @Version 충돌을 이 경계에서 즉시 감지해 한 쪽만 후속 처리를 계속한다.
+            reservationWaitlistRepository.flush();
+            // OFFERED 전이가 실제로 저장된 경우에만 같은 트랜잭션에 알림을 저장한다.
+            // NotificationService의 AFTER_COMMIT 리스너가 SSE 전송을 별도로 수행한다.
+            notificationPublisher.publishWaitlistOffered(
+                    waitlist.getMemberId(), waitlist.getId(), expiresAt);
+            return Optional.of(waitlist);
+        }
+        return Optional.empty();
+    }
+
+    private boolean isActiveMember(ReservationWaitlist waitlist) {
+        try {
+            memberService.assertActiveMember(waitlist.getMemberId());
+            return true;
+        } catch (ServiceException exception) {
+            if (exception.getErrorCode() == MemberErrorCode.MEMBER_NOT_FOUND) {
+                return false;
+            }
+            throw exception;
+        }
     }
 }

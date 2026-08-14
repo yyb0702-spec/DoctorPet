@@ -112,6 +112,16 @@ public class ReservationWaitlist extends BaseEntity {
         this.canceledAt = canceledAt;
     }
 
+    /** 회원 탈퇴 시 남아 있는 대기 또는 제안을 종료한다. */
+    public void cancelForWithdrawal(LocalDateTime canceledAt) {
+        if (status != ReservationWaitlistStatus.WAITING
+                && status != ReservationWaitlistStatus.OFFERED) {
+            throw new IllegalStateException("탈퇴 시에는 WAITING 또는 OFFERED 대기열만 취소할 수 있습니다.");
+        }
+        this.status = ReservationWaitlistStatus.CANCELED;
+        this.canceledAt = canceledAt;
+    }
+
     public boolean isOfferExpiredAt(LocalDateTime now) {
         return status == ReservationWaitlistStatus.OFFERED
                 && offerExpiresAt != null

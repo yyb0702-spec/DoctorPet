@@ -2,9 +2,11 @@ package com.doctorpet.domain.reservation.service;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +24,9 @@ class ReservationSlotReleaseServiceTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Mock
+    private ReservationWaitlistRepository reservationWaitlistRepository;
+
+    @Mock
     private ReservationWaitlistPromotionService promotionService;
 
     private ReservationSlotReleaseService releaseService;
@@ -30,6 +35,7 @@ class ReservationSlotReleaseServiceTest {
     void setUp() {
         releaseService = new ReservationSlotReleaseService(
                 reservationSlotRepository,
+                reservationWaitlistRepository,
                 promotionService
         );
     }
@@ -66,5 +72,20 @@ class ReservationSlotReleaseServiceTest {
         releaseService.release(SLOT_ID);
 
         verify(promotionService, org.mockito.Mockito.times(2)).offerFirstWaiting(SLOT_ID);
+    }
+
+    @Test
+    @DisplayName("슬롯 반환 또는 승급이 최종적으로 성립하지 않으면 상위 예약 변경을 롤백한다")
+    void release_neitherOpenNorOffer_throwsInvalidStatus() {
+        given(promotionService.offerFirstWaiting(SLOT_ID)).willReturn(Optional.empty(), Optional.empty());
+        given(reservationSlotRepository.openIfNoWaitingWaitlist(SLOT_ID)).willReturn(0);
+        given(reservationWaitlistRepository.existsBySlotIdAndStatus(
+                SLOT_ID, com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED))
+                .willReturn(false);
+
+        assertThatThrownBy(() -> releaseService.release(SLOT_ID))
+                .isInstanceOf(com.doctorpet.global.exception.ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.domain.reservation.exception.SlotErrorCode.INVALID_STATUS);
     }
 }
