@@ -85,6 +85,7 @@ class HospitalSearchCacheBaselineIntegrationTest {
                 cacheRepository,
                 temporaryClosureRepository,
                 null,
+                null,
                 null
         );
 

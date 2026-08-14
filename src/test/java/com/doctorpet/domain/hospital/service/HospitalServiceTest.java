@@ -18,6 +18,8 @@ import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureReposito
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
 import com.doctorpet.domain.review.service.ReviewQueryService;
+import com.doctorpet.domain.hospital.dto.query.HospitalResponseMetrics;
+import com.doctorpet.domain.reservation.service.HospitalResponseMetricsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,6 +74,9 @@ class HospitalServiceTest {
     @Mock
     private HospitalFavoriteService hospitalFavoriteService;
 
+    @Mock
+    private HospitalResponseMetricsService hospitalResponseMetricsService;
+
     private HospitalService hospitalService;
 
     @BeforeEach
@@ -83,10 +88,13 @@ class HospitalServiceTest {
                 hospitalSearchCacheRepository,
                 temporaryClosureRepository,
                 hospitalFavoriteService,
-                reviewQueryService
+                reviewQueryService,
+                hospitalResponseMetricsService
         );
         lenient().when(reviewQueryService.getRatingSummary(anyLong()))
                 .thenReturn(ReviewRatingSummary.empty());
+        lenient().when(hospitalResponseMetricsService.getMetrics(anyLong()))
+                .thenReturn(HospitalResponseMetrics.unavailable());
     }
 
     @Test
@@ -121,6 +129,35 @@ class HospitalServiceTest {
         assertThat(response.emergency()).isFalse();
         assertThat(response.capabilities())
                 .containsExactly(CapabilityValue.DOG, CapabilityValue.XRAY);
+    }
+
+    @Test
+    void 제휴_병원_상세에_예약_응답_지표를_반환한다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalDetail detail = createDetail(hospital);
+        givenPartnerHospital(hospital, detail);
+        given(hospitalResponseMetricsService.getMetrics(HOSPITAL_ID))
+                .willReturn(new HospitalResponseMetrics(80, 15));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.reservationResponseRate()).isEqualTo(80);
+        assertThat(response.averageApprovalMinutes()).isEqualTo(15);
+    }
+
+    @Test
+    void 비제휴_병원_상세는_예약_응답_지표를_반환하지_않는다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.reservationResponseRate()).isNull();
+        assertThat(response.averageApprovalMinutes()).isNull();
+        verifyNoInteractions(hospitalResponseMetricsService);
     }
 
     @Test

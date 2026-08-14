@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalResponseMetrics;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
@@ -28,6 +29,7 @@ import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
 import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
 import com.doctorpet.domain.review.service.ReviewQueryService;
+import com.doctorpet.domain.reservation.service.HospitalResponseMetricsService;
 import com.doctorpet.global.exception.CommonErrorCode;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +70,7 @@ public class HospitalService {
     private final HospitalTemporaryClosureRepository temporaryClosureRepository;
     private final HospitalFavoriteService hospitalFavoriteService;
     private final ReviewQueryService reviewQueryService;
+    private final HospitalResponseMetricsService hospitalResponseMetricsService;
 
     @Transactional(readOnly = true)
     public boolean exists(Long hospitalId) {
@@ -120,7 +123,8 @@ public class HospitalService {
                     null,
                     null,
                     null,
-                    ratingSummary
+                    ratingSummary,
+                    HospitalResponseMetrics.unavailable()
             ).withFavorite(favorite);
         }
 
@@ -136,6 +140,7 @@ public class HospitalService {
                 });
 
         List<HospitalCapability> capabilities = hospitalCapabilityRepository.findAllByHospital(hospital);
+        HospitalResponseMetrics responseMetrics = hospitalResponseMetricsService.getMetrics(hospitalId);
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         Set<LocalDate> closureDates = temporaryClosureRepository.findClosures(
                         List.of(hospitalId),
@@ -154,7 +159,8 @@ public class HospitalService {
                         closureDates,
                         now
                 ),
-                ratingSummary
+                ratingSummary,
+                responseMetrics
         ).withFavorite(favorite);
     }
 

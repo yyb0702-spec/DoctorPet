@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalCapability;
 import com.doctorpet.domain.hospital.entity.HospitalDetail;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.dto.query.HospitalResponseMetrics;
 import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
 
 import java.math.BigDecimal;
@@ -31,7 +32,9 @@ public record HospitalDetailResponse(
         List<CapabilityValue> capabilities,
         BigDecimal averageRating,
         long reviewCount,
-        boolean favorite
+        boolean favorite,
+        Integer reservationResponseRate,
+        Integer averageApprovalMinutes
 ) {
 
     private static final String NON_PARTNER_NOTICE =
@@ -42,7 +45,8 @@ public record HospitalDetailResponse(
             HospitalDetail detail,
             List<HospitalCapability> hospitalCapabilities,
             Boolean openNow,
-            ReviewRatingSummary ratingSummary
+            ReviewRatingSummary ratingSummary,
+            HospitalResponseMetrics responseMetrics
     ) {
         boolean partner = hospital.getPartnershipStatus()
                 == PartnershipStatus.PARTNER;
@@ -64,7 +68,51 @@ public record HospitalDetailResponse(
                 partner ? toCapabilities(hospitalCapabilities) : null,
                 ratingSummary.averageRating(),
                 ratingSummary.reviewCount(),
-                false
+                false,
+                partner ? responseMetrics.reservationResponseRate() : null,
+                partner ? responseMetrics.averageApprovalMinutes() : null
+        );
+    }
+
+    public HospitalDetailResponse(
+            Long hospitalId,
+            String name,
+            String address,
+            String phoneNumber,
+            BusinessStatus businessStatus,
+            PartnershipStatus partnershipStatus,
+            String partnershipNotice,
+            Boolean openNow,
+            Boolean surgeryAvailable,
+            Boolean hospitalizationAvailable,
+            Boolean nightCare,
+            Boolean emergency,
+            List<HospitalBusinessHourResponse> businessHours,
+            List<CapabilityValue> capabilities,
+            BigDecimal averageRating,
+            long reviewCount,
+            boolean favorite
+    ) {
+        this(
+                hospitalId,
+                name,
+                address,
+                phoneNumber,
+                businessStatus,
+                partnershipStatus,
+                partnershipNotice,
+                openNow,
+                surgeryAvailable,
+                hospitalizationAvailable,
+                nightCare,
+                emergency,
+                businessHours,
+                capabilities,
+                averageRating,
+                reviewCount,
+                favorite,
+                null,
+                null
         );
     }
 
@@ -86,7 +134,9 @@ public record HospitalDetailResponse(
                 capabilities,
                 averageRating,
                 reviewCount,
-                favorite
+                favorite,
+                reservationResponseRate,
+                averageApprovalMinutes
         );
     }
 
