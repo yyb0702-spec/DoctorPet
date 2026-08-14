@@ -103,6 +103,15 @@ public class ReservationWaitlist extends BaseEntity {
         this.respondedAt = expiredAt;
     }
 
+    /** 보호자는 아직 승급 제안을 받지 않은 대기만 취소할 수 있다. */
+    public void cancel(LocalDateTime canceledAt) {
+        if (status != ReservationWaitlistStatus.WAITING) {
+            throw new IllegalStateException("WAITING 상태의 대기열만 취소할 수 있습니다.");
+        }
+        this.status = ReservationWaitlistStatus.CANCELED;
+        this.canceledAt = canceledAt;
+    }
+
     public boolean isOfferExpiredAt(LocalDateTime now) {
         return status == ReservationWaitlistStatus.OFFERED
                 && offerExpiresAt != null

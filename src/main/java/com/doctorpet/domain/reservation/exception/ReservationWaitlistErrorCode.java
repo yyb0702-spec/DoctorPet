@@ -37,6 +37,12 @@ public enum ReservationWaitlistErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "WAITLIST_005",
             "승급 제안의 응답 시간이 만료되었습니다."
+    ),
+
+    CANCELLATION_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "WAITLIST_006",
+            "WAITING 상태의 예약 대기열만 취소할 수 있습니다."
     );
 
     private final HttpStatus httpStatus;

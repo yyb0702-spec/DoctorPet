@@ -22,15 +22,20 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
     @Query(value = """
             insert into reservation_waitlists
                    (member_id, slot_id, status, created_at, updated_at, version)
-            values (:memberId, :slotId, 'WAITING', now(6), now(6), 0)
-            on duplicate key update id = id
+            select :memberId, slot.id, 'WAITING', now(6), now(6), 0
+              from reservation_slots slot
+             where slot.id = :slotId
+               and slot.status = 'RESERVED'
+            on duplicate key update id = reservation_waitlists.id
             """, nativeQuery = true)
-    int insertWaitingIfAbsent(
+    int insertWaitingIfSlotReserved(
             @Param("memberId") Long memberId,
             @Param("slotId") Long slotId
     );
 
     Optional<ReservationWaitlist> findByMemberIdAndSlotId(Long memberId, Long slotId);
+
+    List<ReservationWaitlist> findAllByMemberIdOrderByCreatedAtDescIdDesc(Long memberId);
 
     List<ReservationWaitlist> findBySlotIdAndStatusOrderByCreatedAtAscIdAsc(
             Long slotId,
@@ -43,14 +48,16 @@ public interface ReservationWaitlistRepository extends JpaRepository<Reservation
     );
 
     /**
-     * 수락 시점의 상태·만료 조건을 DB에서 한 번에 확인한다. 조회 후 엔티티 변경만으로는 만료 배치나
-     * 중복 수락 요청과 경합할 수 있으므로, 이 UPDATE가 1건 성공한 경우만 REQUESTED 생성을 이어간다.
+     * 수락 시점의 상태·만료 조건을 DB에서 한 번에 확인하고 version도 증가시킨다. 이미 OFFERED를 읽은
+     * 만료 배치·거절 요청은 flush 시 낙관적 락 충돌로 롤백되어, ACCEPTED 예약 생성 뒤 슬롯이 반환되는
+     * 상태 역전을 막는다.
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update ReservationWaitlist waitlist
                set waitlist.status = com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.ACCEPTED,
-                   waitlist.respondedAt = :respondedAt
+                   waitlist.respondedAt = :respondedAt,
+                   waitlist.version = waitlist.version + 1
              where waitlist.id = :waitlistId
                and waitlist.memberId = :memberId
                and waitlist.status = com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.OFFERED

@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -23,6 +25,7 @@ import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,7 +73,8 @@ class ReservationWaitlistControllerTest {
                         20L,
                         10L,
                         ReservationWaitlistStatus.WAITING,
-                        LocalDateTime.of(2026, 8, 13, 10, 0)
+                        LocalDateTime.of(2026, 8, 13, 10, 0),
+                        null, null, null, null
                 )
         );
 
@@ -124,6 +128,44 @@ class ReservationWaitlistControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
         verify(reservationWaitlistService).reject(1L, 20L);
+    }
+
+    @Test
+    @DisplayName("보호자는 자신의 대기열 목록과 상세를 조회할 수 있다")
+    void getMyWaitlistsAndDetail_guardian_returnsSuccess() throws Exception {
+        ReservationWaitlistResponse response = new ReservationWaitlistResponse(
+                20L, 10L, ReservationWaitlistStatus.WAITING,
+                LocalDateTime.of(2026, 8, 13, 10, 0), null, null, null, null);
+        given(reservationWaitlistService.getMyWaitlists(1L)).willReturn(List.of(response));
+        given(reservationWaitlistService.getMyWaitlist(1L, 20L)).willReturn(response);
+
+        mockMvc.perform(get("/api/reservation-waitlists")
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].waitlistId").value(20L));
+        mockMvc.perform(get("/api/reservation-waitlists/{waitlistId}", 20L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.waitlistId").value(20L));
+    }
+
+    @Test
+    @DisplayName("보호자는 WAITING 대기열을 취소할 수 있다")
+    void cancel_guardian_returnsSuccess() throws Exception {
+        mockMvc.perform(delete("/api/reservation-waitlists/{waitlistId}", 20L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        verify(reservationWaitlistService).cancel(1L, 20L);
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 보호자 대기열 API에 접근할 수 없다")
+    void waitlistApi_hospitalStaff_returnsForbidden() throws Exception {
+        mockMvc.perform(get("/api/reservation-waitlists")
+                        .with(authentication(memberAuthentication(2L, "HOSPITAL_STAFF"))))
+                .andExpect(status().isForbidden());
     }
 
     private Authentication memberAuthentication(Long memberId, String role) {

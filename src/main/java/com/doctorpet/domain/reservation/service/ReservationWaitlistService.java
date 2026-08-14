@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
 
@@ -42,14 +43,37 @@ public class ReservationWaitlistService {
             throw new ServiceException(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
         }
 
-        int inserted = reservationWaitlistRepository.insertWaitingIfAbsent(memberId, slotId);
+        int inserted = reservationWaitlistRepository.insertWaitingIfSlotReserved(memberId, slotId);
         if (inserted == 0) {
+            if (!reservationWaitlistRepository.existsByMemberIdAndSlotId(memberId, slotId)) {
+                throw new ServiceException(ReservationWaitlistErrorCode.SLOT_NOT_RESERVED);
+            }
             throw new ServiceException(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
         }
         ReservationWaitlist waitlist = reservationWaitlistRepository
                 .findByMemberIdAndSlotId(memberId, slotId)
                 .orElseThrow(() -> new IllegalStateException("저장한 예약 대기열을 찾을 수 없습니다."));
         return ReservationWaitlistResponse.from(waitlist);
+    }
+
+    public List<ReservationWaitlistResponse> getMyWaitlists(Long memberId) {
+        return reservationWaitlistRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId)
+                .stream()
+                .map(ReservationWaitlistResponse::from)
+                .toList();
+    }
+
+    public ReservationWaitlistResponse getMyWaitlist(Long memberId, Long waitlistId) {
+        return ReservationWaitlistResponse.from(findOwned(waitlistId, memberId));
+    }
+
+    @Transactional
+    public void cancel(Long memberId, Long waitlistId) {
+        ReservationWaitlist waitlist = findOwned(waitlistId, memberId);
+        if (waitlist.getStatus() != com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus.WAITING) {
+            throw new ServiceException(ReservationWaitlistErrorCode.CANCELLATION_NOT_ALLOWED);
+        }
+        waitlist.cancel(LocalDateTime.now(clock));
     }
 
     @Transactional

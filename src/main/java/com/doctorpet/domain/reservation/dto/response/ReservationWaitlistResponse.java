@@ -9,7 +9,11 @@ public record ReservationWaitlistResponse(
         Long waitlistId,
         Long slotId,
         ReservationWaitlistStatus status,
-        LocalDateTime requestedAt
+        LocalDateTime requestedAt,
+        LocalDateTime offeredAt,
+        LocalDateTime offerExpiresAt,
+        LocalDateTime respondedAt,
+        LocalDateTime canceledAt
 ) {
 
     public static ReservationWaitlistResponse from(ReservationWaitlist waitlist) {
@@ -17,7 +21,11 @@ public record ReservationWaitlistResponse(
                 waitlist.getId(),
                 waitlist.getSlotId(),
                 waitlist.getStatus(),
-                waitlist.getCreatedAt()
+                waitlist.getCreatedAt(),
+                waitlist.getOfferedAt(),
+                waitlist.getOfferExpiresAt(),
+                waitlist.getRespondedAt(),
+                waitlist.getCanceledAt()
         );
     }
 }

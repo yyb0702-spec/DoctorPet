@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.time.Clock;
 import java.time.ZoneId;
 import java.util.Optional;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,7 +74,7 @@ class ReservationWaitlistServiceTest {
                 .willReturn(false);
         ReservationWaitlist waitlist = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
         ReflectionTestUtils.setField(waitlist, "id", 10L);
-        given(reservationWaitlistRepository.insertWaitingIfAbsent(MEMBER_ID, SLOT_ID)).willReturn(1);
+        given(reservationWaitlistRepository.insertWaitingIfSlotReserved(MEMBER_ID, SLOT_ID)).willReturn(1);
         given(reservationWaitlistRepository.findByMemberIdAndSlotId(MEMBER_ID, SLOT_ID))
                 .willReturn(Optional.of(waitlist));
 
@@ -82,7 +83,7 @@ class ReservationWaitlistServiceTest {
         assertThat(result.waitlistId()).isEqualTo(10L);
         assertThat(result.slotId()).isEqualTo(SLOT_ID);
         assertThat(result.status()).isEqualTo(ReservationWaitlistStatus.WAITING);
-        verify(reservationWaitlistRepository).insertWaitingIfAbsent(MEMBER_ID, SLOT_ID);
+        verify(reservationWaitlistRepository).insertWaitingIfSlotReserved(MEMBER_ID, SLOT_ID);
     }
 
     @Test
@@ -100,7 +101,7 @@ class ReservationWaitlistServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ReservationWaitlistErrorCode.SLOT_NOT_RESERVED);
 
-        verify(reservationWaitlistRepository, never()).insertWaitingIfAbsent(any(), any());
+        verify(reservationWaitlistRepository, never()).insertWaitingIfSlotReserved(any(), any());
     }
 
     @Test
@@ -133,12 +134,14 @@ class ReservationWaitlistServiceTest {
         given(reservationSlotRepository.findById(SLOT_ID)).willReturn(Optional.of(reservedSlot()));
         given(reservationWaitlistRepository.existsByMemberIdAndSlotId(MEMBER_ID, SLOT_ID))
                 .willReturn(false);
-        given(reservationWaitlistRepository.insertWaitingIfAbsent(MEMBER_ID, SLOT_ID)).willReturn(0);
+        given(reservationWaitlistRepository.insertWaitingIfSlotReserved(MEMBER_ID, SLOT_ID)).willReturn(0);
+        given(reservationWaitlistRepository.existsByMemberIdAndSlotId(MEMBER_ID, SLOT_ID))
+                .willReturn(false);
 
         assertThatThrownBy(() -> reservationWaitlistService.register(MEMBER_ID, SLOT_ID))
                 .isInstanceOf(ServiceException.class)
                 .extracting("errorCode")
-                .isEqualTo(ReservationWaitlistErrorCode.ALREADY_REGISTERED);
+                .isEqualTo(ReservationWaitlistErrorCode.SLOT_NOT_RESERVED);
     }
 
     @Test
@@ -229,6 +232,55 @@ class ReservationWaitlistServiceTest {
         assertThat(expired).isTrue();
         assertThat(waitlist.getStatus()).isEqualTo(ReservationWaitlistStatus.EXPIRED);
         verify(reservationSlotReleaseService).release(SLOT_ID);
+    }
+
+    @Test
+    @DisplayName("보호자는 자신의 대기열 목록과 상세만 조회할 수 있다")
+    void getMyWaitlistsAndDetail_returnsOnlyOwnedWaitlists() {
+        ReservationWaitlist waitlist = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        ReflectionTestUtils.setField(waitlist, "id", 10L);
+        given(reservationWaitlistRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(MEMBER_ID))
+                .willReturn(List.of(waitlist));
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+
+        var list = reservationWaitlistService.getMyWaitlists(MEMBER_ID);
+        var detail = reservationWaitlistService.getMyWaitlist(MEMBER_ID, 10L);
+
+        assertThat(list).hasSize(1);
+        assertThat(detail.waitlistId()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("다른 보호자는 대기열 상세를 조회하거나 취소할 수 없다")
+    void getOrCancel_otherMembersWaitlist_throwsForbidden() {
+        ReservationWaitlist waitlist = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waitlist));
+
+        assertThatThrownBy(() -> reservationWaitlistService.getMyWaitlist(2L, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.global.exception.CommonErrorCode.FORBIDDEN);
+        assertThatThrownBy(() -> reservationWaitlistService.cancel(2L, 10L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.doctorpet.global.exception.CommonErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("보호자는 WAITING 대기열만 취소할 수 있고 OFFERED 취소는 차단된다")
+    void cancel_onlyWaitingIsAllowed() {
+        ReservationWaitlist waiting = ReservationWaitlist.waiting(MEMBER_ID, SLOT_ID);
+        given(reservationWaitlistRepository.findById(10L)).willReturn(Optional.of(waiting));
+
+        reservationWaitlistService.cancel(MEMBER_ID, 10L);
+
+        assertThat(waiting.getStatus()).isEqualTo(ReservationWaitlistStatus.CANCELED);
+        ReservationWaitlist offered = offeredWaitlist(11L);
+        given(reservationWaitlistRepository.findById(11L)).willReturn(Optional.of(offered));
+        assertThatThrownBy(() -> reservationWaitlistService.cancel(MEMBER_ID, 11L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationWaitlistErrorCode.CANCELLATION_NOT_ALLOWED);
     }
 
     private ReservationSlot reservedSlot() {

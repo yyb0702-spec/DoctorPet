@@ -1,9 +1,6 @@
 package com.doctorpet.domain.reservation.service;
 
-import com.doctorpet.domain.reservation.entity.ReservationSlot;
-import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
-import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,12 +22,17 @@ public class ReservationSlotReleaseService {
 
     @Transactional
     public void release(Long slotId) {
-        ReservationSlot slot = reservationSlotRepository.findById(slotId)
-                .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
-
         boolean offered = promotionService.offerFirstWaiting(slotId).isPresent();
-        if (!offered) {
-            slot.open();
+        if (offered) {
+            return;
         }
+
+        if (reservationSlotRepository.openIfNoWaitingWaitlist(slotId) == 1) {
+            return;
+        }
+
+        // 대기열 등록이 후보 조회와 OPEN 조건부 UPDATE 사이에 커밋됐을 수 있다. 다시 FIFO 승급을
+        // 시도하면 새 WAITING을 OFFERED로 전이하고, 이미 다른 반환 처리에서 승급된 경우에는 no-op이다.
+        promotionService.offerFirstWaiting(slotId);
     }
 }

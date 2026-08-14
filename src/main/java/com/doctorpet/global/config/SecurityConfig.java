@@ -141,6 +141,8 @@ public class SecurityConfig {
                                 "/api/reservations/*/cancel",
                                 "/api/reservations/*/payment-method"
                         ).hasRole("GUARDIAN")
+                        // 대기열 등록·조회·응답·취소는 보호자 본인의 예약 기회만 다룬다.
+                        .requestMatchers("/api/reservation-waitlists/**").hasRole("GUARDIAN")
                         // 병원 예약 운영 API - 병원 스태프 전용 (SA §8-6)
                         .requestMatchers("/api/hospital/**")
                         .hasRole("HOSPITAL_STAFF")
