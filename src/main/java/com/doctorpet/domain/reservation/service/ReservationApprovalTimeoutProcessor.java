@@ -1,15 +1,12 @@
 package com.doctorpet.domain.reservation.service;
 
 import com.doctorpet.domain.reservation.entity.Reservation;
-import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.entity.status.ReservationEventType;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
-import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
-import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,9 +25,9 @@ public class ReservationApprovalTimeoutProcessor {
     }
 
     private final ReservationRepository reservationRepository;
-    private final ReservationSlotRepository reservationSlotRepository;
     private final ReservationEventRepository reservationEventRepository;
     private final ReservationNotificationPublisher notificationPublisher;
+    private final ReservationSlotReleaseService reservationSlotReleaseService;
 
     @Transactional
     public Result process(
@@ -53,13 +50,7 @@ public class ReservationApprovalTimeoutProcessor {
             return Result.SKIPPED;
         }
 
-        ReservationSlot slot = reservationSlotRepository
-                .findById(reservation.getSlotId())
-                .orElseThrow(() -> new ServiceException(
-                        SlotErrorCode.SLOT_NOT_FOUND
-                ));
-
-        slot.open();
+        reservationSlotReleaseService.release(reservation.getSlotId());
 
         reservationEventRepository.appendIfAbsent(
                 reservationId,

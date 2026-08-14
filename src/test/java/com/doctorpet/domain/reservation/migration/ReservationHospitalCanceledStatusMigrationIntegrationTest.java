@@ -7,6 +7,7 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,6 +18,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Level 3 — 실제 MySQL에서 병원 취소 상태명 백필·PAYMENT_PENDING 보존·재실행 멱등성을 검증한다. */
 @SpringBootTest(properties = {
+        "spring.datasource.url=${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}",
+        "spring.datasource.username=${SPRING_DATASOURCE_USERNAME:root}",
+        "spring.datasource.password=${SPRING_DATASOURCE_PASSWORD:root}",
+        "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
+        "spring.data.redis.host=${SPRING_DATA_REDIS_HOST:localhost}",
         "ai.gateway=fake",
         "payment.gateway=fake",
         "payment.billing-key.enc-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -33,6 +39,9 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
             "enum('CANCELED','CHECKED_IN','CONFIRMED','HOSPITAL_CANCELLED',"
                     + "'HOSPITAL_CANCELED','IN_TREATMENT','NO_SHOW','NO_SHOW_PENDING',"
                     + "'REJECTED','REQUESTED','TREATMENT_COMPLETED')";
+    private static final String STATUS_ENUM_WITHOUT_HOSPITAL_CANCELED =
+            "enum('CANCELED','CHECKED_IN','CONFIRMED','IN_TREATMENT','NO_SHOW',"
+                    + "'NO_SHOW_PENDING','REJECTED','REQUESTED','TREATMENT_COMPLETED')";
     private static final String FINAL_STATUS_ENUM =
             "enum('CANCELED','CHECKED_IN','CONFIRMED','HOSPITAL_CANCELED',"
                     + "'IN_TREATMENT','NO_SHOW','NO_SHOW_PENDING','REJECTED',"
@@ -40,6 +49,9 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     private static final String LEGACY_EVENT_ENUM =
             "enum('AUTO_NO_SHOW','AUTO_NO_SHOW_PENDING','CHECKED_IN','HOSPITAL_CANCELLED',"
                     + "'HOSPITAL_CANCELED','MANUAL_NO_SHOW','NO_SHOW_CORRECTED','TIMEOUT_REJECTED')";
+    private static final String EVENT_ENUM_WITHOUT_HOSPITAL_CANCELED =
+            "enum('AUTO_NO_SHOW','AUTO_NO_SHOW_PENDING','CHECKED_IN','MANUAL_NO_SHOW',"
+                    + "'NO_SHOW_CORRECTED','TIMEOUT_REJECTED')";
     private static final String FINAL_EVENT_ENUM =
             "enum('AUTO_NO_SHOW','AUTO_NO_SHOW_PENDING','CHECKED_IN','HOSPITAL_CANCELED',"
                     + "'MANUAL_NO_SHOW','NO_SHOW_CORRECTED','TIMEOUT_REJECTED')";
@@ -47,7 +59,7 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     private static final String LEGACY_NOTIFICATION_ENUM = "enum('NO_SHOW','PAYMENT_PENDING',"
             + "'PAYMENT_RESULT','RESERVATION_CONFIRMED',"
             + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
-            + "'RESERVATION_REJECTED')";
+            + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED')";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -62,6 +74,8 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     private Long paymentPendingNotificationId;
     private Long reservationId;
     private Long slotId;
+    private List<Long> hospitalCanceledReservationIds = List.of();
+    private List<Long> hospitalCanceledEventIds = List.of();
 
     @BeforeEach
     void prepareLegacySchema() {
@@ -119,8 +133,9 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                 "alter table notifications modify column type "
                         + "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT',"
                         + "'RESERVATION_CONFIRMED','RESERVATION_HOSPITAL_CANCELED',"
-                        + "'RESERVATION_REJECTED') not null"
+                        + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED') not null"
         );
+        restoreTemporarilyRewrittenHospitalCanceledRows();
         restoreHospitalCancelColumnsForJpa();
         deleteMigrationMarker();
     }
@@ -170,6 +185,51 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
         assertThat(columnExists("hospital_cancel_reason")).isTrue();
         assertThat(columnExists("hospital_canceled_at")).isTrue();
         assertThat(migrationMarkerExists()).isTrue();
+    }
+
+    @Test
+    @DisplayName("병원 취소 enum 값이 전혀 없는 기존 스키마에도 표준 값을 추가한다")
+    void migration_addsHospitalCanceledWhenNeitherSpellingExists() {
+        temporarilyRewriteHospitalCanceledRows();
+        jdbcTemplate.execute(
+                "alter table reservations modify column status "
+                        + STATUS_ENUM_WITHOUT_HOSPITAL_CANCELED + " not null"
+        );
+        jdbcTemplate.execute(
+                "alter table reservation_events modify column event_type "
+                        + EVENT_ENUM_WITHOUT_HOSPITAL_CANCELED + " not null"
+        );
+        ReservationHospitalCanceledStatusMigrationRunner runner =
+                new ReservationHospitalCanceledStatusMigrationRunner(jdbcTemplate);
+
+        runner.migrateBeforeJpa();
+
+        assertThat(reservationStatusEnum()).contains("HOSPITAL_CANCELED");
+        assertThat(reservationStatusEnum()).doesNotContain("HOSPITAL_CANCELLED");
+        assertThat(eventTypeEnum()).contains("HOSPITAL_CANCELED");
+        assertThat(eventTypeEnum()).doesNotContain("HOSPITAL_CANCELLED");
+    }
+
+    private void temporarilyRewriteHospitalCanceledRows() {
+        hospitalCanceledReservationIds = jdbcTemplate.queryForList(
+                "select id from reservations where status = 'HOSPITAL_CANCELED'", Long.class);
+        hospitalCanceledEventIds = jdbcTemplate.queryForList(
+                "select id from reservation_events where event_type = 'HOSPITAL_CANCELED'", Long.class);
+        if (!hospitalCanceledReservationIds.isEmpty()) {
+            jdbcTemplate.update("update reservations set status = 'CANCELED' where status = 'HOSPITAL_CANCELED'");
+        }
+        if (!hospitalCanceledEventIds.isEmpty()) {
+            jdbcTemplate.update("update reservation_events set event_type = 'CHECKED_IN' where event_type = 'HOSPITAL_CANCELED'");
+        }
+    }
+
+    private void restoreTemporarilyRewrittenHospitalCanceledRows() {
+        for (Long id : hospitalCanceledReservationIds) {
+            jdbcTemplate.update("update reservations set status = 'HOSPITAL_CANCELED' where id = ?", id);
+        }
+        for (Long id : hospitalCanceledEventIds) {
+            jdbcTemplate.update("update reservation_events set event_type = 'HOSPITAL_CANCELED' where id = ?", id);
+        }
     }
 
     private void insertLegacyHospitalCanceledNotification() {
@@ -298,6 +358,24 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                  where table_schema = database()
                    and table_name = 'notifications'
                    and column_name = 'type'
+                """, String.class);
+    }
+
+    private String reservationStatusEnum() {
+        return jdbcTemplate.queryForObject("""
+                select column_type from information_schema.columns
+                 where table_schema = database()
+                   and table_name = 'reservations'
+                   and column_name = 'status'
+                """, String.class);
+    }
+
+    private String eventTypeEnum() {
+        return jdbcTemplate.queryForObject("""
+                select column_type from information_schema.columns
+                 where table_schema = database()
+                   and table_name = 'reservation_events'
+                   and column_name = 'event_type'
                 """, String.class);
     }
 

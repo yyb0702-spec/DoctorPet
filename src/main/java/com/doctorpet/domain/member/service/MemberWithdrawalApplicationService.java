@@ -4,6 +4,7 @@ import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.reservation.service.ReservationService;
+import com.doctorpet.domain.reservation.service.ReservationWaitlistService;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
 import java.time.Duration;
@@ -39,6 +40,7 @@ public class MemberWithdrawalApplicationService {
 
     private final MemberService memberService;
     private final ReservationService reservationService;
+    private final ReservationWaitlistService reservationWaitlistService;
     private final HospitalFavoriteService hospitalFavoriteService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
@@ -51,6 +53,7 @@ public class MemberWithdrawalApplicationService {
             throw new ServiceException(MemberErrorCode.WITHDRAWAL_BLOCKED);
         }
 
+        reservationWaitlistService.cancelAllForWithdrawal(memberId);
         hospitalFavoriteService.deleteAllByMemberId(memberId);
         memberService.withdraw(memberId);
         refreshTokenRepository.deleteByMemberId(memberId);
