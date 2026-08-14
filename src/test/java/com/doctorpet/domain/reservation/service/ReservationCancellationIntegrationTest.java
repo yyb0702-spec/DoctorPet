@@ -101,7 +101,9 @@ class ReservationCancellationIntegrationTest {
     @DisplayName("승급 마감 뒤 보호자 취소는 WAITING을 시스템 취소하고 슬롯을 반환한다")
     void cancel_afterPromotionDeadline_cancelsWaitingAndOpensSlot() {
         TestReservation data = saveReservation(
-                LocalDateTime.now().plusHours(3),
+                // 초 단위 절삭 후에도 취소 마감(2시간 전)을 넘지 않도록, 2~4시간 정책 구간 안에
+                // 충분한 여유를 둔다.
+                LocalDateTime.now().plusHours(3).plusMinutes(5),
                 ReservationStatus.REQUESTED,
                 true
         );
