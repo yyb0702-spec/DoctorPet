@@ -876,6 +876,8 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 채팅 메시지 조회 | GET | /api/reservations/{reservationId}/chat/messages?afterMessageId={messageId}&size={n} | 예약 보호자 또는 자병원 스태프 |
 | 채팅 읽음 처리 | PATCH | /api/reservations/{reservationId}/chat/messages/read | 예약 보호자 또는 자병원 스태프 |
 
+읽음 처리는 `{ "throughMessageId": number }`를 받아 **상대 발신 메시지 중 `id <= throughMessageId`인 미읽음 행만** 갱신한다. 클라이언트가 실제로 화면에 병합한 마지막 메시지를 상한으로 보내는 것이며, 상한이 없으면 최종 복구 직후 저장됐지만 아직 도착하지 않은 메시지까지 읽음이 된다(PR #159 리뷰 P1). 값이 없거나 0 이하면 400이다.
+
 조회는 WebSocket 재연결 후 누락 메시지 복구를 위한 인증된 API다. `{reservationId}`에서 예약과 회원·병원을 서버가 조회해 권한을 확인하고, 요청의 `memberId`·`hospitalId`는 받지 않는다. `afterMessageId`가 있으면 반드시 같은 예약 스레드에 속하는지 검증한 뒤 그 이후 메시지를 `createdAt ASC, id ASC`로 반환한다. `size`는 1~100이고 응답은 `{ messages, nextAfterMessageId, hasNext }`다. 메시지 항목은 `messageId`, `senderType`, `content`, `createdAt`, 화면 표시용 `senderName`, 재전송 결과 식별용 UUID `clientMessageId`를 포함한다. `clientMessageId`는 회원·병원 식별자가 아니다. 보호자 메시지는 서버가 해석한 보호자 nickname, 병원 메시지는 병원명만 표시하며 실제 스태프 `memberId`·nickname은 노출하지 않는다. 조회는 종료 상태에서도 가능하지만 신규 전송은 §9-12의 허용 상태에서만 가능하다. 병원 스태프 한 명의 읽음은 병원 단위로 공유된다.
 
 ---

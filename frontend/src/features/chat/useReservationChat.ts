@@ -48,7 +48,10 @@ export function useReservationChat(reservationId: number, enabled = true) {
     if (readTimerRef.current) clearTimeout(readTimerRef.current)
     readTimerRef.current = setTimeout(() => {
       if (!subscriptionReadyRef.current || !historySyncedRef.current) return
-      chatApi.markRead(reservationId).catch(() => {
+      // 병합한 마지막 메시지까지만 읽음 처리한다. 아직 하나도 못 받았으면 읽을 것도 없다.
+      const throughMessageId = lastMessageIdRef.current
+      if (!throughMessageId) return
+      chatApi.markRead(reservationId, throughMessageId).catch(() => {
         // 읽음 동기화 실패는 메시지 조회·수신을 막지 않는다.
       })
     }, READ_DEBOUNCE_MS)

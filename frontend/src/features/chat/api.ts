@@ -14,6 +14,10 @@ export const chatApi = {
       `/reservations/${reservationId}/chat/messages?${params.toString()}`,
     )
   },
-  markRead: (reservationId: number) =>
-    http.patch<void>(`/reservations/${reservationId}/chat/messages/read`),
+  // 실제로 화면에 병합한 마지막 메시지까지만 읽음 처리한다 — 상한이 없으면 아직 도착하지 않은
+  // 상대 메시지까지 서버가 읽음으로 바꾼다(SA §8-9).
+  markRead: (reservationId: number, throughMessageId: number) =>
+    http.patch<void>(`/reservations/${reservationId}/chat/messages/read`, {
+      throughMessageId,
+    }),
 }

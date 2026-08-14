@@ -201,10 +201,12 @@ class ChatMessageServiceTest {
         given(reservationService.findReservationForChat(RESERVATION_ID)).willReturn(requestedReservation());
         given(staffHospitalPort.findHospitalIdByMemberId(staff.memberId())).willReturn(Optional.of(HOSPITAL_ID));
 
-        chatMessageService.markRead(RESERVATION_ID, staff);
+        chatMessageService.markRead(RESERVATION_ID, staff, 42L);
 
+        // 클라이언트가 병합한 마지막 메시지(42)까지만 읽음 처리한다 — 상한을 빼면 아직 도착하지 않은
+        // 상대 메시지까지 읽음이 된다(PR #159 리뷰 P1).
         verify(chatMessageRepository).markReadByReservationIdAndSenderType(
-                eq(RESERVATION_ID), eq(ChatSenderType.GUARDIAN), any(LocalDateTime.class));
+                eq(RESERVATION_ID), eq(ChatSenderType.GUARDIAN), eq(42L), any(LocalDateTime.class));
     }
 
     @Test

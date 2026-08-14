@@ -31,6 +31,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class ChatMessageDdlIntegrationTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private ChatMessageRepository chatMessageRepository;
 
     @Test
     void chatMessages_usesRequiredColumnsAndCursorIndex() throws Exception {
@@ -70,5 +71,30 @@ class ChatMessageDdlIntegrationTest {
                 "idx_chat_messages_reservation_created", "uk_chat_messages_reservation_member_client");
         assertThat(new ArrayList<>(idempotencyUniqueColumns.values()))
                 .containsExactly("reservation_id", "member_id", "client_message_id");
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void markRead_marksOnlyMessagesUpToClientCursor() {
+        // 상대(병원) 메시지 3건 중, 클라이언트가 병합한 것은 두 번째까지라고 가정한다.
+        long reservationId = System.nanoTime();
+        ChatMessage first = chatMessageRepository.saveAndFlush(hospitalMessage(reservationId, "첫 메시지"));
+        ChatMessage second = chatMessageRepository.saveAndFlush(hospitalMessage(reservationId, "두 번째 메시지"));
+        ChatMessage arrivedLate = chatMessageRepository.saveAndFlush(
+                hospitalMessage(reservationId, "복구 뒤 저장돼 아직 화면에 없는 메시지"));
+
+        int updated = chatMessageRepository.markReadByReservationIdAndSenderType(
+                reservationId, ChatSenderType.HOSPITAL, second.getId(), java.time.LocalDateTime.now());
+
+        // 커서 이하 2건만 읽음이 되고, 아직 도착하지 않은 메시지는 미읽음으로 남아야 한다.
+        assertThat(updated).isEqualTo(2);
+        assertThat(chatMessageRepository.findById(first.getId()).orElseThrow().getReadAt()).isNotNull();
+        assertThat(chatMessageRepository.findById(second.getId()).orElseThrow().getReadAt()).isNotNull();
+        assertThat(chatMessageRepository.findById(arrivedLate.getId()).orElseThrow().getReadAt()).isNull();
+    }
+
+    private ChatMessage hospitalMessage(long reservationId, String body) {
+        return ChatMessage.create(reservationId, ChatSenderType.HOSPITAL, 1L, 2L, body,
+                java.util.UUID.randomUUID().toString());
     }
 }

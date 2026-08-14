@@ -41,10 +41,12 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
              where m.reservationId = :reservationId
                and m.senderType = :senderType
                and m.readAt is null
+               and m.id <= :throughMessageId
             """)
     int markReadByReservationIdAndSenderType(
             @Param("reservationId") Long reservationId,
             @Param("senderType") ChatSenderType senderType,
+            @Param("throughMessageId") Long throughMessageId,
             @Param("now") LocalDateTime now
     );
 

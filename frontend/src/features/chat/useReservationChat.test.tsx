@@ -165,7 +165,7 @@ describe('useReservationChat', () => {
     act(() => {
       callbacks?.onSubscriptionReady()
     })
-    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11))
+    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11, expect.any(Number)))
 
     expect(result.current.messages).toHaveLength(101)
     expect(result.current.messages.at(-1)?.content).toBe('최신 메시지')
@@ -197,8 +197,30 @@ describe('useReservationChat', () => {
       callbacks?.onSubscriptionReady()
     })
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
-    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11))
+    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11, expect.any(Number)))
     expect(result.current.messages.at(-1)?.content).toBe('구독 직전에 저장된 메시지')
+  })
+
+  it('읽음 처리는 병합한 마지막 메시지 ID까지만 요청한다', async () => {
+    // 최종 복구까지 messageId 2번을 병합한 상태. 그 뒤 상대가 보낸 3번이 DB에 저장됐지만
+    // STOMP 도착이 지연되면, 읽음 요청 상한이 2여야 3번이 읽음 처리되지 않는다.
+    const merged = { ...message, messageId: 2, content: '복구로 병합된 메시지' }
+    getMessages
+      .mockResolvedValueOnce({ messages: [message], nextAfterMessageId: null, hasNext: false })
+      .mockResolvedValueOnce({ messages: [], nextAfterMessageId: null, hasNext: false })
+      .mockResolvedValueOnce({ messages: [merged], nextAfterMessageId: null, hasNext: false })
+
+    renderHook(() => useReservationChat(11))
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+    act(() => {
+      callbacks?.onSubscriptionReady()
+    })
+
+    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11, 2))
   })
 
   it('서버가 방송한 자신의 메시지를 받은 뒤에만 전송 성공으로 처리한다', async () => {

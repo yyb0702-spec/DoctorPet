@@ -155,14 +155,17 @@ public class ChatMessageService {
     }
 
     @Transactional
-    public void markRead(Long reservationId, MemberPrincipal principal) {
+    public void markRead(Long reservationId, MemberPrincipal principal, Long throughMessageId) {
         Reservation reservation = reservationService.findReservationForChat(reservationId);
         ChatParticipant participant = authorize(reservation, principal);
         ChatSenderType receivedSenderType = participant.senderType() == ChatSenderType.GUARDIAN
                 ? ChatSenderType.HOSPITAL
                 : ChatSenderType.GUARDIAN;
+        // 클라이언트가 실제로 병합한 마지막 메시지까지만 읽음 처리한다. 상한이 없으면 최종 복구 직후
+        // 저장됐지만 아직 화면에 도착하지 않은 상대 메시지까지 읽음이 된다(PR #159 리뷰 P1).
         chatMessageRepository.markReadByReservationIdAndSenderType(
-                reservationId, receivedSenderType, LocalDateTime.now(applicationClock));
+                reservationId, receivedSenderType, throughMessageId,
+                LocalDateTime.now(applicationClock));
     }
 
     @Transactional
