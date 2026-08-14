@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.hospital.dto.response.FavoriteHospitalPageResponse;
+import com.doctorpet.domain.hospital.service.HospitalDetailApplicationService;
 import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
@@ -44,6 +45,9 @@ class HospitalFavoriteControllerSecurityTest {
 
     @MockitoBean
     private HospitalService hospitalService;
+
+    @MockitoBean
+    private HospitalDetailApplicationService hospitalDetailApplicationService;
 
     @MockitoBean
     private HospitalFavoriteService hospitalFavoriteService;
