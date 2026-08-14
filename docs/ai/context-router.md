@@ -68,10 +68,13 @@
 
 ### 결제·오프라인 정산 (STRICT)
 
-- 필수: PRD §6-7, SA §5-2(결제 상태), SA §9-4(멱등·실패 분기), SA §8-7, SA §4 payments·payment_methods
-- 조건부: 결제수단 등록·삭제가 바뀌면 SA §4 payment_methods 삭제 정책 절을 추가한다.
+- 필수: PRD §6-7, SA §5-2(결제 상태), SA §9-4(멱등·실패 분기·항목·영수증·셀프 복구·정정 재청구), SA §8-7, SA §4 payments·payment_methods
+- 조건부: 결제수단 등록·삭제·기본값이 바뀌면 SA §4 payment_methods 절을, 청구 항목·영수증을 다루면 SA §4 payment_items를 추가한다.
 - 제외: AI·검색 문서는 읽지 않는다.
-- 환불: 빌링키 자동결제 **전액 환불은 MVP+에서 구현됨**(SA §5-2·§9-4, `payments.REFUNDED`·`payment_refunds`) — 유지보수는 이 hot path다. **정정 재청구·부분 환불은 미도입**으로, 고도화 결제.md에서 제안 단계로 다루며 정본(AGENTS·SA) 갱신 전에는 구현하지 않는다.
+- 환불: 빌링키 자동결제 **전액 환불은 MVP+에서 구현됨**(SA §5-2·§9-4, `payments.REFUNDED`·`payment_refunds`) — 유지보수는 이 hot path다.
+- 결제수단 기본값·예약 결제수단 재지정: **구현 완료**(PR #152, SA §4 payment_methods·§8-7).
+- 항목화·JSON 영수증·`OFFLINE_REQUIRED` 셀프 복구·정정 재청구: **정책은 정본(AGENTS 확정 결정·PRD §6-7·SA §4·§9-4)에서 확정됐고 구현은 미착수**다. 구현 순서·상세는 고도화 [결제.md](../enhancement/결제.md)를 함께 읽는다. 정정 재청구 구현 PR은 `payments.UNIQUE(reservation_id)` → 활성 결제 UNIQUE 교체를 포함하므로 STRICT다.
+- 부분 환불: **여전히 계약 미확정**이다. PRD·SA에 계약이 확정 반영되기 전에는 구현하지 않는다(결제.md 3.5-b).
 
 ### 알림
 
