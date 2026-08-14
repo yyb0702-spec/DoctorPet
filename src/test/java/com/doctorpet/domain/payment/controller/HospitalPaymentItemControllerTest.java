@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.service.PaymentItemCommand;
@@ -46,6 +47,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
 class HospitalPaymentItemControllerTest {
 
+    private static final String DRAFT_TOKEN = "0123456789abcdef0123456789abcdef";
     private static final Long STAFF_MEMBER_ID = 9L;
     private static final String ITEMS_URL = "/api/hospital/reservations/100/payment-items";
 
@@ -70,10 +72,10 @@ class HospitalPaymentItemControllerTest {
                 new PaymentItemCommand("주사", 2, 15000),
                 new PaymentItemCommand("재진 할인", 1, -5000));
         given(paymentItemDraftService.replaceDrafts(eq(100L), eq(STAFF_MEMBER_ID), eq(expected)))
-                .willReturn(List.of(
+                .willReturn(new PaymentItemDraftResponse(List.of(
                         new PaymentItemResponse("진찰료", 1, 20000, 20000),
                         new PaymentItemResponse("주사", 2, 15000, 30000),
-                        new PaymentItemResponse("재진 할인", 1, -5000, -5000)));
+                        new PaymentItemResponse("재진 할인", 1, -5000, -5000)), DRAFT_TOKEN));
 
         mockMvc.perform(put(ITEMS_URL)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -85,9 +87,9 @@ class HospitalPaymentItemControllerTest {
                                 ]}"""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
-                .andExpect(jsonPath("$.data[1].amount").value(30000))
+                .andExpect(jsonPath("$.data.items[1].amount").value(30000))
                 // 할인 항목은 음수 금액으로 그대로 노출된다.
-                .andExpect(jsonPath("$.data[2].amount").value(-5000));
+                .andExpect(jsonPath("$.data.items[2].amount").value(-5000));
 
         verify(paymentItemDraftService).replaceDrafts(100L, STAFF_MEMBER_ID, expected);
     }
@@ -97,12 +99,13 @@ class HospitalPaymentItemControllerTest {
     void getDrafts_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(staffAuthentication());
         given(paymentItemDraftService.getDrafts(eq(100L), eq(STAFF_MEMBER_ID)))
-                .willReturn(List.of(new PaymentItemResponse("진찰료", 1, 20000, 20000)));
+                .willReturn(new PaymentItemDraftResponse(List.of(new PaymentItemResponse("진찰료", 1, 20000, 20000)), DRAFT_TOKEN));
 
         mockMvc.perform(get(ITEMS_URL))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].name").value("진찰료"))
-                .andExpect(jsonPath("$.data[0].amount").value(20000));
+                .andExpect(jsonPath("$.data.items[0].name").value("진찰료"))
+                .andExpect(jsonPath("$.data.items[0].amount").value(20000))
+                .andExpect(jsonPath("$.data.draftToken").value(DRAFT_TOKEN));
 
         verify(paymentItemDraftService).getDrafts(100L, STAFF_MEMBER_ID);
     }

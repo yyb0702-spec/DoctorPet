@@ -99,7 +99,7 @@ class PaymentChargeServiceTest {
             stubSavable();
             stubDrafts(draft("진료비", 1, VALID_AMOUNT));
 
-            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID);
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken());
 
             assertThat(pre.merchantPaymentId()).isEqualTo("pay_test");
             assertThat(pre.billingKeyEnc()).isEqualTo("v1:enc");
@@ -121,7 +121,7 @@ class PaymentChargeServiceTest {
             stubSavable();
             stubDrafts(draft("진찰료", 1, 20_000), draft("주사", 2, 15_000));
 
-            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID);
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken());
 
             assertThat(pre.amount()).isEqualTo(50_000);
             assertThat(savedPayment().getAmount()).isEqualTo(50_000);
@@ -136,7 +136,7 @@ class PaymentChargeServiceTest {
             stubSavable();
             stubDrafts(draft("진찰료", 1, 20_000), draft("재진 할인", 1, -5_000));
 
-            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID);
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken());
 
             assertThat(pre.amount()).isEqualTo(15_000);
         }
@@ -147,7 +147,7 @@ class PaymentChargeServiceTest {
             stubChargeableReservation();
             stubDrafts();
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.PAYMENT_ITEM_REQUIRED);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -159,7 +159,7 @@ class PaymentChargeServiceTest {
             stubChargeableReservation();
             stubDrafts(draft("진찰료", 1, 20_000), draft("전액 할인", 1, -20_000));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -171,7 +171,7 @@ class PaymentChargeServiceTest {
             stubChargeableReservation();
             stubDrafts(draft("진찰료", 2, MAX_AMOUNT / 2 + 1));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
         }
@@ -182,7 +182,7 @@ class PaymentChargeServiceTest {
             stubChargeableReservation();
             stubDrafts(draft("항목1", 1, Integer.MAX_VALUE), draft("항목2", 1, Integer.MAX_VALUE));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.INVALID_AMOUNT);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -197,7 +197,7 @@ class PaymentChargeServiceTest {
             // payments.amount == sum(items.amount) 불변식이 깨지므로 예외로 롤백해야 한다.
             given(paymentItemRepository.stampDraftsToPayment(eq(RESERVATION_ID), any())).willReturn(1);
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.PAYMENT_ITEM_ALREADY_CHARGED);
         }
@@ -215,7 +215,7 @@ class PaymentChargeServiceTest {
                     .willReturn(Optional.of(deleted));
             given(paymentItemRepository.stampDraftsToPayment(eq(RESERVATION_ID), any())).willReturn(1);
 
-            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID);
+            PaymentPreRecord pre = paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken());
 
             assertThat(pre.paymentMethodActive()).isFalse();
         }
@@ -225,7 +225,9 @@ class PaymentChargeServiceTest {
         void noStaffHospital_forbidden() {
             given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            // 토큰 계산조차 초안 조회를 유발하지 않도록 리터럴을 넘긴다 — 이 테스트의 관심사는
+            // "권한 검사에서 끊겨 초안을 읽지 않는다"이다.
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, "any-token"))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.FORBIDDEN_HOSPITAL);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -240,7 +242,9 @@ class PaymentChargeServiceTest {
             given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                     new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, true)));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            // 토큰 계산조차 초안 조회를 유발하지 않도록 리터럴을 넘긴다 — 이 테스트의 관심사는
+            // "권한 검사에서 끊겨 초안을 읽지 않는다"이다.
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, "any-token"))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.FORBIDDEN_HOSPITAL);
         }
@@ -252,7 +256,7 @@ class PaymentChargeServiceTest {
             given(reservationLookupPort.findForChargeForUpdate(RESERVATION_ID)).willReturn(Optional.of(
                     new ReservationChargeView(RESERVATION_ID, HOSPITAL_ID, GUARDIAN_ID, PAYMENT_METHOD_ID, false)));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
         }
@@ -263,7 +267,7 @@ class PaymentChargeServiceTest {
             stubChargeableReservation();
             given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(true);
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
             verify(paymentRepository, never()).saveAndFlush(any());
@@ -275,7 +279,7 @@ class PaymentChargeServiceTest {
             stubSaveThrows(new SQLException(
                     "Duplicate entry '100' for key 'payments.uk_payments_reservation_id'", "23000", 1062));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
         }
@@ -286,7 +290,7 @@ class PaymentChargeServiceTest {
             stubSaveThrows(new SQLException(
                     "Duplicate entry 'pay_test' for key 'payments.uk_payments_merchant_payment_id'", "23000", 1062));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
 
@@ -295,7 +299,7 @@ class PaymentChargeServiceTest {
         void saveNonUniqueViolation_propagates() {
             stubSaveThrows(new SQLException("Column cannot be null", "23000", 1048));
 
-            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID))
+            assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(DataIntegrityViolationException.class);
         }
 
@@ -414,4 +418,10 @@ class PaymentChargeServiceTest {
                     .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.PAYMENT_NOT_FOUND);
         }
     }
+    /** 스텁 리포지토리가 돌려주는 현재 초안 기준 토큰. 청구는 이 값과 대조한다(SA §9-4). */
+    private String draftToken() {
+        return PaymentItemDraftToken.of(
+                paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(RESERVATION_ID));
+    }
+
 }

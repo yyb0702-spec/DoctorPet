@@ -1,7 +1,7 @@
 package com.doctorpet.domain.payment.controller;
 
 import com.doctorpet.domain.payment.dto.request.PaymentItemSaveRequest;
-import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
+import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.service.PaymentItemCommand;
 import com.doctorpet.domain.payment.service.PaymentItemDraftService;
 import com.doctorpet.global.response.ApiResponse;
@@ -34,7 +34,7 @@ public class HospitalPaymentItemController {
     private final PaymentItemDraftService paymentItemDraftService;
 
     @GetMapping("/{reservationId}/payment-items")
-    public ResponseEntity<ApiResponse<List<PaymentItemResponse>>> getDrafts(
+    public ResponseEntity<ApiResponse<PaymentItemDraftResponse>> getDrafts(
             @AuthenticationPrincipal MemberPrincipal principal,
             @PathVariable Long reservationId
     ) {
@@ -43,7 +43,7 @@ public class HospitalPaymentItemController {
     }
 
     @PutMapping("/{reservationId}/payment-items")
-    public ResponseEntity<ApiResponse<List<PaymentItemResponse>>> replaceDrafts(
+    public ResponseEntity<ApiResponse<PaymentItemDraftResponse>> replaceDrafts(
             @AuthenticationPrincipal MemberPrincipal principal,
             @PathVariable Long reservationId,
             @Valid @RequestBody PaymentItemSaveRequest request

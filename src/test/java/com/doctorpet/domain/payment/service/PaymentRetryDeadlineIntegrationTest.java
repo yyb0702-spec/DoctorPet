@@ -13,6 +13,7 @@ import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.entity.PaymentMethod;
@@ -128,7 +129,7 @@ class PaymentRetryDeadlineIntegrationTest {
     @DisplayName("데드라인으로 재시도가 조기 종료되면 payments.retry_count에 maxRetry가 아니라 실제 수행한 재시도 횟수가 저장된다")
     void deadlineEarlyTermination_persistsActualRetryCount() {
         PaymentChargeResponse response =
-                paymentApplicationService.charge(reservationId, staffMemberId);
+                paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         // 승인 여부 미상이라 오프라인 이중수납 금지 → PENDING 유지(정산 스케줄러가 확정).
         assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);

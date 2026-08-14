@@ -3,6 +3,7 @@ package com.doctorpet.domain.payment.support;
 import com.doctorpet.domain.payment.entity.PaymentItem;
 import com.doctorpet.domain.payment.repository.PaymentItemRepository;
 import com.doctorpet.domain.payment.service.PaymentItemCommand;
+import com.doctorpet.domain.payment.service.PaymentItemDraftToken;
 import java.util.List;
 
 /**
@@ -30,6 +31,17 @@ public final class PaymentItemTestSupport {
     ) {
         paymentItemRepository.saveAndFlush(
                 PaymentItem.draft(reservationId, "진료비", 1, amount, amount));
+    }
+
+    /**
+     * 저장된 초안의 낙관적 검증 토큰. 청구는 저장 응답이 준 토큰을 되받아 잠금 아래에서 대조하므로
+     * (SA §9-4 "초안 교체 경합"), 항목이 관심사가 아닌 테스트도 현재 초안의 토큰으로 청구해야 한다.
+     */
+    public static String draftToken(
+            PaymentItemRepository paymentItemRepository, Long reservationId
+    ) {
+        return PaymentItemDraftToken.of(
+                paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId));
     }
 
     /**

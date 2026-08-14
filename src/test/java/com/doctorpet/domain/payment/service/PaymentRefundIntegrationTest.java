@@ -13,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentChannel;
 import com.doctorpet.domain.payment.entity.PaymentRefund;
@@ -629,7 +630,7 @@ class PaymentRefundIntegrationTest {
         // 그 구현 PR이 UNIQUE(reservation_id) → 활성 결제 UNIQUE 교체와 선기록 검사 교체를 끝내기 전까지는
         // 코드상 재청구가 여전히 불가하다(SA §9-4 알려진 한계). 그 한계를 테스트로 고정해, 나중에 조용히
         // 동작이 바뀌거나 놓친 요구사항으로 오해되지 않게 한다.
-        assertThatThrownBy(() -> paymentChargeService.preRecord(reservationId, STAFF_MEMBER_ID))
+        assertThatThrownBy(() -> paymentChargeService.preRecord(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
     }

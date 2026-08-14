@@ -1,5 +1,7 @@
 package com.doctorpet.domain.payment.controller;
 
+import com.doctorpet.domain.payment.dto.request.PaymentChargeRequest;
+import jakarta.validation.Valid;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
 import com.doctorpet.domain.payment.service.PaymentApplicationService;
@@ -14,6 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,9 +39,11 @@ public class HospitalPaymentController {
     @PostMapping("/{reservationId}/payments")
     public ResponseEntity<ApiResponse<PaymentChargeResponse>> charge(
             @AuthenticationPrincipal MemberPrincipal principal,
-            @PathVariable Long reservationId
+            @PathVariable Long reservationId,
+            @Valid @RequestBody PaymentChargeRequest request
     ) {
-        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, principal.memberId());
+        PaymentChargeResponse response = paymentApplicationService.charge(
+                reservationId, principal.memberId(), request.draftToken());
         // 결제 레코드 생성이므로 201. 승인 실패도 레코드는 생성되며 status(OFFLINE_REQUIRED 등)로 결과를 표현한다.
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }

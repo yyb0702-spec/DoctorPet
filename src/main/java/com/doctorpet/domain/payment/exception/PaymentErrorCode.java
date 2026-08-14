@@ -56,7 +56,12 @@ public enum PaymentErrorCode implements ErrorCode {
     PAYMENT_ITEM_ALREADY_CHARGED(HttpStatus.CONFLICT, "PAYMENT_014", "이미 청구된 예약의 진료 항목은 수정할 수 없습니다."),
     // 초안 항목이 없는 예약에 청구를 시도한 경우(SA §9-4 — 초안 항목이 0건이면 청구를 거부한다).
     // 요청이 잘못된 것이 아니라 청구 전제(항목 작성)가 아직 성립하지 않은 상태라 400이 아니라 409다.
-    PAYMENT_ITEM_REQUIRED(HttpStatus.CONFLICT, "PAYMENT_015", "청구할 진료 항목이 없습니다. 항목을 먼저 등록해 주세요.");
+    PAYMENT_ITEM_REQUIRED(HttpStatus.CONFLICT, "PAYMENT_015", "청구할 진료 항목이 없습니다. 항목을 먼저 등록해 주세요."),
+
+    // 초안 저장과 청구 사이에 다른 스태프가 항목을 바꾼 경우. 화면에서 확인한 금액과 다른 금액이
+    // 청구되는 것을 막고 다시 확인하게 한다(SA §9-4 "초안 교체 경합").
+    PAYMENT_ITEM_CHANGED(HttpStatus.CONFLICT, "PAYMENT_016",
+            "청구 항목이 변경되었습니다. 항목을 다시 확인한 뒤 청구해 주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

@@ -14,6 +14,7 @@ import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
 import com.doctorpet.domain.payment.port.StaffHospitalPort;
 import com.doctorpet.domain.payment.repository.PaymentItemRepository;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.global.crypto.BillingKeyCryptor;
@@ -107,7 +108,7 @@ class PaymentChargeConcurrencyTest {
                 try {
                     startLatch.await();
                     PaymentChargeResponse response =
-                            paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID);
+                            paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
                     if (response.status() == PaymentStatus.PAID) {
                         success.incrementAndGet();
                     }

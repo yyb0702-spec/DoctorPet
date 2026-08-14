@@ -42,8 +42,9 @@ export function useChargePayment(reservationId: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (items: PaymentItemInput[]) => {
-      await staffPaymentApi.saveItemDrafts(reservationId, items)
-      return staffPaymentApi.charge(reservationId)
+      // 저장 응답이 준 토큰으로 곧바로 청구한다 — 그 사이 다른 직원이 초안을 바꾸면 서버가 409로 막는다.
+      const saved = await staffPaymentApi.saveItemDrafts(reservationId, items)
+      return staffPaymentApi.charge(reservationId, saved.draftToken)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({

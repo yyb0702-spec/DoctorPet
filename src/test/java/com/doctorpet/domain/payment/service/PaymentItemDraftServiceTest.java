@@ -9,6 +9,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
 import com.doctorpet.domain.payment.entity.PaymentItem;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
@@ -63,12 +64,12 @@ class PaymentItemDraftServiceTest {
         given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
         given(paymentItemRepository.saveAll(any())).willAnswer(invocation -> invocation.getArgument(0));
 
-        List<PaymentItemResponse> saved = paymentItemDraftService.replaceDrafts(
+        PaymentItemDraftResponse savedResponse = paymentItemDraftService.replaceDrafts(
                 RESERVATION_ID, STAFF_MEMBER_ID, List.of(
                         new PaymentItemCommand("진찰료", 1, 20_000),
                         new PaymentItemCommand("주사", 2, 15_000)));
 
-        assertThat(saved)
+        assertThat(savedResponse.items())
                 .extracting(PaymentItemResponse::name, PaymentItemResponse::quantity,
                         PaymentItemResponse::unitPrice, PaymentItemResponse::amount)
                 .containsExactly(
@@ -88,12 +89,12 @@ class PaymentItemDraftServiceTest {
         given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
         given(paymentItemRepository.saveAll(any())).willAnswer(invocation -> invocation.getArgument(0));
 
-        List<PaymentItemResponse> saved = paymentItemDraftService.replaceDrafts(
+        PaymentItemDraftResponse savedResponse = paymentItemDraftService.replaceDrafts(
                 RESERVATION_ID, STAFF_MEMBER_ID, List.of(
                         new PaymentItemCommand("진찰료", 1, 20_000),
                         new PaymentItemCommand("재진 할인", 1, -5_000)));
 
-        assertThat(saved).extracting(PaymentItemResponse::amount).containsExactly(20_000, -5_000);
+        assertThat(savedResponse.items()).extracting(PaymentItemResponse::amount).containsExactly(20_000, -5_000);
     }
 
     @Test
@@ -253,9 +254,9 @@ class PaymentItemDraftServiceTest {
         given(paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(RESERVATION_ID))
                 .willReturn(List.of(PaymentItem.draft(RESERVATION_ID, "진찰료", 1, 20_000, 20_000)));
 
-        List<PaymentItemResponse> drafts = paymentItemDraftService.getDrafts(RESERVATION_ID, STAFF_MEMBER_ID);
+        PaymentItemDraftResponse draftsResponse = paymentItemDraftService.getDrafts(RESERVATION_ID, STAFF_MEMBER_ID);
 
-        assertThat(drafts).extracting(PaymentItemResponse::name).containsExactly("진찰료");
+        assertThat(draftsResponse.items()).extracting(PaymentItemResponse::name).containsExactly("진찰료");
     }
 
     @Test

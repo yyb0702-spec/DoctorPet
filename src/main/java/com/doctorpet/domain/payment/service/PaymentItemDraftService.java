@@ -1,6 +1,6 @@
 package com.doctorpet.domain.payment.service;
 
-import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
+import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.entity.PaymentItem;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
@@ -47,7 +47,7 @@ public class PaymentItemDraftService {
      * 삭제·수정·추가가 한 번의 조건부 쓰기로 처리돼 청구와의 경합 지점이 하나로 모인다.
      */
     @Transactional
-    public List<PaymentItemResponse> replaceDrafts(
+    public PaymentItemDraftResponse replaceDrafts(
             Long reservationId, Long staffMemberId, List<PaymentItemCommand> items
     ) {
         // 예약 행 락을 먼저 잡아 청구 선기록과 직렬화한다. 이후 검사·쓰기는 모두 이 락 아래에서 일어난다.
@@ -67,12 +67,12 @@ public class PaymentItemDraftService {
                         reservationId, item.name().trim(), item.quantity(), item.unitPrice(),
                         amountPolicy.lineAmount(item)))
                 .toList());
-        return PaymentItemResponse.from(saved);
+        return PaymentItemDraftResponse.from(saved);
     }
 
     /** 초안 항목 조회. 청구 전 스태프가 작성 중인 목록을 확인한다. 청구 후에는 스탬프돼 빈 목록이 된다. */
     @Transactional(readOnly = true)
-    public List<PaymentItemResponse> getDrafts(Long reservationId, Long staffMemberId) {
+    public PaymentItemDraftResponse getDrafts(Long reservationId, Long staffMemberId) {
         Long staffHospitalId = staffHospitalPort.findHospitalIdByMemberId(staffMemberId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL));
         ReservationChargeView reservation = reservationLookupPort.findForCharge(reservationId)
@@ -80,7 +80,7 @@ public class PaymentItemDraftService {
         if (!staffHospitalId.equals(reservation.hospitalId())) {
             throw new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL);
         }
-        return PaymentItemResponse.from(
+        return PaymentItemDraftResponse.from(
                 paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId));
     }
 

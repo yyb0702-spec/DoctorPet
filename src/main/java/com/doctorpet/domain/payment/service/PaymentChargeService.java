@@ -85,7 +85,7 @@ public class PaymentChargeService {
      * <p>초안 항목이 0건이면 청구를 거부한다({@code PAYMENT_ITEM_REQUIRED}) — 항목 없는 신규 결제를 만들지 않는다.
      */
     @Transactional
-    public PaymentPreRecord preRecord(Long reservationId, Long staffMemberId) {
+    public PaymentPreRecord preRecord(Long reservationId, Long staffMemberId, String draftToken) {
         // 1) 자병원 권한: 스태프 소속 병원을 인증 주체(memberId)로 재해석한다(요청 값 신뢰 금지, 보안).
         Long staffHospitalId = staffHospitalPort.findHospitalIdByMemberId(staffMemberId)
                 .orElseThrow(() -> new ServiceException(PaymentErrorCode.FORBIDDEN_HOSPITAL));
@@ -115,6 +115,13 @@ public class PaymentChargeService {
         List<PaymentItem> drafts =
                 paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId);
         int amount = amountPolicy.totalOfItems(drafts);
+
+        // 초안 저장(PUT)과 이 청구는 별도 요청이라 그 사이 잠금이 끊긴다. 그 틈에 다른 스태프가 초안을
+        // 통째로 교체했으면 여기서 산출한 금액은 요청자가 화면에서 확인한 금액이 아니다 — 저장 응답이
+        // 준 토큰과 대조해 다르면 청구하지 않는다(SA §9-4 "초안 교체 경합").
+        if (!PaymentItemDraftToken.of(drafts).equals(draftToken)) {
+            throw new ServiceException(PaymentErrorCode.PAYMENT_ITEM_CHANGED);
+        }
 
         // 6) 예약에 확정된 결제수단 로드(소유권=예약 보호자). 상태와 무관하게 로드해 ACTIVE 여부는 여기서 판단한다.
         PaymentMethod method = paymentMethodRepository

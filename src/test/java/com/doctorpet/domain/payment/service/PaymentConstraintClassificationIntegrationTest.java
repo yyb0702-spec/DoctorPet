@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
 import com.doctorpet.domain.payment.entity.PaymentMethod;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
@@ -99,11 +100,11 @@ class PaymentConstraintClassificationIntegrationTest {
     @DisplayName("merchant_payment_id UNIQUE 충돌은 DUPLICATE_CHARGE가 아니라 원 예외로 전파된다(실제 MySQL 제약 구분)")
     void merchantPaymentIdCollision_propagatesInsteadOfDuplicateCharge() {
         // 첫 청구는 정상 선기록(merchant_payment_id = FIXED_MERCHANT_ID로 커밋).
-        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID);
+        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, firstReservationId));
 
         // 두 번째는 예약이 달라 reservation_id UNIQUE는 통과하지만, 같은 merchant_payment_id라 그 UNIQUE에 걸린다.
         // 이 위반은 예약에 결제가 없으므로 DUPLICATE_CHARGE(ServiceException)가 아니라 원 무결성 예외로 전파돼야 한다.
-        assertThatThrownBy(() -> paymentChargeService.preRecord(secondReservationId, STAFF_MEMBER_ID))
+        assertThatThrownBy(() -> paymentChargeService.preRecord(secondReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, secondReservationId)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .isNotInstanceOf(ServiceException.class);
 
@@ -116,9 +117,9 @@ class PaymentConstraintClassificationIntegrationTest {
     @DisplayName("사전 체크로 걸러지는 이중 청구는 그대로 DUPLICATE_CHARGE다(제약 구분이 정상 경로를 바꾸지 않는다)")
     void duplicateReservation_stillDuplicateCharge() {
         // 같은 예약으로 두 번 청구하면 두 번째는 existsByReservationId 사전 체크에서 DUPLICATE_CHARGE로 거부된다.
-        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID);
+        paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, firstReservationId));
 
-        assertThatThrownBy(() -> paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID))
+        assertThatThrownBy(() -> paymentChargeService.preRecord(firstReservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, firstReservationId)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.DUPLICATE_CHARGE);
     }

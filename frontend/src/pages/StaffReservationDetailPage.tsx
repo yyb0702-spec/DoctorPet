@@ -72,8 +72,8 @@ function ChargeForm({ reservationId }: { reservationId: number }) {
   // 저장해 둔 초안이 있으면 그대로 이어서 편집한다. 첫 로드 이후에는 사용자의 편집을 덮지 않는다.
   const effectiveRows =
     rows ??
-    (draftsQuery.data && draftsQuery.data.length > 0
-      ? draftsQuery.data.map((item) => ({
+    (draftsQuery.data && draftsQuery.data.items.length > 0
+      ? draftsQuery.data.items.map((item) => ({
           name: item.name,
           quantity: String(item.quantity),
           unitPrice: String(item.unitPrice),

@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.BDDMockito.given;
 
+import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentReceiptResponse;
 import com.doctorpet.domain.payment.entity.Payment;
@@ -103,7 +105,7 @@ class PaymentItemChargeIntegrationTest {
     void charge_stampsDraftsAndMatchesTotal() {
         saveDrafts(item("진찰료", 1, 20_000), item("주사", 2, 15_000));
 
-        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID);
+        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         Payment payment = paymentRepository.findById(response.paymentId()).orElseThrow();
         List<PaymentItem> stamped = paymentItemRepository.findByPaymentIdOrderByIdAsc(payment.getId());
@@ -125,7 +127,7 @@ class PaymentItemChargeIntegrationTest {
     void charge_withDiscountDraft_persistsNegativeAmount() {
         saveDrafts(item("진찰료", 1, 20_000), item("재진 할인", 1, -5_000));
 
-        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID);
+        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         Payment payment = paymentRepository.findById(response.paymentId()).orElseThrow();
         List<PaymentItem> stamped = paymentItemRepository.findByPaymentIdOrderByIdAsc(payment.getId());
@@ -137,7 +139,7 @@ class PaymentItemChargeIntegrationTest {
     @Test
     @DisplayName("초안 항목이 없으면 PAYMENT_ITEM_REQUIRED이고 결제가 생기지 않는다")
     void charge_withoutDrafts_rejected() {
-        assertThatThrownBy(() -> paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID))
+        assertThatThrownBy(() -> paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.PAYMENT_ITEM_REQUIRED);
 
@@ -149,20 +151,43 @@ class PaymentItemChargeIntegrationTest {
     void replaceDrafts_replacesPreviousDrafts() {
         saveDrafts(item("진찰료", 1, 20_000));
 
-        List<PaymentItemResponse> replaced = paymentItemDraftService.replaceDrafts(
+        PaymentItemDraftResponse replacedResponse = paymentItemDraftService.replaceDrafts(
                 reservationId, STAFF_MEMBER_ID, List.of(item("초음파", 1, 60_000), item("할인", 1, -10_000)));
 
-        assertThat(replaced).extracting(PaymentItemResponse::name).containsExactly("초음파", "할인");
+        assertThat(replacedResponse.items()).extracting(PaymentItemResponse::name).containsExactly("초음파", "할인");
         assertThat(paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId))
                 .extracting(PaymentItem::getName)
                 .containsExactly("초음파", "할인");
     }
 
     @Test
+    @DisplayName("다른 직원이 초안을 교체하면 먼저 저장한 직원의 청구는 PAYMENT_ITEM_CHANGED로 거부된다")
+    void charge_rejectedWhenDraftReplacedByAnotherStaff() {
+        // 직원 A가 항목을 저장하고 화면에서 합계 20,000원을 확인한 상태.
+        PaymentItemDraftResponse savedByA =
+                paymentItemDraftService.replaceDrafts(reservationId, STAFF_MEMBER_ID, List.of(item("진찰료", 1, 20_000)));
+
+        // 청구 전에 직원 B가 같은 예약의 초안을 통째로 바꾼다(저장 API는 청구 전이라 정상 허용).
+        paymentItemDraftService.replaceDrafts(reservationId, STAFF_MEMBER_ID, List.of(item("초음파", 1, 90_000)));
+
+        // A가 자기 화면 기준 토큰으로 청구하면, 잠금 아래에서 다시 계산한 토큰과 달라 거부된다.
+        assertThatThrownBy(() ->
+                paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, savedByA.draftToken()))
+                .isInstanceOf(ServiceException.class)
+                .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.PAYMENT_ITEM_CHANGED);
+
+        // 결제가 생기지 않아야 한다 — A가 확인하지 않은 90,000원이 조용히 청구되면 안 된다.
+        assertThat(paymentRepository.findByReservationId(reservationId)).isEmpty();
+        assertThat(paymentItemRepository.findByReservationIdAndPaymentIdIsNullOrderByIdAsc(reservationId))
+                .extracting(PaymentItem::getName)
+                .containsExactly("초음파");
+    }
+
+    @Test
     @DisplayName("청구 후 초안 수정을 시도하면 PAYMENT_ITEM_ALREADY_CHARGED이고 스탬프된 항목은 그대로 남는다")
     void replaceDrafts_afterCharge_rejectedAndStampedItemsUntouched() {
         saveDrafts(item("진찰료", 1, 20_000), item("주사", 2, 15_000));
-        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID);
+        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(
                 reservationId, STAFF_MEMBER_ID, List.of(item("몰래 바꾼 항목", 1, 1_000))))
@@ -180,7 +205,7 @@ class PaymentItemChargeIntegrationTest {
     @DisplayName("PAID 결제의 영수증을 보호자·자병원 스태프가 조회하고, 타 병원 스태프·타인은 403으로 막힌다")
     void receipt_visibleToOwnerAndOwnHospitalOnly() {
         saveDrafts(item("진찰료", 1, 20_000), item("재진 할인", 1, -5_000));
-        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID);
+        PaymentChargeResponse response = paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
 
         PaymentReceiptResponse guardianReceipt =
@@ -240,7 +265,7 @@ class PaymentItemChargeIntegrationTest {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID);
+                    paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
                     success.incrementAndGet();
                 } catch (ServiceException e) {
                     // 승자 외에는 이중 청구(DUPLICATE_CHARGE)로 막힌다. 초안이 이미 스탬프돼 사라진 뒤에 도착한
@@ -291,7 +316,7 @@ class PaymentItemChargeIntegrationTest {
         // 잠그므로 하나가 끝난 뒤 다른 하나가 실행된다 — 청구가 먼저면 교체가 409, 교체가 먼저면 청구가
         // 교체된 항목 합계로 성립한다. 어느 순서에서도 총액과 스탬프된 항목 합계는 같아야 한다.
         executor.submit(() -> runGuarded(readyLatch, startLatch, doneLatch, unexpected,
-                () -> paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID)));
+                () -> paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId))));
         executor.submit(() -> runGuarded(readyLatch, startLatch, doneLatch, unexpected,
                 () -> paymentItemDraftService.replaceDrafts(
                         reservationId, STAFF_MEMBER_ID, List.of(item("초음파", 1, 70_000)))));

@@ -17,6 +17,7 @@ import com.doctorpet.domain.payment.entity.PaymentMethod;
 import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.repository.PaymentItemRepository;
+import com.doctorpet.domain.payment.support.PaymentItemTestSupport;
 import com.doctorpet.domain.payment.repository.PaymentMethodRepository;
 import com.doctorpet.domain.payment.repository.PaymentRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
@@ -117,7 +118,7 @@ class PaymentChargeE2EIntegrationTest {
         Long reservationId = persistReservation(true);
 
         PaymentChargeResponse response =
-                paymentApplicationService.charge(reservationId, staffMemberId);
+                paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(response.cardLast4Snapshot()).isEqualTo("1234");
@@ -134,7 +135,7 @@ class PaymentChargeE2EIntegrationTest {
         Long reservationId = persistReservation(false);
 
         assertThatThrownBy(() ->
-                paymentApplicationService.charge(reservationId, staffMemberId))
+                paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId)))
                 .isInstanceOf(ServiceException.class)
                 .hasFieldOrPropertyWithValue("errorCode", PaymentErrorCode.RESERVATION_NOT_CHARGEABLE);
 
@@ -166,7 +167,7 @@ class PaymentChargeE2EIntegrationTest {
         // 진료 완료로 전환된 시점에 초안 항목을 깐다(persistReservation(false)에는 초안이 없다).
         persistDraft(paymentItemRepository, reservationId, AMOUNT);
 
-        paymentApplicationService.charge(reservationId, staffMemberId);
+        paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId));
 
         Payment payment = paymentRepository.findByReservationId(reservationId).orElseThrow();
         assertThat(payment.getPaymentMethodId()).isEqualTo(replacementPaymentMethodId);
@@ -204,7 +205,7 @@ class PaymentChargeE2EIntegrationTest {
 
         try {
             Future<PaymentChargeResponse> charge = executor.submit(() ->
-                    paymentApplicationService.charge(reservationId, staffMemberId));
+                    paymentApplicationService.charge(reservationId, staffMemberId, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId)));
             assertThat(chargeLockAcquired.await(5, TimeUnit.SECONDS)).isTrue();
 
             Future<?> reassignment = executor.submit(() -> reservationApplicationService.changePaymentMethod(
