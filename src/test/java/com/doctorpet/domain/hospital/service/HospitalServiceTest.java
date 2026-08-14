@@ -124,6 +124,19 @@ class HospitalServiceTest {
     }
 
     @Test
+    void 비제휴_병원_상세는_예약_응답_지표를_반환하지_않는다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.reservationResponseRate()).isNull();
+        assertThat(response.averageApprovalMinutes()).isNull();
+    }
+
+    @Test
     void 병원_상세에_리뷰_평균과_개수를_반환한다() {
         Hospital hospital = createHospital(BusinessStatus.OPEN, false);
         given(hospitalRepository.findById(HOSPITAL_ID))

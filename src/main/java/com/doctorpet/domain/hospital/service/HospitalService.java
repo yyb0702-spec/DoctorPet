@@ -7,6 +7,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalResponseMetrics;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
@@ -120,7 +121,8 @@ public class HospitalService {
                     null,
                     null,
                     null,
-                    ratingSummary
+                    ratingSummary,
+                    HospitalResponseMetrics.unavailable()
             ).withFavorite(favorite);
         }
 
@@ -154,7 +156,8 @@ public class HospitalService {
                         closureDates,
                         now
                 ),
-                ratingSummary
+                ratingSummary,
+                HospitalResponseMetrics.unavailable()
         ).withFavorite(favorite);
     }
 

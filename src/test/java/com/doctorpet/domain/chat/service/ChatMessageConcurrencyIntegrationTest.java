@@ -1,6 +1,7 @@
 package com.doctorpet.domain.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.partnerHospital;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -11,7 +12,6 @@ import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
-import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -153,9 +153,8 @@ class ChatMessageConcurrencyIntegrationTest {
         reservation = reservationRepository.saveAndFlush(reservation);
         reservationId = reservation.getId();
 
-        given(hospitalService.getHospitalDetail(anyLong())).willReturn(new HospitalDetailResponse(
-                hospitalId, "테스트동물병원", null, null, null, null, null, null,
-                null, null, null, null, null, null, null, 0L, false));
+        given(hospitalService.getHospitalDetail(anyLong()))
+                .willReturn(partnerHospital(hospitalId, "테스트동물병원"));
         given(memberProfilePort.getGuardianNickname(anyLong())).willReturn("테스트보호자");
         return new RaceData(reservation.getId(), staff.getId(), guardian);
     }
