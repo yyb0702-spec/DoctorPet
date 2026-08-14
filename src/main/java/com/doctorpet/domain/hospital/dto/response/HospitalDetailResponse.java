@@ -140,6 +140,35 @@ public record HospitalDetailResponse(
         );
     }
 
+    public HospitalDetailResponse withResponseMetrics(
+            HospitalResponseMetrics responseMetrics
+    ) {
+        if (partnershipStatus != PartnershipStatus.PARTNER) {
+            return this;
+        }
+        return new HospitalDetailResponse(
+                hospitalId,
+                name,
+                address,
+                phoneNumber,
+                businessStatus,
+                partnershipStatus,
+                partnershipNotice,
+                openNow,
+                surgeryAvailable,
+                hospitalizationAvailable,
+                nightCare,
+                emergency,
+                businessHours,
+                capabilities,
+                averageRating,
+                reviewCount,
+                favorite,
+                responseMetrics.reservationResponseRate(),
+                responseMetrics.averageApprovalMinutes()
+        );
+    }
+
     private static String resolveAddress(Hospital hospital) {
         if (hospital.getAddressRoad() != null
                 && !hospital.getAddressRoad().isBlank()) {

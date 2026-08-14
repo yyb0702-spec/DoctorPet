@@ -77,8 +77,7 @@ class HospitalSearchServiceTest {
                 hospitalSearchCacheRepository,
                 temporaryClosureRepository,
                 hospitalFavoriteService,
-                reviewQueryService,
-                null
+                reviewQueryService
         );
     }
 

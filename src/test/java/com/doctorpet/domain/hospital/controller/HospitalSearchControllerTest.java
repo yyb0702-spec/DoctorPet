@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.hospital.service.HospitalDetailApplicationService;
 import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -52,6 +53,9 @@ class HospitalSearchControllerTest {
 
     @MockitoBean
     private HospitalService hospitalService;
+
+    @MockitoBean
+    private HospitalDetailApplicationService hospitalDetailApplicationService;
 
     @MockitoBean
     private HospitalFavoriteService hospitalFavoriteService;
@@ -154,7 +158,7 @@ class HospitalSearchControllerTest {
 
     @Test
     void 제휴_병원_상세에_예약_응답_지표를_반환한다() throws Exception {
-        given(hospitalService.getHospitalDetail(1L, null))
+        given(hospitalDetailApplicationService.getHospitalDetail(1L, null))
                 .willReturn(new HospitalDetailResponse(
                         1L,
                         "닥터펫 동물병원",
@@ -183,12 +187,12 @@ class HospitalSearchControllerTest {
                 .andExpect(jsonPath("$.data.reservationResponseRate").value(80))
                 .andExpect(jsonPath("$.data.averageApprovalMinutes").value(15));
 
-        verify(hospitalService).getHospitalDetail(1L, null);
+        verify(hospitalDetailApplicationService).getHospitalDetail(1L, null);
     }
 
     @Test
     void 비제휴_병원_상세의_예약_응답_지표는_null이다() throws Exception {
-        given(hospitalService.getHospitalDetail(2L, null))
+        given(hospitalDetailApplicationService.getHospitalDetail(2L, null))
                 .willReturn(new HospitalDetailResponse(
                         2L,
                         "비제휴 동물병원",
@@ -216,7 +220,7 @@ class HospitalSearchControllerTest {
                 .andExpect(jsonPath("$.data.reservationResponseRate").value(nullValue()))
                 .andExpect(jsonPath("$.data.averageApprovalMinutes").value(nullValue()));
 
-        verify(hospitalService).getHospitalDetail(2L, null);
+        verify(hospitalDetailApplicationService).getHospitalDetail(2L, null);
     }
 
     @Test
