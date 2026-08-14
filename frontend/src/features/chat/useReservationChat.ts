@@ -14,7 +14,7 @@ const SEND_CONFIRM_TIMEOUT_MS = 5_000
 type PendingSend = {
   content: string
   senderType: ChatSenderType
-  minMessageId: number
+  minMessageId?: number
   timer: ReturnType<typeof setTimeout>
   resolve: (sent: boolean) => void
 }
@@ -40,6 +40,7 @@ export function useReservationChat(reservationId: number, enabled = true) {
   const subscriptionReadyRef = useRef(false)
   const historySyncedRef = useRef(false)
   const pendingSendRef = useRef<PendingSend | null>(null)
+  const recoverRef = useRef<((afterMessageId?: number) => Promise<void>) | null>(null)
 
   const markReadDebounced = useCallback(() => {
     if (readTimerRef.current) clearTimeout(readTimerRef.current)
@@ -77,7 +78,7 @@ export function useReservationChat(reservationId: number, enabled = true) {
       pending &&
       incoming.some(
         (message) =>
-          message.messageId > pending.minMessageId &&
+          (pending.minMessageId == null || message.messageId > pending.minMessageId) &&
           message.senderType === pending.senderType &&
           message.content === pending.content,
       )
@@ -113,6 +114,7 @@ export function useReservationChat(reservationId: number, enabled = true) {
 
       throw new Error('채팅 이력 커서가 누락되었습니다.')
     }
+    recoverRef.current = recover
 
     const stopClient = async () => {
       if (!activeClient) return
@@ -243,9 +245,29 @@ export function useReservationChat(reservationId: number, enabled = true) {
       clearTimeout(resetTimer)
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
       if (readTimerRef.current) clearTimeout(readTimerRef.current)
+      if (recoverRef.current === recover) recoverRef.current = null
       void stopClient()
     }
   }, [appendMessages, enabled, failPendingSend, markReadDebounced, reservationId])
+
+  const confirmPendingSendAfterTimeout = useCallback(async () => {
+    const pending = pendingSendRef.current
+    const recover = recoverRef.current
+    if (!pending || !recover) {
+      settlePendingSend(false)
+      return
+    }
+
+    try {
+      await recover(pending.minMessageId)
+    } catch {
+      // 조회 실패 시에는 저장 여부를 확정할 수 없으므로 전송 실패로 안내한다.
+    }
+
+    if (pendingSendRef.current === pending) {
+      settlePendingSend(false)
+    }
+  }, [settlePendingSend])
 
   const sendMessage = useCallback(
     (content: string, senderType: ChatSenderType): Promise<boolean> => {
@@ -263,12 +285,12 @@ export function useReservationChat(reservationId: number, enabled = true) {
 
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
-          settlePendingSend(false)
+          void confirmPendingSendAfterTimeout()
         }, SEND_CONFIRM_TIMEOUT_MS)
         pendingSendRef.current = {
           content: normalized,
           senderType,
-          minMessageId: lastMessageIdRef.current ?? 0,
+          minMessageId: lastMessageIdRef.current,
           timer,
           resolve,
         }
@@ -283,7 +305,7 @@ export function useReservationChat(reservationId: number, enabled = true) {
         }
       })
     },
-    [reservationId, settlePendingSend],
+    [confirmPendingSendAfterTimeout, reservationId, settlePendingSend],
   )
 
   return {

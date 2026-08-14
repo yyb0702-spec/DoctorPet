@@ -170,6 +170,47 @@ describe('useReservationChat', () => {
     await waitFor(() => expect(result.current.sendState).toBe('idle'))
   })
 
+  it('전송 echo가 유실되면 타임아웃 뒤 REST 이력으로 저장 여부를 재확인한다', async () => {
+    const sentMessage = { ...message, messageId: 2, content: 'REST 재확인 메시지' }
+    getMessages
+      .mockResolvedValueOnce({
+        messages: [message],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+      .mockResolvedValueOnce({
+        messages: [],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+      .mockResolvedValueOnce({
+        messages: [sentMessage],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+
+    const { result } = renderHook(() => useReservationChat(11))
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+    await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(11, 1))
+
+    let sending: Promise<boolean> | undefined
+    act(() => {
+      sending = result.current.sendMessage('REST 재확인 메시지', 'GUARDIAN')
+    })
+
+    await act(async () => {
+      await expect(sending).resolves.toBe(true)
+    })
+    expect(getMessages).toHaveBeenCalledTimes(3)
+    expect(getMessages).toHaveBeenLastCalledWith(11, 1)
+    await waitFor(() => {
+      expect(result.current.messages.map((item) => item.messageId)).toEqual([1, 2])
+    })
+  }, 10_000)
+
   it('초기 이력 조회 실패 시 연결을 시작하지 않는다', async () => {
     getMessages.mockRejectedValueOnce(new Error('network'))
     const { result } = renderHook(() => useReservationChat(11))
