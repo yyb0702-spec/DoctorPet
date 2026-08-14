@@ -6,6 +6,7 @@ export interface ChatMessage {
   content: string
   createdAt: string
   senderName: string
+  clientMessageId?: string
 }
 
 export interface ChatMessagePage {

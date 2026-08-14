@@ -78,6 +78,11 @@ export function useReservationChat(reservationId: number, enabled = true) {
     lastMessageIdRef.current = merged.at(-1)?.messageId
     setMessages(merged)
 
+    const pending = pendingSendRef.current
+    if (pending && incoming.some((message) => message.clientMessageId === pending.clientMessageId)) {
+      settlePendingSend(true)
+    }
+
   }, [settlePendingSend])
 
   useEffect(() => {
