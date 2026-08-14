@@ -53,6 +53,16 @@ function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
 }
 
+function ReservationDetailLink({ item }: { item: StaffReservationListItem }) {
+  return (
+    <Button size="sm" variant="outline" asChild>
+      <Link to={`/staff/reservations/${item.reservationId}`} state={{ item }}>
+        상세·채팅
+      </Link>
+    </Button>
+  )
+}
+
 export function RowActions({ item }: { item: StaffReservationListItem }) {
   const approve = useApproveReservation()
   const reject = useRejectReservation()
@@ -66,6 +76,7 @@ export function RowActions({ item }: { item: StaffReservationListItem }) {
     case ReservationStatus.REQUESTED:
       return (
         <div className="flex flex-wrap items-start gap-2">
+          <ReservationDetailLink item={item} />
           <Button
             size="sm"
             disabled={approve.isPending}
@@ -92,6 +103,7 @@ export function RowActions({ item }: { item: StaffReservationListItem }) {
     case ReservationStatus.NO_SHOW_PENDING:
       return (
         <div className="flex flex-wrap items-start gap-2">
+          <ReservationDetailLink item={item} />
           <Button
             size="sm"
             disabled={checkIn.isPending}
@@ -116,23 +128,29 @@ export function RowActions({ item }: { item: StaffReservationListItem }) {
       )
     case ReservationStatus.CHECKED_IN:
       return (
-        <Button
-          size="sm"
-          disabled={start.isPending}
-          onClick={() => start.mutate(item.reservationId)}
-        >
-          진료 시작
-        </Button>
+        <div className="flex flex-wrap items-start gap-2">
+          <ReservationDetailLink item={item} />
+          <Button
+            size="sm"
+            disabled={start.isPending}
+            onClick={() => start.mutate(item.reservationId)}
+          >
+            진료 시작
+          </Button>
+        </div>
       )
     case ReservationStatus.IN_TREATMENT:
       return (
-        <Button
-          size="sm"
-          disabled={complete.isPending}
-          onClick={() => complete.mutate(item.reservationId)}
-        >
-          진료 완료
-        </Button>
+        <div className="flex flex-wrap items-start gap-2">
+          <ReservationDetailLink item={item} />
+          <Button
+            size="sm"
+            disabled={complete.isPending}
+            onClick={() => complete.mutate(item.reservationId)}
+          >
+            진료 완료
+          </Button>
+        </div>
       )
     case ReservationStatus.TREATMENT_COMPLETED:
       return (
@@ -147,21 +165,24 @@ export function RowActions({ item }: { item: StaffReservationListItem }) {
       )
     case ReservationStatus.NO_SHOW:
       return (
-        <ReasonPrompt
-          triggerLabel="노쇼 정정"
-          confirmLabel="정정"
-          maxLength={255}
-          pending={restoreNoShow.isPending}
-          errorMessage={
-            restoreNoShow.isError ? errorMessage(restoreNoShow.error) : undefined
-          }
-          onConfirm={(reason) =>
-            restoreNoShow.mutate({ reservationId: item.reservationId, reason })
-          }
-        />
+        <div className="flex flex-wrap items-start gap-2">
+          <ReservationDetailLink item={item} />
+          <ReasonPrompt
+            triggerLabel="노쇼 정정"
+            confirmLabel="정정"
+            maxLength={255}
+            pending={restoreNoShow.isPending}
+            errorMessage={
+              restoreNoShow.isError ? errorMessage(restoreNoShow.error) : undefined
+            }
+            onConfirm={(reason) =>
+              restoreNoShow.mutate({ reservationId: item.reservationId, reason })
+            }
+          />
+        </div>
       )
     default:
-      return null
+      return <ReservationDetailLink item={item} />
   }
 }
 

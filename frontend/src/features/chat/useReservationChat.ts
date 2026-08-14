@@ -4,11 +4,20 @@ import { tokenStore } from '@/lib/auth/tokenStore'
 import { chatApi } from './api'
 import { isValidChatContent, mergeChatMessages, normalizeChatContent } from './messageUtils'
 import { createChatStompClient } from './stompClient'
-import type { ChatConnectionState, ChatMessage } from './types'
+import type { ChatConnectionState, ChatMessage, ChatSenderType } from './types'
 
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 const READ_DEBOUNCE_MS = 500
+const SEND_CONFIRM_TIMEOUT_MS = 5_000
+
+type PendingSend = {
+  content: string
+  senderType: ChatSenderType
+  minMessageId: number
+  timer: ReturnType<typeof setTimeout>
+  resolve: (sent: boolean) => void
+}
 
 function isMockMode(): boolean {
   return import.meta.env.VITE_ENABLE_MOCKS === 'true'
@@ -19,31 +28,63 @@ export function useReservationChat(reservationId: number, enabled = true) {
   const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [connectionState, setConnectionState] =
     useState<ChatConnectionState>('loading')
+  const [sendState, setSendState] = useState<'idle' | 'sending' | 'failed'>('idle')
   const clientRef = useRef<Client | null>(null)
+  const messagesRef = useRef<ChatMessage[]>([])
   const lastMessageIdRef = useRef<number | undefined>(undefined)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const readTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const retryAttemptRef = useRef(0)
   const stoppedRef = useRef(false)
   const intentionalDisconnectRef = useRef(false)
-
-  const appendMessages = useCallback((incoming: ChatMessage[]) => {
-    if (incoming.length === 0) return
-    setMessages((current) => {
-      const merged = mergeChatMessages(current, incoming)
-      lastMessageIdRef.current = merged.at(-1)?.messageId
-      return merged
-    })
-  }, [])
+  const subscriptionReadyRef = useRef(false)
+  const historySyncedRef = useRef(false)
+  const pendingSendRef = useRef<PendingSend | null>(null)
 
   const markReadDebounced = useCallback(() => {
     if (readTimerRef.current) clearTimeout(readTimerRef.current)
     readTimerRef.current = setTimeout(() => {
+      if (!subscriptionReadyRef.current || !historySyncedRef.current) return
       chatApi.markRead(reservationId).catch(() => {
         // 읽음 동기화 실패는 메시지 조회·수신을 막지 않는다.
       })
     }, READ_DEBOUNCE_MS)
   }, [reservationId])
+
+  const settlePendingSend = useCallback((sent: boolean) => {
+    const pending = pendingSendRef.current
+    if (!pending) return
+
+    clearTimeout(pending.timer)
+    pendingSendRef.current = null
+    setSendState(sent ? 'idle' : 'failed')
+    pending.resolve(sent)
+  }, [])
+
+  const failPendingSend = useCallback(() => {
+    settlePendingSend(false)
+  }, [settlePendingSend])
+
+  const appendMessages = useCallback((incoming: ChatMessage[]) => {
+    if (incoming.length === 0) return
+    const merged = mergeChatMessages(messagesRef.current, incoming)
+    messagesRef.current = merged
+    lastMessageIdRef.current = merged.at(-1)?.messageId
+    setMessages(merged)
+
+    const pending = pendingSendRef.current
+    if (
+      pending &&
+      incoming.some(
+        (message) =>
+          message.messageId > pending.minMessageId &&
+          message.senderType === pending.senderType &&
+          message.content === pending.content,
+      )
+    ) {
+      settlePendingSend(true)
+    }
+  }, [settlePendingSend])
 
   useEffect(() => {
     if (!enabled || !Number.isFinite(reservationId)) return
@@ -51,21 +92,35 @@ export function useReservationChat(reservationId: number, enabled = true) {
     stoppedRef.current = false
     intentionalDisconnectRef.current = false
     retryAttemptRef.current = 0
+    setSendState('idle')
+    messagesRef.current = []
     lastMessageIdRef.current = undefined
+    subscriptionReadyRef.current = false
+    historySyncedRef.current = false
     // 예약 상세 간 이동 시 이전 스레드가 잠깐 보이지 않게 다음 이벤트 루프에서 초기화한다.
     // React effect 본문에서 동기 setState를 피하면서도 첫 REST 요청보다 먼저 반영된다.
     let activeClient: Client | null = null
 
     const recover = async (afterMessageId?: number) => {
-      const page = await chatApi.getMessages(reservationId, afterMessageId)
-      appendMessages(page.messages)
-      if (page.messages.length > 0) markReadDebounced()
-      return page
+      let cursor = afterMessageId
+
+      do {
+        const page = await chatApi.getMessages(reservationId, cursor)
+        appendMessages(page.messages)
+        cursor = page.nextAfterMessageId ?? undefined
+
+        if (!page.hasNext) return
+      } while (cursor != null)
+
+      throw new Error('채팅 이력 커서가 누락되었습니다.')
     }
 
     const stopClient = async () => {
       if (!activeClient) return
       intentionalDisconnectRef.current = true
+      subscriptionReadyRef.current = false
+      historySyncedRef.current = false
+      failPendingSend()
       const closing = activeClient
       activeClient = null
       clientRef.current = null
@@ -105,16 +160,26 @@ export function useReservationChat(reservationId: number, enabled = true) {
           subscribe()
           retryAttemptRef.current = 0
           setConnectionState('connected')
-          // CONNECT 직후에도 다시 복구한다. REST·STOMP 동시 도착은 messageId로 병합된다.
-          if (reconnecting && lastMessageIdRef.current != null) {
-            void recover(lastMessageIdRef.current).catch(() => undefined)
-          }
+          subscriptionReadyRef.current = true
+          void recover(lastMessageIdRef.current)
+            .then(() => {
+              if (stoppedRef.current || client !== activeClient) return
+              historySyncedRef.current = true
+              markReadDebounced()
+            })
+            .catch(() => {
+              // 누락 구간 복구 전에는 읽음 처리를 보류하고 다음 재연결에서 다시 복구한다.
+            })
         },
         onMessage: (message) => {
           appendMessages([message])
           markReadDebounced()
         },
         onClosed: () => {
+          subscriptionReadyRef.current = false
+          historySyncedRef.current = false
+          failPendingSend()
+          if (readTimerRef.current) clearTimeout(readTimerRef.current)
           if (
             client === activeClient &&
             !stoppedRef.current &&
@@ -143,7 +208,6 @@ export function useReservationChat(reservationId: number, enabled = true) {
         await recover()
         if (stoppedRef.current) return
         setHistoryState('ready')
-        markReadDebounced()
         if (isMockMode()) return
         await connect(false)
       } catch {
@@ -182,27 +246,52 @@ export function useReservationChat(reservationId: number, enabled = true) {
       if (readTimerRef.current) clearTimeout(readTimerRef.current)
       void stopClient()
     }
-  }, [appendMessages, enabled, markReadDebounced, reservationId])
+  }, [appendMessages, enabled, failPendingSend, markReadDebounced, reservationId])
 
   const sendMessage = useCallback(
-    (content: string): boolean => {
+    (content: string, senderType: ChatSenderType): Promise<boolean> => {
       const normalized = normalizeChatContent(content)
-      if (!isValidChatContent(normalized) || !clientRef.current?.connected) {
-        return false
+      const client = clientRef.current
+      if (
+        !isValidChatContent(normalized) ||
+        !client?.connected ||
+        pendingSendRef.current
+      ) {
+        return Promise.resolve(false)
       }
-      clientRef.current.publish({
-        destination: `/app/chat/reservations/${reservationId}/messages`,
-        body: JSON.stringify({ content: normalized }),
+
+      setSendState('sending')
+
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          settlePendingSend(false)
+        }, SEND_CONFIRM_TIMEOUT_MS)
+        pendingSendRef.current = {
+          content: normalized,
+          senderType,
+          minMessageId: lastMessageIdRef.current ?? 0,
+          timer,
+          resolve,
+        }
+
+        try {
+          client.publish({
+            destination: `/app/chat/reservations/${reservationId}/messages`,
+            body: JSON.stringify({ content: normalized }),
+          })
+        } catch {
+          settlePendingSend(false)
+        }
       })
-      return true
     },
-    [reservationId],
+    [reservationId, settlePendingSend],
   )
 
   return {
     messages,
     historyState,
     connectionState,
+    sendState,
     sendMessage,
   }
 }

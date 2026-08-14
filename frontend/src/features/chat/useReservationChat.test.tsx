@@ -58,6 +58,7 @@ describe('useReservationChat', () => {
       callbacks?.onConnected(() => undefined)
     })
 
+    await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(11, 1))
     expect(result.current.messages).toHaveLength(1)
     act(() => {
       // onMessage는 STOMP frame JSON 파싱 뒤 service가 호출한다.
@@ -67,6 +68,104 @@ describe('useReservationChat', () => {
     expect(result.current.messages.map((item) => item.messageId)).toEqual([1, 2])
     unmount()
     await waitFor(() => expect(client.deactivate).toHaveBeenCalled())
+  })
+
+  it('최초 이력 조회와 STOMP 구독 사이에 생긴 메시지를 커서 복구한다', async () => {
+    const recovered = { ...message, messageId: 2, content: '구독 직전 메시지' }
+    getMessages
+      .mockResolvedValueOnce({
+        messages: [message],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+      .mockResolvedValueOnce({
+        messages: [recovered],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+
+    const { result } = renderHook(() => useReservationChat(11))
+
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+
+    await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(11, 1))
+    expect(result.current.messages.map((item) => item.messageId)).toEqual([1, 2])
+  })
+
+  it('100건 초과 이력은 다음 커서까지 모두 복구한 뒤 읽음 처리한다', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      ...message,
+      messageId: index + 1,
+      content: `메시지 ${index + 1}`,
+    }))
+    const latest = { ...message, messageId: 101, content: '최신 메시지' }
+    getMessages
+      .mockResolvedValueOnce({
+        messages: firstPage,
+        nextAfterMessageId: 100,
+        hasNext: true,
+      })
+      .mockResolvedValueOnce({
+        messages: [latest],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+      .mockResolvedValueOnce({
+        messages: [],
+        nextAfterMessageId: null,
+        hasNext: false,
+      })
+
+    const { result } = renderHook(() => useReservationChat(11))
+
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+    expect(getMessages.mock.calls).toEqual([
+      [11, undefined],
+      [11, 100],
+    ])
+    expect(markRead).not.toHaveBeenCalled()
+
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+    await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(11, 101))
+    await waitFor(() => expect(markRead).toHaveBeenCalledWith(11))
+
+    expect(result.current.messages).toHaveLength(101)
+    expect(result.current.messages.at(-1)?.content).toBe('최신 메시지')
+  })
+
+  it('서버가 방송한 자신의 메시지를 받은 뒤에만 전송 성공으로 처리한다', async () => {
+    const { result } = renderHook(() => useReservationChat(11))
+
+    await waitFor(() => expect(createChatStompClient).toHaveBeenCalled())
+    act(() => {
+      callbacks?.onConnected(() => undefined)
+    })
+
+    let sending: Promise<boolean> | undefined
+    act(() => {
+      sending = result.current.sendMessage('전송 확인 메시지', 'GUARDIAN')
+    })
+    expect(result.current.sendState).toBe('sending')
+    expect(client.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: JSON.stringify({ content: '전송 확인 메시지' }),
+      }),
+    )
+
+    act(() => {
+      callbacks?.onMessage({
+        ...message,
+        messageId: 2,
+        content: '전송 확인 메시지',
+      })
+    })
+    await expect(sending).resolves.toBe(true)
+    await waitFor(() => expect(result.current.sendState).toBe('idle'))
   })
 
   it('초기 이력 조회 실패 시 연결을 시작하지 않는다', async () => {

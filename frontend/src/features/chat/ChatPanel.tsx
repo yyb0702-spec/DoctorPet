@@ -68,8 +68,9 @@ export function ChatPanel({
   reservationStatus: ReservationStatus
 }) {
   const [content, setContent] = useState('')
+  const [sendError, setSendError] = useState(false)
   const { data: me } = useMe()
-  const { messages, historyState, connectionState, sendMessage } =
+  const { messages, historyState, connectionState, sendState, sendMessage } =
     useReservationChat(reservationId)
   const writable = WRITABLE_STATUSES.includes(reservationStatus)
   const canSend =
@@ -77,9 +78,15 @@ export function ChatPanel({
   const ownSender =
     me?.role === MemberRole.HOSPITAL_STAFF ? 'HOSPITAL' : 'GUARDIAN'
 
-  const submit = () => {
-    if (!canSend || !sendMessage(content)) return
-    setContent('')
+  const submit = async () => {
+    if (!canSend || sendState === 'sending') return
+    setSendError(false)
+    const sent = await sendMessage(content, ownSender)
+    if (sent) {
+      setContent('')
+      return
+    }
+    setSendError(true)
   }
 
   return (
@@ -138,6 +145,11 @@ export function ChatPanel({
             연결이 안정되지 않았어요. 잠시 후 다시 시도하거나 페이지를 새로고침해 주세요.
           </p>
         )}
+        {sendError && (
+          <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            전송을 확인하지 못했습니다. 입력한 내용은 유지되며, 연결을 확인한 뒤 다시 보낼 수 있습니다.
+          </p>
+        )}
 
         <div className="flex gap-2">
           <textarea
@@ -145,8 +157,11 @@ export function ChatPanel({
             className="min-h-20 flex-1 rounded-md border bg-background p-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             value={content}
             maxLength={CHAT_MAX_LENGTH}
-            disabled={!writable || connectionState !== 'connected'}
-            onChange={(event) => setContent(event.target.value)}
+            disabled={!writable || connectionState !== 'connected' || sendState === 'sending'}
+            onChange={(event) => {
+              setContent(event.target.value)
+              setSendError(false)
+            }}
             placeholder={
               writable
                 ? '메시지를 입력하세요'
@@ -156,11 +171,11 @@ export function ChatPanel({
           <Button
             className="self-end"
             size="icon"
-            disabled={!canSend}
+            disabled={!canSend || sendState === 'sending'}
             aria-label="메시지 전송"
             onClick={submit}
           >
-            <Send className="h-4 w-4" />
+            {sendState === 'sending' ? '…' : <Send className="h-4 w-4" />}
           </Button>
         </div>
         <p className="text-right text-xs text-muted-foreground">
