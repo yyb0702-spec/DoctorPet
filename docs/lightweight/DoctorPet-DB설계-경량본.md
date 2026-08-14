@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.57, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.58, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 관계 요약
@@ -21,6 +21,7 @@ reservations 1 ── 0..1 payments
 members 1 ── 0..N payment_methods
 members 1 ── 0..N ai_consultations
 members 1 ── 0..N notifications
+reservations 1 ── 0..N chat_messages
 ```
 ## 2. 회원·반려동물
 ### `members`
@@ -178,7 +179,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `offline_settled_by` | BIGINT | 정산 처리자, `NULL` 가능 |
 | `created_at` | DATETIME | 생성 시각 |
 | `paid_at` | DATETIME | 결제 완료 시각, `NULL` 가능 |
-## 6. AI·알림
+## 6. AI·알림·채팅
 ### `ai_consultations`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -210,6 +211,19 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |
 | `read_at` | DATETIME NULL | 읽은 시각(NULL=미읽음). `isRead`는 `read_at IS NOT NULL` 파생 |
 | `created_at` | DATETIME | 생성 시각 |
+### `chat_messages`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `reservation_id` | BIGINT | 예약 논리 참조 |
+| `sender_type` | VARCHAR | `GUARDIAN`, `HOSPITAL` |
+| `hospital_id` | BIGINT | 예약 병원 ID, 감사·병원 단위 읽음 기준 |
+| `member_id` | BIGINT | 실제 발신자 ID(감사용) |
+| `body` | VARCHAR(1000) | 텍스트 본문 |
+| `client_message_id` | VARCHAR(36) | NOT NULL, 클라이언트 재전송 UUID |
+| `created_at` | DATETIME | 생성 시각 |
+| `read_at` | DATETIME NULL | 반대 측 읽음 시각 |
+인덱스: `(reservation_id, created_at, id)`, `(reservation_id, sender_type, read_at)`, `UNIQUE(reservation_id, member_id, client_message_id)`. 기존 행은 `chat_message_client_message_id_v1` 선행 마이그레이션에서 UUID 백필 후 UNIQUE·NOT NULL을 적용하며, 배포 중 구버전 INSERT는 트리거로 UUID를 채운다.
 ## 7. 확장 테이블
 ### `payment_webhooks` `(확장)`
 | 필드 | 타입 | 제약·설명 |
@@ -223,7 +237,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 ### `schema_migrations`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
-| `migration_key` | VARCHAR | PK, 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| `migration_key` | VARCHAR | PK, 마이그레이션 식별자(예: `email_verified_backfill_v1`, `chat_message_client_message_id_v1`) |
 | `applied_at` | DATETIME | 실행 시각 |
 Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
 ## 9. 설계상 필수 규칙

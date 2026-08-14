@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.57 |
-| 작성 기준일 | 2026-08-12 |
+| 문서 버전 | v1.58 |
+| 작성 기준일 | 2026-08-14 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
 PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·API·상태 머신·핵심 기능·인프라). PRD와 충돌하면 PRD를 따른다. 코드 스타일·클래스 규약은 코드 컨벤션 문서를 따른다. 아직 안 정한 선택지는 본문에 `[결정 필요]`로 표기하고 부록 A에 모은다.
@@ -14,6 +14,8 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 ---
 
 **v1.57 변경:** 병원 확정 예약 취소 계약을 정본에 반영했다. `CONFIRMED → HOSPITAL_CANCELED` 상태 전이, `hospital_cancel_reason`·`hospital_canceled_at` 컬럼, `HOSPITAL_CANCELED` 이벤트, `RESERVATION_HOSPITAL_CANCELED` 알림, 병원 취소 API와 슬롯 반환 규칙을 §4·§5·§8-6에 추가했다. 레거시 `HOSPITAL_CANCELLED` 데이터는 Hibernate `ddl-auto=update` 전에 선행 마이그레이션으로 정규화한다.
+
+**v1.58 변경:** 채팅 재전송 멱등 계약의 `client_message_id`를 `chat_messages`에 `NOT NULL`로 추가하고 `(reservation_id, member_id, client_message_id)` UNIQUE를 명시했다. 기존 메시지가 있는 배포는 Hibernate 전에 nullable 컬럼 추가 → 행별 UUID 백필 → UNIQUE → NOT NULL 순서로 선행 마이그레이션하며, 배포 중 구버전 INSERT는 BEFORE INSERT 트리거가 UUID를 채워 호환한다. 실행은 `schema_migrations.chat_message_client_message_id_v1`과 MySQL `GET_LOCK`으로 1회·직렬화한다.
 
 # 1. 아키텍처 개요
 
@@ -363,10 +365,11 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | hospital_id | BIGINT NOT NULL | 예약 병원 ID. 병원 단위 접근·읽음 및 감사용 |
 | member_id | BIGINT NOT NULL | 실제 발신 보호자 또는 병원 스태프 ID(감사용) |
 | body | VARCHAR(1000) NOT NULL | 텍스트 본문 |
+| client_message_id | VARCHAR(36) NOT NULL | 클라이언트 재전송 UUID. 실제 발신자·예약과 함께 멱등키를 이룬다 |
 | created_at | DATETIME NOT NULL | 생성 시각 |
 | read_at | DATETIME NULL | 상대 측이 읽은 시각. 병원 발신은 보호자, 보호자 발신은 병원 단위로 공유 |
 
-인덱스: 커서 조회용 `(reservation_id, created_at, id)`, 반대 발신자 미읽음 처리용 `(reservation_id, sender_type, read_at)`. 예약·병원·회원은 도메인 경계를 넘는 논리 참조로 DB FK를 두지 않는다. 메시지는 생성 시각부터 정확히 1년이 지난 시점에 hard delete한다.
+인덱스: 커서 조회용 `(reservation_id, created_at, id)`, 반대 발신자 미읽음 처리용 `(reservation_id, sender_type, read_at)`, 재전송 멱등용 `UNIQUE(reservation_id, member_id, client_message_id)`. 예약·병원·회원은 도메인 경계를 넘는 논리 참조로 DB FK를 두지 않는다. 메시지는 생성 시각부터 정확히 1년이 지난 시점에 hard delete한다. 기존 행이 있는 배포에서는 `ChatMessageClientMessageIdMigrationRunner`가 Hibernate보다 먼저 nullable 컬럼 추가 → UUID 백필 → UNIQUE → NOT NULL을 적용하고, `chat_message_client_message_id_v1` 마커·MySQL `GET_LOCK`으로 재실행과 다중 기동을 제어한다. 배포 중 구버전 INSERT는 BEFORE INSERT 트리거가 UUID를 채운다.
 
 ### ai_consultations (상담 로그 + 운영·비용 측정)
 
@@ -428,7 +431,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
-| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`, `reservation_approval_deadline_v1`) |
+| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`, `reservation_approval_deadline_v1`, `chat_message_client_message_id_v1`) |
 | applied_at | DATETIME NOT NULL | 실행 시각 |
 
 Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가, `approval_deadline_at` 백필과 NOT NULL·인덱스 적용)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
