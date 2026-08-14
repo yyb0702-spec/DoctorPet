@@ -6,7 +6,9 @@ import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
+import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
+import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
@@ -55,6 +57,7 @@ class ChatWebSocketIntegrationTest {
     @Autowired private ChatMessageRepository chatMessageRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationSlotRepository reservationSlotRepository;
+    @Autowired private MemberRepository memberRepository;
     @Autowired private SimpMessagingTemplate messagingTemplate;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @MockitoBean private HospitalService hospitalService;
@@ -63,6 +66,7 @@ class ChatWebSocketIntegrationTest {
     private final List<WebSocket> sockets = new ArrayList<>();
     private final List<Long> reservationIds = new ArrayList<>();
     private final List<Long> slotIds = new ArrayList<>();
+    private final List<Long> memberIds = new ArrayList<>();
 
     @AfterEach
     void cleanUp() {
@@ -80,6 +84,7 @@ class ChatWebSocketIntegrationTest {
             reservationRepository.deleteById(id);
         });
         slotIds.forEach(reservationSlotRepository::deleteById);
+        memberIds.forEach(memberRepository::deleteById);
     }
 
     @Test
@@ -205,6 +210,57 @@ class ChatWebSocketIntegrationTest {
                 fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).isEmpty();
     }
 
+    @Test
+    void guardianAndHospitalStaff_exchangeMessagesAndReceiveOwnAcknowledgements() throws Exception {
+        ChatFixture fixture = saveWritableReservation();
+        String guardianToken = jwtTokenProvider.generateAccessToken(
+                fixture.guardianId(), "guardian@example.com", MemberRole.GUARDIAN.name());
+        String staffToken = jwtTokenProvider.generateAccessToken(
+                fixture.staffId(), "staff@example.com", MemberRole.HOSPITAL_STAFF.name());
+
+        StompFrames guardian = connect(guardianToken);
+        guardian.send(frame("SUBSCRIBE", List.of(
+                "id:guardian-ack", "destination:/user/queue/chat/send-acks"), ""));
+        guardian.send(frame("SUBSCRIBE", List.of(
+                "id:guardian-chat", "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
+
+        StompFrames staff = connect(staffToken);
+        staff.send(frame("SUBSCRIBE", List.of(
+                "id:staff-ack", "destination:/user/queue/chat/send-acks"), ""));
+        staff.send(frame("SUBSCRIBE", List.of(
+                "id:staff-chat", "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
+
+        guardian.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/subscription-ready",
+                "content-type:application/json"), ""));
+        guardian.awaitFrameContaining("SUBSCRIPTION_READY");
+        staff.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/subscription-ready",
+                "content-type:application/json"), ""));
+        staff.awaitFrameContaining("SUBSCRIPTION_READY");
+
+        guardian.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
+                "content-type:application/json"),
+                "{\"content\":\"guardian message\",\"clientMessageId\":\"22222222-2222-4222-8222-222222222222\"}"));
+        String guardianFrames = guardian.awaitFrame() + guardian.awaitFrame();
+        assertThat(guardianFrames).contains(
+                "guardian message", "22222222-2222-4222-8222-222222222222");
+        staff.awaitFrameContaining("guardian message");
+
+        staff.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
+                "content-type:application/json"),
+                "{\"content\":\"staff reply\",\"clientMessageId\":\"33333333-3333-4333-8333-333333333333\"}"));
+        String staffFrames = staff.awaitFrame() + staff.awaitFrame();
+        assertThat(staffFrames).contains(
+                "staff reply", "33333333-3333-4333-8333-333333333333");
+        guardian.awaitFrameContaining("staff reply");
+
+        assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).hasSize(2);
+    }
+
     private void awaitActiveSubscription(StompFrames frames, Long reservationId) throws InterruptedException {
         String delivered = null;
         for (int attempt = 1; attempt <= 5 && delivered == null; attempt++) {
@@ -241,13 +297,21 @@ class ChatWebSocketIntegrationTest {
 
     private ChatFixture saveWritableReservation(ReservationStatus status) {
         long hospitalId = System.nanoTime();
-        long guardianId = hospitalId + 1;
         LocalDateTime now = LocalDateTime.now();
+        Member guardian = memberRepository.saveAndFlush(Member.createGuardian(
+                "chat-guardian-" + hospitalId + "@example.com", "encoded", "guardian"));
+        memberIds.add(guardian.getId());
+        Member staff = Member.createGuardian(
+                "chat-staff-" + hospitalId + "@example.com", "encoded", "staff");
+        ReflectionTestUtils.setField(staff, "role", MemberRole.HOSPITAL_STAFF);
+        ReflectionTestUtils.setField(staff, "hospitalId", hospitalId);
+        staff = memberRepository.saveAndFlush(staff);
+        memberIds.add(staff.getId());
         ReservationSlot slot = reservationSlotRepository.saveAndFlush(ReservationSlot.create(
                 hospitalId, now.plusDays(2), now.plusDays(2).plusMinutes(30)));
         slotIds.add(slot.getId());
         Reservation reservation = Reservation.request(
-                guardianId, 1L, hospitalId, slot.getId(), 1L,
+                guardian.getId(), 1L, hospitalId, slot.getId(), 1L,
                 "초코", "DOG", now, slot.getStartAt());
         ReflectionTestUtils.setField(reservation, "status", status);
         reservation = reservationRepository.saveAndFlush(reservation);
@@ -255,16 +319,16 @@ class ChatWebSocketIntegrationTest {
         org.mockito.BDDMockito.given(hospitalService.getHospitalDetail(hospitalId))
                 .willReturn(new HospitalDetailResponse(hospitalId, "테스트동물병원", null, null, null,
                         null, null, null, null, null, null, null, null, null, null, 0L, false));
-        org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardianId))
+        org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardian.getId()))
                 .willReturn("테스트보호자");
-        return new ChatFixture(reservation.getId(), guardianId);
+        return new ChatFixture(reservation.getId(), guardian.getId(), staff.getId());
     }
 
     private String frame(String command, List<String> headers, String body) {
         return command + "\n" + String.join("\n", headers) + "\n\n" + body + "\u0000";
     }
 
-    private record ChatFixture(Long reservationId, Long guardianId) {
+    private record ChatFixture(Long reservationId, Long guardianId, Long staffId) {
     }
 
     private record StompFrames(WebSocket socket, BlockingQueue<String> frames) {
@@ -281,6 +345,16 @@ class ChatWebSocketIntegrationTest {
 
         String pollFrame() throws InterruptedException {
             return frames.poll(1, TimeUnit.SECONDS);
+        }
+
+        String awaitFrameContaining(String expected) throws InterruptedException {
+            for (int attempt = 0; attempt < 5; attempt++) {
+                String received = awaitFrame();
+                if (received.contains(expected)) {
+                    return received;
+                }
+            }
+            throw new AssertionError("STOMP frame does not contain: " + expected);
         }
     }
 
