@@ -6,6 +6,7 @@ import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
 import com.doctorpet.domain.hospital.entity.PartnershipStatus;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
 import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
@@ -93,7 +94,7 @@ class HospitalSearchServiceTest {
         Hospital first = createHospital(
                 1L,
                 "가병원",
-                BusinessStatus.CLOSED_TEMP,
+                BusinessStatus.OPEN,
                 false,
                 "126.9700",
                 "37.5600"
@@ -169,7 +170,8 @@ class HospitalSearchServiceTest {
         given(hospitalRepository.searchAll(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
-                )
+                ),
+                org.mockito.ArgumentMatchers.eq(CapabilityMatchMode.ALL)
         )).willReturn(List.of(
                 candidate(farAway),
                 candidate(nearby)
@@ -218,7 +220,8 @@ class HospitalSearchServiceTest {
         given(hospitalRepository.searchAll(
                 org.mockito.ArgumentMatchers.any(
                         HospitalSearchCondition.class
-                )
+                ),
+                org.mockito.ArgumentMatchers.eq(CapabilityMatchMode.ALL)
         )).willReturn(List.of(candidate(outsideRadius)));
 
         HospitalSearchPageResponse response =

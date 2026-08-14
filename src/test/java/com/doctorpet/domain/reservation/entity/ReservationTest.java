@@ -55,6 +55,31 @@ class ReservationTest {
         assertInvalidStatus(() -> createReservation().restoreNoShow());
     }
 
+    @Test
+    @DisplayName("REQUESTED·CONFIRMED 예약만 결제수단을 재지정할 수 있다")
+    void changePaymentMethod_beforeTreatment_isAllowed() {
+        Reservation requested = createReservation();
+        Reservation confirmed = confirmedReservation();
+
+        requested.changePaymentMethod(8L);
+        confirmed.changePaymentMethod(9L);
+
+        assertThat(requested.getPaymentMethodId()).isEqualTo(8L);
+        assertThat(confirmed.getPaymentMethodId()).isEqualTo(9L);
+    }
+
+    @Test
+    @DisplayName("체크인 이후 예약은 결제수단을 재지정할 수 없다")
+    void changePaymentMethod_afterCheckIn_throws() {
+        Reservation reservation = confirmedReservation();
+        ReflectionTestUtils.setField(reservation, "status", ReservationStatus.CHECKED_IN);
+
+        assertThatThrownBy(() -> reservation.changePaymentMethod(8L))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(ReservationErrorCode.PAYMENT_METHOD_CHANGE_NOT_ALLOWED);
+    }
+
     private Reservation createReservation() {
         return createReservation(LocalDateTime.now());
     }

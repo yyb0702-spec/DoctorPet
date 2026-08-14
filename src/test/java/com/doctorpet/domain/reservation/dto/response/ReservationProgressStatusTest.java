@@ -41,6 +41,15 @@ class ReservationProgressStatusTest {
     }
 
     @Test
+    @DisplayName("병원 취소 예약은 보호자 진행 상태에서 취소로 표시한다")
+    void hospitalCancelled_isExposedAsCanceled() {
+        assertThat(ReservationProgressStatus.from(
+                ReservationStatus.HOSPITAL_CANCELED,
+                null
+        )).isEqualTo(ReservationProgressStatus.RESERVATION_CANCELED);
+    }
+
+    @Test
     @DisplayName("환불된 결제는 결제 완료가 아니라 진료 완료로 되돌아간다(#37)")
     void refunded_isNotPaymentCompleted() {
         // 환불(REFUNDED)은 PAID·OFFLINE_PAID 어디에도 해당하지 않으므로 예약 상태(진료완료)가 그대로 노출된다.

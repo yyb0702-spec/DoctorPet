@@ -61,7 +61,7 @@ public-data:
     service-key: ${PUBLIC_DATA_SERVICE_KEY:}
     seed-enabled: ${PUBLIC_DATA_SEED_ENABLED:false}
     refresh-enabled: ${PUBLIC_DATA_REFRESH_ENABLED:true}
-    refresh-cron: ${PUBLIC_DATA_REFRESH_CRON:0 0 3 * * MON}
+    refresh-cron: ${PUBLIC_DATA_REFRESH_CRON:0 0 3 * * *}
     refresh-max-attempts: ${PUBLIC_DATA_REFRESH_MAX_ATTEMPTS:3}
     refresh-retry-delay: ${PUBLIC_DATA_REFRESH_RETRY_DELAY:5m}
     page-size: 100
@@ -88,7 +88,7 @@ ai:
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4.1-mini}
-    prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v4}
+    prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v8}
     connect-timeout-ms: ${OPENAI_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${OPENAI_READ_TIMEOUT_MS:10000}
     circuit-breaker-failure-threshold: ${OPENAI_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}

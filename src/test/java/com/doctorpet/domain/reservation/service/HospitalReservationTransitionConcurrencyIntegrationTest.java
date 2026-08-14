@@ -3,6 +3,10 @@ package com.doctorpet.domain.reservation.service;
 import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.repository.MemberRepository;
@@ -17,6 +21,7 @@ import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -31,6 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
         "payment.gateway=fake",
@@ -59,15 +65,30 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
     private MemberRepository memberRepository;
 
     @Autowired
+    private HospitalRepository hospitalRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Long reservationId;
     private Long slotId;
     private Long staffMemberId;
+    private Long hospitalId;
 
     @AfterEach
     void cleanUp() {
         if (reservationId != null) {
+            jdbcTemplate.update(
+                    "delete from notifications where resource_type = 'RESERVATION' and resource_id = ?",
+                    reservationId
+            );
+            jdbcTemplate.update(
+                    "delete from reservation_events where reservation_id = ?",
+                    reservationId
+            );
             jdbcTemplate.update(
                     "delete from reservations where id = ?",
                     reservationId
@@ -83,6 +104,12 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
             jdbcTemplate.update(
                     "delete from members where id = ?",
                     staffMemberId
+            );
+        }
+        if (hospitalId != null) {
+            jdbcTemplate.update(
+                    "delete from hospitals where id = ?",
+                    hospitalId
             );
         }
     }
@@ -146,8 +173,163 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
                 .isEqualTo(ReservationSlotStatus.OPEN);
     }
 
+    @Test
+    @DisplayName("동일 CONFIRMED 예약의 병원 취소와 체크인은 정확히 하나만 성공하고 최종 슬롯 상태가 일치한다")
+    void hospitalCancelAndCheckIn_onlyOneSucceedsWithConsistentSlot()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        RaceResult result = runRace(
+                () -> hospitalReservationService.cancelConfirmedByHospital(
+                        data.staffMemberId(),
+                        data.reservationId(),
+                        "응급수술로 진료 불가"
+                ),
+                () -> hospitalReservationService.checkIn(
+                        data.staffMemberId(),
+                        data.reservationId()
+                )
+        );
+
+        assertThat(result.successCount()).isEqualTo(1);
+        assertThat(result.unexpectedErrors()).isEmpty();
+
+        ReservationStatus status = findReservationStatus(data.reservationId());
+        ReservationSlotStatus slotStatus = findSlotStatus(data.slotId());
+        assertThat(status).isIn(
+                ReservationStatus.HOSPITAL_CANCELED,
+                ReservationStatus.CHECKED_IN
+        );
+        assertThat(slotStatus).isEqualTo(
+                status == ReservationStatus.HOSPITAL_CANCELED
+                        ? ReservationSlotStatus.OPEN
+                        : ReservationSlotStatus.RESERVED
+        );
+    }
+
+    @Test
+    @DisplayName("동일 CONFIRMED 예약의 병원 취소와 보호자 취소는 정확히 하나만 성공하고 슬롯을 반환한다")
+    void hospitalCancelAndGuardianCancel_onlyOneSucceedsAndOpensSlot()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        RaceResult result = runRace(
+                () -> hospitalReservationService.cancelConfirmedByHospital(
+                        data.staffMemberId(),
+                        data.reservationId(),
+                        "응급수술로 진료 불가"
+                ),
+                () -> reservationService.cancel(
+                        data.guardianMemberId(),
+                        data.reservationId()
+                )
+        );
+
+        assertThat(result.successCount()).isEqualTo(1);
+        assertThat(result.unexpectedErrors()).isEmpty();
+        assertThat(findReservationStatus(data.reservationId())).isIn(
+                ReservationStatus.HOSPITAL_CANCELED,
+                ReservationStatus.CANCELED
+        );
+        assertThat(findSlotStatus(data.slotId())).isEqualTo(ReservationSlotStatus.OPEN);
+    }
+
+    @Test
+    @DisplayName("휴·폐업 자동 취소와 체크인이 경합하면 최종 예약·슬롯 상태가 일치한다")
+    void businessStatusCancellationAndCheckInLeaveConsistentState()
+            throws InterruptedException {
+        TestReservation data = saveConfirmedReservation();
+        RaceResult result = runRace(
+                () -> hospitalReservationService
+                        .cancelConfirmedByBusinessStatusChange(
+                                reservationRepository.findById(data.reservationId())
+                                        .orElseThrow()
+                                        .getHospitalId(),
+                                "공공데이터에서 병원 휴업이 확인되었습니다."
+                        ),
+                () -> hospitalReservationService.checkIn(
+                        data.staffMemberId(),
+                        data.reservationId()
+                )
+        );
+
+        assertThat(result.unexpectedErrors()).isEmpty();
+        ReservationStatus status = findReservationStatus(data.reservationId());
+        assertThat(status).isIn(
+                ReservationStatus.HOSPITAL_CANCELED,
+                ReservationStatus.CHECKED_IN
+        );
+        assertThat(findSlotStatus(data.slotId())).isEqualTo(
+                status == ReservationStatus.HOSPITAL_CANCELED
+                        ? ReservationSlotStatus.OPEN
+                        : ReservationSlotStatus.RESERVED
+        );
+    }
+
+    @Test
+    @DisplayName("예약 승인과 휴업 전환이 경합해도 휴업 병원에 확정 예약이 남지 않는다")
+    void approvalAndBusinessStatusChangeNeverLeaveConfirmedReservation()
+            throws InterruptedException {
+        TestReservation data = saveRequestedReservation();
+
+        RaceResult result = runRace(
+                () -> hospitalReservationService.approve(
+                        data.staffMemberId(),
+                        data.reservationId()
+                ),
+                () -> transactionTemplate.executeWithoutResult(status -> {
+                    Hospital hospital = hospitalRepository
+                            .findByIdForUpdate(hospitalId)
+                            .orElseThrow();
+                    ReflectionTestUtils.setField(
+                            hospital,
+                            "businessStatus",
+                            BusinessStatus.CLOSED_TEMP
+                    );
+                    hospitalReservationService.cancelConfirmedByBusinessStatusChange(
+                            hospitalId,
+                            "공공데이터에서 병원 휴업이 확인되었습니다."
+                    );
+                })
+        );
+
+        assertThat(result.successCount()).isBetween(1, 2);
+        assertThat(result.unexpectedErrors()).isEmpty();
+        assertThat(hospitalRepository.findById(hospitalId).orElseThrow()
+                .getBusinessStatus()).isEqualTo(BusinessStatus.CLOSED_TEMP);
+
+        ReservationStatus reservationStatus = findReservationStatus(
+                data.reservationId()
+        );
+        assertThat(reservationStatus).isIn(
+                ReservationStatus.REQUESTED,
+                ReservationStatus.HOSPITAL_CANCELED
+        );
+        assertThat(findSlotStatus(data.slotId())).isEqualTo(
+                reservationStatus == ReservationStatus.HOSPITAL_CANCELED
+                        ? ReservationSlotStatus.OPEN
+                        : ReservationSlotStatus.RESERVED
+        );
+    }
+
     private TestReservation saveRequestedReservation() {
-        long hospitalId = System.nanoTime();
+        Hospital hospital = Hospital.createFromPublicData(
+                "transition-" + System.nanoTime(),
+                "test-local-gov",
+                "동시성 테스트 병원",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                LocalDate.now(),
+                BusinessStatus.OPEN,
+                null,
+                null,
+                LocalDateTime.now()
+        );
+        hospital.markAsPartner();
+        hospital = hospitalRepository.saveAndFlush(hospital);
+        hospitalId = hospital.getId();
         long guardianMemberId = hospitalId + 1;
         LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
         LocalDateTime startAt = now.plusDays(2).withNano(0);
@@ -196,6 +378,15 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
         );
     }
 
+    private TestReservation saveConfirmedReservation() {
+        TestReservation data = saveRequestedReservation();
+        jdbcTemplate.update(
+                "update reservations set status = 'CONFIRMED' where id = ?",
+                data.reservationId()
+        );
+        return data;
+    }
+
     private RaceResult runRace(Runnable first, Runnable second)
             throws InterruptedException {
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -235,7 +426,9 @@ class HospitalReservationTransitionConcurrencyIntegrationTest {
 
     private boolean isExpectedRaceLoss(ServiceException exception) {
         return exception.getErrorCode() == ReservationErrorCode.INVALID_STATUS
-                || exception.getErrorCode() == SlotErrorCode.INVALID_STATUS;
+                || exception.getErrorCode() == SlotErrorCode.INVALID_STATUS
+                || exception.getErrorCode()
+                == HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE;
     }
 
     private ReservationStatus findReservationStatus(Long id) {

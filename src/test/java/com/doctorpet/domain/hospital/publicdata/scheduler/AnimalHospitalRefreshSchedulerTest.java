@@ -10,9 +10,11 @@ import com.doctorpet.domain.hospital.publicdata.config.AnimalHospitalApiProperti
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalCollectionResult;
 import com.doctorpet.domain.hospital.publicdata.model.AnimalHospitalRefreshResult;
 import com.doctorpet.domain.hospital.publicdata.service.AnimalHospitalRefreshService;
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.TaskScheduler;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,6 +58,28 @@ class AnimalHospitalRefreshSchedulerTest {
                 properties,
                 taskScheduler
         );
+    }
+
+    @Test
+    void 공공데이터_갱신은_매일_오전_3시로_설정한다() throws Exception {
+        Method refreshMethod = AnimalHospitalRefreshScheduler.class
+                .getDeclaredMethod("refresh");
+        Scheduled scheduled = refreshMethod.getAnnotation(Scheduled.class);
+
+        assertThat(scheduled.cron())
+                .isEqualTo("${public-data.animal-hospital.refresh-cron:0 0 3 * * *}");
+        assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
+
+        List<PropertySource<?>> propertySources = new YamlPropertySourceLoader().load(
+                "application.yaml",
+                new FileSystemResource("src/main/resources/application.yaml")
+        );
+        assertThat(propertySources)
+                .extracting(source -> source.getProperty(
+                        "public-data.animal-hospital.refresh-cron"
+                ))
+                .filteredOn(value -> value != null)
+                .containsExactly("${PUBLIC_DATA_REFRESH_CRON:0 0 3 * * *}");
     }
 
     @Test

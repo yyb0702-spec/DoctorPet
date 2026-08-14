@@ -24,12 +24,20 @@ public class ReservationChargeLookupAdapter implements ReservationLookupPort {
 
     @Override
     public Optional<ReservationChargeView> findForCharge(Long reservationId) {
-        return reservationRepository.findById(reservationId)
-                .map(reservation -> new ReservationChargeView(
-                        reservation.getId(),
-                        reservation.getHospitalId(),
-                        reservation.getMemberId(),
-                        reservation.getPaymentMethodId(),
-                        reservation.getStatus() == ReservationStatus.TREATMENT_COMPLETED));
+        return reservationRepository.findById(reservationId).map(this::toChargeView);
+    }
+
+    @Override
+    public Optional<ReservationChargeView> findForChargeForUpdate(Long reservationId) {
+        return reservationRepository.findByIdForUpdate(reservationId).map(this::toChargeView);
+    }
+
+    private ReservationChargeView toChargeView(com.doctorpet.domain.reservation.entity.Reservation reservation) {
+        return new ReservationChargeView(
+                reservation.getId(),
+                reservation.getHospitalId(),
+                reservation.getMemberId(),
+                reservation.getPaymentMethodId(),
+                reservation.getStatus() == ReservationStatus.TREATMENT_COMPLETED);
     }
 }

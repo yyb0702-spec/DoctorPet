@@ -1,25 +1,33 @@
 package com.doctorpet.global.gateway.ai.dto;
 
+import java.util.List;
 import java.util.Objects;
 
-/**
- * 제공자 중립 상담 결과와 Tool Calling 실행 여부를 담는다.
- *
- * @param toolCallingHandled Gateway가 Tool Calling 오케스트레이션을 처리했는지 여부. 실제 호출 여부와는 다르다.
- * @param toolCalled 모델이 이번 상담에서 실제 병원 검색 Tool을 호출했는지 여부
- */
+/** 제공자 중립 상담 결과와 Tool Calling 실행 여부 및 병원 추천 결과를 담는다. */
 public record AiGatewayConsultationResult(
         AiAnalysisResult analysis,
         boolean locationRequired,
         boolean toolCallingHandled,
-        boolean toolCalled
+        boolean toolCalled,
+        List<AiHospitalRecommendationResult> recommendations
 ) {
 
     public AiGatewayConsultationResult {
         Objects.requireNonNull(analysis, "AI 구조화 결과는 null일 수 없습니다.");
+        recommendations = List.copyOf(
+                Objects.requireNonNull(recommendations, "AI 병원 추천 결과는 null일 수 없습니다."));
+    }
+
+    public AiGatewayConsultationResult(
+            AiAnalysisResult analysis,
+            boolean locationRequired,
+            boolean toolCallingHandled,
+            boolean toolCalled
+    ) {
+        this(analysis, locationRequired, toolCallingHandled, toolCalled, List.of());
     }
 
     public static AiGatewayConsultationResult withoutToolCalling(AiAnalysisResult analysis) {
-        return new AiGatewayConsultationResult(analysis, false, false, false);
+        return new AiGatewayConsultationResult(analysis, false, false, false, List.of());
     }
 }

@@ -3,6 +3,7 @@ package com.doctorpet.domain.hospital.repository;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
 import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -97,7 +98,7 @@ public class HospitalSearchCacheRepository {
                 && candidate.hospitalId() != null
                 && candidate.name() != null
                 && !candidate.name().isBlank()
-                && candidate.businessStatus() != null
+                && candidate.businessStatus() == BusinessStatus.OPEN
                 && candidate.partnershipStatus() != null;
     }
 

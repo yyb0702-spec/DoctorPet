@@ -21,10 +21,48 @@ import jakarta.persistence.LockModeType;
 public interface ReservationRepository
         extends JpaRepository<Reservation, Long>, ReservationQueryRepository {
 
+    @Query("""
+            select r
+              from Reservation r
+             where r.hospitalId = :hospitalId
+               and r.status = :status
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt > :now
+               )
+            """)
+    List<Reservation> findAllCancelableByHospitalIdAndStatus(
+            @Param("hospitalId") Long hospitalId,
+            @Param("status") ReservationStatus status,
+            @Param("now") LocalDateTime now
+    );
+
     Optional <Reservation> findByIdAndMemberId(
             Long reservationId,
             Long memberId
     );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r
+              from Reservation r
+             where r.id = :reservationId
+               and r.memberId = :memberId
+            """)
+    Optional<Reservation> findByIdAndMemberIdForUpdate(
+            @Param("reservationId") Long reservationId,
+            @Param("memberId") Long memberId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r
+              from Reservation r
+             where r.id = :reservationId
+            """)
+    Optional<Reservation> findByIdForUpdate(@Param("reservationId") Long reservationId);
 
     Optional<Reservation> findByIdAndHospitalId(
             Long reservationId,
@@ -54,7 +92,7 @@ public interface ReservationRepository
                     r.memberId,
                     count(r),
                     sum(case when r.status = :completedStatus then 1L else 0L end),
-                    sum(case when r.status = :canceledStatus then 1L else 0L end),
+                    sum(case when r.status in :canceledStatuses then 1L else 0L end),
                     sum(case when r.status = :noShowStatus then 1L else 0L end)
             )
               from Reservation r
@@ -64,7 +102,7 @@ public interface ReservationRepository
     List<ReservationHistoryAggregate> findHistoryAggregates(
             @Param("memberIds") Collection<Long> memberIds,
             @Param("completedStatus") ReservationStatus completedStatus,
-            @Param("canceledStatus") ReservationStatus canceledStatus,
+            @Param("canceledStatuses") Collection<ReservationStatus> canceledStatuses,
             @Param("noShowStatus") ReservationStatus noShowStatus
     );
 
@@ -153,6 +191,37 @@ public interface ReservationRepository
             @Param("rejectedStatus") ReservationStatus rejectedStatus,
             @Param("rejectReason") String rejectReason,
             @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    // 예약 상태는 CONFIRMED 조건부 UPDATE로 한 번만 전이한다. flush 후 영속성 컨텍스트를
+    // clear해 동시 요청이 보유한 오래된 Reservation을 재사용하지 않도록 하며, 호출부는
+    // clear 전 필요한 memberId·slotId를 로컬 변수로 보관하거나 전이 후 재조회해야 한다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Reservation r
+               set r.status = :hospitalCanceledStatus,
+                   r.hospitalCancelReason = :reason,
+                   r.hospitalCanceledAt = :canceledAt,
+                   r.updatedAt = :updatedAt
+             where r.id = :reservationId
+               and r.hospitalId = :hospitalId
+               and r.status = :confirmedStatus
+               and exists (
+                    select 1
+                      from ReservationSlot s
+                     where s.id = r.slotId
+                       and s.startAt > :now
+               )
+            """)
+    int cancelIfConfirmedByHospital(
+            @Param("reservationId") Long reservationId,
+            @Param("hospitalId") Long hospitalId,
+            @Param("confirmedStatus") ReservationStatus confirmedStatus,
+            @Param("hospitalCanceledStatus") ReservationStatus hospitalCanceledStatus,
+            @Param("reason") String reason,
+            @Param("canceledAt") LocalDateTime canceledAt,
+            @Param("updatedAt") LocalDateTime updatedAt,
+            @Param("now") LocalDateTime now
     );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

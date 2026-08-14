@@ -45,6 +45,21 @@ public class StoringReservationNotificationPublisher
     }
 
     @Override
+    public void publishHospitalCanceled(
+            Long guardianMemberId,
+            Long reservationId,
+            String reason
+    ) {
+        notificationService.create(
+                guardianMemberId,
+                NotificationType.RESERVATION_HOSPITAL_CANCELED,
+                "병원이 확정된 예약을 취소했습니다. 사유: " + reason,
+                NotificationResourceType.RESERVATION,
+                reservationId
+        );
+    }
+
+    @Override
     public void publishAutoRejected(Long guardianMemberId, Long reservationId) {
         notificationService.create(
                 guardianMemberId,

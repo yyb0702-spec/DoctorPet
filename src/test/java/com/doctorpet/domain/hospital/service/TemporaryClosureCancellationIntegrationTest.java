@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
+import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
@@ -19,6 +22,7 @@ import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.time.TimePolicy;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -33,9 +37,12 @@ import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
@@ -78,6 +85,7 @@ class TemporaryClosureCancellationIntegrationTest {
 
     private Long hospitalId;
     private Long scheduleId;
+    private Long generatedScheduleId;
     private Long closureId;
 
     @BeforeEach
@@ -133,6 +141,10 @@ class TemporaryClosureCancellationIntegrationTest {
             closureRepository.deleteById(closureId);
             closureRepository.flush();
         }
+        if (generatedScheduleId != null) {
+            scheduleRepository.deleteById(generatedScheduleId);
+            scheduleRepository.flush();
+        }
         if (scheduleId != null) {
             scheduleRepository.deleteById(scheduleId);
             scheduleRepository.flush();
@@ -187,6 +199,63 @@ class TemporaryClosureCancellationIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(
+            value = BusinessStatus.class,
+            names = {"CLOSED_TEMP", "CLOSED"}
+    )
+    void inactiveHospitalCancellationDoesNotRestoreSlots(
+            BusinessStatus businessStatus
+    ) {
+        changeBusinessStatus(businessStatus);
+        LocalDate businessDate = TODAY.plusDays(4);
+
+        service.cancelTemporaryClosure(MEMBER_ID, businessDate);
+
+        assertThat(closureRepository.findClosure(hospitalId, businessDate))
+                .isEmpty();
+        assertThat(slotRepository.findBusinessDateSlots(hospitalId, businessDate))
+                .isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = BusinessStatus.class,
+            names = {"CLOSED_TEMP", "CLOSED"}
+    )
+    void inactiveHospitalOperatingHoursUpdateDoesNotCreateSlots(
+            BusinessStatus businessStatus
+    ) {
+        changeBusinessStatus(businessStatus);
+        LocalDate effectiveFrom = TODAY.plusDays(1);
+        OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
+                effectiveFrom,
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new DailyOperatingHoursRequest(
+                                day,
+                                day == effectiveFrom.getDayOfWeek()
+                                        ? List.of(new OperatingPeriodRequest(
+                                                LocalTime.of(9, 0),
+                                                LocalTime.of(10, 0)
+                                        ))
+                                        : List.of()
+                        ))
+                        .toList()
+        );
+
+        service.updateOperatingHours(MEMBER_ID, request);
+        generatedScheduleId = scheduleRepository.findSchedule(
+                hospitalId,
+                effectiveFrom
+        ).orElseThrow().getId();
+
+        assertThat(slotRepository.findSlotsInRange(
+                hospitalId,
+                TODAY.atStartOfDay(),
+                TODAY.plusDays(14).atStartOfDay()
+        )).isEmpty();
+    }
+
     private Hospital createHospital() {
         Hospital hospital = Hospital.createFromPublicData(
                 "CLOSURE-CANCEL-" + System.nanoTime(),
@@ -206,6 +275,16 @@ class TemporaryClosureCancellationIntegrationTest {
         );
         hospital.markAsPartner();
         return hospital;
+    }
+
+    private void changeBusinessStatus(BusinessStatus businessStatus) {
+        Hospital hospital = hospitalRepository.findById(hospitalId).orElseThrow();
+        ReflectionTestUtils.setField(
+                hospital,
+                "businessStatus",
+                businessStatus
+        );
+        hospitalRepository.saveAndFlush(hospital);
     }
 
     private void await(CountDownLatch latch) {
