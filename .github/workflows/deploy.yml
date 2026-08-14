@@ -195,34 +195,42 @@ jobs:
               printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
             fi
 
-            # 인프라(mysql/redis/nginx/prometheus/grafana)만 대상으로 삼는다 — 이미지·설정이
-            # 안 바뀌는 한 재시작되지 않고, 혹시 안 떠 있으면(최초 배포, 서버 재부팅 등) 복구한다.
+            # 메인 인프라(mysql/redis/nginx)만 대상으로 삼는다 — 이미지·설정이 안 바뀌는 한
+            # 재시작되지 않고, 혹시 안 떠 있으면(최초 배포, 서버 재부팅 등) 복구한다.
             # app-blue/app-green은 이름을 명시하지 않아 대상에서 제외된다(서버에서 대상
             # 미지정 `docker compose up -d`를 쓰지 않는다는 원칙과 같은 이유,
-            # docker-compose.yml 상단 주석·무중단 배포 문서 7절).
+            # docker-compose.yml 상단 주석·무중단 배포 문서 7절). 모니터링(prometheus/grafana)은
+            # 이제 별도 파일(docker-compose.monitoring.yml)로 분리해 아래에서 독립적으로
+            # 기동한다(재리뷰 지적 P1) — app-blue/green 존재 여부와 무관하게 항상 기동
+            # 가능하다는 성질은 그대로라 FIRST_DEPLOY/이후 배포 구분 없이 매번 시도한다.
             #
             # FIRST_DEPLOY면 nginx는 여기서 올리지 않는다(리뷰 지적) — 방금 써둔
             # upstream-active.conf가 가리키는 app-$TARGET_COLOR가 아직 존재하지 않아 nginx가
             # 설정 로드에 실패할 수 있다. 대상 앱을 기동·헬스체크로 검증한 뒤 아래에서 올린다.
-            # prometheus/grafana는 app-blue/green 존재 여부와 무관하게 항상 기동 가능하므로(
-            # prometheus는 타겟이 아직 없어도 단순히 up=0으로 스크레이프할 뿐 크래시하지 않고,
-            # grafana는 애초에 app을 직접 참조하지 않는다) nginx와 달리 FIRST_DEPLOY에도 포함한다
-            # — 모니터링 스택, 이슈 #105 후속.
             #
-            # --wait를 붙인다(리뷰 지적 P2) — 바로 아래에서 app-$TARGET_COLOR를
-            # `--no-deps`로 올리는데, `--no-deps`는 depends_on(mysql/redis
-            # condition: service_healthy)까지 건너뛴다. mysql/redis 자체를 여기서 healthy가
-            # 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅 직후처럼 mysql이 아직
-            # 초기화 중인 상태에서 대상 앱이 DB 연결 실패로 헛되이 크래시루프를 도는 상황을
-            # 피할 수 있다. prometheus/grafana도 이제 healthcheck가 있어(리뷰 지적 P2,
-            # docker-compose.yml 참고) --wait가 실제 준비 상태(설정 로딩·HTTP 응답)까지
-            # 확인한다 — 예전엔 이 둘에 healthcheck가 없어 --wait가 running 여부만 보고
-            # 넘어갔다. nginx만 여전히 healthcheck가 없어 running 상태까지만 확인된다.
+            # --wait와 --wait-timeout을 붙인다(리뷰 지적 P2, 재리뷰 지적 P2로 타임아웃 보강) —
+            # 바로 아래에서 app-$TARGET_COLOR를 `--no-deps`로 올리는데, `--no-deps`는
+            # depends_on(mysql/redis condition: service_healthy)까지 건너뛴다. mysql/redis
+            # 자체를 여기서 healthy가 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅
+            # 직후처럼 mysql이 아직 초기화 중인 상태에서 대상 앱이 DB 연결 실패로 헛되이
+            # 크래시루프를 도는 상황을 피할 수 있다. 타임아웃 없이 --wait만 쓰면 끝내
+            # healthy가 안 될 때 이 SSH 액션 자체의 타임아웃까지 매달릴 수 있어 상한을 둔다.
+            # nginx는 여전히 healthcheck가 없어 running 상태까지만 확인된다.
             if [ "$FIRST_DEPLOY" = "true" ]; then
-              docker compose up -d --wait mysql redis prometheus grafana
+              docker compose up -d --wait --wait-timeout 120 mysql redis
             else
-              docker compose up -d --wait mysql redis nginx prometheus grafana
+              docker compose up -d --wait --wait-timeout 120 mysql redis nginx
             fi
+
+            # 모니터링 스택(Prometheus+Grafana)은 별도 파일로 분리했다(재리뷰 지적 P1,
+            # docker-compose.monitoring.yml 참고) — 여기서 실패해도 경고만 남기고 앱
+            # 배포(컷오버)는 계속 진행한다. nginx·app-blue/green과 달리 상시 보조 서비스라는
+            # PR 원칙(아래 회전 단계의 else 분기와 동일)이 이 기동 단계에도 일관되게
+            # 적용되도록 한 것이다 — 재리뷰 지적 P2: 이전에는 이 줄이 위 if의 조건절이
+            # 아니라 본문 안의 평문 statement라 set -e 보호를 못 받아서, 이미지 pull
+            # 실패나 healthcheck 플레이크 하나로 앱 컷오버까지 통째로 막혔다.
+            docker compose -f docker-compose.monitoring.yml up -d --wait --wait-timeout 120 prometheus grafana \
+              || echo "::warning::모니터링 스택(Prometheus/Grafana) 기동에 실패했습니다 — 앱 배포는 계속 진행합니다. 수동 확인: docker compose -f docker-compose.monitoring.yml ps"
 
             # Grafana admin 비밀번호 1회성 회전(리뷰 지적 P1) — GF_SECURITY_ADMIN_PASSWORD는
             # Grafana가 내부 admin 계정을 "처음" 만들 때만 적용된다. fail-closed(:?)로 바꾸기
@@ -246,17 +254,24 @@ jobs:
               # 보고돼 있어서다, grafana/grafana#61196)를 하나의 && 체인으로 묶어 if의
               # 조건절 전체로 삼는다 — 넷 중 하나라도 실패하면 체인 전체가 실패로
               # 평가돼 아래 else로만 분기하고, 스크립트는 계속 진행된다.
-              if GRAFANA_TARGET_PASSWORD="$(docker compose exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD)" \
-                  && docker compose exec -T grafana grafana-cli admin reset-admin-password "$GRAFANA_TARGET_PASSWORD" \
-                  && docker compose up -d --wait --force-recreate grafana \
-                  && [ "$(curl -s -o /dev/null -w '%{http_code}' -u "admin:$GRAFANA_TARGET_PASSWORD" http://localhost:3000/api/org)" = "200" ]; then
+              # 비밀번호가 호스트 ps에 평문 인자로 노출되는 걸 최소화한다(재리뷰 지적 P2).
+              # curl은 -K -(stdin에서 설정을 읽는 옵션)로 우회할 수 있고, 그 값을 만드는
+              # printf는 bash 내장 명령이라 별도 프로세스를 만들지 않으므로 그 인자도 ps에
+              # 안 남는다. grafana-cli admin reset-admin-password는 비밀번호를 인자로만
+              # 받고 stdin을 지원하지 않아 그 한 줄만은 argv 노출이 남는다 — 이 EC2는
+              # 배포 파이프라인과 팀 SSH 키만 접근 가능한 단일 테넌트라 위험은 낮지만
+              # 완전히 없앨 수는 없어 잔존 위험으로 문서화한다.
+              if GRAFANA_TARGET_PASSWORD="$(docker compose -f docker-compose.monitoring.yml exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD)" \
+                  && docker compose -f docker-compose.monitoring.yml exec -T grafana grafana-cli admin reset-admin-password "$GRAFANA_TARGET_PASSWORD" \
+                  && docker compose -f docker-compose.monitoring.yml up -d --wait --wait-timeout 120 --force-recreate grafana \
+                  && [ "$(printf 'user = "admin:%s"\n' "$GRAFANA_TARGET_PASSWORD" | curl -s -o /dev/null -w '%{http_code}' -K - http://localhost:3000/api/org)" = "200" ]; then
                 echo "rotated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .grafana_admin_password_rotated
                 echo "Grafana admin 비밀번호를 .env의 GRAFANA_ADMIN_PASSWORD로 재설정하고 검증했습니다."
               else
                 # Grafana는 nginx·app-blue/green과 달리 상시 보조 서비스라, 이 검증
                 # 실패만으로 배포 전체(앱 컷오버)를 막지는 않는다 — 마커를 남기지 않아
                 # 다음 배포에서 다시 시도되고, GitHub Actions 요약에 경고로 남는다.
-                echo "::warning::Grafana admin 비밀번호 재설정/검증에 실패했습니다 — 마커를 남기지 않고 다음 배포에서 재시도합니다. 수동 확인: docker compose exec grafana grafana-cli admin reset-admin-password <값>"
+                echo "::warning::Grafana admin 비밀번호 재설정/검증에 실패했습니다 — 마커를 남기지 않고 다음 배포에서 재시도합니다. 수동 확인: docker compose -f docker-compose.monitoring.yml exec grafana grafana-cli admin reset-admin-password <값>"
               fi
             fi
 

@@ -1,0 +1,94 @@
+# 모니터링 스택(Prometheus+Grafana) — 메인 docker-compose.yml에서 분리된 파일이다(재리뷰
+# 지적 P1). GRAFANA_ADMIN_PASSWORD(`:?` fail-closed)가 메인 파일 안에 있으면, Docker Compose가
+# 대상 서비스와 무관하게 파일 전체를 파싱 시점에 보간하는 특성 때문에 이 값이 .env에 없을 때
+# app-blue/green을 포함한 모든 docker compose 명령이 죽어 배포·컷오버·롤백이 전부 불가능해지는
+# 문제가 있었다. 이 파일로 옮기면 그 영향 범위가 여기로 좁혀지고, deploy.yml은 이 스택
+# 기동 실패를 경고로만 흡수해 앱 배포를 막지 않는다(SA.md §12 참고).
+#
+# 이미 `/actuator/prometheus`(8081, 이슈 #105)로 지표는 나가고 있었고, 없던 건 그걸 긁어가서
+# 보여줄 서버였다 — blue/green 컷오버 로직과 무관하게 nginx처럼 배포 주기와 상관없이 상시
+# 떠 있는 보조 서비스로 취급한다.
+#
+# 실행은 메인 파일과 분리해서 한다: `docker compose -f docker-compose.monitoring.yml up -d
+# --wait prometheus grafana`. 별도 파일이지만 -p(프로젝트 이름)를 따로 지정하지 않는 한
+# Compose는 디렉터리 이름을 프로젝트 이름으로 쓰므로, 메인 파일이 만든 것과 같은 기본
+# 네트워크에 자동으로 붙는다 — prometheus가 app-blue/app-green을 서비스명으로 스크레이프할
+# 수 있는 이유다(monitoring/prometheus.yml 참고).
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    # 보존 정책을 명시한다(재리뷰 지적 P2) — command를 아예 안 주면 이미지 기본값(15일)으로
+    # 돌지만, EC2 디스크가 무기한 잠식될 위험을 문서화하고 나중에 바꿀 때 뭘 바꾸는지
+    # 명확하도록 기본값도 명시적으로 적어둔다. config.file·storage.tsdb.path는 공식 이미지의
+    # 기본 커맨드값이라 command를 통째로 지정하는 이상 같이 명시해야 한다(그렇지 않으면
+    # Compose가 이미지 기본 커맨드를 덮어써서 두 인자가 사라진다).
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    # 호스트 포트를 게시하지 않는다(mysql·redis·app-blue/green과 동일 원칙). Grafana가 같은
+    # compose 네트워크 안에서 prometheus:9090으로 붙으므로 외부 노출이 필요 없다.
+    # healthcheck(리뷰 지적 P2) — 기존엔 정의가 없어 deploy.yml의 `--wait`가 "컨테이너가
+    # 떠 있는지"만 보고 "설정 로딩에 성공해 실제로 서빙 중인지"는 검증하지 못했다.
+    # prometheus.yml 문법 오류 등으로 부팅은 되지만 서빙에 실패해도 배포가 성공으로
+    # 기록될 수 있었다. 공식 이미지가 busybox 기반이라 curl은 없지만 wget(busybox 내장)은
+    # 있다 — `/-/ready`는 설정 로딩과 TSDB 오픈까지 끝나야 200을 반환하므로 `/-/healthy`
+    # (프로세스 생존만 확인)보다 이 목적에 더 맞는다.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  grafana:
+    # CVE-2024-9264(SQL Expressions 커맨드 인젝션, 11.0.x~11.2.x 영향) 수정 버전으로 고정한다
+    # (리뷰 지적 P2) — 기본 배포물에 DuckDB가 없어 이 스택에서 직접 악용 조건은 충족되지
+    # 않지만, 새로 올리는 운영 스택에 알려진 취약 버전을 고정할 이유가 없다.
+    image: grafana/grafana-oss:11.1.7-security-01
+    restart: unless-stopped
+    environment:
+      # 공개 저장소에 커밋된 fallback 문자열을 실제 admin 비밀번호로 쓰지 않는다(리뷰 지적 P1)
+      # — 예전엔 `${GRAFANA_ADMIN_PASSWORD:-change-this-to-a-strong-password}`였는데, EC2의
+      # git 비추적 .env에 이 변수가 아직 없으면 최초 기동 시 이 공개 문자열이 그대로
+      # grafana-data 볼륨에 admin 비밀번호로 영속 저장된다(Grafana admin 비밀번호는 최초
+      # 기동에만 적용되므로, 이후 .env를 채워도 이미 만들어진 비밀번호는 자동으로 안 바뀐다).
+      # 변수가 없으면 아예 기동을 실패시켜, EC2에 배포하기 전에 반드시 .env에
+      # GRAFANA_ADMIN_PASSWORD를 채우도록 강제한다(다른 비밀값과 동일하게 EC2의 git 비추적
+      # .env로 주입 — .env.example 참고). 이 fail-closed는 이제 이 파일 안에서만 영향을
+      # 미친다(재리뷰 지적 P1, 위 파일 상단 설명 참고).
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD가 .env에 필요합니다. .env.example 참고}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    # mysql/redis(디버깅 전용, override 파일에서만 loopback으로 연다)와 달리 Grafana는 로컬·EC2
+    # 양쪽에서 운영자가 실제로 계속 봐야 하는 대시보드라 본문에 바로 둔다. 다만 0.0.0.0으로
+    # 열면 보안그룹 실수 한 번에 인증 화면(기본 admin/admin류)이 인터넷에 노출되므로
+    # 127.0.0.1에만 바인딩한다 — 로컬은 그대로 localhost:3000, EC2는
+    # `ssh -L 3000:localhost:3000 <user>@<EC2_HOST>` 터널로만 접근한다(무중단배포 문서 참고).
+    ports:
+      - "127.0.0.1:3000:3000"
+    # healthcheck(리뷰 지적 P2) — prometheus와 같은 이유. Grafana Alpine 이미지는 2023년
+    # grafana/grafana#65547부터 curl을 포함하므로(11.1.x는 그 이후 버전) curl 기반으로 쓴다.
+    # 공식 /api/health가 DB 연결까지 확인하므로 그냥 떠 있는 것과 실제로 서빙 가능한 상태를
+    # 구분할 수 있다.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # prometheus에 대한 depends_on을 두지 않는다(재리뷰 지적 P2, 이전엔
+    # `condition: service_healthy`로 걸려 있었다) — Grafana는 데이터소스 프로비저닝 파일을
+    # 읽어 등록만 해두고 실제 쿼리는 대시보드를 열 때 지연 연결하므로, 기동 시점에
+    # prometheus가 healthy여야 할 이유가 없다. 이 결합이 있으면 prometheus.yml 오타 하나로
+    # prometheus가 unhealthy가 됐을 때 grafana까지 덩달아 못 뜨고, deploy.yml의
+    # --wait-timeout이 항상 최악값까지 채워지는 문제가 있었다.
+
+volumes:
+  prometheus-data:
+  grafana-data:

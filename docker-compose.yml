@@ -173,74 +173,18 @@ services:
     # nginx는 컷오버 대상 색과 독립적으로 항상 떠 있어야 하는 서비스라 이 결합을 두지 않는 게
     # 맞다 — 업스트림이 아직 안 떠 있으면 그 사이 요청은 502를 받을 뿐, nginx 자체는 정상 기동한다.
 
-  # 모니터링 스택(Prometheus+Grafana) — SA.md §12 "Grafana 등 시각화는 여력에 따라 확장" 항목
-  # 구현. 이미 `/actuator/prometheus`(8081, 이슈 #105)로 지표는 나가고 있었고, 이걸 긁어가서
-  # 보여줄 서버가 없었던 것뿐이라 blue/green 컷오버 로직 자체는 건드리지 않는다 — nginx처럼
-  # 컷오버 대상과 무관하게 상시 떠 있는 보조 서비스로 취급한다.
-  prometheus:
-    image: prom/prometheus:v2.53.0
-    restart: unless-stopped
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    # 호스트 포트를 게시하지 않는다(mysql·redis·app-blue/green과 동일 원칙). Grafana가 같은
-    # compose 네트워크 안에서 prometheus:9090으로 붙으므로 외부 노출이 필요 없다.
-    # healthcheck(리뷰 지적 P2) — 기존엔 정의가 없어 deploy.yml의 `--wait`가 "컨테이너가
-    # 떠 있는지"만 보고 "설정 로딩에 성공해 실제로 서빙 중인지"는 검증하지 못했다.
-    # prometheus.yml 문법 오류 등으로 부팅은 되지만 서빙에 실패해도 배포가 성공으로
-    # 기록될 수 있었다. 공식 이미지가 busybox 기반이라 curl은 없지만 wget(busybox 내장)은
-    # 있다 — `/-/ready`는 설정 로딩과 TSDB 오픈까지 끝나야 200을 반환하므로 `/-/healthy`
-    # (프로세스 생존만 확인)보다 이 목적에 더 맞는다.
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
-  grafana:
-    # CVE-2024-9264(SQL Expressions 커맨드 인젝션, 11.0.x~11.2.x 영향) 수정 버전으로 고정한다
-    # (리뷰 지적 P2) — 기본 배포물에 DuckDB가 없어 이 스택에서 직접 악용 조건은 충족되지
-    # 않지만, 새로 올리는 운영 스택에 알려진 취약 버전을 고정할 이유가 없다.
-    image: grafana/grafana-oss:11.1.7-security-01
-    restart: unless-stopped
-    environment:
-      # 공개 저장소에 커밋된 fallback 문자열을 실제 admin 비밀번호로 쓰지 않는다(리뷰 지적 P1)
-      # — 예전엔 `${GRAFANA_ADMIN_PASSWORD:-change-this-to-a-strong-password}`였는데, EC2의
-      # git 비추적 .env에 이 변수가 아직 없으면 최초 기동 시 이 공개 문자열이 그대로
-      # grafana-data 볼륨에 admin 비밀번호로 영속 저장된다(Grafana admin 비밀번호는 최초
-      # 기동에만 적용되므로, 이후 .env를 채워도 이미 만들어진 비밀번호는 자동으로 안 바뀐다).
-      # 변수가 없으면 아예 기동을 실패시켜, EC2에 배포하기 전에 반드시 .env에
-      # GRAFANA_ADMIN_PASSWORD를 채우도록 강제한다(다른 비밀값과 동일하게 EC2의 git 비추적
-      # .env로 주입 — .env.example 참고).
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD가 .env에 필요합니다. .env.example 참고}
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-    # mysql/redis(디버깅 전용, override 파일에서만 loopback으로 연다)와 달리 Grafana는 로컬·EC2
-    # 양쪽에서 운영자가 실제로 계속 봐야 하는 대시보드라 본문에 바로 둔다. 다만 0.0.0.0으로
-    # 열면 보안그룹 실수 한 번에 인증 화면(기본 admin/admin류)이 인터넷에 노출되므로
-    # 127.0.0.1에만 바인딩한다 — 로컬은 그대로 localhost:3000, EC2는
-    # `ssh -L 3000:localhost:3000 <user>@<EC2_HOST>` 터널로만 접근한다(무중단배포 문서 참고).
-    ports:
-      - "127.0.0.1:3000:3000"
-    # healthcheck(리뷰 지적 P2) — prometheus와 같은 이유. Grafana Alpine 이미지는 2023년
-    # grafana/grafana#65547부터 curl을 포함하므로(11.1.x는 그 이후 버전) curl 기반으로 쓴다.
-    # 공식 /api/health가 DB 연결까지 확인하므로 그냥 떠 있는 것과 실제로 서빙 가능한 상태를
-    # 구분할 수 있다.
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    depends_on:
-      prometheus:
-        condition: service_healthy
+  # 모니터링 스택(Prometheus+Grafana)은 docker-compose.monitoring.yml로 분리했다(재리뷰
+  # 지적 P1) — 이전엔 여기 있었는데, GRAFANA_ADMIN_PASSWORD가 이 파일 안의 유일한 `:?`
+  # 필수 변수였다. Docker Compose는 대상 서비스와 무관하게 파일 전체를 파싱 시점에 보간하므로,
+  # EC2 .env에 이 값이 없으면 `up`뿐 아니라 `ps`·`pull`·`exec`까지 이 파일을 쓰는 모든
+  # docker compose 명령이 죽어 app-blue/green 배포·컷오버·롤백이 전부 불가능해지는 문제가
+  # 있었다(deploy.yml은 set -e 아래라 첫 호출에서 스크립트 전체가 끝난다). 파일을 분리하면
+  # 이 변수의 영향 범위가 그 파일 하나로 좁아지고, deploy.yml도 이 스택의 기동 실패를
+  # 경고로만 흡수해 앱 배포를 막지 않도록 바꿨다(SA.md §12 참고). project 이름(디렉터리
+  # 기준)이 같은 채로 별도 파일만 쓰므로 컨테이너들은 여전히 같은 기본 네트워크에 붙어
+  # prometheus가 app-blue/app-green을 서비스명으로 스크레이프할 수 있다.
 
 volumes:
   mysql-data:
   payment-audit-logs:
   nginx-logs:
-  prometheus-data:
-  grafana-data:
