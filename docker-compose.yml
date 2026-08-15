@@ -53,8 +53,20 @@ x-app-common-env: &app-common-env
   SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}
   SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
   SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root}
-  SPRING_DATA_REDIS_HOST: redis
-  SPRING_DATA_REDIS_PORT: "6379"
+  # Redis 접속 정보도 DB와 같은 방식으로 .env에서 덮어쓸 수 있게 한다(ElastiCache 이관 준비,
+  # 이슈 #163과 같은 패턴). 기본값은 이 compose 파일이 같이 띄우는 로컬 redis 서비스를 그대로
+  # 가리켜 로컬 개발·기존 EC2 동작은 변경이 없다. 로컬 redis는 requirepass·TLS가 없으므로
+  # PASSWORD 기본값은 빈 문자열(비밀번호 없음과 동일), SSL_ENABLED 기본값은 false다.
+  # ElastiCache로 전환할 때는 HOST/PORT/PASSWORD를 채우고, 클러스터에 전송 중 암호화(TLS)를
+  # 켰다면 SSL_ENABLED도 true로 같이 바꿔야 한다(.env.example 참고) — 이 값들은 Spring Boot의
+  # spring.data.redis.* 표준 프로퍼티에 relaxed binding으로 매핑되므로 별도 코드 변경이
+  # 필요 없다(RedisConnectionFactory를 커스텀 설정하는 코드가 없어 전부 자동 구성에 의존한다).
+  SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+  # 값 전체를 따옴표로 감싼다 — 변수가 안 채워져 기본값(6379/false)이 쓰이면 치환 후
+  # YAML이 숫자/불리언으로 해석해버릴 수 있어, 이전처럼(기존 "6379") 문자열로 고정한다.
+  SPRING_DATA_REDIS_PORT: "${SPRING_DATA_REDIS_PORT:-6379}"
+  SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
+  SPRING_DATA_REDIS_SSL_ENABLED: "${SPRING_DATA_REDIS_SSL_ENABLED:-false}"
   # nginx 리버스 프록시 도입 후 request.getRemoteAddr()는 실제 사용자가 아니라 nginx
   # 컨테이너 IP가 된다. AiClientIpResolver는 remoteAddr가 이 목록에 있을 때만
   # X-Forwarded-For를 신뢰하므로, 비워두면 익명 AI 상담 요청이 모두 nginx IP 하나로
