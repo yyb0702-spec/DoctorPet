@@ -47,7 +47,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * Level 3 — 청구 항목 초안·스탬프·영수증 통합 검증(SA §4 payment_items·§9-4 청구 항목, STRICT: 스키마·멱등 hot path).
  * 실제 MySQL에 초안을 깔고 청구를 태워 스탬프·총액 정합, 청구 후 수정 차단, 동시 청구에서의 "1건만 성립 +
  * 고아 항목 없음", 항목 수정↔청구 선기록 직렬화를 확인한다. 예약·스태프 port는 목으로 주입하고 게이트웨이는
- * fake다(PaymentChargeConcurrencyTest와 동일한 인프라 전제 — 전체 컨텍스트가 없으면 BLOCKED).
+ * fake다(PaymentChargeConcurrencyIntegrationTest와 동일한 인프라 전제 — 전체 컨텍스트가 없으면 BLOCKED).
  */
 @SpringBootTest
 class PaymentItemChargeIntegrationTest {

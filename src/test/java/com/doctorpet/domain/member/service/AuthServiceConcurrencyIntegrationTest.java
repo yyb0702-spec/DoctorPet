@@ -35,8 +35,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * 실제 MySQL·Redis(비관적 락·Lua 원자 연산)로 검증한다. Mockito 슬라이스로는 락·원자성 자체를
  * 확인할 수 없다. 로컬 application-local.yml 또는 CI services 컨테이너(MySQL 8·Redis 7)가 필요하다.
  */
+// 클래스명을 IntegrationTest로 맞췄다(CI 최적화) — ci.yml이 이름 패턴으로 Level 1/2(빠름)와
+// Level 3(느림, MySQL·Redis 필요) 잡을 나누는데, 이 클래스는 실제로 Level 3라 원래 이름
+// (AuthServiceConcurrencyTest)이면 빠른 잡으로 잘못 분류돼 인프라 없이 실행되다 실패했을 것이다.
 @SpringBootTest
-class AuthServiceConcurrencyTest {
+class AuthServiceConcurrencyIntegrationTest {
 
     private static final int CONCURRENT_REQUESTS = 10;
     private static final String CORRECT_PASSWORD = "correct-password1234";
