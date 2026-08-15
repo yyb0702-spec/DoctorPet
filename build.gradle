@@ -173,6 +173,17 @@ tasks.register('integrationTest', Test) {
     // 위 tasks.named('test')와 같은 이유로 동일하게 제한한다 — 이 태스크가 바로 그
     // "통합 테스트만 모은" 태스크라 이 값이 실제로 의미를 갖는 지점이다.
     systemProperty 'spring.test.context.cache.maxSize', '12'
+
+    // (재검토 반영) org.gradle.caching=true가 이 Test 태스크에도 적용되는데, Gradle의 입력
+    // 추적은 테스트 클래스·클래스패스만 볼 뿐 CI가 띄우는 실제 MySQL·Redis 컨테이너의 상태(서비스
+    // 이미지 버전, 데이터 등)는 입력으로 잡지 않는다. 그래서 코드가 안 바뀐 채 같은 커밋을
+    // 재실행하거나 ci.yml의 서비스 설정만 바뀌면, 실제 DB·동시성 검증을 한 번도 안 하고
+    // FROM-CACHE로 통과 처리될 수 있다 — Level 3 잡의 존재 이유 자체를 무력화하는 위험이라
+    // 통합 테스트 출력 캐시는 끈다. compileJava/compileTestJava 등 순수 컴파일 캐시(org.gradle.caching
+    // 자체)는 그대로 유지한다 — 이 태스크 하나만 예외로 뺀다.
+    outputs.doNotCacheIf('Level 3 통합 테스트는 외부 MySQL·Redis 상태에 의존하고, 그 상태는 태스크 입력으로 추적되지 않는다 — 캐시 히트 시 실제 DB 검증 없이 통과 처리될 수 있다') {
+        true
+    }
 }
 
 // Spring Boot Gradle 플러그인은 기본으로 실행 가능한 bootJar 외에 archiveClassifier="plain"인
