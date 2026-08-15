@@ -41,10 +41,19 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
+// applicationClock을 @MockitoBean으로 갈아끼운 유일한 클래스다(테스트 스위트 전체에서 Clock을 목으로
+// 바꾸는 곳이 여기뿐임을 확인했다). CI 잡 분리(unitTest/integrationTest) 이후 실제 CI에서
+// EmailVerifiedBackfillRunnerIntegrationTest가 이 클래스의 목 Clock을 물려받은 것으로 보이는
+// NullPointerException(Clock.getZone()==null, Mockito 미스터빙 기본값)이 재현됐다 — 정확한
+// Spring TestContext 캐시 충돌 경로까지는 특정하지 못했지만, 이 컨텍스트를 캐시에 남겨 재사용시키지
+// 않는 것이 가장 안전한 방어다. @DirtiesContext(AFTER_CLASS)로 이 클래스가 끝나면 컨텍스트를 항상
+// 폐기해, 목 Clock이 이후 어떤 테스트에도 재사용될 가능성 자체를 없앤다.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(properties = {
         "ai.openai.api-key=test-key",
         "payment.gateway=fake",
