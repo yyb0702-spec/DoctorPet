@@ -88,6 +88,7 @@ Redis는 여전히 EC2 로컬 컨테이너다 — DB 운영 부담이 크지 않
 ```
 
 - MySQL이 compose 네트워크에서 빠지고 AWS RDS로 이동했다(이슈 #163) — `SPRING_DATASOURCE_URL`이 서비스명(`mysql:3306`) 대신 RDS 엔드포인트를 가리킨다. RDS 보안그룹은 EC2 보안그룹에서만 3306을 허용해, "호스트 포트 비공개" 원칙과 동등한 수준의 접근 제한을 유지한다.
+- 앱이 RDS에 접속할 때 쓰는 `SPRING_DATASOURCE_USERNAME`/`PASSWORD`는 RDS 마스터 계정이 아니라 `doctorpet` 스키마 권한만 가진 전용 사용자다(RDS PR 재검토 지적 P1). `MYSQL_ROOT_PASSWORD`(로컬 mysql 컨테이너 초기화 전용)와도 완전히 분리되어 있다 — 앱/EC2 환경변수가 노출돼도 피해 범위가 `doctorpet` 스키마로 한정된다. 마스터 계정은 이 전용 사용자를 만들거나 스키마 변경 권한을 조정하는 관리 작업에만 쓴다(`.env.example` 참고).
 - 컷오버 절차 자체(아래 4-4절)는 바뀌지 않는다 — `--no-deps`가 건너뛰는 `depends_on`은 이제 redis 하나뿐이고(로컬 mysql 컨테이너는 `docker-compose.yml`에 정의만 남아 있고 EC2 배포 대상에서는 빠졌다), RDS는 compose가 관리하는 서비스가 아니라서 애초에 컷오버 로직과 무관하다.
 - 로컬 개발은 이 다이어그램과 다르다 — `.env`에 `SPRING_DATASOURCE_URL` 등을 채우지 않으면 기본값대로 로컬 `mysql` 컨테이너를 그대로 쓴다(`docker-compose.yml`/`.env.example` 참고).
 

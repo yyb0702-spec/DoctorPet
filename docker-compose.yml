@@ -34,17 +34,25 @@ x-app-common-env: &app-common-env
   SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
   # DB 접속 정보를 .env에서 덮어쓸 수 있게 한다(RDS 이관 대응) — 기본값은 로컬 mysql 서비스를
   # 그대로 가리키므로 로컬 개발·기존 EC2 동작은 변경이 없다. RDS로 전환하려면 EC2의 git
-  # 비추적 .env에 SPRING_DATASOURCE_URL/USERNAME을 RDS 엔드포인트·마스터 사용자명으로 채우면
-  # 된다(RDS는 마스터 사용자명으로 root를 쓸 수 없다 — 보통 admin 등).
-  # 비밀번호는 별도 변수를 새로 만들지 않고 기존 MYSQL_ROOT_PASSWORD를 그대로 재사용한다 —
-  # Docker Compose는 `${A:-${B:-c}}` 같은 중첩 변수 참조를 지원하지 않으므로(공식 문서에
-  # 관련 언급 자체가 없음, 지원 시 오동작 위험), "SPRING_DATASOURCE_PASSWORD가 없으면
-  # MYSQL_ROOT_PASSWORD를 쓰고, 그것도 없으면 root" 3단 폴백을 compose 문법만으로 표현할
-  # 수 없다. RDS 컷오버 시에는 로컬 mysql 컨테이너를 더 이상 쓰지 않으므로, EC2 .env의
-  # MYSQL_ROOT_PASSWORD 값을 RDS 마스터 비밀번호로 바꿔치기해서 그대로 쓴다.
+  # 비추적 .env에 SPRING_DATASOURCE_URL/USERNAME/PASSWORD를 채우면 된다.
+  #
+  # SPRING_DATASOURCE_USERNAME/PASSWORD는 MYSQL_ROOT_PASSWORD(로컬 mysql 컨테이너 초기화용)와
+  # 완전히 분리된 별도 변수다(RDS PR 재검토 지적 P1) — 예전엔 앱 비밀번호를 MYSQL_ROOT_PASSWORD
+  # 값 그대로 재사용했는데, RDS 전환 시 그 값이 곧 RDS 마스터 비밀번호였다. 즉 앱 컨테이너나
+  # EC2 환경변수가 노출되면 `doctorpet` 스키마 접근을 넘어 RDS 인스턴스 관리 권한(다른 스키마
+  # 접근, 사용자 생성/삭제 등)까지 새는 구조였다. RDS로 전환할 때는 반드시 `doctorpet` 스키마
+  # 권한만 가진 전용 사용자를 만들어(아래 .env.example 안내 참고) 그 계정 정보를 여기 채우고,
+  # 마스터 계정(admin 등)은 사용자 생성·수동 점검 같은 관리 작업에만 쓴다.
+  #
+  # 중첩 변수 참조(`${A:-${B:-c}}`)는 Docker Compose가 지원하지 않아(공식 문서에 관련 언급
+  # 자체가 없음, 지원 시 오동작 위험) SPRING_DATASOURCE_PASSWORD를 "없으면 MYSQL_ROOT_PASSWORD로
+  # 자동 폴백"하게 만들 수 없다 — 이 분리 자체가 그 폴백을 포기하고 대신 얻는 격리다. 로컬
+  # 개발에서 MYSQL_ROOT_PASSWORD를 기본값(root)에서 바꿨다면, SPRING_DATASOURCE_PASSWORD도
+  # .env에 같은 값으로 별도로 채워야 한다(.env.example 참고) — 둘 다 기본값 그대로면 로컬
+  # mysql의 root/root와 일치해 아무것도 안 채워도 그대로 동작한다.
   SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}
   SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
-  SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+  SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root}
   SPRING_DATA_REDIS_HOST: redis
   SPRING_DATA_REDIS_PORT: "6379"
   # nginx 리버스 프록시 도입 후 request.getRemoteAddr()는 실제 사용자가 아니라 nginx

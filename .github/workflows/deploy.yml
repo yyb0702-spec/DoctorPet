@@ -221,7 +221,7 @@ jobs:
             # upstream-active.conf가 가리키는 app-$TARGET_COLOR가 아직 존재하지 않아 nginx가
             # 설정 로드에 실패할 수 있다. 대상 앱을 기동·헬스체크로 검증한 뒤 아래에서 올린다.
             #
-# --wait와 --wait-timeout을 붙인다(리뷰 지적 P2, 재리뷰 지적 P2로 타임아웃 보강) —
+            # --wait와 --wait-timeout을 붙인다(리뷰 지적 P2, 재리뷰 지적 P2로 타임아웃 보강) —
             # 바로 아래에서 app-$TARGET_COLOR를 `--no-deps`로 올리는데, `--no-deps`는
             # depends_on(mysql/redis condition: service_healthy)까지 건너뛴다. redis 자체를
             # 여기서 healthy가 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅 직후처럼
