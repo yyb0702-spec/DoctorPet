@@ -73,6 +73,15 @@ jobs:
           IMAGE_STORAGE_PROVIDER: fake
         run: ./gradlew unitTest
 
+      - name: Verify build & packaging (bootJar)
+        # unitTest/integrationTest 태스크로의 분리(위 참고)는 Gradle의 기본 build/check
+        # 생명주기를 더 이상 타지 않는다는 뜻이다 — 테스트만 통과하고 bootJar 패키징 자체가
+        # 깨지는 변경(예: 의존성 충돌, 리소스 처리 오류)이 있어도 이 CI를 그대로 통과해,
+        # Deploy 워크플로의 Docker 빌드(./gradlew bootJar --no-daemon -x test, Dockerfile
+        # 18번 줄)에서야 처음 발견될 수 있다(리뷰 지적 P1). 테스트는 위에서 이미 각각 실행했으니
+        # -x test로 다시 돌리지 않고, Dockerfile과 동일한 패키징 결과만 여기서 재확인한다.
+        run: ./gradlew build -x test
+
   build-integration:
     name: Build and Test (Level 3, MySQL·Redis)
     runs-on: ubuntu-latest
