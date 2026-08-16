@@ -2,6 +2,7 @@
 // (PR #127 리뷰 — SA §8-6, AWAITING_ARRIVAL_STATUSES).
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { RowActions } from './StaffReservationQueuePage'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
@@ -25,9 +26,11 @@ function renderRowActions(status: ReservationStatus) {
   }
   const queryClient = new QueryClient()
   return render(
-    <QueryClientProvider client={queryClient}>
-      <RowActions item={item} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <RowActions item={item} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -42,6 +45,10 @@ describe('RowActions', () => {
       expect(
         screen.getByRole('button', { name: '노쇼 확정' }),
       ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: '상세·채팅' })).toHaveAttribute(
+        'href',
+        '/staff/reservations/1',
+      )
     },
   )
 })

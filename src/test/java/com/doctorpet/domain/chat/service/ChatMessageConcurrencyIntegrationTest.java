@@ -9,6 +9,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
 
 import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
+import com.doctorpet.domain.chat.dto.response.ChatMessageResponse;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
@@ -126,6 +127,51 @@ class ChatMessageConcurrencyIntegrationTest {
                 .findByReservationIdOrderByCreatedAtAscIdAsc(data.reservationId(),
                         org.springframework.data.domain.Pageable.unpaged()))
                 .isEmpty();
+    }
+
+    @org.junit.jupiter.api.Test
+    @DisplayName("같은 clientMessageId를 동시에 재전송해도 메시지 한 건과 같은 messageId만 반환한다")
+    void concurrentRetriesWithSameClientMessageId_persistOneMessageAndReturnSameMessageId() throws Exception {
+        RaceData data = saveInTreatmentReservation();
+        String clientMessageId = "11111111-1111-4111-8111-111111111111";
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try {
+            Future<ChatMessageResponse> first = executor.submit(() -> sendAfterStart(
+                    data, clientMessageId, ready, start));
+            Future<ChatMessageResponse> second = executor.submit(() -> sendAfterStart(
+                    data, clientMessageId, ready, start));
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            ChatMessageResponse firstResponse = first.get(10, TimeUnit.SECONDS);
+            ChatMessageResponse secondResponse = second.get(10, TimeUnit.SECONDS);
+            assertThat(firstResponse.messageId()).isEqualTo(secondResponse.messageId());
+
+            var persisted = chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                    data.reservationId(), org.springframework.data.domain.Pageable.unpaged());
+            assertThat(persisted).singleElement().satisfies(message -> {
+                assertThat(message.getClientMessageId()).isEqualTo(clientMessageId);
+                assertThat(message.getId()).isEqualTo(firstResponse.messageId());
+            });
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private ChatMessageResponse sendAfterStart(
+            RaceData data,
+            String clientMessageId,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws InterruptedException {
+        ready.countDown();
+        assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+        return chatMessageService.send(data.reservationId(), data.guardian(),
+                new ChatMessageSendRequest("동시 재전송", clientMessageId));
     }
 
     private RaceData saveInTreatmentReservation() {

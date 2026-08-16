@@ -15,10 +15,14 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import java.util.UUID;
 
 @Entity
 @Table(
         name = "chat_messages",
+        uniqueConstraints = @jakarta.persistence.UniqueConstraint(
+                name = "uk_chat_messages_reservation_member_client",
+                columnNames = {"reservation_id", "member_id", "client_message_id"}),
         indexes = {
                 @Index(name = "idx_chat_messages_reservation_created", columnList = "reservation_id, created_at, id"),
                 @Index(name = "idx_chat_messages_reservation_sender_read", columnList = "reservation_id, sender_type, read_at")
@@ -53,6 +57,9 @@ public class ChatMessage extends BaseEntity {
     @Column(name = "body", nullable = false, length = 1000)
     private String body;
 
+    @Column(name = "client_message_id", nullable = false, length = 36)
+    private String clientMessageId;
+
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
@@ -61,13 +68,15 @@ public class ChatMessage extends BaseEntity {
             ChatSenderType senderType,
             Long hospitalId,
             Long memberId,
-            String body
+            String body,
+            String clientMessageId
     ) {
         this.reservationId = reservationId;
         this.senderType = senderType;
         this.hospitalId = hospitalId;
         this.memberId = memberId;
         this.body = body;
+        this.clientMessageId = clientMessageId;
     }
 
     public static ChatMessage create(
@@ -77,6 +86,13 @@ public class ChatMessage extends BaseEntity {
             Long memberId,
             String body
     ) {
-        return new ChatMessage(reservationId, senderType, hospitalId, memberId, body);
+        return new ChatMessage(reservationId, senderType, hospitalId, memberId, body, UUID.randomUUID().toString());
+    }
+
+    public static ChatMessage create(
+            Long reservationId, ChatSenderType senderType, Long hospitalId, Long memberId,
+            String body, String clientMessageId
+    ) {
+        return new ChatMessage(reservationId, senderType, hospitalId, memberId, body, clientMessageId);
     }
 }

@@ -9,7 +9,8 @@ public record ChatMessageResponse(
         ChatSenderType senderType,
         String content,
         LocalDateTime createdAt,
-        String senderName
+        String senderName,
+        String clientMessageId
 ) {
 
     public static ChatMessageResponse from(
@@ -22,7 +23,8 @@ public record ChatMessageResponse(
                 message.getSenderType(),
                 message.getBody(),
                 message.getCreatedAt(),
-                message.getSenderType() == ChatSenderType.HOSPITAL ? hospitalName : guardianNickname
+                message.getSenderType() == ChatSenderType.HOSPITAL ? hospitalName : guardianNickname,
+                message.getClientMessageId()
         );
     }
 }

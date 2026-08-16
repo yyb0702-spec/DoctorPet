@@ -6,7 +6,9 @@ import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.pa
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
+import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
+import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
@@ -55,6 +57,7 @@ class ChatWebSocketIntegrationTest {
     @Autowired private ChatMessageRepository chatMessageRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationSlotRepository reservationSlotRepository;
+    @Autowired private MemberRepository memberRepository;
     @Autowired private SimpMessagingTemplate messagingTemplate;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @MockitoBean private HospitalService hospitalService;
@@ -63,6 +66,7 @@ class ChatWebSocketIntegrationTest {
     private final List<WebSocket> sockets = new ArrayList<>();
     private final List<Long> reservationIds = new ArrayList<>();
     private final List<Long> slotIds = new ArrayList<>();
+    private final List<Long> memberIds = new ArrayList<>();
 
     @AfterEach
     void cleanUp() {
@@ -80,6 +84,7 @@ class ChatWebSocketIntegrationTest {
             reservationRepository.deleteById(id);
         });
         slotIds.forEach(reservationSlotRepository::deleteById);
+        memberIds.forEach(memberRepository::deleteById);
     }
 
     @Test
@@ -110,8 +115,15 @@ class ChatWebSocketIntegrationTest {
                 "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
 
         valid.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/subscription-ready",
+                "content-type:application/json"), ""));
+        String ready = valid.awaitFrame();
+        assertThat(ready).startsWith("MESSAGE");
+        assertThat(ready).contains("SUBSCRIPTION_READY");
+
+        valid.send(frame("SEND", List.of(
                 "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
-                "content-type:application/json"), "{\"content\":\"실시간 메시지\"}"));
+                "content-type:application/json"), "{\"content\":\"실시간 메시지\",\"clientMessageId\":\"11111111-1111-4111-8111-111111111111\"}"));
         String delivered = valid.awaitFrame();
         assertThat(delivered).startsWith("MESSAGE");
         assertThat(delivered).contains("실시간 메시지");
@@ -198,6 +210,55 @@ class ChatWebSocketIntegrationTest {
                 fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).isEmpty();
     }
 
+    @Test
+    void guardianAndHospitalStaff_exchangeMessagesAndReceiveOwnAcknowledgements() throws Exception {
+        ChatFixture fixture = saveWritableReservation();
+        String guardianToken = jwtTokenProvider.generateAccessToken(
+                fixture.guardianId(), "guardian@example.com", MemberRole.GUARDIAN.name());
+        String staffToken = jwtTokenProvider.generateAccessToken(
+                fixture.staffId(), "staff@example.com", MemberRole.HOSPITAL_STAFF.name());
+
+        StompFrames guardian = connect(guardianToken);
+        guardian.send(frame("SUBSCRIBE", List.of(
+                "id:guardian-ack", "destination:/user/queue/chat/send-acks"), ""));
+        guardian.send(frame("SUBSCRIBE", List.of(
+                "id:guardian-chat", "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
+
+        StompFrames staff = connect(staffToken);
+        staff.send(frame("SUBSCRIBE", List.of(
+                "id:staff-ack", "destination:/user/queue/chat/send-acks"), ""));
+        staff.send(frame("SUBSCRIBE", List.of(
+                "id:staff-chat", "destination:/topic/chat/reservations/" + fixture.reservationId()), ""));
+
+        guardian.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/subscription-ready",
+                "content-type:application/json"), ""));
+        guardian.awaitFrameContaining("SUBSCRIPTION_READY");
+        staff.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/subscription-ready",
+                "content-type:application/json"), ""));
+        staff.awaitFrameContaining("SUBSCRIPTION_READY");
+
+        guardian.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
+                "content-type:application/json"),
+                "{\"content\":\"guardian message\",\"clientMessageId\":\"22222222-2222-4222-8222-222222222222\"}"));
+        guardian.awaitFrameContaining("guardian message");
+        guardian.awaitFrameContaining("\"clientMessageId\":\"22222222-2222-4222-8222-222222222222\"");
+        staff.awaitFrameContaining("guardian message");
+
+        staff.send(frame("SEND", List.of(
+                "destination:/app/chat/reservations/" + fixture.reservationId() + "/messages",
+                "content-type:application/json"),
+                "{\"content\":\"staff reply\",\"clientMessageId\":\"33333333-3333-4333-8333-333333333333\"}"));
+        staff.awaitFrameContaining("staff reply");
+        staff.awaitFrameContaining("\"clientMessageId\":\"33333333-3333-4333-8333-333333333333\"");
+        guardian.awaitFrameContaining("staff reply");
+
+        assertThat(chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).hasSize(2);
+    }
+
     private void awaitActiveSubscription(StompFrames frames, Long reservationId) throws InterruptedException {
         String delivered = null;
         for (int attempt = 1; attempt <= 5 && delivered == null; attempt++) {
@@ -234,29 +295,37 @@ class ChatWebSocketIntegrationTest {
 
     private ChatFixture saveWritableReservation(ReservationStatus status) {
         long hospitalId = System.nanoTime();
-        long guardianId = hospitalId + 1;
         LocalDateTime now = LocalDateTime.now();
+        Member guardian = memberRepository.saveAndFlush(Member.createGuardian(
+                "chat-guardian-" + hospitalId + "@example.com", "encoded", "guardian"));
+        memberIds.add(guardian.getId());
+        Member staff = Member.createGuardian(
+                "chat-staff-" + hospitalId + "@example.com", "encoded", "staff");
+        ReflectionTestUtils.setField(staff, "role", MemberRole.HOSPITAL_STAFF);
+        ReflectionTestUtils.setField(staff, "hospitalId", hospitalId);
+        staff = memberRepository.saveAndFlush(staff);
+        memberIds.add(staff.getId());
         ReservationSlot slot = reservationSlotRepository.saveAndFlush(ReservationSlot.create(
                 hospitalId, now.plusDays(2), now.plusDays(2).plusMinutes(30)));
         slotIds.add(slot.getId());
         Reservation reservation = Reservation.request(
-                guardianId, 1L, hospitalId, slot.getId(), 1L,
+                guardian.getId(), 1L, hospitalId, slot.getId(), 1L,
                 "초코", "DOG", now, slot.getStartAt());
         ReflectionTestUtils.setField(reservation, "status", status);
         reservation = reservationRepository.saveAndFlush(reservation);
         reservationIds.add(reservation.getId());
         org.mockito.BDDMockito.given(hospitalService.getHospitalDetail(hospitalId))
                 .willReturn(partnerHospital(hospitalId, "테스트동물병원"));
-        org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardianId))
+        org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardian.getId()))
                 .willReturn("테스트보호자");
-        return new ChatFixture(reservation.getId(), guardianId);
+        return new ChatFixture(reservation.getId(), guardian.getId(), staff.getId());
     }
 
     private String frame(String command, List<String> headers, String body) {
         return command + "\n" + String.join("\n", headers) + "\n\n" + body + "\u0000";
     }
 
-    private record ChatFixture(Long reservationId, Long guardianId) {
+    private record ChatFixture(Long reservationId, Long guardianId, Long staffId) {
     }
 
     private record StompFrames(WebSocket socket, BlockingQueue<String> frames) {
@@ -274,6 +343,16 @@ class ChatWebSocketIntegrationTest {
         String pollFrame() throws InterruptedException {
             return frames.poll(1, TimeUnit.SECONDS);
         }
+
+        String awaitFrameContaining(String expected) throws InterruptedException {
+            for (int attempt = 0; attempt < 5; attempt++) {
+                String received = awaitFrame();
+                if (received.contains(expected)) {
+                    return received;
+                }
+            }
+            throw new AssertionError("STOMP frame does not contain: " + expected);
+        }
     }
 
     private static final class CapturingWebSocketListener implements WebSocket.Listener {
@@ -290,8 +369,11 @@ class ChatWebSocketIntegrationTest {
         public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
             buffer.append(data);
             if (last) {
-                frames.add(buffer.toString());
-                buffer.setLength(0);
+                int frameEnd;
+                while ((frameEnd = buffer.indexOf("\u0000")) >= 0) {
+                    frames.add(buffer.substring(0, frameEnd));
+                    buffer.delete(0, frameEnd + 1);
+                }
             }
             webSocket.request(1);
             return CompletableFuture.completedFuture(null);
