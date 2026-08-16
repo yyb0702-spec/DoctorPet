@@ -173,6 +173,17 @@ services:
     # nginx는 컷오버 대상 색과 독립적으로 항상 떠 있어야 하는 서비스라 이 결합을 두지 않는 게
     # 맞다 — 업스트림이 아직 안 떠 있으면 그 사이 요청은 502를 받을 뿐, nginx 자체는 정상 기동한다.
 
+  # 모니터링 스택(Prometheus+Grafana)은 docker-compose.monitoring.yml로 분리했다(재리뷰
+  # 지적 P1) — 이전엔 여기 있었는데, GRAFANA_ADMIN_PASSWORD가 이 파일 안의 유일한 `:?`
+  # 필수 변수였다. Docker Compose는 대상 서비스와 무관하게 파일 전체를 파싱 시점에 보간하므로,
+  # EC2 .env에 이 값이 없으면 `up`뿐 아니라 `ps`·`pull`·`exec`까지 이 파일을 쓰는 모든
+  # docker compose 명령이 죽어 app-blue/green 배포·컷오버·롤백이 전부 불가능해지는 문제가
+  # 있었다(deploy.yml은 set -e 아래라 첫 호출에서 스크립트 전체가 끝난다). 파일을 분리하면
+  # 이 변수의 영향 범위가 그 파일 하나로 좁아지고, deploy.yml도 이 스택의 기동 실패를
+  # 경고로만 흡수해 앱 배포를 막지 않도록 바꿨다(SA.md §12 참고). project 이름(디렉터리
+  # 기준)이 같은 채로 별도 파일만 쓰므로 컨테이너들은 여전히 같은 기본 네트워크에 붙어
+  # prometheus가 app-blue/app-green을 서비스명으로 스크레이프할 수 있다.
+
 volumes:
   mysql-data:
   payment-audit-logs:

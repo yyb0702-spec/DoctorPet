@@ -106,6 +106,44 @@ public interface ReservationRepository
             @Param("noShowStatus") ReservationStatus noShowStatus
     );
 
+    @Query(value = """
+            select count(case
+                       when r.confirmed_at is not null
+                         or (r.confirmed_at is null and r.status = 'REJECTED')
+                       then 1
+                   end) as responseSampleCount,
+                   count(case
+                       when r.confirmed_at is not null
+                         or (
+                            r.confirmed_at is null
+                            and r.status = 'REJECTED'
+                            and not exists (
+                                select 1
+                                  from reservation_events re
+                                 where re.reservation_id = r.id
+                                   and re.event_type = 'TIMEOUT_REJECTED'
+                            )
+                         )
+                       then 1
+                   end) as respondedCount,
+                   count(case
+                       when r.confirmed_at is not null then 1
+                   end) as approvedCount,
+                   avg(case
+                       when r.confirmed_at is not null
+                       then timestampdiff(second, r.requested_at, r.confirmed_at)
+                   end) as averageApprovalSeconds
+              from reservations r
+             where r.hospital_id = :hospitalId
+               and r.requested_at >= :from
+               and r.requested_at < :to
+            """, nativeQuery = true)
+    ReservationResponseMetricsProjection findResponseMetricsAggregate(
+            @Param("hospitalId") Long hospitalId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
     long countBySlotId(Long slotId);
 
     // 회원 탈퇴 전 활성 예약 보유 여부 확인용(SA §6-3, 부록A 확정 — 탈퇴 보류 정책).

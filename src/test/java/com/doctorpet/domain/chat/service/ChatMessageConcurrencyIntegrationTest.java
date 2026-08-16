@@ -1,6 +1,7 @@
 package com.doctorpet.domain.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.partnerHospital;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -8,10 +9,10 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
 
 import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
+import com.doctorpet.domain.chat.dto.response.ChatMessageResponse;
 import com.doctorpet.domain.chat.exception.ChatErrorCode;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
-import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -128,6 +129,51 @@ class ChatMessageConcurrencyIntegrationTest {
                 .isEmpty();
     }
 
+    @org.junit.jupiter.api.Test
+    @DisplayName("같은 clientMessageId를 동시에 재전송해도 메시지 한 건과 같은 messageId만 반환한다")
+    void concurrentRetriesWithSameClientMessageId_persistOneMessageAndReturnSameMessageId() throws Exception {
+        RaceData data = saveInTreatmentReservation();
+        String clientMessageId = "11111111-1111-4111-8111-111111111111";
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try {
+            Future<ChatMessageResponse> first = executor.submit(() -> sendAfterStart(
+                    data, clientMessageId, ready, start));
+            Future<ChatMessageResponse> second = executor.submit(() -> sendAfterStart(
+                    data, clientMessageId, ready, start));
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            ChatMessageResponse firstResponse = first.get(10, TimeUnit.SECONDS);
+            ChatMessageResponse secondResponse = second.get(10, TimeUnit.SECONDS);
+            assertThat(firstResponse.messageId()).isEqualTo(secondResponse.messageId());
+
+            var persisted = chatMessageRepository.findByReservationIdOrderByCreatedAtAscIdAsc(
+                    data.reservationId(), org.springframework.data.domain.Pageable.unpaged());
+            assertThat(persisted).singleElement().satisfies(message -> {
+                assertThat(message.getClientMessageId()).isEqualTo(clientMessageId);
+                assertThat(message.getId()).isEqualTo(firstResponse.messageId());
+            });
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private ChatMessageResponse sendAfterStart(
+            RaceData data,
+            String clientMessageId,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws InterruptedException {
+        ready.countDown();
+        assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+        return chatMessageService.send(data.reservationId(), data.guardian(),
+                new ChatMessageSendRequest("동시 재전송", clientMessageId));
+    }
+
     private RaceData saveInTreatmentReservation() {
         long hospitalId = System.nanoTime();
         LocalDateTime now = LocalDateTime.now();
@@ -153,9 +199,8 @@ class ChatMessageConcurrencyIntegrationTest {
         reservation = reservationRepository.saveAndFlush(reservation);
         reservationId = reservation.getId();
 
-        given(hospitalService.getHospitalDetail(anyLong())).willReturn(new HospitalDetailResponse(
-                hospitalId, "테스트동물병원", null, null, null, null, null, null,
-                null, null, null, null, null, null, null, 0L, false));
+        given(hospitalService.getHospitalDetail(anyLong()))
+                .willReturn(partnerHospital(hospitalId, "테스트동물병원"));
         given(memberProfilePort.getGuardianNickname(anyLong())).willReturn("테스트보호자");
         return new RaceData(reservation.getId(), staff.getId(), guardian);
     }

@@ -10,6 +10,7 @@ import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
 import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceType;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
 import com.doctorpet.global.gateway.ai.tool.AiToolExecutor;
 import java.io.IOException;
@@ -49,7 +50,7 @@ public class OpenAiGateway implements AiGateway {
 
     static final String SEARCH_TOOL_NAME = "searchNearbyVets";
     private static final String RESPONSES_PATH = "/responses";
-    private static final String PROMPT_PATH = "prompts/ai-consultation-v4.txt";
+    private static final String PROMPT_PATH = "prompts/ai-consultation-v8.txt";
 
     private final OpenAiProperties properties;
     private final ObjectMapper objectMapper;
@@ -173,7 +174,8 @@ public class OpenAiGateway implements AiGateway {
                     analysis,
                     output.locationRequired().booleanValue(),
                     true, // 이 구현체는 Tool Calling 전체 흐름을 처리했음
-                    toolCalled
+                    toolCalled,
+                    output.recommendations()
             );
         } catch (NullPointerException exception) {
             // JSON 문법이 유효해도 필수 필드가 누락되면 DTO 생성 단계에서 실패할 수 있다.
@@ -310,11 +312,40 @@ public class OpenAiGateway implements AiGateway {
     private Map<String, Object> finalOutputFormat() {
         Map<String, Object> schemaProperties = new LinkedHashMap<>(analysisProperties());
         schemaProperties.put("locationRequired", Map.of("type", "boolean"));
+        schemaProperties.put("recommendations", recommendationArray());
         return Map.of(
                 "type", "json_schema",
                 "name", "doctorpet_ai_consultation",
                 "strict", true,
                 "schema", objectSchema(schemaProperties)
+        );
+    }
+
+    private Map<String, Object> recommendationArray() {
+        Map<String, Object> recommendationProperties = new LinkedHashMap<>();
+        recommendationProperties.put("hospitalId", Map.of("type", "integer"));
+        recommendationProperties.put("recommendationScore", Map.of(
+                "type", "integer",
+                "minimum", 1,
+                "maximum", 5
+        ));
+        Map<String, Object> evidenceProperties = new LinkedHashMap<>();
+        evidenceProperties.put("type", Map.of(
+                "type", "string",
+                "enum", Arrays.stream(AiRecommendationEvidenceType.values())
+                        .map(Enum::name)
+                        .toList()
+        ));
+        evidenceProperties.put("value", Map.of("type", "string"));
+        recommendationProperties.put("evidence", Map.of(
+                "type", "array",
+                "items", objectSchema(evidenceProperties)
+        ));
+        return Map.of(
+                "type", "array",
+                "maxItems", 3,
+                "items", objectSchema(recommendationProperties),
+                "description", "Tool 결과에 포함된 병원 중 최대 3개의 추천 결과"
         );
     }
 

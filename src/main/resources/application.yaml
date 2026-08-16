@@ -88,7 +88,7 @@ ai:
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4.1-mini}
-    prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v4}
+    prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v8}
     connect-timeout-ms: ${OPENAI_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${OPENAI_READ_TIMEOUT_MS:10000}
     circuit-breaker-failure-threshold: ${OPENAI_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
@@ -109,6 +109,12 @@ ai:
 member:
   email-verified-backfill:
     enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
+
+# 기존 chat_messages에 멱등 재전송 키를 안전하게 추가한다. Hibernate보다 먼저 nullable 추가·UUID
+# 백필·UNIQUE·NOT NULL 순서로 적용하며, 배포 중 구버전 INSERT는 트리거가 UUID를 채운다.
+chat:
+  client-message-id-migration:
+    enabled: ${CHAT_CLIENT_MESSAGE_ID_MIGRATION_ENABLED:true}
 
 # 배포 헬스체크(CI/CD MVP) + 관측성 지표(이슈 #105). health 외에 prometheus만 추가로 노출한다 —
 # env, beans 등 나머지 엔드포인트는 민감정보를 노출할 수 있어 명시적으로 켜지 않는 한 노출하지
@@ -156,6 +162,17 @@ springdoc:
     enabled: false
 
 reservation:
+  waitlist:
+    offer-validity-minutes: ${RESERVATION_WAITLIST_OFFER_VALIDITY_MINUTES:10}
+    expiration-interval-ms: ${RESERVATION_WAITLIST_EXPIRATION_INTERVAL_MS:60000}
+    expiration-initial-delay-ms: ${RESERVATION_WAITLIST_EXPIRATION_INITIAL_DELAY_MS:60000}
+    expiration-batch-size: ${RESERVATION_WAITLIST_EXPIRATION_BATCH_SIZE:100}
+    # 여러 인스턴스가 같은 만료 대상을 중복 처리하지 않도록 MySQL named lock을 사용한다.
+    # 기본값 0은 다른 인스턴스가 실행 중이면 기다리지 않고 다음 주기에 재시도한다.
+    expiration-lock-wait-seconds: ${RESERVATION_WAITLIST_EXPIRATION_LOCK_WAIT_SECONDS:0}
+  # 대기열 테이블은 Hibernate ddl-auto가 아니라 선행 마이그레이션 러너가 생성·검증한다.
+  waitlist-migration:
+    enabled: ${RESERVATION_WAITLIST_MIGRATION_ENABLED:true}
   slot-business-date-migration:
     enabled: ${RESERVATION_SLOT_BUSINESS_DATE_MIGRATION_ENABLED:true}
   no-show:

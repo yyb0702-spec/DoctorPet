@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
@@ -37,6 +38,8 @@ import org.springframework.util.StringUtils;
 public class ChatMessageService {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final Pattern UUID_CLIENT_MESSAGE_ID = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
     private static final EnumSet<ReservationStatus> WRITABLE_STATUSES = EnumSet.of(
             ReservationStatus.REQUESTED,
             ReservationStatus.CONFIRMED,
@@ -66,7 +69,8 @@ public class ChatMessageService {
             ChatMessageSendRequest request
     ) {
         if (request == null || !StringUtils.hasText(request.content())
-                || request.content().length() > 1000) {
+                || request.content().length() > 1000
+                || !isValidClientMessageId(request.clientMessageId())) {
             throw new ServiceException(CommonErrorCode.VALIDATION_FAILED);
         }
         // 종료 상태 조건부 UPDATE와 이 행 잠금을 공유해, 종료가 먼저 확정된 뒤에는 저장되지 않는다.
@@ -76,6 +80,14 @@ public class ChatMessageService {
             throw new ServiceException(ChatErrorCode.MESSAGE_SEND_NOT_ALLOWED);
         }
 
+        ChatMessage existing = chatMessageRepository
+                .findByReservationIdAndMemberIdAndClientMessageId(
+                        reservationId, principal.memberId(), request.clientMessageId())
+                .orElse(null);
+        if (existing != null) {
+            return toResponse(existing, hospitalName(reservation.getHospitalId()));
+        }
+
         ChatMessage saved = chatMessageRepository.saveAndFlush(ChatMessage.create(
                 reservationId,
                 participant.senderType(),
@@ -83,11 +95,18 @@ public class ChatMessageService {
                 // chat_messages.hospital_id의 감사·격리 키가 NULL이 되지 않게 한다.
                 reservation.getHospitalId(),
                 principal.memberId(),
-                request.content()
+                request.content(), request.clientMessageId()
         ));
         ChatMessageResponse response = toResponse(saved, hospitalName(reservation.getHospitalId()));
         eventPublisher.publishEvent(new ChatMessageCreatedEvent(reservationId, response));
         return response;
+    }
+
+    private boolean isValidClientMessageId(String clientMessageId) {
+        if (!StringUtils.hasText(clientMessageId) || clientMessageId.length() != 36) {
+            return false;
+        }
+        return UUID_CLIENT_MESSAGE_ID.matcher(clientMessageId).matches();
     }
 
     @Transactional(readOnly = true)
@@ -136,14 +155,17 @@ public class ChatMessageService {
     }
 
     @Transactional
-    public void markRead(Long reservationId, MemberPrincipal principal) {
+    public void markRead(Long reservationId, MemberPrincipal principal, Long throughMessageId) {
         Reservation reservation = reservationService.findReservationForChat(reservationId);
         ChatParticipant participant = authorize(reservation, principal);
         ChatSenderType receivedSenderType = participant.senderType() == ChatSenderType.GUARDIAN
                 ? ChatSenderType.HOSPITAL
                 : ChatSenderType.GUARDIAN;
+        // 클라이언트가 실제로 병합한 마지막 메시지까지만 읽음 처리한다. 상한이 없으면 최종 복구 직후
+        // 저장됐지만 아직 화면에 도착하지 않은 상대 메시지까지 읽음이 된다(PR #159 리뷰 P1).
         chatMessageRepository.markReadByReservationIdAndSenderType(
-                reservationId, receivedSenderType, LocalDateTime.now(applicationClock));
+                reservationId, receivedSenderType, throughMessageId,
+                LocalDateTime.now(applicationClock));
     }
 
     @Transactional

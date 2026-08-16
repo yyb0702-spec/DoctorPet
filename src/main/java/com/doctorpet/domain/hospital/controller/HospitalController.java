@@ -4,6 +4,7 @@ import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.dto.response.HospitalSlotLookupResponse;
 import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
+import com.doctorpet.domain.hospital.service.HospitalDetailApplicationService;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.hospital.service.HospitalSlotApplicationService;
 import com.doctorpet.global.response.ApiResponse;
@@ -36,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class HospitalController {
 
     private final HospitalService hospitalService;
+    private final HospitalDetailApplicationService hospitalDetailApplicationService;
     private final HospitalFavoriteService hospitalFavoriteService;
     private final HospitalSlotApplicationService hospitalSlotApplicationService;
 
@@ -45,7 +47,7 @@ public class HospitalController {
             @PathVariable Long hospitalId
     ) {
         Long memberId = guardianMemberId(principal);
-        HospitalDetailResponse response = hospitalService.getHospitalDetail(
+        HospitalDetailResponse response = hospitalDetailApplicationService.getHospitalDetail(
                 hospitalId,
                 memberId
         );

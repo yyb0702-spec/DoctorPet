@@ -10,6 +10,7 @@ import com.doctorpet.domain.member.exception.MemberErrorCode;
 import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.domain.reservation.service.ReservationService;
+import com.doctorpet.domain.reservation.service.ReservationWaitlistService;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtProperties;
 import java.time.Duration;
@@ -38,6 +39,9 @@ class MemberWithdrawalApplicationServiceTest {
     private ReservationService reservationService;
 
     @Mock
+    private ReservationWaitlistService reservationWaitlistService;
+
+    @Mock
     private HospitalFavoriteService hospitalFavoriteService;
 
     @Mock
@@ -58,6 +62,7 @@ class MemberWithdrawalApplicationServiceTest {
         memberWithdrawalApplicationService.withdraw(1L);
 
         then(memberService).should().lockActiveMember(1L);
+        then(reservationWaitlistService).should().cancelAllForWithdrawal(1L);
         then(hospitalFavoriteService).should().deleteAllByMemberId(1L);
         then(memberService).should().withdraw(1L);
         then(refreshTokenRepository).should().deleteByMemberId(1L);
@@ -75,6 +80,7 @@ class MemberWithdrawalApplicationServiceTest {
                         .isEqualTo(MemberErrorCode.WITHDRAWAL_BLOCKED));
         then(memberService).should().lockActiveMember(1L);
         then(memberService).should(never()).withdraw(1L);
+        then(reservationWaitlistService).should(never()).cancelAllForWithdrawal(1L);
         then(hospitalFavoriteService).should(never()).deleteAllByMemberId(1L);
         then(refreshTokenRepository).should(never()).deleteByMemberId(1L);
         then(refreshTokenRepository).should(never()).blacklistMember(1L, Duration.ofMillis(3_600_000L));

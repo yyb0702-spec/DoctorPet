@@ -1,7 +1,9 @@
 package com.doctorpet.domain.ai.service;
 
+import com.doctorpet.domain.ai.dto.AiHospitalCandidateEvidence;
 import com.doctorpet.domain.ai.dto.request.AiConsultationRequest;
 import com.doctorpet.domain.ai.dto.response.AiConsultationResponse;
+import com.doctorpet.domain.ai.dto.response.AiHospitalRecommendationResponse;
 import com.doctorpet.domain.ai.entity.AiConsultation;
 import com.doctorpet.domain.ai.model.AiHospitalSearchIntent;
 import com.doctorpet.domain.ai.model.AiStructuredResult;
@@ -10,21 +12,32 @@ import com.doctorpet.domain.ai.support.AiHospitalSearchIntentExtractor;
 import com.doctorpet.domain.ai.support.EmergencyKeywordDetector;
 import com.doctorpet.domain.ai.support.SymptomTextMasker;
 import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
 import com.doctorpet.domain.hospital.entity.CapabilityType;
 import com.doctorpet.domain.hospital.entity.CapabilityValue;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
 import com.doctorpet.domain.hospital.model.HospitalSearchSort;
 import com.doctorpet.domain.hospital.service.HospitalService;
+import com.doctorpet.domain.review.dto.response.HospitalReviewEvidence;
+import com.doctorpet.domain.review.service.ReviewQueryService;
 import com.doctorpet.global.gateway.ai.AiGateway;
 import com.doctorpet.global.gateway.ai.AiGatewayException;
 import com.doctorpet.global.gateway.ai.AiGatewayFailureReason;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisRequest;
 import com.doctorpet.global.gateway.ai.dto.AiAnalysisResult;
 import com.doctorpet.global.gateway.ai.dto.AiGatewayConsultationResult;
+import com.doctorpet.global.gateway.ai.dto.AiHospitalRecommendationResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceResult;
+import com.doctorpet.global.gateway.ai.dto.AiRecommendationEvidenceType;
 import com.doctorpet.global.gateway.ai.dto.AiFocusArea;
 import com.doctorpet.global.gateway.ai.dto.AiPreVisitCheckpoint;
 import com.doctorpet.global.gateway.ai.dto.UrgencyLevel;
 import com.doctorpet.global.gateway.ai.tool.AiHospitalSearchToolCall;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +59,7 @@ public class AiConsultationService {
 
     private static final int HOSPITAL_SEARCH_PAGE = 1;
     private static final int HOSPITAL_SEARCH_SIZE = 20;
+    private static final int RECOMMENDATION_COUNT = 3;
     private static final String DISCLAIMER =
             "AI 분석은 참고용이며 진단이나 처방을 대신하지 않습니다. 정확한 판단은 동물병원에서 받아 주세요.";
     private static final String SUCCESS_MESSAGE = "증상을 바탕으로 필요한 진료역량을 정리했습니다.";
@@ -74,18 +88,19 @@ public class AiConsultationService {
     private final HospitalService hospitalService;
     private final AiHospitalSearchIntentExtractor searchIntentExtractor;
     private final EmergencyKeywordDetector emergencyKeywordDetector;
+    private final ReviewQueryService reviewQueryService;
     private final ObjectMapper objectMapper;
 
     public AiConsultationResponse consult(Long memberId, AiConsultationRequest request) {
         String maskedSymptomText = symptomTextMasker.mask(request.symptomText());
         long startedAt = System.nanoTime();
+        AiToolExecutionState toolState = new AiToolExecutionState();
 
         if (emergencyKeywordDetector.isEmergency(maskedSymptomText)) {
             return consultEmergency(memberId, request, maskedSymptomText, startedAt);
         }
 
         try {
-            AiToolExecutionState toolState = new AiToolExecutionState();
             AiGatewayConsultationResult gatewayResult = aiGateway.consult(
                     new AiAnalysisRequest(
                             maskedSymptomText,
@@ -102,14 +117,27 @@ public class AiConsultationService {
                 validateSafeStructuredFields(result);
             }
             if (gatewayResult.toolCallingHandled()) {
-                return completeToolCallingConsultation(
-                        memberId,
-                        request,
-                        maskedSymptomText,
-                        gatewayResult,
-                        toolState,
-                        startedAt
-                );
+                try {
+                    return completeToolCallingConsultation(
+                            memberId,
+                            request,
+                            maskedSymptomText,
+                            gatewayResult,
+                            toolState,
+                            startedAt
+                    );
+                } catch (AiGatewayException exception) {
+                    if (gatewayResult.toolCalled()) {
+                        return responseValidationFallback(
+                                memberId,
+                                maskedSymptomText,
+                                gatewayResult.analysis(),
+                                exception.getFailureReason(),
+                                startedAt
+                        );
+                    }
+                    throw exception;
+                }
             }
             AiHospitalSearchIntent searchIntent = searchIntentExtractor.extract(maskedSymptomText);
             boolean emergency = result.urgencyLevel() == UrgencyLevel.HIGH;
@@ -134,7 +162,8 @@ public class AiConsultationService {
                         request,
                         result,
                         searchIntent,
-                        emergency
+                        emergency,
+                        CapabilityMatchMode.ALL
                 );
             } catch (RuntimeException exception) {
                 log.error("병원 검색 Tool 호출에 실패했습니다.", exception);
@@ -158,6 +187,15 @@ public class AiConsultationService {
                     emergency && !hasLocation(request)
             );
         } catch (AiGatewayException exception) {
+            if (toolState.analysis() != null) {
+                return gatewayFailureAfterToolCall(
+                        memberId,
+                        maskedSymptomText,
+                        toolState.analysis(),
+                        exception.getFailureReason(),
+                        startedAt
+                );
+            }
             return fallback(memberId, maskedSymptomText, exception.getFailureReason(), startedAt);
         } catch (AiToolSearchExecutionException exception) {
             log.error("병원 검색 Tool 호출에 실패했습니다.", exception.getCause());
@@ -224,16 +262,175 @@ public class AiConsultationService {
         }
 
         List<HospitalSearchResponse> hospitals = toolState.hospitals();
+        List<AiHospitalRecommendationResponse> recommendations = toRecommendationResponses(
+                gatewayResult.recommendations(),
+                toolState.candidates(),
+                result.requiredCapabilities()
+        );
         aiConsultationRepository.save(AiConsultation.success(
                 memberId, maskedSymptomText, result, elapsedMillis(startedAt)));
         return new AiConsultationResponse(
                 AiStructuredResult.from(result),
                 hospitals,
                 DISCLAIMER,
-                emergency ? emergencyMessage(request, hospitals) : hospitalSearchMessage(hospitals),
+                recommendationMessage(emergency, recommendations),
                 false,
-                emergency && !hasLocation(request)
+                false,
+                emergency && !hasLocation(request),
+                recommendations
         );
+    }
+
+    private List<AiHospitalRecommendationResponse> toRecommendationResponses(
+            List<AiHospitalRecommendationResult> recommendations,
+            List<AiHospitalCandidateEvidence> candidates,
+            List<String> requiredCapabilities
+    ) {
+        Map<Long, AiHospitalCandidateEvidence> candidatesById = candidates.stream()
+                .collect(Collectors.toMap(
+                        candidate -> candidate.hospital().hospitalId(),
+                        candidate -> candidate
+                ));
+        int expectedRecommendationCount = Math.min(3, candidates.size());
+        if (recommendations.size() != expectedRecommendationCount) {
+            throw invalidRecommendation(
+                    "AI 추천 병원 수는 검색 후보 수에 맞게 %d개여야 합니다."
+                            .formatted(expectedRecommendationCount)
+            );
+        }
+        Set<Long> uniqueHospitalIds = recommendations.stream()
+                .map(AiHospitalRecommendationResult::hospitalId)
+                .collect(Collectors.toSet());
+        if (uniqueHospitalIds.size() != recommendations.size()) {
+            throw invalidRecommendation("AI 추천 병원 ID가 중복되었습니다.");
+        }
+        return recommendations.stream()
+                .map(recommendation -> toRecommendationResponse(
+                        recommendation,
+                        candidatesById.get(recommendation.hospitalId()),
+                        requiredCapabilities
+                ))
+                .sorted(Comparator
+                        .comparingInt(AiHospitalRecommendationResponse::recommendationScore)
+                        .reversed()
+                        .thenComparing(
+                                response -> response.hospital().distanceKm(),
+                                Comparator.nullsLast(Comparator.naturalOrder())
+                        ))
+                .toList();
+    }
+
+    private AiHospitalRecommendationResponse toRecommendationResponse(
+            AiHospitalRecommendationResult recommendation,
+            AiHospitalCandidateEvidence candidate,
+            List<String> requiredCapabilities
+    ) {
+        if (candidate == null) {
+            throw invalidRecommendation("검색 후보에 없는 병원을 추천했습니다.");
+        }
+        if (recommendation.recommendationScore() < 1
+                || recommendation.recommendationScore() > 5) {
+            throw invalidRecommendation("AI 추천 적합도는 1~5 정수여야 합니다.");
+        }
+        if (recommendation.evidence().isEmpty()) {
+            throw invalidRecommendation("AI 추천의 객관적 근거가 비어 있습니다.");
+        }
+        recommendation.evidence().forEach(evidence ->
+                validateRecommendationEvidence(evidence, candidate, requiredCapabilities));
+        return new AiHospitalRecommendationResponse(
+                candidate.hospital(),
+                recommendation.recommendationScore(),
+                buildRecommendationReason(recommendation.evidence()),
+                recommendation.evidence()
+        );
+    }
+
+    private String buildRecommendationReason(
+            List<AiRecommendationEvidenceResult> evidence
+    ) {
+        Set<AiRecommendationEvidenceType> types =
+                evidence.stream()
+                        .map(AiRecommendationEvidenceResult::type)
+                        .collect(Collectors.toSet());
+        List<String> reasons = new ArrayList<>();
+        if (types.contains(AiRecommendationEvidenceType.SUPPORTED_SPECIES)) {
+            reasons.add("요청한 축종을 진료합니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.CAPABILITY)) {
+            reasons.add("필요한 진료 역량을 보유하고 있습니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.OPEN_NOW)) {
+            boolean openNow = evidence.stream()
+                    .filter(item -> item.type()
+                            == AiRecommendationEvidenceType.OPEN_NOW)
+                    .anyMatch(item -> "true".equals(item.value()));
+            reasons.add(openNow ? "현재 진료 중입니다" : "현재 진료 중이 아닙니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.DISTANCE_KM)) {
+            reasons.add("거리 정보를 확인할 수 있습니다");
+        }
+        if (types.contains(AiRecommendationEvidenceType.AVERAGE_RATING)
+                || types.contains(AiRecommendationEvidenceType.REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.POSITIVE_REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.NEUTRAL_REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.NEGATIVE_REVIEW_COUNT)
+                || types.contains(AiRecommendationEvidenceType.REVIEW_EXCERPT_ID)) {
+            reasons.add("사용자 리뷰 정보를 참고했습니다");
+        }
+        if (reasons.isEmpty()) {
+            return "병원의 실제 정보를 바탕으로 추천했습니다.";
+        }
+        return String.join(". ", reasons) + ".";
+    }
+
+    private void validateRecommendationEvidence(
+            AiRecommendationEvidenceResult evidence,
+            AiHospitalCandidateEvidence candidate,
+            List<String> requiredCapabilities
+    ) {
+        boolean valid = switch (evidence.type()) {
+            case SUPPORTED_SPECIES -> candidate.supportedSpecies().stream()
+                    .map(Enum::name)
+                    .anyMatch(evidence.value()::equals);
+            case CAPABILITY -> candidate.capabilities().stream()
+                    .map(Enum::name)
+                    .anyMatch(evidence.value()::equals)
+                    && requiredCapabilities.contains(evidence.value());
+            case DISTANCE_KM -> candidate.hospital().distanceKm() != null
+                    && decimalMatches(candidate.hospital().distanceKm(), evidence.value());
+            case BUSINESS_STATUS ->
+                    candidate.hospital().businessStatus().name().equals(evidence.value());
+            case OPEN_NOW -> candidate.hospital().openNow() != null
+                    && candidate.hospital().openNow().toString().equals(evidence.value());
+            case AVERAGE_RATING -> candidate.reviews().averageRating() != null
+                    && decimalMatches(candidate.reviews().averageRating(), evidence.value());
+            case REVIEW_COUNT -> Long.toString(candidate.reviews().reviewCount())
+                    .equals(evidence.value());
+            case POSITIVE_REVIEW_COUNT -> Long.toString(candidate.reviews().positiveReviewCount())
+                    .equals(evidence.value());
+            case NEUTRAL_REVIEW_COUNT -> Long.toString(candidate.reviews().neutralReviewCount())
+                    .equals(evidence.value());
+            case NEGATIVE_REVIEW_COUNT -> Long.toString(candidate.reviews().negativeReviewCount())
+                    .equals(evidence.value());
+            case REVIEW_EXCERPT_ID -> candidate.reviews().excerpts().stream()
+                    .map(review -> review.reviewId().toString())
+                    .anyMatch(evidence.value()::equals);
+        };
+        if (!valid) {
+            throw invalidRecommendation("실제 후보 데이터와 일치하지 않는 추천 근거입니다.");
+        }
+    }
+
+    private AiGatewayException invalidRecommendation(String message) {
+        return new AiGatewayException(AiGatewayFailureReason.INVALID_RESPONSE, message);
+    }
+
+    private boolean decimalMatches(BigDecimal actual, String expected) {
+        try {
+            return actual.compareTo(new BigDecimal(expected)) == 0;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
     }
 
     private AiConsultationResponse searchEmergencyAfterModel(
@@ -250,7 +447,8 @@ public class AiConsultationService {
                     request,
                     result,
                     new AiHospitalSearchIntent(true, false, hasLocation(request)),
-                    true
+                    true,
+                    CapabilityMatchMode.ALL
             );
         } catch (RuntimeException exception) {
             log.error("모델 HIGH 판정 후 응급 병원 검색에 실패했습니다.", exception);
@@ -304,14 +502,33 @@ public class AiConsultationService {
                 call.sort() == HospitalSearchSort.DISTANCE
         );
         try {
-            state.updateHospitals(searchHospitals(
+            List<HospitalSearchResponse> hospitals = searchHospitals(
                     memberId,
                     request,
                     call.analysis(),
                     intent,
-                    emergency
+                    emergency,
+                    CapabilityMatchMode.ALL
+            );
+            state.updateHospitals(hospitals);
+            List<HospitalSearchResponse> recommendationCandidates =
+                    supplementRecommendationCandidates(
+                            memberId,
+                            request,
+                            call.analysis(),
+                            intent,
+                            emergency,
+                            hospitals
+                    );
+            List<AiHospitalCandidateEvidence> candidates = buildCandidateEvidence(
+                    recommendationCandidates,
+                    call.analysis().requiredCapabilities()
+            );
+            state.updateCandidates(candidates);
+            return objectMapper.writeValueAsString(Map.of(
+                    "hospitals",
+                    candidates
             ));
-            return objectMapper.writeValueAsString(Map.of("hospitals", state.hospitals()));
         } catch (JacksonException exception) {
             throw new AiGatewayException(
                     AiGatewayFailureReason.INVALID_RESPONSE,
@@ -327,6 +544,113 @@ public class AiConsultationService {
         }
     }
 
+    private List<HospitalSearchResponse> supplementRecommendationCandidates(
+            Long memberId,
+            AiConsultationRequest request,
+            AiAnalysisResult result,
+            AiHospitalSearchIntent intent,
+            boolean emergency,
+            List<HospitalSearchResponse> strictCandidates
+    ) {
+        if (strictCandidates.size() >= RECOMMENDATION_COUNT
+                || result.requiredCapabilities().isEmpty()) {
+            return strictCandidates;
+        }
+
+        Map<Long, HospitalSearchResponse> candidatesByHospitalId = new LinkedHashMap<>();
+        strictCandidates.forEach(candidate ->
+                candidatesByHospitalId.put(candidate.hospitalId(), candidate));
+        mergeCandidates(
+                candidatesByHospitalId,
+                searchHospitals(
+                        memberId,
+                        request,
+                        result,
+                        intent,
+                        emergency,
+                        CapabilityMatchMode.ANY
+                )
+        );
+        if (candidatesByHospitalId.size() < RECOMMENDATION_COUNT) {
+            mergeCandidates(
+                    candidatesByHospitalId,
+                    searchHospitals(
+                            memberId,
+                            request,
+                            result,
+                            intent,
+                            emergency,
+                            CapabilityMatchMode.NONE
+                    )
+            );
+        }
+
+        return candidatesByHospitalId.values().stream()
+                .limit(RECOMMENDATION_COUNT)
+                .toList();
+    }
+
+    private void mergeCandidates(
+            Map<Long, HospitalSearchResponse> candidatesByHospitalId,
+            List<HospitalSearchResponse> candidates
+    ) {
+        candidates.forEach(candidate ->
+                candidatesByHospitalId.putIfAbsent(candidate.hospitalId(), candidate));
+    }
+
+    private List<AiHospitalCandidateEvidence> buildCandidateEvidence(
+            List<HospitalSearchResponse> hospitals,
+            List<String> requiredCapabilities
+    ) {
+        if (hospitals.isEmpty()) {
+            return List.of();
+        }
+        List<HospitalSearchResponse> limitedHospitals = hospitals.stream()
+                .limit(HOSPITAL_SEARCH_SIZE)
+                .toList();
+        List<Long> hospitalIds = limitedHospitals.stream()
+                .map(HospitalSearchResponse::hospitalId)
+                .toList();
+        Map<Long, List<CapabilityValue>> capabilitiesByHospitalId =
+                hospitalService.getCapabilitiesByHospitalIds(hospitalIds);
+        Map<Long, HospitalReviewEvidence> reviewsByHospitalId =
+                reviewQueryService.getEvidenceByHospitalIds(hospitalIds);
+
+        AiReviewInputBudget reviewInputBudget = new AiReviewInputBudget();
+        return limitedHospitals.stream()
+                .map(hospital -> toCandidateEvidence(
+                        hospital,
+                        capabilitiesByHospitalId.getOrDefault(hospital.hospitalId(), List.of()),
+                        reviewInputBudget.limit(reviewsByHospitalId.getOrDefault(
+                                hospital.hospitalId(),
+                                HospitalReviewEvidence.empty(hospital.hospitalId())
+                        )),
+                        requiredCapabilities
+                ))
+                .toList();
+    }
+
+    private AiHospitalCandidateEvidence toCandidateEvidence(
+            HospitalSearchResponse hospital,
+            List<CapabilityValue> capabilityValues,
+            HospitalReviewEvidence reviews,
+            List<String> requiredCapabilities
+    ) {
+        Map<Boolean, List<CapabilityValue>> partitionedCapabilities =
+                capabilityValues.stream()
+                        .collect(Collectors.partitioningBy(
+                                value -> value.getType() == CapabilityType.SPECIES
+                        ));
+        return new AiHospitalCandidateEvidence(
+                hospital,
+                partitionedCapabilities.get(true),
+                partitionedCapabilities.get(false).stream()
+                        .filter(value -> requiredCapabilities.contains(value.name()))
+                        .toList(),
+                reviews
+        );
+    }
+
     private String hospitalSearchMessage(List<HospitalSearchResponse> hospitals) {
         if (hospitals.isEmpty()) {
             return "조건에 맞는 동물병원을 찾지 못했습니다.";
@@ -334,15 +658,57 @@ public class AiConsultationService {
         return "조건에 맞는 동물병원 %d곳을 찾았습니다.".formatted(hospitals.size());
     }
 
+    private String recommendationMessage(
+            boolean emergency,
+            List<AiHospitalRecommendationResponse> recommendations
+    ) {
+        if (recommendations.isEmpty()) {
+            return emergency
+                    ? EMERGENCY_HOSPITAL_NOT_FOUND_MESSAGE
+                    : "조건에 맞는 추천 병원을 찾지 못했습니다.";
+        }
+        if (emergency) {
+            return "응급 가능성이 있습니다. 추천 병원을 확인하고 지체하지 말고 방문해 주세요.";
+        }
+        return "조건에 맞는 동물병원 %d곳을 추천합니다.".formatted(recommendations.size());
+    }
+
     private List<HospitalSearchResponse> searchHospitals(
             Long memberId,
             AiConsultationRequest request,
             AiAnalysisResult result,
             AiHospitalSearchIntent intent,
-            boolean emergency
+            boolean emergency,
+            CapabilityMatchMode capabilityMatchMode
     ) {
         boolean distanceSort = hasLocation(request)
                 && (emergency || intent.distance());
+        if (capabilityMatchMode != CapabilityMatchMode.ALL) {
+            HospitalSearchPageResponse response =
+                    hospitalService.hospitalSearchWithCapabilityMatchMode(
+                            memberId,
+                            null,
+                            request.region(),
+                            request.latitude(),
+                            request.longitude(),
+                            null,
+                            result.requiredCapabilities(),
+                            List.of(request.species().name()),
+                            null,
+                            null,
+                            intent.nightCare() ? true : null,
+                            emergency ? true : null,
+                            false,
+                            intent.openNow(),
+                            HOSPITAL_SEARCH_PAGE,
+                            HOSPITAL_SEARCH_SIZE,
+                            (distanceSort
+                                    ? HospitalSearchSort.DISTANCE
+                                    : HospitalSearchSort.NAME).requestValue(),
+                            capabilityMatchMode
+                    );
+            return response == null ? List.of() : response.content();
+        }
         return hospitalService.hospitalSearch(
                 memberId,
                 null,
@@ -383,7 +749,14 @@ public class AiConsultationService {
         }
         List<HospitalSearchResponse> hospitals;
         try {
-            hospitals = searchHospitals(memberId, request, result, intent, true);
+            hospitals = searchHospitals(
+                    memberId,
+                    request,
+                    result,
+                    intent,
+                    true,
+                    CapabilityMatchMode.ALL
+            );
         } catch (RuntimeException exception) {
             log.error("응급 병원 검색 Tool 호출에 실패했습니다.", exception);
             aiConsultationRepository.save(AiConsultation.toolFailed(
@@ -571,6 +944,54 @@ public class AiConsultationService {
                 FALLBACK_MESSAGE,
                 true,
                 locationRecommended
+        );
+    }
+
+    private AiConsultationResponse responseValidationFallback(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason failureReason,
+            long startedAt
+    ) {
+        aiConsultationRepository.save(AiConsultation.responseValidationFailed(
+                memberId,
+                maskedSymptomText,
+                result,
+                failureReason,
+                elapsedMillis(startedAt)
+        ));
+        return new AiConsultationResponse(
+                null,
+                List.of(),
+                DISCLAIMER,
+                FALLBACK_MESSAGE,
+                true,
+                false
+        );
+    }
+
+    private AiConsultationResponse gatewayFailureAfterToolCall(
+            Long memberId,
+            String maskedSymptomText,
+            AiAnalysisResult result,
+            AiGatewayFailureReason failureReason,
+            long startedAt
+    ) {
+        aiConsultationRepository.save(AiConsultation.gatewayFailedAfterToolCall(
+                memberId,
+                maskedSymptomText,
+                result,
+                failureReason,
+                elapsedMillis(startedAt)
+        ));
+        return new AiConsultationResponse(
+                null,
+                List.of(),
+                DISCLAIMER,
+                FALLBACK_MESSAGE,
+                true,
+                false
         );
     }
 

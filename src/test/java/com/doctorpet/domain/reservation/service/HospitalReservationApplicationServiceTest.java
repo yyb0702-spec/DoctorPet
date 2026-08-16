@@ -29,6 +29,7 @@ import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationEventRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
@@ -70,10 +71,16 @@ class HospitalReservationApplicationServiceTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Mock
+    private ReservationWaitlistRepository reservationWaitlistRepository;
+
+    @Mock
     private ReservationEventRepository reservationEventRepository;
 
     @Mock
     private ReservationNotificationPublisher notificationPublisher;
+
+    @Mock
+    private ReservationSlotReleaseService reservationSlotReleaseService;
 
     private HospitalReservationApplicationService hospitalReservationService;
 
@@ -87,9 +94,11 @@ class HospitalReservationApplicationServiceTest {
                 hospitalService,
                 reservationRepository,
                 reservationSlotRepository,
+                reservationWaitlistRepository,
                 reservationEventRepository,
                 notificationPublisher,
-                noShowProperties
+                noShowProperties,
+                reservationSlotReleaseService
         );
         lenient().when(memberService.getMyInfo(STAFF_ID)).thenReturn(
                 new MemberResponse(
@@ -227,7 +236,6 @@ class HospitalReservationApplicationServiceTest {
     @DisplayName("자기 병원의 REQUESTED 예약을 거절하고 슬롯을 반환한다")
     void reject_success_opensSlot() {
         Reservation reservation = reservation(HOSPITAL_ID);
-        ReservationSlot slot = slot();
         given(reservationRepository.findById(RESERVATION_ID))
                 .willReturn(Optional.of(reservation));
         given(reservationRepository.rejectIfRequested(
@@ -238,8 +246,6 @@ class HospitalReservationApplicationServiceTest {
                 any(),
                 any()
         )).willReturn(1);
-        given(reservationSlotRepository.findById(SLOT_ID))
-                .willReturn(Optional.of(slot));
 
         hospitalReservationService.reject(
                 STAFF_ID,
@@ -247,7 +253,7 @@ class HospitalReservationApplicationServiceTest {
                 ReservationRejectReason.STAFF_SHORTAGE
         );
 
-        assertThat(slot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
+        verify(reservationSlotReleaseService).release(SLOT_ID);
         verify(reservationRepository).rejectIfRequested(
                 any(),
                 any(),
@@ -270,10 +276,6 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.cancelIfConfirmedByHospital(
                 any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
-        ReservationSlot reservedSlot = slot();
-        given(reservationSlotRepository.findById(SLOT_ID))
-                .willReturn(Optional.of(reservedSlot));
-
         hospitalReservationService.cancelConfirmedByHospital(
                 STAFF_ID,
                 RESERVATION_ID,
@@ -283,8 +285,7 @@ class HospitalReservationApplicationServiceTest {
         verify(reservationRepository).cancelIfConfirmedByHospital(
                 any(), any(), any(), any(), any(), any(), any(), any()
         );
-        verify(reservationSlotRepository).findById(SLOT_ID);
-        assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
+        verify(reservationSlotReleaseService).release(SLOT_ID);
         verify(reservationEventRepository).appendIfAbsent(
                 eq(RESERVATION_ID),
                 eq(ReservationEventType.HOSPITAL_CANCELED.name()),
@@ -946,18 +947,14 @@ class HospitalReservationApplicationServiceTest {
         given(reservationRepository.cancelIfConfirmedByHospital(
                 any(), any(), any(), any(), any(), any(), any(), any()
         )).willReturn(1);
-        ReservationSlot reservedSlot = slot();
-        given(reservationSlotRepository.findById(SLOT_ID))
-                .willReturn(Optional.of(reservedSlot));
-
         int canceledCount = hospitalReservationService
                 .cancelConfirmedByBusinessStatusChange(
                         HOSPITAL_ID,
                         "공공데이터에서 병원 휴업이 확인되었습니다."
-                );
+        );
 
         assertThat(canceledCount).isEqualTo(1);
-        assertThat(reservedSlot.getStatus()).isEqualTo(ReservationSlotStatus.OPEN);
+        verify(reservationSlotReleaseService).releaseForBusinessStatusChange(SLOT_ID);
         verify(reservationEventRepository).appendIfAbsent(
                 eq(RESERVATION_ID),
                 eq(ReservationEventType.HOSPITAL_CANCELED.name()),

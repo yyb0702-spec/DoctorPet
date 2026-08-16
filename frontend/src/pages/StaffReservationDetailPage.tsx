@@ -5,10 +5,12 @@ import { useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import {
   useChargePayment,
+  useItemDrafts,
   useRefundPayment,
   useSettleOffline,
   useStaffReservationPayments,
 } from '@/features/staffPayments/hooks'
+import type { PaymentItemInput } from '@/features/staffPayments/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
 import { ReservationStatusBadge, PaymentStatusBadge } from '@/components/common/StatusBadge'
 import { ReasonPrompt } from '@/components/common/ReasonPrompt'
@@ -19,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
 import { PaymentStatus } from '@/types/enums'
+import { ChatPanel } from '@/features/chat/ChatPanel'
 
 interface LocationState {
   item?: StaffReservationListItem
@@ -32,32 +35,133 @@ function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
 }
 
+interface ItemRow {
+  name: string
+  quantity: string
+  unitPrice: string
+}
+
+const EMPTY_ROW: ItemRow = { name: '', quantity: '1', unitPrice: '' }
+
+// 항목 한 줄의 금액. 서버가 quantity × unitPrice로 다시 계산하므로 여기 값은 화면 표시용이다.
+function rowAmount(row: ItemRow): number {
+  const quantity = Number(row.quantity)
+  const unitPrice = Number(row.unitPrice)
+  if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return 0
+  return quantity * unitPrice
+}
+
+function isRowValid(row: ItemRow): boolean {
+  const quantity = Number(row.quantity)
+  const unitPrice = Number(row.unitPrice)
+  return (
+    row.name.trim().length > 0 &&
+    Number.isInteger(quantity) &&
+    quantity > 0 &&
+    Number.isInteger(unitPrice)
+  )
+}
+
+// 진료비 청구 — 총액을 직접 입력하지 않고 청구 항목을 작성한다. 저장된 초안의 합계로 서버가
+// 청구하므로(SA §8-7·§9-4), 이 폼은 항목 목록을 저장한 뒤 body 없이 청구를 호출한다.
+// 할인·조정은 단가를 음수로 넣어 표현한다(수량은 항상 양수).
 function ChargeForm({ reservationId }: { reservationId: number }) {
-  const [amount, setAmount] = useState('')
+  const draftsQuery = useItemDrafts(reservationId)
+  const [rows, setRows] = useState<ItemRow[] | null>(null)
   const charge = useChargePayment(reservationId)
 
-  const parsed = Number(amount)
-  const canSubmit = amount.trim().length > 0 && parsed > 0
+  // 저장해 둔 초안이 있으면 그대로 이어서 편집한다. 첫 로드 이후에는 사용자의 편집을 덮지 않는다.
+  const effectiveRows =
+    rows ??
+    (draftsQuery.data && draftsQuery.data.items.length > 0
+      ? draftsQuery.data.items.map((item) => ({
+          name: item.name,
+          quantity: String(item.quantity),
+          unitPrice: String(item.unitPrice),
+        }))
+      : [EMPTY_ROW])
+
+  const update = (index: number, patch: Partial<ItemRow>) =>
+    setRows(effectiveRows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  const addRow = () => setRows([...effectiveRows, EMPTY_ROW])
+  const removeRow = (index: number) =>
+    setRows(effectiveRows.filter((_, i) => i !== index))
+
+  const total = effectiveRows.reduce((sum, row) => sum + rowAmount(row), 0)
+  // 서버도 같은 규칙을 검증한다 — 항목 1건 이상, 각 항목 유효, 합계 0 초과(SA §9-4).
+  const canSubmit =
+    effectiveRows.length > 0 && effectiveRows.every(isRowValid) && total > 0
+
+  const submit = () =>
+    charge.mutate(
+      effectiveRows.map<PaymentItemInput>((row) => ({
+        name: row.name.trim(),
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unitPrice),
+      })),
+    )
 
   return (
     <div className="space-y-3">
-      <Field label="진료비 (원)">
-        <Input
-          type="number"
-          min={1}
-          inputMode="numeric"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="예: 68000"
-        />
-      </Field>
+      {effectiveRows.map((row, index) => (
+        <div key={index} className="grid grid-cols-12 gap-2">
+          <div className="col-span-5">
+            <Field label="항목">
+              <Input
+                value={row.name}
+                onChange={(e) => update(index, { name: e.target.value })}
+                placeholder="예: 진찰료"
+              />
+            </Field>
+          </div>
+          <div className="col-span-2">
+            <Field label="수량">
+              <Input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={row.quantity}
+                onChange={(e) => update(index, { quantity: e.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="col-span-4">
+            <Field label="단가 (원)">
+              <Input
+                type="number"
+                inputMode="numeric"
+                value={row.unitPrice}
+                onChange={(e) => update(index, { unitPrice: e.target.value })}
+                placeholder="예: 68000 / 할인은 -5000"
+              />
+            </Field>
+          </div>
+          <div className="col-span-1 flex items-end">
+            <Button
+              variant="ghost"
+              aria-label={`${index + 1}번 항목 삭제`}
+              disabled={effectiveRows.length === 1}
+              onClick={() => removeRow(index)}
+            >
+              ✕
+            </Button>
+          </div>
+        </div>
+      ))}
+
+      <div className="flex items-center justify-between">
+        <Button variant="outline" onClick={addRow}>
+          항목 추가
+        </Button>
+        <p className="text-sm">
+          합계 <strong>{total.toLocaleString('ko-KR')}원</strong>
+        </p>
+      </div>
+
       {charge.isError && (
         <p className="text-sm text-destructive">{errorMessage(charge.error)}</p>
       )}
-      <Button
-        disabled={!canSubmit || charge.isPending}
-        onClick={() => charge.mutate(parsed)}
-      >
+      <Button disabled={!canSubmit || charge.isPending} onClick={submit}>
         {charge.isPending ? '청구 중…' : '진료비 청구'}
       </Button>
     </div>
@@ -215,6 +319,11 @@ export function StaffReservationDetailPage() {
           </p>
         </CardContent>
       </Card>
+
+      <ChatPanel
+        reservationId={id}
+        reservationStatus={item.reservationStatus}
+      />
 
       <PaymentSection reservationId={id} />
 

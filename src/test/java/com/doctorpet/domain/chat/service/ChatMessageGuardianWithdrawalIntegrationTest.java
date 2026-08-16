@@ -1,13 +1,13 @@
 package com.doctorpet.domain.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.partnerHospital;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 
 import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
 import com.doctorpet.domain.chat.entity.ChatMessage;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
-import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.member.entity.Member;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -95,9 +95,8 @@ class ChatMessageGuardianWithdrawalIntegrationTest {
                 guardianMemberId, 1L, hospitalId, slotId, 1L,
                 "초코", "DOG", now, slot.getStartAt()));
         reservationId = reservation.getId();
-        given(hospitalService.getHospitalDetail(anyLong())).willReturn(new HospitalDetailResponse(
-                hospitalId, "테스트동물병원", null, null, null, null, null, null,
-                null, null, null, null, null, null, null, 0L, false));
+        given(hospitalService.getHospitalDetail(anyLong()))
+                .willReturn(partnerHospital(hospitalId, "테스트동물병원"));
 
         chatMessageService.send(reservationId, guardianPrincipal(), new ChatMessageSendRequest("탈퇴 전 메시지"));
         memberService.withdraw(guardianMemberId);
