@@ -65,6 +65,12 @@ x-app-common-env: &app-common-env
   # 값 전체를 따옴표로 감싼다 — 변수가 안 채워져 기본값(6379/false)이 쓰이면 치환 후
   # YAML이 숫자/불리언으로 해석해버릴 수 있어, 이전처럼(기존 "6379") 문자열로 고정한다.
   SPRING_DATA_REDIS_PORT: "${SPRING_DATA_REDIS_PORT:-6379}"
+  # USERNAME 변수가 없는 건 실수가 아니다(리뷰 지적 P1 대응, .env.example 참고) — ElastiCache RBAC
+  # 사용자의 Username을 AWS가 안내하는 대로 "default"로 만들면(User ID는 달라도 됨), Redis/Valkey의
+  # AUTH 명령이 사용자명 없이 비밀번호만 줘도 암묵적으로 "default"를 대상으로 인증하므로(공식 문서:
+  # "the single argument form... assumes that the implicit username is default") PASSWORD만으로
+  # 정확히 그 RBAC 사용자로 인증된다. Username이 "default"가 아닌 사용자를 쓸 계획이면 이 자리에
+  # SPRING_DATA_REDIS_USERNAME도 추가해야 한다(2-인자 AUTH 필요).
   SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
   SPRING_DATA_REDIS_SSL_ENABLED: "${SPRING_DATA_REDIS_SSL_ENABLED:-false}"
   # nginx 리버스 프록시 도입 후 request.getRemoteAddr()는 실제 사용자가 아니라 nginx
