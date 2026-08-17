@@ -34,8 +34,11 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern SUBSCRIBE_DESTINATION = Pattern.compile(
             "^/topic/chat/reservations/(\\d+)$");
+    private static final String SEND_ACK_DESTINATION = "/user/queue/chat/send-acks";
     private static final Pattern SEND_DESTINATION = Pattern.compile(
             "^/app/chat/reservations/(\\d+)/messages$");
+    private static final Pattern SUBSCRIPTION_READY_DESTINATION = Pattern.compile(
+            "^/app/chat/reservations/(\\d+)/subscription-ready$");
     private static final String AUTHENTICATED_USER_ATTRIBUTE =
             ChatChannelInterceptor.class.getName() + ".authenticatedUser";
 
@@ -77,11 +80,20 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
         if (command == StompCommand.SUBSCRIBE) {
+            if (SEND_ACK_DESTINATION.equals(accessor.getDestination())) {
+                requireAuthenticatedUser(accessor);
+                return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
+            }
             authorizeDestination(accessor, SUBSCRIBE_DESTINATION);
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
         if (command == StompCommand.SEND) {
-            authorizeDestination(accessor, SEND_DESTINATION);
+            String destination = accessor.getDestination();
+            if (destination != null && SEND_DESTINATION.matcher(destination).matches()) {
+                authorizeDestination(accessor, SEND_DESTINATION);
+            } else {
+                authorizeDestination(accessor, SUBSCRIPTION_READY_DESTINATION);
+            }
             return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
         }
         if (command == StompCommand.DISCONNECT) {

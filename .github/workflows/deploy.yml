@@ -212,8 +212,8 @@ jobs:
               printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
             fi
 
-            # 메인 인프라(mysql/redis/nginx)만 대상으로 삼는다 — 이미지·설정이 안 바뀌는 한
-            # 재시작되지 않고, 혹시 안 떠 있으면(최초 배포, 서버 재부팅 등) 복구한다.
+            # 인프라 대상은 redis(/nginx)뿐이다 — mysql은 여기서 뺐다(RDS 이관) — 이미지·설정이
+            # 안 바뀌는 한 재시작되지 않고, 혹시 안 떠 있으면(최초 배포, 서버 재부팅 등) 복구한다.
             # app-blue/app-green은 이름을 명시하지 않아 대상에서 제외된다(서버에서 대상
             # 미지정 `docker compose up -d`를 쓰지 않는다는 원칙과 같은 이유,
             # docker-compose.yml 상단 주석·무중단 배포 문서 7절). 모니터링(prometheus/grafana)은
@@ -221,22 +221,36 @@ jobs:
             # 기동한다(재리뷰 지적 P1) — app-blue/green 존재 여부와 무관하게 항상 기동
             # 가능하다는 성질은 그대로라 FIRST_DEPLOY/이후 배포 구분 없이 매번 시도한다.
             #
+            # mysql을 뺀 이유(RDS 이관) — SPRING_DATASOURCE_URL이 이제 EC2 `.env`에서 RDS
+            # 엔드포인트를 가리키므로 앱은 로컬 mysql 서비스를 전혀 쓰지 않는다. 이 줄은 `set -e`
+            # 아래의 필수 statement라 실패하면 배포 전체가 중단되는데, RDS 전환 이후 로컬 mysql을
+            # 계속 이 줄에 남겨두면 두 가지로 깨진다 — (1) 로컬 mysql 컨테이너는 이미 만들어질
+            # 때의 예전 root 비밀번호로 초기화돼 있는데 `MYSQL_ROOT_PASSWORD`는 이제 RDS
+            # 비밀번호로 바뀌어 있어(docker-compose.yml `SPRING_DATASOURCE_PASSWORD` 주석 참고)
+            # healthcheck의 `mysqladmin ping -uroot -p${MYSQL_ROOT_PASSWORD}`가 인증 실패로
+            # 영원히 unhealthy가 되고 `--wait`가 타임아웃까지 매달린다. (2) 애초에 안 쓰는
+            # 서비스를 계속 띄워두는 것 자체가 낭비다. 로컬 개발(도커 컴포즈로 RDS 대신 로컬
+            # mysql을 쓰는 경우)은 이 워크플로가 아니라 `docker compose up -d`를 직접 쓰므로
+            # docker-compose.yml에서 mysql 서비스 정의 자체는 그대로 남겨뒀다 — 지우는 게 아니라
+            # "EC2 배포 파이프라인이 더 이상 이 서비스를 관리하지 않는다"는 뜻이다.
+            #
             # FIRST_DEPLOY면 nginx는 여기서 올리지 않는다(리뷰 지적) — 방금 써둔
             # upstream-active.conf가 가리키는 app-$TARGET_COLOR가 아직 존재하지 않아 nginx가
             # 설정 로드에 실패할 수 있다. 대상 앱을 기동·헬스체크로 검증한 뒤 아래에서 올린다.
             #
             # --wait와 --wait-timeout을 붙인다(리뷰 지적 P2, 재리뷰 지적 P2로 타임아웃 보강) —
             # 바로 아래에서 app-$TARGET_COLOR를 `--no-deps`로 올리는데, `--no-deps`는
-            # depends_on(mysql/redis condition: service_healthy)까지 건너뛴다. mysql/redis
-            # 자체를 여기서 healthy가 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅
-            # 직후처럼 mysql이 아직 초기화 중인 상태에서 대상 앱이 DB 연결 실패로 헛되이
-            # 크래시루프를 도는 상황을 피할 수 있다. 타임아웃 없이 --wait만 쓰면 끝내
-            # healthy가 안 될 때 이 SSH 액션 자체의 타임아웃까지 매달릴 수 있어 상한을 둔다.
-            # nginx는 여전히 healthcheck가 없어 running 상태까지만 확인된다.
+            # depends_on(mysql/redis condition: service_healthy)까지 건너뛴다. redis 자체를
+            # 여기서 healthy가 될 때까지 기다렸다가 반환하게 만들어야, EC2 재부팅 직후처럼
+            # redis가 아직 초기화 중인 상태에서 대상 앱이 캐시·Rate Limit 연결 실패로 헛되이
+            # 크래시루프를 도는 상황을 피할 수 있다(mysql이 빠져도 이 이유는 redis에 그대로
+            # 적용된다). 타임아웃 없이 --wait만 쓰면 끝내 healthy가 안 될 때 이 SSH 액션
+            # 자체의 타임아웃까지 매달릴 수 있어 상한을 둔다. nginx는 여전히 healthcheck가
+            # 없어 running 상태까지만 확인된다.
             if [ "$FIRST_DEPLOY" = "true" ]; then
-              docker compose up -d --wait --wait-timeout 120 mysql redis
+              docker compose up -d --wait --wait-timeout 120 redis
             else
-              docker compose up -d --wait --wait-timeout 120 mysql redis nginx
+              docker compose up -d --wait --wait-timeout 120 redis nginx
             fi
 
             # 모니터링 스택(Prometheus+Grafana)은 별도 파일로 분리했다(재리뷰 지적 P1,

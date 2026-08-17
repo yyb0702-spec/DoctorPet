@@ -415,10 +415,11 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 | hospital_id | BIGINT NOT NULL | 예약 병원 ID. 병원 단위 접근·읽음 및 감사용 |
 | member_id | BIGINT NOT NULL | 실제 발신 보호자 또는 병원 스태프 ID(감사용) |
 | body | VARCHAR(1000) NOT NULL | 텍스트 본문 |
+| client_message_id | VARCHAR(36) NOT NULL | 클라이언트 재전송 UUID. 실제 발신자·예약과 함께 멱등키를 이룬다 |
 | created_at | DATETIME NOT NULL | 생성 시각 |
 | read_at | DATETIME NULL | 상대 측이 읽은 시각. 병원 발신은 보호자, 보호자 발신은 병원 단위로 공유 |
 
-인덱스: 커서 조회용 `(reservation_id, created_at, id)`, 반대 발신자 미읽음 처리용 `(reservation_id, sender_type, read_at)`. 예약·병원·회원은 도메인 경계를 넘는 논리 참조로 DB FK를 두지 않는다. 메시지는 생성 시각부터 정확히 1년이 지난 시점에 hard delete한다.
+인덱스: 커서 조회용 `(reservation_id, created_at, id)`, 반대 발신자 미읽음 처리용 `(reservation_id, sender_type, read_at)`, 재전송 멱등용 `UNIQUE(reservation_id, member_id, client_message_id)`. 예약·병원·회원은 도메인 경계를 넘는 논리 참조로 DB FK를 두지 않는다. 메시지는 생성 시각부터 정확히 1년이 지난 시점에 hard delete한다. 기존 행이 있는 배포에서는 `ChatMessageClientMessageIdMigrationRunner`가 Hibernate보다 먼저 nullable 컬럼 추가 → UUID 백필 → UNIQUE → NOT NULL을 적용하고, `chat_message_client_message_id_v1` 마커·MySQL `GET_LOCK`으로 재실행과 다중 기동을 제어한다. 배포 중 구버전 INSERT는 BEFORE INSERT 트리거가 UUID를 채운다.
 
 ### ai_consultations (상담 로그 + 운영·비용 측정)
 
@@ -480,7 +481,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
-| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`, `reservation_approval_deadline_v1`) |
+| migration_key | VARCHAR PK | 마이그레이션 식별자(예: `email_verified_backfill_v1`, `reservation_approval_deadline_v1`, `chat_message_client_message_id_v1`) |
 | applied_at | DATETIME NOT NULL | 실행 시각 |
 
 Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하는 이 프로젝트에서, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필·제약 보정(예: `email_verified` 기존 회원 백필, `reservation_events` 중복 정리와 UNIQUE 추가, `approval_deadline_at` 백필과 NOT NULL·인덱스 적용)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
@@ -877,7 +878,9 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 채팅 메시지 조회 | GET | /api/reservations/{reservationId}/chat/messages?afterMessageId={messageId}&size={n} | 예약 보호자 또는 자병원 스태프 |
 | 채팅 읽음 처리 | PATCH | /api/reservations/{reservationId}/chat/messages/read | 예약 보호자 또는 자병원 스태프 |
 
-조회는 WebSocket 재연결 후 누락 메시지 복구를 위한 인증된 API다. `{reservationId}`에서 예약과 회원·병원을 서버가 조회해 권한을 확인하고, 요청의 `memberId`·`hospitalId`는 받지 않는다. `afterMessageId`가 있으면 반드시 같은 예약 스레드에 속하는지 검증한 뒤 그 이후 메시지를 `createdAt ASC, id ASC`로 반환한다. `size`는 1~100이고 응답은 `{ messages, nextAfterMessageId, hasNext }`다. 메시지 항목은 `messageId`, `senderType`, `content`, `createdAt`, 화면 표시용 `senderName`만 포함한다. 보호자 메시지는 서버가 해석한 보호자 nickname, 병원 메시지는 병원명만 표시하며 실제 스태프 `memberId`·nickname은 노출하지 않는다. 조회는 종료 상태에서도 가능하지만 신규 전송은 §9-12의 허용 상태에서만 가능하다. 병원 스태프 한 명의 읽음은 병원 단위로 공유된다.
+읽음 처리는 `{ "throughMessageId": number }`를 받아 **상대 발신 메시지 중 `id <= throughMessageId`인 미읽음 행만** 갱신한다. 클라이언트가 실제로 화면에 병합한 마지막 메시지를 상한으로 보내는 것이며, 상한이 없으면 최종 복구 직후 저장됐지만 아직 도착하지 않은 메시지까지 읽음이 된다(PR #159 리뷰 P1). 값이 없거나 0 이하면 400이다.
+
+조회는 WebSocket 재연결 후 누락 메시지 복구를 위한 인증된 API다. `{reservationId}`에서 예약과 회원·병원을 서버가 조회해 권한을 확인하고, 요청의 `memberId`·`hospitalId`는 받지 않는다. `afterMessageId`가 있으면 반드시 같은 예약 스레드에 속하는지 검증한 뒤 그 이후 메시지를 `createdAt ASC, id ASC`로 반환한다. `size`는 1~100이고 응답은 `{ messages, nextAfterMessageId, hasNext }`다. 메시지 항목은 `messageId`, `senderType`, `content`, `createdAt`, 화면 표시용 `senderName`, 재전송 결과 식별용 UUID `clientMessageId`를 포함한다. `clientMessageId`는 회원·병원 식별자가 아니다. 보호자 메시지는 서버가 해석한 보호자 nickname, 병원 메시지는 병원명만 표시하며 실제 스태프 `memberId`·nickname은 노출하지 않는다. 조회는 종료 상태에서도 가능하지만 신규 전송은 §9-12의 허용 상태에서만 가능하다. 병원 스태프 한 명의 읽음은 병원 단위로 공유된다.
 
 ---
 

@@ -88,6 +88,19 @@ class ChatMessageServiceTest {
     }
 
     @Test
+    @DisplayName("clientMessageId가 없거나 UUID 형식이 아니면 저장 전에 거절한다")
+    void rejectsMissingOrMalformedClientMessageId() {
+        for (String clientMessageId : List.of("", "not-a-uuid", "00000000-0000-0111-8111-111111111111")) {
+            assertThatThrownBy(() -> chatMessageService.send(
+                    RESERVATION_ID, GUARDIAN,
+                    new ChatMessageSendRequest("메시지", clientMessageId)))
+                    .isInstanceOf(ServiceException.class)
+                    .extracting(error -> ((ServiceException) error).getErrorCode())
+                    .isEqualTo(CommonErrorCode.VALIDATION_FAILED);
+        }
+    }
+
+    @Test
     @DisplayName("1000자 보호자 메시지는 예약 병원 ID를 감사 정보로 저장하고 병원명만 표시한다")
     void sendsBoundaryMessageWithReservationHospitalId() {
         Reservation reservation = requestedReservation();
@@ -189,10 +202,12 @@ class ChatMessageServiceTest {
         given(reservationService.findReservationForChat(RESERVATION_ID)).willReturn(requestedReservation());
         given(staffHospitalPort.findHospitalIdByMemberId(staff.memberId())).willReturn(Optional.of(HOSPITAL_ID));
 
-        chatMessageService.markRead(RESERVATION_ID, staff);
+        chatMessageService.markRead(RESERVATION_ID, staff, 42L);
 
+        // 클라이언트가 병합한 마지막 메시지(42)까지만 읽음 처리한다 — 상한을 빼면 아직 도착하지 않은
+        // 상대 메시지까지 읽음이 된다(PR #159 리뷰 P1).
         verify(chatMessageRepository).markReadByReservationIdAndSenderType(
-                eq(RESERVATION_ID), eq(ChatSenderType.GUARDIAN), any(LocalDateTime.class));
+                eq(RESERVATION_ID), eq(ChatSenderType.GUARDIAN), eq(42L), any(LocalDateTime.class));
     }
 
     @Test
