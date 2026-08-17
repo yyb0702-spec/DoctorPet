@@ -42,10 +42,11 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
     private static final String NOTIFICATION_ENUM_WITH_LEGACY =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
-                    + "'RESERVATION_REJECTED')";
+                    + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED')";
     private static final String NOTIFICATION_ENUM =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
-                    + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED')";
+                    + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED',"
+                    + "'RESERVATION_WAITLIST_OFFERED')";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -103,7 +104,8 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         if (columnType == null) {
             throw new IllegalStateException("reservations.status 컬럼이 없습니다.");
         }
-        if (columnType.contains("HOSPITAL_CANCELLED")) {
+        if (columnType.contains("HOSPITAL_CANCELLED")
+                || !columnType.contains("HOSPITAL_CANCELED")) {
             alterStatusColumn(connection, STATUS_ENUM_WITH_LEGACY);
             try (Statement statement = connection.createStatement()) {
                 statement.executeUpdate(
@@ -118,7 +120,8 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         if (eventTypeColumnType == null) {
             throw new IllegalStateException("reservation_events.event_type 컬럼이 없습니다.");
         }
-        if (eventTypeColumnType.contains("HOSPITAL_CANCELLED")) {
+        if (eventTypeColumnType.contains("HOSPITAL_CANCELLED")
+                || !eventTypeColumnType.contains("HOSPITAL_CANCELED")) {
             alterEventTypeColumn(connection, EVENT_ENUM_WITH_LEGACY);
             try (Statement statement = connection.createStatement()) {
                 statement.executeUpdate(

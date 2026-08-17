@@ -76,10 +76,11 @@ public class PaymentApplicationService {
 
     /**
      * 진료비 청구. {@code staffMemberId}는 인증 주체(스태프)이며 자병원 검증에 쓴다. 결제수단·보호자는 예약에서 얻는다.
+     * 청구 금액은 요청이 아니라 **미리 작성된 초안 항목의 합계**로 Tx1에서 서버가 산출한다(SA §9-4 청구 항목).
      */
-    public PaymentChargeResponse charge(Long reservationId, Long staffMemberId, int amount) {
-        // Tx1 — 검증 + PENDING 선기록(커밋).
-        PaymentPreRecord pre = paymentChargeService.preRecord(reservationId, staffMemberId, amount);
+    public PaymentChargeResponse charge(Long reservationId, Long staffMemberId, String draftToken) {
+        // Tx1 — 검증 + 초안 항목 스탬프 + PENDING 선기록(커밋).
+        PaymentPreRecord pre = paymentChargeService.preRecord(reservationId, staffMemberId, draftToken);
 
         // 청구 접수 감사 기록(#84). Tx1 커밋 직후, 외부 승인 결과와 무관하게 "누가·얼마·어느 예약"을 남긴다 —
         // 과다청구를 코드로 막지는 않지만(후불 최종액 입력은 설계 의도) 사후 추적이 가능하게 한다.

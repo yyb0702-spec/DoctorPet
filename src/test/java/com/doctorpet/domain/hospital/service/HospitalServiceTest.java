@@ -42,6 +42,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
@@ -120,6 +121,19 @@ class HospitalServiceTest {
         assertThat(response.emergency()).isFalse();
         assertThat(response.capabilities())
                 .containsExactly(CapabilityValue.DOG, CapabilityValue.XRAY);
+    }
+
+    @Test
+    void 비제휴_병원_상세는_예약_응답_지표를_반환하지_않는다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, false);
+        given(hospitalRepository.findById(HOSPITAL_ID))
+                .willReturn(Optional.of(hospital));
+
+        HospitalDetailResponse response =
+                hospitalService.getHospitalDetail(HOSPITAL_ID);
+
+        assertThat(response.reservationResponseRate()).isNull();
+        assertThat(response.averageApprovalMinutes()).isNull();
     }
 
     @Test
@@ -526,6 +540,33 @@ class HospitalServiceTest {
             assertThat(response.hospitalId()).isEqualTo(HOSPITAL_ID);
             assertThat(response.name()).isEqualTo("테스트 동물병원");
         });
+    }
+
+    @Test
+    void 후보_병원의_지원_동물과_진료역량을_배치로_조회한다() {
+        Hospital hospital = createHospital(BusinessStatus.OPEN, true);
+        HospitalCapability species = HospitalCapability.create(hospital, CapabilityValue.DOG);
+        HospitalCapability capability =
+                HospitalCapability.create(hospital, CapabilityValue.XRAY);
+        given(hospitalCapabilityRepository.findAllByHospitalIdIn(List.of(HOSPITAL_ID)))
+                .willReturn(List.of(species, capability));
+
+        Map<Long, List<CapabilityValue>> result =
+                hospitalService.getCapabilitiesByHospitalIds(
+                        List.of(HOSPITAL_ID, HOSPITAL_ID));
+
+        assertThat(result).containsOnlyKeys(HOSPITAL_ID);
+        assertThat(result.get(HOSPITAL_ID))
+                .containsExactlyInAnyOrder(CapabilityValue.DOG, CapabilityValue.XRAY);
+        verify(hospitalCapabilityRepository)
+                .findAllByHospitalIdIn(List.of(HOSPITAL_ID));
+    }
+
+    @Test
+    void 후보_병원이_없으면_진료역량_저장소를_조회하지_않는다() {
+        assertThat(hospitalService.getCapabilitiesByHospitalIds(List.of())).isEmpty();
+
+        verifyNoInteractions(hospitalCapabilityRepository);
     }
 
     private Hospital createHospital(

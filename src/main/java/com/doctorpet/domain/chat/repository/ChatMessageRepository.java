@@ -4,6 +4,7 @@ import com.doctorpet.domain.chat.entity.ChatMessage;
 import com.doctorpet.domain.chat.entity.ChatSenderType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -11,6 +12,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
+
+    Optional<ChatMessage> findByReservationIdAndMemberIdAndClientMessageId(
+            Long reservationId, Long memberId, String clientMessageId);
 
     List<ChatMessage> findByReservationIdOrderByCreatedAtAscIdAsc(Long reservationId, Pageable pageable);
 
@@ -37,10 +41,12 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
              where m.reservationId = :reservationId
                and m.senderType = :senderType
                and m.readAt is null
+               and m.id <= :throughMessageId
             """)
     int markReadByReservationIdAndSenderType(
             @Param("reservationId") Long reservationId,
             @Param("senderType") ChatSenderType senderType,
+            @Param("throughMessageId") Long throughMessageId,
             @Param("now") LocalDateTime now
     );
 

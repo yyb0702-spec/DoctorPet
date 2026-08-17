@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.57, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.59, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 관계 요약
@@ -24,6 +24,7 @@ reservations 1 ── 0..N payment_items   (청구 전 초안 — payment_id IS 
 members 1 ── 0..N payment_methods
 members 1 ── 0..N ai_consultations
 members 1 ── 0..N notifications
+reservations 1 ── 0..N chat_messages
 ```
 ## 2. 회원·반려동물
 ### `members`
@@ -207,7 +208,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `refunded_at` | DATETIME | 취소 확정 시각, `COMPLETED`에서만 |
 | `created_at` / `updated_at` | DATETIME | 생성·갱신 시각 |
 
-### `payment_items` `(계약 확정, 구현 후속)`
+### `payment_items`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
 | `id` | BIGINT | PK |
@@ -221,7 +222,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 인덱스: `(reservation_id, payment_id)`, `(payment_id)`. 제약: `CHECK chk_payment_items_quantity_positive (quantity > 0)`, `CHECK chk_payment_items_line_amount (amount = quantity * unit_price)` — `ddl-auto=update`가 CHECK를 만들지 않으므로 `payment_item_constraints_v1` 마이그레이션에서 추가·검증한다.
 
 항목은 일반 청구 선기록 전 예약에 매달린 초안으로 만들고(그 시점에는 `payments` 행이 없다), 선기록은 같은 트랜잭션에서 `payments`를 먼저 INSERT해 채번된 id를 얻은 뒤 그 id로 초안을 스탬프해 스냅샷을 고정한다(`payments.id`가 IDENTITY라 순서를 뒤집을 수 없다). 스탬프 건수가 재조회한 초안 수와 다르면 전체를 롤백한다. 수정·삭제는 `WHERE payment_id IS NULL` 조건부로만 수행하고 0건이면 이미 청구된 것으로 거부한다. 불변식은 스탬프된 항목에 한해 `payments.amount = sum(payment_items.amount)`이고 합계는 0 초과·절대 상한 이하다. 결제당 항목은 `0..N`이며 항목화 이전 결제는 항목이 없고 백필하지 않는다. 항목 없는 레거시 `OFFLINE_REQUIRED` 결제의 셀프 재청구도 가짜 항목을 만들지 않아 0건을 유지하고 원 총액만 승계한다.
-## 6. AI·알림
+## 6. AI·알림·채팅
 ### `ai_consultations`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
@@ -253,6 +254,19 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |
 | `read_at` | DATETIME NULL | 읽은 시각(NULL=미읽음). `isRead`는 `read_at IS NOT NULL` 파생 |
 | `created_at` | DATETIME | 생성 시각 |
+### `chat_messages`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `reservation_id` | BIGINT | 예약 논리 참조 |
+| `sender_type` | VARCHAR | `GUARDIAN`, `HOSPITAL` |
+| `hospital_id` | BIGINT | 예약 병원 ID, 감사·병원 단위 읽음 기준 |
+| `member_id` | BIGINT | 실제 발신자 ID(감사용) |
+| `body` | VARCHAR(1000) | 텍스트 본문 |
+| `client_message_id` | VARCHAR(36) | NOT NULL, 클라이언트 재전송 UUID |
+| `created_at` | DATETIME | 생성 시각 |
+| `read_at` | DATETIME NULL | 반대 측 읽음 시각 |
+인덱스: `(reservation_id, created_at, id)`, `(reservation_id, sender_type, read_at)`, `UNIQUE(reservation_id, member_id, client_message_id)`. 기존 행은 `chat_message_client_message_id_v1` 선행 마이그레이션에서 UUID 백필 후 UNIQUE·NOT NULL을 적용하며, 배포 중 구버전 INSERT는 트리거로 UUID를 채운다.
 ## 7. 확장 테이블
 ### `payment_webhooks` `(확장)`
 | 필드 | 타입 | 제약·설명 |
@@ -266,7 +280,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 ### `schema_migrations`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
-| `migration_key` | VARCHAR | PK, 마이그레이션 식별자(예: `email_verified_backfill_v1`) |
+| `migration_key` | VARCHAR | PK, 마이그레이션 식별자(예: `email_verified_backfill_v1`, `chat_message_client_message_id_v1`) |
 | `applied_at` | DATETIME | 실행 시각 |
 Flyway/Liquibase 없이 `ddl-auto=update`로만 스키마를 관리하므로, "배포 시 한 번만" 실행돼야 하는 일회성 데이터 백필(예: `email_verified` 기존 회원 백필)의 실행 여부를 기록하는 범용 마커 테이블이다. 도메인 데이터가 아니라 마이그레이션 인프라이므로 다른 테이블과 관계를 맺지 않는다.
 ## 9. 설계상 필수 규칙

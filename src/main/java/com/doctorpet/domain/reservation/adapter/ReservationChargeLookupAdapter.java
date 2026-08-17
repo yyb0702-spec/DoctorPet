@@ -2,6 +2,7 @@ package com.doctorpet.domain.reservation.adapter;
 
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
+import com.doctorpet.domain.payment.port.ReservationReceiptView;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import java.util.Optional;
@@ -30,6 +31,22 @@ public class ReservationChargeLookupAdapter implements ReservationLookupPort {
     @Override
     public Optional<ReservationChargeView> findForChargeForUpdate(Long reservationId) {
         return reservationRepository.findByIdForUpdate(reservationId).map(this::toChargeView);
+    }
+
+    @Override
+    public Optional<ReservationReceiptView> findForReceipt(Long reservationId) {
+        return reservationRepository.findById(reservationId).map(this::toReceiptView);
+    }
+
+    private ReservationReceiptView toReceiptView(com.doctorpet.domain.reservation.entity.Reservation reservation) {
+        // 펫 이름·종은 예약 시점 스냅샷을 그대로 쓴다 — 프로필이 Soft Delete돼도 영수증 이력이 유지돼야 한다(SA §4).
+        return new ReservationReceiptView(
+                reservation.getId(),
+                reservation.getHospitalId(),
+                reservation.getMemberId(),
+                reservation.getPetId(),
+                reservation.getPetNameSnapshot(),
+                reservation.getPetSpeciesSnapshot());
     }
 
     private ReservationChargeView toChargeView(com.doctorpet.domain.reservation.entity.Reservation reservation) {

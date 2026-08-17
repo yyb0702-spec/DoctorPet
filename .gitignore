@@ -54,6 +54,12 @@ docker-compose.override.yml
 # 스크립트가 매 배포마다 덮어쓴다. git으로 추적하면 detached HEAD checkout 때마다 값이
 # 되돌아가 컷오버 상태를 잃는다.
 .active_color
+# Grafana admin 비밀번호 1회성 회전 완료 마커(리뷰 지적 P2, deploy.yml 참고) — 위
+# .active_color·.last_deployed_sha와 같은 이유로 EC2 로컬 런타임 상태 파일이라 추적하지
+# 않는다. 추적하지 않으면 git clean -fd 등으로 이 파일이 지워져도 다음 배포에서 회전이
+# 다시 실행될 뿐 안전하게 idempotent하지만, 워킹트리가 계속 untracked로 지저분하게 남는
+# 걸 막기 위해 다른 런타임 상태 파일과 동일하게 등록해둔다.
+.grafana_admin_password_rotated
 nginx/conf.d/upstream-active.conf
 # 컷오버 중 nginx -t/-s reload가 실패했을 때만 잠깐 존재하는 백업본(리뷰 지적) — 정상
 # 흐름에서는 생성 직후 소비·삭제되지만, SSH 세션 중단 등 비정상 종료 시 워킹 트리에

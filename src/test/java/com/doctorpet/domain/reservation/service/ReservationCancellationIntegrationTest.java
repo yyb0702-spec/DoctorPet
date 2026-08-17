@@ -1,16 +1,20 @@
 package com.doctorpet.domain.reservation.service;
 
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.ReservationWaitlist;
 import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
 import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationWaitlistStatus;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.domain.reservation.repository.ReservationWaitlistRepository;
 import com.doctorpet.global.exception.ServiceException;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +46,9 @@ class ReservationCancellationIntegrationTest {
     private ReservationSlotRepository reservationSlotRepository;
 
     @Autowired
+    private ReservationWaitlistRepository reservationWaitlistRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Long createdSlotId;
@@ -49,6 +56,7 @@ class ReservationCancellationIntegrationTest {
     @AfterEach
     void cleanUp() {
         if (createdSlotId != null) {
+            jdbcTemplate.update("delete from reservation_waitlists where slot_id = ?", createdSlotId);
             jdbcTemplate.update(
                     "delete from reservations where slot_id = ?",
                     createdSlotId
@@ -64,7 +72,7 @@ class ReservationCancellationIntegrationTest {
     @DisplayName("취소 성공 시 예약은 CANCELED, 슬롯은 OPEN으로 함께 변경된다")
     void cancel_success_changesReservationAndSlot() {
         TestReservation data = saveReservation(
-                LocalDateTime.now().plusDays(2),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2),
                 ReservationStatus.REQUESTED,
                 true
         );
@@ -79,7 +87,7 @@ class ReservationCancellationIntegrationTest {
     @DisplayName("CONFIRMED 예약도 취소하면 CANCELED가 되고 슬롯이 열린다")
     void cancel_confirmedReservation_changesReservationAndSlot() {
         TestReservation data = saveReservation(
-                LocalDateTime.now().plusDays(2),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2),
                 ReservationStatus.CONFIRMED,
                 true
         );
@@ -91,10 +99,32 @@ class ReservationCancellationIntegrationTest {
     }
 
     @Test
+    @DisplayName("승급 마감 뒤 보호자 취소는 WAITING을 시스템 취소하고 슬롯을 반환한다")
+    void cancel_afterPromotionDeadline_cancelsWaitingAndOpensSlot() {
+        TestReservation data = saveReservation(
+                // 초 단위 절삭 후에도 취소 마감(2시간 전)을 넘지 않도록, 2~4시간 정책 구간 안에
+                // 충분한 여유를 둔다.
+                LocalDateTime.now(SEOUL_ZONE_ID).plusHours(3).plusMinutes(5),
+                ReservationStatus.REQUESTED,
+                true
+        );
+        ReservationWaitlist waitlist = reservationWaitlistRepository.saveAndFlush(
+                ReservationWaitlist.waiting(data.memberId() + 100, data.slotId())
+        );
+
+        reservationService.cancel(data.memberId(), data.reservationId());
+
+        assertReservationStatus(data.reservationId(), ReservationStatus.CANCELED);
+        assertSlotStatus(data.slotId(), ReservationSlotStatus.OPEN);
+        assertThat(reservationWaitlistRepository.findById(waitlist.getId()).orElseThrow().getStatus())
+                .isEqualTo(ReservationWaitlistStatus.CANCELED);
+    }
+
+    @Test
     @DisplayName("취소 기한이 지나면 예약과 슬롯 상태가 모두 유지된다")
     void cancel_afterDeadline_keepsBothStates() {
         TestReservation data = saveReservation(
-                LocalDateTime.now().plusHours(1),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusHours(1),
                 ReservationStatus.REQUESTED,
                 true
         );
@@ -115,7 +145,7 @@ class ReservationCancellationIntegrationTest {
     @DisplayName("취소할 수 없는 예약 상태면 예약과 슬롯 상태가 모두 유지된다")
     void cancel_invalidReservationStatus_keepsBothStates() {
         TestReservation data = saveReservation(
-                LocalDateTime.now().plusDays(2),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2),
                 ReservationStatus.CHECKED_IN,
                 true
         );
@@ -136,7 +166,7 @@ class ReservationCancellationIntegrationTest {
     @DisplayName("슬롯 반환이 실패하면 예약 취소도 롤백된다")
     void cancel_slotReleaseFails_rollsBackReservationCancel() {
         TestReservation data = saveReservation(
-                LocalDateTime.now().plusDays(2),
+                LocalDateTime.now(SEOUL_ZONE_ID).plusDays(2),
                 ReservationStatus.REQUESTED,
                 false
         );
@@ -179,7 +209,7 @@ class ReservationCancellationIntegrationTest {
                 1L,
                 "초코",
                 "DOG",
-                LocalDateTime.now()
+                LocalDateTime.now(SEOUL_ZONE_ID)
         );
         moveToStatus(reservation, targetStatus);
         reservation = reservationRepository.saveAndFlush(reservation);
@@ -197,7 +227,7 @@ class ReservationCancellationIntegrationTest {
             ReflectionTestUtils.setField(
                     reservation,
                     "confirmedAt",
-                    LocalDateTime.now()
+                    LocalDateTime.now(SEOUL_ZONE_ID)
             );
         }
     }

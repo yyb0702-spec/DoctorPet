@@ -1,6 +1,7 @@
 package com.doctorpet.domain.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.doctorpet.domain.hospital.support.HospitalDetailTestFixture.partnerHospital;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -11,7 +12,6 @@ import static org.mockito.Mockito.verify;
 import com.doctorpet.domain.chat.dto.request.ChatMessageSendRequest;
 import com.doctorpet.domain.chat.dto.response.ChatMessageResponse;
 import com.doctorpet.domain.chat.repository.ChatMessageRepository;
-import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
 import com.doctorpet.domain.hospital.service.HospitalService;
 import com.doctorpet.domain.chat.port.ChatMemberProfilePort;
 import com.doctorpet.domain.member.entity.MemberRole;
@@ -136,8 +136,7 @@ class ChatMessageCommitPushIntegrationTest {
                 "초코", "DOG", now, slot.getStartAt()));
         reservationId = reservation.getId();
         org.mockito.BDDMockito.given(hospitalService.getHospitalDetail(hospitalId))
-                .willReturn(new HospitalDetailResponse(hospitalId, "테스트동물병원", null, null, null,
-                        null, null, null, null, null, null, null, null, null, null, 0L, false));
+                .willReturn(partnerHospital(hospitalId, "테스트동물병원"));
         org.mockito.BDDMockito.given(memberProfilePort.getGuardianNickname(guardianId))
                 .willReturn("테스트보호자");
         return new ChatFixture(reservation.getId(), new MemberPrincipal(
