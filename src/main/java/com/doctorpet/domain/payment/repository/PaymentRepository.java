@@ -22,13 +22,42 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     boolean existsByReservationId(Long reservationId);
 
+    // 예약당 활성 결제(superseded_at IS NULL) 존재 여부. 청구 선기록·초안 게이트의 이중 청구 사전 차단은
+    // "결제가 있으면"이 아니라 "활성 결제가 있으면"으로 판단한다 — 정정 재청구는 전액 환불된 결제(REFUNDED,
+    // 여전히 활성)를 대체해 새 결제를 만들어야 하므로, 대체된 과거 결제는 게이트에 걸리지 않아야 한다(고도화 3.5-a).
+    @Query("""
+            select case when count(p) > 0 then true else false end
+              from Payment p
+             where p.reservationId = :reservationId
+               and p.supersededAt is null
+            """)
+    boolean existsActiveByReservationId(@Param("reservationId") Long reservationId);
+
+    // 예약의 현재 활성 결제. 초안 게이트가 "활성 결제가 REFUNDED일 때만 정정 초안 허용"을 판정할 때 상태를 본다.
+    @Query("""
+            select p
+              from Payment p
+             where p.reservationId = :reservationId
+               and p.supersededAt is null
+            """)
+    Optional<Payment> findActiveByReservationId(@Param("reservationId") Long reservationId);
+
     Optional<Payment> findByReservationId(Long reservationId);
 
+    // 예약의 모든 결제를 최신순으로. 정정·복구 재청구로 대체된 과거 결제도 이력으로 남으므로(고도화 3.3·3.5-a),
+    // 결제 내역은 예약당 0..N건이다. 단건 조회(findByReservationId)는 다중 행에서 NonUnique로 깨지므로 이력은 이 목록으로 읽는다.
+    List<Payment> findByReservationIdOrderByIdDesc(Long reservationId);
+
+    // 예약의 활성 결제 행 락(superseded_at IS NULL). 결제 행이 존재하면 활성은 정확히 1건이다 — 대체는 항상 새 활성
+    // 결제 INSERT와 원자적이라, 예약에 결제가 하나라도 있으면 그중 정확히 하나가 활성이다(고도화 3.3·3.5-a). 활성 필터가
+    // 없으면 대체 이력이 쌓인 예약에서 다중 행이 잡혀 NonUnique로 깨진다. 리뷰 작성권·예약 결제수단 재지정 게이트가
+    // "현재 결제가 있는지/어떤 상태인지"를 이 조회로 판단하며, 그 답은 활성 결제의 상태여야 한다.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select p
               from Payment p
              where p.reservationId = :reservationId
+               and p.supersededAt is null
             """)
     Optional<Payment> findByReservationIdForUpdate(
             @Param("reservationId") Long reservationId
@@ -143,6 +172,12 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
       JPQL bulk UPDATE는 @LastModifiedDate(updatedAt)를 우회하므로, 상태를 OFFLINE_PAID로 바꾸면서 updatedAt도
       같은 settledAt으로 명시 갱신한다 — 빠뜨리면 정산 후에도 updatedAt이 옛 값으로 남는다(PR #80 P2 후속).
       clearAutomatically로 영속성 컨텍스트를 비워 이후 재조회가 갱신 결과를 읽게 한다.
+
+      전제에 superseded_at IS NULL(활성)을 포함한다(고도화 3.3 STRICT — 이중 수납 방지). 보호자의 셀프 복구가
+      먼저 이 OFFLINE_REQUIRED 결제를 대체(superseded_at 설정)했다면, 정산은 여기서 0건이 되어 대체된 행을
+      OFFLINE_PAID로 만들지 못한다. 이 조건이 없으면 셀프 복구의 새 결제가 PAID가 되는 동시에 대체된 원 행이
+      OFFLINE_PAID가 되어 한 예약에서 자동결제와 현장 수납이 동시에 성립한다(SA §5-2·§9-4). 두 조건부 UPDATE가
+      같은 원 행을 대상으로 하므로 행 락으로 직렬화되고 먼저 커밋한 쪽만 성립한다.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -154,11 +189,53 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
                    p.updatedAt = :settledAt
              where p.id = :paymentId
                and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.OFFLINE_REQUIRED
+               and p.supersededAt is null
             """)
     int settleOfflineIfRequired(
             @Param("paymentId") Long paymentId,
             @Param("settledAt") LocalDateTime settledAt,
             @Param("staffMemberId") Long staffMemberId
+    );
+
+    /*
+      정정 재청구(3.5-a)의 대체. 전액 환불된 REFUNDED 활성 결제의 superseded_at을 세워 비활성으로 내린다. 이 UPDATE가
+      1건 성립한 트랜잭션에서만 새 PENDING(correction_of)을 만든다 — 동시 정정 재청구는 이 조건부 UPDATE에서 하나만
+      1건을 받고 나머지는 0건이라 상위에서 409(PAYMENT_ALREADY_SUPERSEDED)로 거부된다. 상태값은 바꾸지 않고
+      superseded_at만 세워 REFUNDED 이력을 보존한다. bulk UPDATE는 @LastModifiedDate를 우회하므로 updatedAt도
+      같은 now로 명시 갱신한다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+               set p.supersededAt = :now,
+                   p.updatedAt = :now
+             where p.id = :paymentId
+               and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.REFUNDED
+               and p.supersededAt is null
+            """)
+    int supersedeIfRefunded(
+            @Param("paymentId") Long paymentId,
+            @Param("now") LocalDateTime now
+    );
+
+    /*
+      셀프 복구(3.3)의 대체. OFFLINE_REQUIRED 활성 결제의 superseded_at을 세워 비활성으로 내린다. 이 UPDATE가 1건
+      성립한 트랜잭션에서만 새 PENDING(recovery_of)을 만든다. settleOfflineIfRequired와 같은 원 행·같은 superseded_at
+      IS NULL 전제를 걸어, 셀프 복구와 오프라인 정산 중 먼저 커밋한 쪽만 성립하고 늦은 쪽은 0건이다(이중 수납 방지,
+      SA §5-2·§9-4). bulk UPDATE는 @LastModifiedDate를 우회하므로 updatedAt도 같은 now로 명시 갱신한다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+               set p.supersededAt = :now,
+                   p.updatedAt = :now
+             where p.id = :paymentId
+               and p.status = com.doctorpet.domain.payment.entity.PaymentStatus.OFFLINE_REQUIRED
+               and p.supersededAt is null
+            """)
+    int supersedeIfOfflineRequired(
+            @Param("paymentId") Long paymentId,
+            @Param("now") LocalDateTime now
     );
 
     /*

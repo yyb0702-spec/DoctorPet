@@ -61,7 +61,25 @@ public enum PaymentErrorCode implements ErrorCode {
     // 초안 저장과 청구 사이에 다른 스태프가 항목을 바꾼 경우. 화면에서 확인한 금액과 다른 금액이
     // 청구되는 것을 막고 다시 확인하게 한다(SA §9-4 "초안 교체 경합").
     PAYMENT_ITEM_CHANGED(HttpStatus.CONFLICT, "PAYMENT_016",
-            "청구 항목이 변경되었습니다. 항목을 다시 확인한 뒤 청구해 주세요.");
+            "청구 항목이 변경되었습니다. 항목을 다시 확인한 뒤 청구해 주세요."),
+
+    // 재청구(셀프 복구·정정)가 대체하려던 원 결제를 그 사이 다른 경로가 먼저 처리해 대체에 실패한 경우
+    // (조건부 supersede UPDATE 0건). 셀프 복구 vs 오프라인 정산, 동시 정정 재청구 등 경합에서 진 요청이 받는다
+    // (고도화 3.3·3.5-a STRICT — 먼저 커밋한 쪽이 이긴다). 최신 상태를 다시 확인하고 재시도한다.
+    PAYMENT_ALREADY_SUPERSEDED(HttpStatus.CONFLICT, "PAYMENT_017",
+            "결제 상태가 이미 변경되었습니다. 최신 상태를 확인한 뒤 다시 시도해 주세요."),
+    // 셀프 복구(3.3)는 활성 결제가 OFFLINE_REQUIRED일 때만 가능하다. 활성 결제가 없거나 PENDING·PAID·REFUNDED 등
+    // 다른 상태인데 재청구를 시도한 경우. PENDING은 승인 불확정이라 이중 결제 위험으로 셀프 재청구를 금지한다(SA §9-7).
+    RECHARGE_PRECONDITION_FAILED(HttpStatus.CONFLICT, "PAYMENT_018",
+            "다시 결제할 수 있는 상태가 아닙니다."),
+    // 정정 재청구(3.5-a)는 전액 환불된(REFUNDED) 활성 결제에만 가능하다. 활성 결제가 없거나 다른 상태인데
+    // 정정 재청구를 시도한 경우. 금액 정정은 환불 → 정정 초안 작성 → 재청구 순서를 따른다(SA §9-4).
+    CORRECTION_PRECONDITION_FAILED(HttpStatus.CONFLICT, "PAYMENT_019",
+            "정정 재청구가 가능한 상태가 아닙니다. 먼저 전액 환불이 완료되어야 합니다."),
+    // 셀프 복구가 원 결제 항목을 복제했는데 복제 합계가 원 총액과 달라 정합성이 깨진 경우(고도화 3.3). 조용히
+    // 진행하면 영수증 항목 합계와 결제 총액이 갈라지므로, 대체를 롤백하고 PG 승인 없이 운영자 확인 대상으로 남긴다.
+    RECOVERY_ITEM_MISMATCH(HttpStatus.CONFLICT, "PAYMENT_020",
+            "결제 항목 정보가 일치하지 않습니다. 병원에 문의해 주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

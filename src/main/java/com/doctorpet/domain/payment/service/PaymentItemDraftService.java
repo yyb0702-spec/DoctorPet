@@ -2,6 +2,7 @@ package com.doctorpet.domain.payment.service;
 
 import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.entity.PaymentItem;
+import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
 import com.doctorpet.domain.payment.port.ReservationLookupPort;
@@ -54,9 +55,17 @@ public class PaymentItemDraftService {
         ReservationChargeView reservation = loadChargeableReservationForUpdate(reservationId, staffMemberId);
 
         // 청구가 시작된 뒤에는 항목을 바꿀 수 없다. 락 아래 조회이므로 이 직후 청구가 끼어들 수 없다.
-        if (paymentRepository.existsByReservationId(reservation.reservationId())) {
-            throw new ServiceException(PaymentErrorCode.PAYMENT_ITEM_ALREADY_CHARGED);
-        }
+        //
+        // 단순히 "활성 결제가 있으면 거부"로 하면 정정 재청구(3.5-a)도 막힌다 — 전액 환불은 superseded_at을 세우지
+        // 않아 REFUNDED 결제가 그대로 활성이기 때문이다. 정정 재청구는 그 REFUNDED를 대체하기 전에 새 초안을
+        // 작성해야 하므로, 활성 결제가 **REFUNDED일 때만** 초안 작성을 허용하고 PENDING·PAID·OFFLINE_PAID·
+        // OFFLINE_REQUIRED는 거부한다(OFFLINE_REQUIRED는 셀프 복구가 원 항목을 복제하므로 초안이 필요 없다).
+        // 대체된 과거 결제(superseded_at 설정)는 활성이 아니라 검사 대상이 아니다(고도화 3.5-a "초안 게이트의 술어").
+        paymentRepository.findActiveByReservationId(reservation.reservationId())
+                .filter(active -> active.getStatus() != PaymentStatus.REFUNDED)
+                .ifPresent(active -> {
+                    throw new ServiceException(PaymentErrorCode.PAYMENT_ITEM_ALREADY_CHARGED);
+                });
 
         // 저장 전에 합계까지 검증해, 어차피 청구할 수 없는 구성이 초안으로 남지 않게 한다(청구가 최종 게이트).
         amountPolicy.totalOfCommands(items);

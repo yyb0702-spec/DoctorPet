@@ -133,7 +133,9 @@ class PaymentApplicationServiceTest {
         paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, DRAFT_TOKEN);
 
         // 선기록된 결제(pre.paymentId=PAYMENT_ID)와 스태프·예약·금액을 그대로 감사 기록한다(외부 승인 결과와 무관).
-        verify(chargeAuditLogger).recordChargeAccepted(STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
+        verify(chargeAuditLogger).recordChargeAccepted(
+                com.doctorpet.domain.payment.audit.PaymentChargeChannel.STAFF_CHARGE,
+                STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
     }
 
     @Test
@@ -143,7 +145,9 @@ class PaymentApplicationServiceTest {
 
         paymentApplicationService.charge(RESERVATION_ID, STAFF_MEMBER_ID, DRAFT_TOKEN);
 
-        verify(chargeAuditLogger).recordChargeAccepted(STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
+        verify(chargeAuditLogger).recordChargeAccepted(
+                com.doctorpet.domain.payment.audit.PaymentChargeChannel.STAFF_CHARGE,
+                STAFF_MEMBER_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
     }
 
     @Test
