@@ -9,7 +9,11 @@ WORKDIR /workspace
 
 # 의존성만 먼저 복사해 캐시를 최대한 활용한다 — build.gradle이 안 바뀌면 소스만 바뀌어도
 # 의존성 다운로드를 매번 새로 하지 않는다(Docker 레이어 캐싱).
-COPY gradlew build.gradle settings.gradle ./
+# gradle.properties도 함께 복사한다(2차 리뷰 지적 P2) — 빠뜨리면 org.gradle.caching/parallel이
+# 이 빌드 스테이지에는 전혀 적용되지 않아, CI에서 얻는 Gradle 캐시 효과가 실제 배포 이미지
+# 빌드(아래 bootJar)에는 반영되지 않는다. 지금은 기능 프로퍼티가 없어 당장 깨지진 않지만, 나중에
+# org.gradle.jvmargs 등이 여기 추가되면 CI 빌드와 배포 이미지 빌드가 조용히 갈라질 수 있다.
+COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle ./gradle
 RUN chmod +x ./gradlew
 RUN ./gradlew dependencies --no-daemon > /dev/null 2>&1 || true
