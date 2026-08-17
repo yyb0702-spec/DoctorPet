@@ -56,16 +56,20 @@ export function NotificationBell() {
   const me = useMe()
   const { notifications, unreadCount, markRead } = useNotifications()
 
-  // role이 아직 로딩 중이면 보호자 경로다. 벨을 렌더하는 두 레이아웃이 마운트 시점에 이미 useMe를
-  // 호출하므로 드롭다운을 열 수 있는 시점에는 캐시에 값이 있다.
-  const routes =
-    me.data?.role === MemberRole.HOSPITAL_STAFF
-      ? RESOURCE_ROUTES[MemberRole.HOSPITAL_STAFF]
-      : RESOURCE_ROUTES[MemberRole.GUARDIAN]
+  /*
+    역할을 아직 모르는 동안(내 정보 조회 로딩 중이거나 실패)에는 어느 쪽 경로도 고르지 않는다. 보호자를
+    기본값으로 두면 그 창에 스태프가 알림을 눌렀을 때 보호자 전용 경로로 떨어진다(리뷰 지적 P2).
+    /staff/* 안쪽은 StaffRoute가 role 확인 전까지 레이아웃 자체를 렌더하지 않아 안전하지만, 공개·보호자
+    라우트의 AppLayout은 role 게이트 없이 인증만으로 벨을 렌더하므로(스태프가 홈·병원검색에 있는 경우)
+    실제로 도달 가능한 창이다. useMe는 실패 시 재시도하는 동안 계속 undefined라 창이 짧지도 않다.
+
+    이동만 보류하고 읽음 처리는 그대로 한다 — 읽음은 역할과 무관하고, 서버가 인증 principal로 판단한다.
+  */
+  const routes = me.data ? RESOURCE_ROUTES[me.data.role] : null
 
   const handleClick = (n: Notification) => {
     if (!n.isRead) markRead(n.id)
-    const link = resourceLink(n, routes)
+    const link = routes && resourceLink(n, routes)
     if (link) {
       setOpen(false)
       navigate(link)

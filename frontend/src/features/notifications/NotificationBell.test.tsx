@@ -148,6 +148,37 @@ describe('NotificationBell', () => {
     expect(screen.getByTestId('path')).not.toHaveTextContent('/reservations/42')
   })
 
+  /*
+    role이 채워지기 전에는 보호자를 기본값으로 삼지 않는다. 기본값을 두면 내 정보 조회가 아직 끝나지 않은
+    창(재시도 중이면 짧지도 않다)에 스태프가 알림을 눌렀을 때 보호자 전용 경로로 새는데, AppLayout은
+    role 게이트 없이 인증만으로 벨을 렌더하므로 실제로 도달 가능한 경합이다(리뷰 지적 P2).
+  */
+  it('역할을 모르는 동안에는 이동하지 않고, 역할이 확인된 뒤 그 역할의 경로로 간다', async () => {
+    useMeMock.mockReturnValue({ data: undefined })
+    renderBell()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    await user.click(
+      await screen.findByRole('button', { name: /예약이 승인되었습니다/ }),
+    )
+
+    // 보호자 경로(/reservations/42)로 떨어지지 않고 제자리에 머문다.
+    expect(screen.getByTestId('path').textContent).toBe('/')
+    // 읽음 처리는 역할과 무관하므로 보류하지 않는다.
+    expect(notificationApi.markRead).toHaveBeenCalledWith(1)
+
+    // 조회가 끝나 스태프로 확인되면 그때부터 스태프 경로로 이동한다(닫았다 다시 열어 재렌더).
+    useMeMock.mockReturnValue({ data: { role: MemberRole.HOSPITAL_STAFF } })
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    await user.click(
+      await screen.findByRole('button', { name: /예약이 승인되었습니다/ }),
+    )
+
+    expect(screen.getByTestId('path').textContent).toBe('/staff/reservations')
+  })
+
   it('미읽음 배지를 노출하고, 알림을 누르면 읽음 처리를 요청한다(기존 동작 유지)', async () => {
     renderBell()
 
