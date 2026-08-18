@@ -148,7 +148,9 @@ function fmt(iso: string): string {
 /**
  * 자동 결제 실패(OFFLINE_REQUIRED)를 보호자가 직접 다시 결제하는 패널(SA §9-4, 고도화 3.3).
  *
- * 결제수단을 새로 골라야만 재청구가 성립한다 — 같은 수단으로 다시 시도하는 버튼이 아니다.
+ * 재청구는 쓸 결제수단을 명시적으로 지정해야 시작된다. 다만 서버(preRecordRecovery)가 요구하는 것은
+ * "본인 소유 + ACTIVE"까지이고 **직전에 실패한 수단과 달라야 한다는 제약은 없다** — 화면도 그렇게
+ * 강제하지 않으므로, 같은 수단을 다시 고르면 그대로 다시 승인 시도가 나간다.
  * 응답이 201이어도 결제 성공이 아니다: 승인 실패도 레코드가 생기고 status로 내려오므로
  * 2xx를 성공으로 뭉개지 않고 status를 읽어 결과를 보여준다.
  */
@@ -218,6 +220,14 @@ function RechargePanel({ reservationId }: { reservationId: number }) {
         ))}
       </div>
       {/* 재청구했는데 또 실패한 경우. 상태는 다시 OFFLINE_REQUIRED라 패널이 그대로 열려 있다. */}
+      {/* 위 세 상태(PAID·PENDING·OFFLINE_REQUIRED) 밖의 응답이 오면 성공으로도 실패로도 단정하지
+          않고, 침묵 대신 확인이 필요하다는 것만 알린다. */}
+      {result &&
+        result.status !== PaymentStatus.OFFLINE_REQUIRED && (
+          <p className="text-sm text-muted-foreground">
+            결제 상태를 확인해 주세요. (상태: {result.status})
+          </p>
+        )}
       {result?.status === PaymentStatus.OFFLINE_REQUIRED && (
         <p className="text-sm text-destructive">
           결제에 실패했어요. 다른 결제수단으로 다시 시도하거나 병원에서 수납해 주세요.

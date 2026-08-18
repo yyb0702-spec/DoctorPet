@@ -74,6 +74,9 @@ export function useCorrectionCharge(reservationId: number) {
       queryClient.invalidateQueries({
         queryKey: staffPaymentKeys.itemDrafts(reservationId),
       })
+      // 정정 재청구는 결제 상태·금액을 바꾸므로 병원 결제 대시보드도 갱신해야 한다. 환불·현장수납과
+      // 같은 이유다 — 이걸 빠뜨리면 전역 staleTime(30s) 동안 대시보드에 옛 REFUNDED 행이 남는다.
+      queryClient.invalidateQueries({ queryKey: ['staff', 'payments', 'dashboard'] })
     },
   })
 }
