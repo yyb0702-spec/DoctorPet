@@ -1,7 +1,9 @@
 package com.doctorpet.domain.member.repository;
 
 import com.doctorpet.domain.member.entity.Member;
+import com.doctorpet.domain.member.entity.MemberRole;
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -44,4 +46,15 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Member m where m.id = :id")
     Optional<Member> findByIdForUpdate(Long id);
+
+    /**
+     * 특정 병원에 현재 소속된 스태프의 memberId만 뽑는 조회. 병원 수신 알림을 접속 중인 스태프의 SSE
+     * 연결로 fan-out할 때 대상 회원을 확정하는 데 쓴다 — 화면에 회원 정보를 보여주지 않으므로 엔티티를
+     * 통째로 적재하지 않고 id만 투영한다.
+     *
+     * <p>{@code @SQLRestriction("deleted_at is null")}이 HQL에도 적용되어 탈퇴 회원은 제외되고,
+     * {@code hospital_id}·{@code role} 조건이 소속 해제·역할 변경을 걸러낸다(현재 소속 기준).
+     */
+    @Query("select m.id from Member m where m.hospitalId = :hospitalId and m.role = :role")
+    List<Long> findIdsByHospitalIdAndRole(Long hospitalId, MemberRole role);
 }
