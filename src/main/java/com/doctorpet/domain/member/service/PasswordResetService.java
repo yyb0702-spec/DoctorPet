@@ -7,6 +7,7 @@ import com.doctorpet.domain.member.repository.MemberTokenRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.mail.EmailGateway;
+import com.doctorpet.global.security.JwtProperties;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ public class PasswordResetService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final EmailGateway emailGateway;
     private final PasswordEncoder passwordEncoder;
+    private final JwtProperties jwtProperties;
 
     @Value("${mail.password-reset.base-url}")
     private String passwordResetBaseUrl;
@@ -80,10 +82,21 @@ public class PasswordResetService {
 
         // 계정 탈취 복구 시나리오 대응(기능 구멍 점검) — 비밀번호 재설정 성공은 "공격자가 세션을
         // 쥐고 있을 수 있다"는 전제로 다뤄야 한다. Refresh Token을 지우지 않으면 공격자가 가진
-        // 세션이 새 비밀번호와 무관하게 재발급을 통해 계속 연장된다. MemberWithdrawalApplicationService의
-        // 탈퇴 처리와 동일한 패턴(RefreshTokenRepository.deleteByMemberId)이며, 그때와 같은
-        // 한계도 동일하게 남는다 — 무상태 JWT라 이미 발급된 Access Token은 자연 만료 전까지는
-        // 서명 검증만으로 계속 유효하다(즉시 강제 폐기 불가).
+        // 세션이 새 비밀번호와 무관하게 재발급을 통해 계속 연장된다.
         refreshTokenRepository.deleteByMemberId(memberId);
+
+        // 재검토 대응 — Refresh Token 삭제만으로는 "재발급으로 세션이 연장되는 것"만 막을 뿐,
+        // 공격자가 이미 들고 있는 Access Token은 만료 전까지 서명 검증만으로 계속 유효했다
+        // (재설정으로도 안 끊기던 유일한 구멍). MemberWithdrawalApplicationService의
+        // blacklistMember()를 그대로 재사용하지 않는 이유: 그건 memberId 전체를 막아서, 지금
+        // 막 재설정한 사용자가 새 비밀번호로 곧바로 재로그인해 받는 새 Access Token까지 같이
+        // 막혀버린다(탈퇴와 달리 재설정 뒤에는 같은 memberId로 다시 로그인하는 게 정상 흐름).
+        // 대신 PasswordChangeInvalidationPort로 "이 시각 이전에 발급된 토큰만" 걸러내, 재설정
+        // 이전 토큰(공격자가 탈취했을 수 있는 옛 세션 포함)만 막고 재설정 이후 새 토큰은
+        // 영향받지 않게 한다.
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(
+                memberId,
+                Duration.ofMillis(jwtProperties.getAccessTokenExpiration())
+        );
     }
 }

@@ -3,10 +3,13 @@ package com.doctorpet.global.config;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtAuthenticationFilter;
+import java.util.Arrays;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -15,6 +18,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.util.StringUtils;
 
 @Configuration
 @RequiredArgsConstructor
@@ -23,6 +27,33 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
+    // CORS 허용 오리진(기능 구멍 점검 대응, CorsConfig 참고)을 읽는 데 쓴다 — @Value가 아니라
+    // Environment.getProperty()를 직접 호출하는 이유는 아래 parseAllowedOrigins() 주석 참고.
+    private final Environment environment;
+
+    // (PR 4차 리뷰 이후 CI `integrationTest`에서 실측으로 드러난 문제 수정 — 2차 시도) 처음엔
+    // `@Value("${cors.allowed-origins:}") private List<String>`로 선언했다가, 콤마로 구분된
+    // 오리진(예: `http://localhost:5173,http://127.0.0.1:5173`)이 두 개로 쪼개지지 않는 걸로
+    // 의심해 `@Value(...) private String`로 받아 직접 split하도록 고쳤는데도 CI에서 정확히
+    // 같은 두 preflight 테스트가 여전히 403으로 실패했다(`CorsDefaultAllowedOriginsIntegrationTest`,
+    // `.env.example`/`CORS_ALLOWED_ORIGINS` 환경변수를 아무도 안 준 기본값 시나리오만 해당 —
+    // `CorsSameOriginRegressionTest`처럼 `@TestPropertySource`로 값을 명시적으로 덮어쓴
+    // 테스트는 두 시도 모두에서 항상 정상 동작했다). split 로직을 바꿔도 결과가 전혀 안 바뀐
+    // 것은 애초에 `@Value`의 임베디드 값 해석 단계에서 이 프로퍼티의 값 자체가 기대한 문자열로
+    // 안 들어오고 있다는 뜻으로 보고, `@Value`의 SpEL 기반 해석에 기대는 대신 Spring이 실제
+    // 부팅 시(이 값이 정확히 동작함을 curl로 직접 확인한 real bootRun 포함) 쓰는 것과 같은
+    // `Environment.getProperty()`로 직접 읽도록 바꿨다 — 두 메커니즘이 같은 PropertySource
+    // 체계를 쓰더라도 임베디드 값 해석 경로가 다르므로, 특정 슬라이스 테스트 컨텍스트에서만
+    // 발생하는 해석 차이가 있다면 이쪽이 더 신뢰할 수 있는 경로다.
+    private static List<String> parseAllowedOrigins(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -63,8 +94,15 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        List<String> corsAllowedOrigins =
+                parseAllowedOrigins(environment.getProperty("cors.allowed-origins", ""));
+
         http
                 .csrf(AbstractHttpConfigurer::disable)
+                // 브라우저 프론트엔드용 CORS(기능 구멍 점검 대응) — parseAllowedOrigins가 빈
+                // 문자열을 빈 리스트로 바꾸므로, 미설정 시 어떤 오리진도 허용하지 않는다(fail-closed).
+                .cors(cors -> cors.configurationSource(
+                        CorsConfig.corsConfigurationSource(corsAllowedOrigins)))
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->

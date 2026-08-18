@@ -15,6 +15,7 @@ import com.doctorpet.domain.review.dto.response.ReviewResponse;
 import com.doctorpet.domain.review.service.ReviewApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -61,6 +62,9 @@ class ReviewControllerTest {
 
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
+
+    @MockitoBean
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     @DisplayName("보호자는 결제 완료된 본인 예약에 리뷰를 작성할 수 있다")

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
 import jakarta.servlet.FilterChain;
+import java.util.Date;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,9 @@ class JwtAuthenticationFilterTest {
     @Mock
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
 
+    @Mock
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort;
+
     @InjectMocks
     private JwtAuthenticationFilter jwtAuthenticationFilter;
 
@@ -49,6 +53,7 @@ class JwtAuthenticationFilterTest {
         request.addHeader("Authorization", "Bearer access-token");
         MockHttpServletResponse response = new MockHttpServletResponse();
         MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN");
+        Date issuedAt = new Date();
 
         given(jwtTokenProvider.validateToken("access-token")).willReturn(true);
         given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
@@ -56,11 +61,36 @@ class JwtAuthenticationFilterTest {
         given(memberBlacklistPort.isBlacklisted(1L)).willReturn(false);
         given(jwtTokenProvider.getJti("access-token")).willReturn("jti-1234");
         given(accessTokenBlacklistPort.isBlacklisted("jti-1234")).willReturn(false);
+        given(jwtTokenProvider.getIssuedAt("access-token")).willReturn(issuedAt);
+        given(passwordChangeInvalidationPort.isTokenInvalidatedByPasswordChange(1L, issuedAt)).willReturn(false);
 
         jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+    }
+
+    @Test
+    @DisplayName("서명·만료·타입·블랙리스트는 전부 통과해도, 비밀번호 재설정 이전에 발급된 토큰이면 SecurityContext를 설정하지 않는다(기능 구멍 점검 대응)")
+    void doFilterInternal_tokenIssuedBeforePasswordChange_doesNotAuthenticate() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer access-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com", "GUARDIAN");
+        Date issuedAt = new Date();
+
+        given(jwtTokenProvider.validateToken("access-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
+        given(memberBlacklistPort.isBlacklisted(1L)).willReturn(false);
+        given(jwtTokenProvider.getJti("access-token")).willReturn("jti-1234");
+        given(accessTokenBlacklistPort.isBlacklisted("jti-1234")).willReturn(false);
+        given(jwtTokenProvider.getIssuedAt("access-token")).willReturn(issuedAt);
+        given(passwordChangeInvalidationPort.isTokenInvalidatedByPasswordChange(1L, issuedAt)).willReturn(true);
+
+        jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test

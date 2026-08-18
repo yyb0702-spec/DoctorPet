@@ -18,6 +18,7 @@ import com.doctorpet.domain.member.repository.MemberTokenRepository;
 import com.doctorpet.domain.member.repository.RefreshTokenRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.gateway.mail.EmailGateway;
+import com.doctorpet.global.security.JwtProperties;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -47,6 +48,9 @@ class PasswordResetServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private JwtProperties jwtProperties;
 
     @InjectMocks
     private PasswordResetService passwordResetService;
@@ -137,6 +141,21 @@ class PasswordResetServiceTest {
         passwordResetService.confirmPasswordReset("valid-token", "newPassword1234");
 
         verify(refreshTokenRepository).deleteByMemberId(1L);
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정 성공 시 재설정 이전에 발급된 Access Token도 무효화한다 — Refresh Token 삭제만으로는 못 막던 구멍(재검토 대응)")
+    void confirmPasswordReset_success_invalidatesAccessTokensIssuedBeforeReset() {
+        Member member = Member.createGuardian("guardian@example.com", "old-encoded-password", "보호자닉네임");
+        setId(member, 1L);
+        given(memberTokenRepository.consumePasswordResetToken("valid-token")).willReturn(Optional.of(1L));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.encode("newPassword1234")).willReturn("new-encoded-password");
+        given(jwtProperties.getAccessTokenExpiration()).willReturn(3_600_000L);
+
+        passwordResetService.confirmPasswordReset("valid-token", "newPassword1234");
+
+        verify(refreshTokenRepository).invalidateTokensIssuedBeforeNow(1L, Duration.ofMillis(3_600_000L));
     }
 
     @Test
