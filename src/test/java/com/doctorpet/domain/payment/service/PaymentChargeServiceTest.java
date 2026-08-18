@@ -207,7 +207,7 @@ class PaymentChargeServiceTest {
         void inactivePaymentMethod_marksInactive() {
             stubChargeableReservation();
             stubDrafts(draft("진료비", 1, VALID_AMOUNT));
-            given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+            given(paymentRepository.existsActiveByReservationId(RESERVATION_ID)).willReturn(false);
             given(merchantPaymentIdGenerator.generate()).willReturn("pay_test");
             PaymentMethod deleted = PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234");
             deleted.markDeleted();
@@ -265,7 +265,7 @@ class PaymentChargeServiceTest {
         @DisplayName("예약당 이미 결제가 있으면 DUPLICATE_CHARGE(사전 체크)")
         void alreadyCharged_duplicate() {
             stubChargeableReservation();
-            given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(true);
+            given(paymentRepository.existsActiveByReservationId(RESERVATION_ID)).willReturn(true);
 
             assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
@@ -274,10 +274,10 @@ class PaymentChargeServiceTest {
         }
 
         @Test
-        @DisplayName("선기록이 reservation_id UNIQUE 위반(23000/1062)이면 사전 체크를 통과한 경쟁으로 보고 DUPLICATE_CHARGE (#83, #90)")
+        @DisplayName("선기록이 활성 결제 UNIQUE 위반(23000/1062)이면 사전 체크를 통과한 경쟁으로 보고 DUPLICATE_CHARGE (#83, #90)")
         void saveReservationIdUniqueViolation_duplicate() {
             stubSaveThrows(new SQLException(
-                    "Duplicate entry '100' for key 'payments.uk_payments_reservation_id'", "23000", 1062));
+                    "Duplicate entry '100' for key 'payments.uk_payments_active_reservation_id'", "23000", 1062));
 
             assertThatThrownBy(() -> paymentChargeService.preRecord(RESERVATION_ID, STAFF_MEMBER_ID, draftToken()))
                     .isInstanceOf(ServiceException.class)
@@ -307,7 +307,7 @@ class PaymentChargeServiceTest {
         private void stubSaveThrows(SQLException cause) {
             stubChargeableReservation();
             stubDrafts(draft("진료비", 1, VALID_AMOUNT));
-            given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+            given(paymentRepository.existsActiveByReservationId(RESERVATION_ID)).willReturn(false);
             given(merchantPaymentIdGenerator.generate()).willReturn("pay_test");
             given(paymentMethodRepository.findByIdAndMemberId(PAYMENT_METHOD_ID, GUARDIAN_ID))
                     .willReturn(Optional.of(PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234")));
@@ -318,7 +318,7 @@ class PaymentChargeServiceTest {
         /** 선기록까지 도달하는 스텁(스탬프 결과는 스텁하지 않는다). 초안은 각 테스트가 stubDrafts로 따로 깐다. */
         private void stubPreRecordPath() {
             stubChargeableReservation();
-            given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+            given(paymentRepository.existsActiveByReservationId(RESERVATION_ID)).willReturn(false);
             given(merchantPaymentIdGenerator.generate()).willReturn("pay_test");
             given(paymentMethodRepository.findByIdAndMemberId(PAYMENT_METHOD_ID, GUARDIAN_ID))
                     .willReturn(Optional.of(PaymentMethod.issue(GUARDIAN_ID, "v1:enc", "VISA", "1234")));
