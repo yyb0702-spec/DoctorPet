@@ -46,13 +46,24 @@ cd ~/DoctorPet
 # exists for doctorpet.click" 오류로 중단한다(리뷰 지적 — certbot v5.6.0
 # RenewableCert.new_lineage() 확인). 그래서 certonly를 실행하기 전에 부트스트랩이 만든 흔적을
 # 먼저 지워야 한다 — nginx는 이미 메모리에 로드해 서비스 중인 인증서로 계속 응답하므로 파일을
-# 지워도 순간적인 중단은 없다. 이 정리는 "최초 1회"에만 필요하다 — 아래 갱신 자동화(crontab)의
-# `certbot renew`는 이미 certbot이 관리하는 정상 lineage를 갱신하는 것이라 이 단계를 포함하면
-# 안 된다(실제 인증서를 지워버리게 된다).
-docker compose exec nginx rm -rf \
-  /etc/letsencrypt/live/doctorpet.click \
-  /etc/letsencrypt/archive/doctorpet.click \
-  /etc/letsencrypt/renewal/doctorpet.click.conf
+# 지워도 순간적인 중단은 없다.
+#
+# (리뷰 재지적 P1 반영) 조건 없이 지우면, 이미 certbot이 정상 발급을 마친 뒤 이 "최초 1회" 절차를
+# 실수로 다시 실행했을 때 실제 운영 인증서 계보(archive/·renewal/ 포함)까지 통째로 날아간다.
+# 부트스트랩은 live/ 아래에 일반 파일만 만들 뿐 archive/·renewal/은 애초에 건드리지 않으므로 그
+# 둘은 지울 필요가 없고, live/의 fullchain.pem이 "심볼릭 링크가 아닐 때"(=아직 부트스트랩이 만든
+# 자체 서명 상태일 때)만 지우도록 검사한다 — 정상 lineage라면 fullchain.pem은 archive/의 실제
+# 파일을 가리키는 심볼릭 링크라 이 조건에 걸리지 않는다. 이렇게 하면 이 절차를 몇 번을 실수로
+# 다시 실행해도 안전하다(idempotent) — 이미 정상 발급된 뒤라면 그냥 아무 일도 안 하고 지나간다.
+docker compose exec nginx sh -c '
+  cert=/etc/letsencrypt/live/doctorpet.click/fullchain.pem
+  if [ -e "$cert" ] && [ ! -L "$cert" ]; then
+    echo "자체 서명 부트스트랩 인증서를 발견해 지웁니다."
+    rm -rf /etc/letsencrypt/live/doctorpet.click
+  else
+    echo "이미 certbot이 관리하는 인증서가 있거나(심볼릭 링크) 아직 아무 것도 없어 지울 것이 없습니다."
+  fi
+'
 
 # nginx가 (임시 자체 서명 인증서로라도) 이미 떠 있는 상태에서 실행한다 — 80에서 ACME 챌린지를 받아야 하므로.
 docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
