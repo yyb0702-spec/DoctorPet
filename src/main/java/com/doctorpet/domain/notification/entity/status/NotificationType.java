@@ -6,7 +6,10 @@ package com.doctorpet.domain.notification.entity.status;
 // "결제 확인 중" 안내의 실재하는 유형이다(결제당 1회). 결제당 1회는 존재조회가 아니라 notifications.dedup_key
 // UNIQUE 제약이 원자적으로 보장한다(동시 발행 경합에서도 1건). 엔티티는 EnumType.STRING이지만 운영 MySQL의
 // notifications.type은 ENUM이므로 새 값은 NotificationWaitlistOfferedTypeMigrationRunner처럼 명시적으로 확장한다.
+// RESERVATION_REQUESTED(#166)는 NotificationReservationRequestedTypeMigrationRunner가 확장한다.
 public enum NotificationType {
+    // 병원 수신(HOSPITAL) 유형. 보호자가 새 예약을 요청했을 때 해당 병원에 발행한다(#166).
+    RESERVATION_REQUESTED,
     RESERVATION_CONFIRMED,
     RESERVATION_REJECTED,
     RESERVATION_HOSPITAL_CANCELED,
