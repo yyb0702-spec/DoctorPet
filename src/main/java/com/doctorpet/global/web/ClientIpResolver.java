@@ -4,8 +4,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -31,6 +34,15 @@ import org.springframework.util.StringUtils;
 public class ClientIpResolver {
 
     private static final String X_FORWARDED_FOR = "X-Forwarded-For";
+
+    // 신뢰 프록시 호스트명(예: "nginx")은 요청마다 InetAddress.getAllByName()으로 다시 해석하면
+    // 인증메일 rate limit처럼 매 요청 호출되는 경로에서 매번 DNS 왕복이 생긴다(PR 리뷰 지적 P2).
+    // 짧은 TTL로 캐싱하면서도 컴포즈 서비스명이 재배포로 다른 IP를 받는 경우를 위해 무한정 캐시하지
+    // 않는다 — 캐시가 오래돼도 최악의 경우 다음 요청에서 재해석할 뿐이라 안전 쪽으로 치우친 설계다.
+    private static final Duration DNS_CACHE_TTL = Duration.ofSeconds(60);
+
+    private final ConcurrentHashMap<String, ResolvedHostnameCacheEntry> resolvedHostnameCache =
+            new ConcurrentHashMap<>();
 
     public String resolve(HttpServletRequest request, Set<String> trustedProxies) {
         String remoteAddress = request.getRemoteAddr();
@@ -83,18 +95,41 @@ public class ClientIpResolver {
         return false;
     }
 
-    // DNS 해석 실패는 신뢰하지 않음으로 처리한다(fail-closed).
+    // DNS 해석 실패는 신뢰하지 않음으로 처리한다(fail-closed). 해석 결과(성공/실패 모두)를
+    // TTL 동안 캐싱해 요청마다 반복되는 DNS 조회를 피한다(PR 리뷰 지적 P2).
     private boolean matchesResolvedHostname(String trustedProxy, String candidate) {
+        return resolveHostnameCached(trustedProxy).contains(candidate);
+    }
+
+    private Set<String> resolveHostnameCached(String trustedProxy) {
+        long now = System.currentTimeMillis();
+        ResolvedHostnameCacheEntry cached = resolvedHostnameCache.get(trustedProxy);
+        if (cached != null && cached.expiresAtEpochMillis() > now) {
+            return cached.resolvedAddresses();
+        }
+
+        Set<String> resolvedAddresses = resolveHostname(trustedProxy);
+        resolvedHostnameCache.put(
+                trustedProxy,
+                new ResolvedHostnameCacheEntry(resolvedAddresses, now + DNS_CACHE_TTL.toMillis())
+        );
+        return resolvedAddresses;
+    }
+
+    private Set<String> resolveHostname(String trustedProxy) {
         try {
-            for (InetAddress resolved : InetAddress.getAllByName(trustedProxy)) {
-                if (resolved.getHostAddress().equals(candidate)) {
-                    return true;
-                }
-            }
+            return List.of(InetAddress.getAllByName(trustedProxy)).stream()
+                    .map(InetAddress::getHostAddress)
+                    .collect(Collectors.toUnmodifiableSet());
         } catch (UnknownHostException exception) {
             log.warn("신뢰 프록시 호스트명을 해석하지 못했습니다. trustedProxy={}", trustedProxy);
+            return Set.of();
         }
-        return false;
+    }
+
+    // DNS 해석 결과를 TTL과 함께 보관하는 캐시 항목. 실패(빈 Set)도 그대로 캐싱해 존재하지 않는
+    // 호스트명에 대한 반복 조회도 TTL 동안 막는다.
+    private record ResolvedHostnameCacheEntry(Set<String> resolvedAddresses, long expiresAtEpochMillis) {
     }
 
     private boolean isValidIpAddress(String address) {

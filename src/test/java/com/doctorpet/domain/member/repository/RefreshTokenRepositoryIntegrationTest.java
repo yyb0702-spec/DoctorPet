@@ -90,6 +90,26 @@ class RefreshTokenRepositoryIntegrationTest {
                 .isFalse();
     }
 
+    // PR 리뷰 지적 P2 — tokenIssuedAt이 null이면 비교 불가능이지 "통과"가 아니다. 재설정 이력이
+    // 있는데도 비교 기준이 없으면 fail-closed로 무효화 처리해야 한다.
+    @Test
+    void 재설정_이력이_있고_tokenIssuedAt이_null이면_안전하게_무효로_판정된다() {
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(MEMBER_ID, Duration.ofMinutes(1));
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, null))
+                .isTrue();
+    }
+
+    // PR 리뷰 지적 P2 — Redis에 저장된 재설정 시각 값이 손상돼(Long.parseLong 실패) 있어도
+    // NumberFormatException을 그대로 던져 인증 필터 체인을 깨뜨리는 대신 fail-closed로 처리한다.
+    @Test
+    void 재설정_시각_값이_손상되면_안전하게_무효로_판정된다() {
+        redisTemplate.opsForValue().set("pwd-changed-at:" + MEMBER_ID, "not-a-number", Duration.ofMinutes(1));
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, new Date()))
+                .isTrue();
+    }
+
     @Test
     void save는_원문이_아니라_해시를_저장한다() {
         String rawToken = "raw-refresh-token-value";

@@ -31,14 +31,18 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "auth.rate-limit")
 public class AuthRateLimitProperties {
 
+    // 필드명이 "...PerHour"였다가 "...PerWindow"로 바뀌었다(PR 리뷰 지적 P2) — window(아래)를
+    // AUTH_RATE_LIMIT_WINDOW로 1시간이 아닌 값으로 바꿀 수 있는데, 필드명이 "PerHour"로
+    // 고정돼 있으면 실제 계약(예: 30분당 5회)과 이름이 어긋난다. "PerWindow"는 실제 기준 단위가
+    // window 필드라는 걸 이름 그대로 드러낸다.
     @Positive
-    private int signupPerIpPerHour = 5;
+    private int signupPerIpPerWindow = 5;
 
     @Positive
-    private int verifyEmailResendPerIpPerHour = 5;
+    private int verifyEmailResendPerIpPerWindow = 5;
 
     @Positive
-    private int passwordResetRequestPerIpPerHour = 5;
+    private int passwordResetRequestPerIpPerWindow = 5;
 
     @NotNull
     private Duration window = Duration.ofHours(1);

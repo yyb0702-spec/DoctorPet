@@ -44,13 +44,26 @@ server:
   # 일도 없다), 이미 들어온 요청은 spring.lifecycle.timeout-per-shutdown-phase까지 마저 처리한
   # 뒤 종료한다.
   shutdown: graceful
+  # CORS same-origin 오판 방지(PR 리뷰 지적 P1) — nginx는 X-Forwarded-Proto를 이미 보내고
+  # 있지만(nginx/nginx.conf), 이 설정이 없으면 Spring이 그 헤더를 신뢰하지 않고 자신이 리스닝
+  # 중인 프로토콜(내부 http)을 그대로 요청의 scheme으로 본다. 그 결과 TLS를 종단한 nginx 뒤에서
+  # 브라우저가 보낸 Origin(https://...)과 Spring이 인식하는 자신의 scheme(http)이 어긋나,
+  # Spring의 CorsUtils.isCorsRequest()가 진짜 same-origin 요청까지 cross-origin으로 오판해
+  # cors.allowed-origins가 비어 있으면(기본값) 403으로 거부해버린다. framework로 설정하면
+  # X-Forwarded-Proto/Host/Port를 반영해 Spring이 실제 외부에서 보이는 scheme·host·port를
+  # 정확히 인식한다.
+  forward-headers-strategy: framework
 
-# 브라우저 프론트엔드용 CORS 허용 오리진(기능 구멍 점검 대응, CorsProperties·CorsConfig 참고).
-# 기본값은 빈 리스트 — 어떤 오리진도 허용하지 않아 프론트가 아직 없는 지금 상태와 동일하게
-# 동작한다. 프론트 도메인이 정해지면 CORS_ALLOWED_ORIGINS에 콤마로 구분해 정확한 오리진
-# (스킴+호스트+포트, 예: https://app.doctorpet.example)을 채워야 한다.
+# 브라우저 프론트엔드용 CORS 허용 오리진(기능 구멍 점검 대응, CorsConfig 참고. 아래 CorsConfig의
+# 클래스 주석 — 별도 CorsProperties 빈은 두지 않고 이 값을 SecurityConfig가 @Value로 직접 읽는다).
+# frontend/(이미 develop에 있음, vite dev 서버가 /api를 백엔드로 프록시)가 실제로 API를 호출하므로
+# 기본값을 그 로컬 개발 오리진으로 채워뒀다 — 운영 배포에서는 CORS_ALLOWED_ORIGINS 환경변수로
+# 실제 프론트 도메인(예: https://app.doctorpet.example)으로 반드시 덮어써야 한다. 비워두면
+# (환경변수를 아예 안 준 경우) 어떤 오리진도 허용하지 않는다(fail-closed) — 위 forward-headers-
+# strategy와 별개로, Origin이 진짜로 다른 오리진(포트가 다른 로컬 프론트 dev 서버 등)이면 이
+# allowed-origins에 명시적으로 들어있어야만 허용된다.
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
 
 logging:
   level:
@@ -140,9 +153,9 @@ member:
 # 환경변수를 배포 파이프라인에 별도로 추가할 필요가 없다.
 auth:
   rate-limit:
-    signup-per-ip-per-hour: ${AUTH_RATE_LIMIT_SIGNUP_PER_IP_PER_HOUR:5}
-    verify-email-resend-per-ip-per-hour: ${AUTH_RATE_LIMIT_VERIFY_EMAIL_RESEND_PER_IP_PER_HOUR:5}
-    password-reset-request-per-ip-per-hour: ${AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST_PER_IP_PER_HOUR:5}
+    signup-per-ip-per-window: ${AUTH_RATE_LIMIT_SIGNUP_PER_IP_PER_WINDOW:5}
+    verify-email-resend-per-ip-per-window: ${AUTH_RATE_LIMIT_VERIFY_EMAIL_RESEND_PER_IP_PER_WINDOW:5}
+    password-reset-request-per-ip-per-window: ${AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST_PER_IP_PER_WINDOW:5}
     window: ${AUTH_RATE_LIMIT_WINDOW:1h}
     trusted-proxies: ${AUTH_RATE_LIMIT_TRUSTED_PROXIES:nginx}
 

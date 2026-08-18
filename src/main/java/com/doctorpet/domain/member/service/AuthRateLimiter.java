@@ -64,9 +64,9 @@ public class AuthRateLimiter {
 
     private int limitFor(AuthRateLimitAction action) {
         return switch (action) {
-            case SIGNUP -> properties.getSignupPerIpPerHour();
-            case VERIFY_EMAIL_RESEND -> properties.getVerifyEmailResendPerIpPerHour();
-            case PASSWORD_RESET_REQUEST -> properties.getPasswordResetRequestPerIpPerHour();
+            case SIGNUP -> properties.getSignupPerIpPerWindow();
+            case VERIFY_EMAIL_RESEND -> properties.getVerifyEmailResendPerIpPerWindow();
+            case PASSWORD_RESET_REQUEST -> properties.getPasswordResetRequestPerIpPerWindow();
         };
     }
 

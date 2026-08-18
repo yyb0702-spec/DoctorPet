@@ -29,14 +29,14 @@ class AuthRateLimitPropertiesTest {
     }
 
     @Test
-    @DisplayName("signup-per-ip-per-hour가 0이면 유효하지 않다")
+    @DisplayName("signup-per-ip-per-window가 0이면 유효하지 않다")
     void validate_zeroSignupLimit_invalid() {
         AuthRateLimitProperties properties = new AuthRateLimitProperties();
-        properties.setSignupPerIpPerHour(0);
+        properties.setSignupPerIpPerWindow(0);
 
         assertThat(validator.validate(properties))
                 .extracting(violation -> violation.getPropertyPath().toString())
-                .contains("signupPerIpPerHour");
+                .contains("signupPerIpPerWindow");
     }
 
     @Test

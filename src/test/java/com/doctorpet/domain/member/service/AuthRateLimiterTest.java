@@ -48,7 +48,7 @@ class AuthRateLimiterTest {
     @DisplayName("한도 이내면 통과한다")
     void check_withinLimit_allowed() {
         given(repository.increment(startsWith("auth:rate-limit:SIGNUP:ip:"), any()))
-                .willReturn((long) properties.getSignupPerIpPerHour());
+                .willReturn((long) properties.getSignupPerIpPerWindow());
 
         assertThatCode(() -> rateLimiter.check(request, AuthRateLimitAction.SIGNUP))
                 .doesNotThrowAnyException();
@@ -58,7 +58,7 @@ class AuthRateLimiterTest {
     @DisplayName("한도를 초과하면 MEMBER_011(RATE_LIMIT_EXCEEDED)을 던진다")
     void check_exceedsLimit_throws() {
         given(repository.increment(startsWith("auth:rate-limit:SIGNUP:ip:"), any()))
-                .willReturn((long) properties.getSignupPerIpPerHour() + 1);
+                .willReturn((long) properties.getSignupPerIpPerWindow() + 1);
 
         assertThatThrownBy(() -> rateLimiter.check(request, AuthRateLimitAction.SIGNUP))
                 .isInstanceOf(ServiceException.class)
@@ -103,8 +103,8 @@ class AuthRateLimiterTest {
     @DisplayName("한도 초과로 예외를 던지기 전에 이미 카운터는 증가한 상태다 — 초과 이후 재시도도 계속 거부된다")
     void check_afterExceeded_stillRejectsSubsequentAttempts() {
         given(repository.increment(startsWith("auth:rate-limit:SIGNUP:ip:"), any()))
-                .willReturn((long) properties.getSignupPerIpPerHour() + 1)
-                .willReturn((long) properties.getSignupPerIpPerHour() + 2);
+                .willReturn((long) properties.getSignupPerIpPerWindow() + 1)
+                .willReturn((long) properties.getSignupPerIpPerWindow() + 2);
 
         assertThatThrownBy(() -> rateLimiter.check(request, AuthRateLimitAction.SIGNUP))
                 .isInstanceOf(ServiceException.class);

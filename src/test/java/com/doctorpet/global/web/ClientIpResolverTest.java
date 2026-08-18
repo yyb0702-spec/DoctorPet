@@ -95,4 +95,21 @@ class ClientIpResolverTest {
         assertThat(resolver.resolve(request, Set.of("definitely-not-a-real-host.invalid")))
                 .isEqualTo("198.51.100.20");
     }
+
+    @Test
+    @DisplayName("같은 호스트명을 반복 조회해도 TTL 안에서는 DNS 해석을 다시 하지 않는다(PR 리뷰 지적 P2)")
+    void resolve_repeatedHostnameLookup_cachedWithinTtlAndLogsOnce(CapturedOutput output) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("198.51.100.20");
+        request.addHeader("X-Forwarded-For", "203.0.113.10");
+
+        // 해석 실패(존재하지 않는 호스트명)도 캐시된다 — 매번 재해석했다면 경고 로그가 호출 횟수만큼
+        // 찍혀야 하지만, 캐싱되면 첫 호출에서만 DNS 해석을 시도하고 이후엔 캐시된 실패 결과를 쓴다.
+        for (int i = 0; i < 20; i++) {
+            resolver.resolve(request, Set.of("definitely-not-a-real-host.invalid"));
+        }
+
+        int warnCount = output.toString().split("신뢰 프록시 호스트명을 해석하지 못했습니다", -1).length - 1;
+        assertThat(warnCount).isEqualTo(1);
+    }
 }

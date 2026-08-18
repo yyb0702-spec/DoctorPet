@@ -9,6 +9,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Repository;
  * 필터가 이 저장소를 참조해야 하는데, global 패키지가 domain을 직접 참조하면 안 되므로 인터페이스는
  * global.security에 두고 여기서 구현만 제공한다.
  */
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenBlacklistPort, PasswordChangeInvalidationPort {
@@ -300,6 +302,15 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
      * JwtAuthenticationFilter가 Access Token 인증 직전에 호출해, 이 토큰이 마지막 비밀번호
      * 재설정보다 먼저 발급됐는지 확인한다. 재설정 이력이 없으면(키 자체가 없거나 TTL 만료)
      * false — 아무 토큰도 걸러내지 않는다.
+     *
+     * (리뷰 지적 P2) tokenIssuedAt이 null이거나 Redis에 저장된 값이 파싱 불가능한 경우, 예외를
+     * 그대로 던져 인증 필터 체인을 깨뜨리는 대신 fail-closed로 무효화 처리한다(true 반환) — 이
+     * 메서드는 보안 판단(이 토큰을 계속 신뢰해도 되는가)이라, "비교할 수 없음"을 "통과시킴"으로
+     * 해석하면 안 된다. tokenIssuedAt은 JwtTokenProvider.getIssuedAt()이 항상 채워 넣는 값이라
+     * 정상 흐름에서 null일 일은 없지만(레거시 iat 폴백까지 포함), 호출부 계약이 바뀌거나 다른
+     * 경로에서 호출될 가능성에 대비한 방어 코드다. Redis 값 파싱 실패는 이 키가 이 메서드
+     * 외에는 아무도 쓰지 않는데도(invalidateTokensIssuedBeforeNow만 씀) 데이터 손상 시나리오에
+     * 대비해 넣었다.
      */
     @Override
     public boolean isTokenInvalidatedByPasswordChange(Long memberId, Date tokenIssuedAt) {
@@ -307,7 +318,25 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
         if (value == null) {
             return false;
         }
-        return tokenIssuedAt.getTime() < Long.parseLong(value);
+        if (tokenIssuedAt == null) {
+            log.warn(
+                    "tokenIssuedAt이 없어 비밀번호 재설정 시각과 비교할 수 없습니다. "
+                            + "안전하게 무효화 처리합니다. memberId={}",
+                    memberId
+            );
+            return true;
+        }
+        try {
+            return tokenIssuedAt.getTime() < Long.parseLong(value);
+        } catch (NumberFormatException exception) {
+            log.warn(
+                    "비밀번호 재설정 시각 값이 손상되어 파싱할 수 없습니다. "
+                            + "안전하게 무효화 처리합니다. memberId={}, value={}",
+                    memberId,
+                    value
+            );
+            return true;
+        }
     }
 
     /**
