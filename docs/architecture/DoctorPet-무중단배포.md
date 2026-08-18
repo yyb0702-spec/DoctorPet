@@ -40,6 +40,20 @@
 
 ```bash
 cd ~/DoctorPet
+# 자체 서명 임시 인증서(entrypoint 부트스트랩)가 이미 live/doctorpet.click 디렉터리에 일반
+# 파일로 만들어져 있다 — certbot은 이 디렉터리가 자신이 관리하는 lineage(archive/의 실제 인증서를
+# 가리키는 symlink 구조)가 아니면 새로 발급할 때 기존 파일을 덮어쓰지 않고 "live directory
+# exists for doctorpet.click" 오류로 중단한다(리뷰 지적 — certbot v5.6.0
+# RenewableCert.new_lineage() 확인). 그래서 certonly를 실행하기 전에 부트스트랩이 만든 흔적을
+# 먼저 지워야 한다 — nginx는 이미 메모리에 로드해 서비스 중인 인증서로 계속 응답하므로 파일을
+# 지워도 순간적인 중단은 없다. 이 정리는 "최초 1회"에만 필요하다 — 아래 갱신 자동화(crontab)의
+# `certbot renew`는 이미 certbot이 관리하는 정상 lineage를 갱신하는 것이라 이 단계를 포함하면
+# 안 된다(실제 인증서를 지워버리게 된다).
+docker compose exec nginx rm -rf \
+  /etc/letsencrypt/live/doctorpet.click \
+  /etc/letsencrypt/archive/doctorpet.click \
+  /etc/letsencrypt/renewal/doctorpet.click.conf
+
 # nginx가 (임시 자체 서명 인증서로라도) 이미 떠 있는 상태에서 실행한다 — 80에서 ACME 챌린지를 받아야 하므로.
 docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
   -d doctorpet.click --email <운영 담당 이메일> --agree-tos --no-eff-email
@@ -57,7 +71,7 @@ docker compose exec nginx nginx -s reload
 **AWS 콘솔에서 사람이 직접 해야 하는 작업(코드로 자동화되지 않음)**:
 1. **Elastic IP 할당·연결** — EC2 퍼블릭 IP가 재부팅 시 바뀌면 Route 53 A 레코드가 옛 IP를 계속 가리켜 도메인이 조용히 끊긴다. Elastic IP를 이 인스턴스에 연결해 고정한다.
 2. **보안 그룹 인바운드 80·443 상시 허용** — 배포 파이프라인이 SSH(22)만 배포 구간 한정으로 임시 허용하는 것과 달리(`deploy.yml`), 80·443은 실제 사용자 트래픽이 항상 들어와야 하므로 상시 열어둔다.
-3. **Route 53 A 레코드** — `doctorpet.click`(및 필요하면 `www.doctorpet.click`)이 위 Elastic IP를 가리키도록 호스팅 영역에 A 레코드를 추가·확인한다(Route 53에서 도메인을 등록하면 호스팅 영역은 보통 자동 생성된다).
+3. **Route 53 A 레코드** — `doctorpet.click`(apex, 레코드 이름 비워둠)이 위 Elastic IP를 가리키도록 호스팅 영역에 A 레코드를 추가·확인한다(Route 53에서 도메인을 등록하면 호스팅 영역은 보통 자동 생성된다). **`www.doctorpet.click`은 지금 범위에 없다**(리뷰 지적 — 아래 참고) — A 레코드만 추가한다고 되는 게 아니라, `nginx.conf`의 `server_name`과 위 certonly 명령의 `-d`에도 `www.doctorpet.click`을 같이 넣어 인증서 SAN에 포함시켜야 브라우저 경고 없이 동작한다. www도 쓰고 싶어지면 코드·발급 명령을 함께 바꿔야 한다.
 
 ### 3-2. MySQL/Redis — 이번 범위에서 제외
 
