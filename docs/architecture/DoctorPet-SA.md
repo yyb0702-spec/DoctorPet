@@ -386,9 +386,9 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 **기존 결제와의 관계:** 결제당 항목은 `0..N`이다. 항목화 도입 **이전에 생성된 `payments` 행에는 항목이 없으며 백필하지 않는다** — 총액 하나로 합성 항목을 만들면 실제로 입력되지 않은 내역이 영수증(증빙)에 남는다. 위 합계 불변식은 항목이 1건 이상인 결제에만 적용하고, 항목화 이후의 **일반 신규 청구와 정정 재청구**는 초안 항목 1건 이상을 요구한다. 단 항목이 없는 레거시 `OFFLINE_REQUIRED` 결제를 셀프 재청구하는 경우에는 원 내역을 꾸며내지 않기 위해 새 복구 결제도 항목 0건을 허용하고 원 총액만 승계한다(§9-4 "결제 실패 셀프 복구"). 항목이 없는 결제의 영수증은 항목을 빈 배열로 내려보내고 총액만 제공한다. 세율·부가세 분리와 진료 항목 마스터 코드 표준화는 범위 밖이다.
 
-**정정 재청구 스키마** (계약 확정, 구현은 정정 재청구 PR — 아직 적용되지 않았다)
+**정정 재청구·셀프 복구 스키마** (PR #172 구현 완료)
 
-정정 재청구(§9-4)는 기존 결제를 전액 환불한 뒤 **같은 예약에 새 `payments` 행**을 만든다. 현재 `payments.UNIQUE(reservation_id)`가 이를 막으므로, 도입 PR에서 아래로 대체한다.
+정정 재청구(§9-4)는 기존 결제를 전액 환불한 뒤 **같은 예약에 새 `payments` 행**을 만든다. 셀프 복구도 `OFFLINE_REQUIRED` 원 결제를 대체하는 새 행을 만든다. 이를 위해 기존 `payments.UNIQUE(reservation_id)`를 아래 활성 결제 제약으로 교체했다.
 
 | 컬럼·제약 | 내용 |
 | --- | --- |
@@ -400,12 +400,12 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 `correction_of`와 `recovery_of`에는 `CHECK (NOT (correction_of IS NOT NULL AND recovery_of IS NOT NULL))`를 둬 한 새 결제가 정정·복구 양쪽 체인에 동시에 속하지 않게 한다. MySQL에 부분 UNIQUE 인덱스가 없어 `payment_methods.active_default_member_id`와 같은 생성 컬럼 방식을 쓴다 — NULL은 UNIQUE에서 중복이 아니므로 환불·대체된 과거 결제는 제약을 타지 않고 이력으로 남는다. "활성"은 상태만으로 판정할 수 없다(`OFFLINE_REQUIRED`도 재청구 전까지 활성이다). 그래서 `superseded_at IS NULL`을 명시적 마커로 두고 생성 컬럼이 이 값을 함께 본다(활성 정의는 §5-2).
 
-**제약 교체 순서 (expand/contract — 순서를 바꾸면 이중 활성 결제가 생긴다):**
+**적용된 제약 교체 순서 (expand/contract — 순서를 바꾸면 이중 활성 결제가 생긴다):**
 
 1. `correction_of`·`recovery_of`·`superseded_at`·생성 컬럼 `active_reservation_id`를 추가하고 **`UNIQUE(active_reservation_id)`를 먼저 만든다**. 이 단계에서 기존 `UNIQUE(reservation_id)`는 그대로 둔다(기존 행은 예약당 1건이라 새 UNIQUE도 충돌 없이 붙는다).
 2. 중복 활성 결제가 없음을 검사하고 결과를 `schema_migrations` 마커로 기록한다. 검사 실패면 부팅을 실패시켜 스키마 불일치를 드러낸다(`reservation_event_unique_v1`과 같은 방식).
 3. **그 다음에** `UNIQUE(reservation_id)`를 제거한다.
-4. 재청구 경로(선기록의 `exists(reservation_id)` 검사 교체)는 3이 끝난 배포에서 활성화한다.
+4. 청구 선기록·초안 쓰기 게이트를 활성 결제 기준으로 교체하고 재청구 경로를 활성화한다.
 
 3을 1보다 먼저 하면 두 제약이 모두 없는 창이 생겨 그 사이의 동시 청구가 활성 결제를 2건 만든다. 4를 3보다 먼저 하면 재청구가 옛 UNIQUE에 막혀 실패한다. Level 3(실제 MySQL) 검증은 두 가지를 함께 보여야 한다 — **구버전식 INSERT(새 컬럼 미지정)가 성공**하고, **신버전 동시 재청구에서 활성 결제가 1건만 성립**하는 것(신규 UNIQUE·NOT NULL 마이그레이션 확인 항목은 `docs/ai/completion-checklist.md`).
 
@@ -854,7 +854,7 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 - 예약 재지정은 `{ "paymentMethodId": number }`를 받고 성공은 `200 ApiResponse<Void>`다. 인증 보호자 소유의 `ACTIVE` 결제수단만 지정할 수 있고, 예약이 `REQUESTED`·`CONFIRMED`일 때만 허용한다. **결제 선기록이 이미 있으면 상태와 무관하게** `RESERVATION_019(PAYMENT_ALREADY_STARTED)`, 진료가 시작된 뒤의 상태는 `RESERVATION_018(PAYMENT_METHOD_CHANGE_NOT_ALLOWED)`로 거부한다. 경로는 예약 리소스지만 계약은 결제 쪽이라 여기에 둔다.
 - 재지정과 청구 선기록은 같은 예약 행을 `PESSIMISTIC_WRITE`로 잠가 직렬화한다. 청구가 먼저 커밋되면 이후 재지정이 결제를 발견해 거부되고, 재지정이 먼저 커밋되면 이후 청구가 교체된 결제수단의 brand·last4 스냅샷을 쓴다.
 
-청구 항목 초안·영수증(고도화 3.1·3.4, PR #158 구현 완료) — 항목 초안은 **전체 교체(PUT)** 방식이다. 요청은 `{ items: [{ name, quantity, unitPrice }] }`이고 항목 금액과 총액은 받지 않는다(서버가 `quantity * unitPrice`로 산출). 성공은 `200 ApiResponse<PaymentItemDraftResponse>`이며 저장된 초안 전체와 **낙관적 검증 토큰(`draftToken`)**을 함께 돌려준다(조회 응답도 같은 형태다). 예약 행 잠금 아래에서 기존 초안을 지우고 다시 저장한다. 전제는 **자병원 예약**(불일치 시 `FORBIDDEN_HOSPITAL`)이고 **진료 완료 상태**(아니면 `RESERVATION_NOT_CHARGEABLE`)이며, 저장 전에 합계까지 검증해 어차피 청구할 수 없는 구성이 초안으로 남지 않게 한다(청구가 최종 게이트다). **거부 게이트는 항목 상태가 아니라 결제 존재 여부**다 — 현재 구현은 `exists(reservation_id)`라 그 예약에 결제 행이 하나라도 있으면 `PAYMENT_ITEM_ALREADY_CHARGED`(409)로 거부한다. 정정 재청구는 환불된 과거 결제가 남은 상태에서 새 초안을 만들어야 하므로, 그 구현 PR이 이 게이트를 **활성 결제의 상태까지 보는 술어로 교체**한다 — 활성 결제가 없거나 `REFUNDED`일 때만 허용하고 나머지 상태는 거부한다(§9-4 "교체 후 초안 게이트의 정확한 술어" 표. 청구 선기록 게이트와 함께 두 곳이 교체 대상이다).
+청구 항목 초안·영수증(고도화 3.1·3.4, PR #158 구현 완료) — 항목 초안은 **전체 교체(PUT)** 방식이다. 요청은 `{ items: [{ name, quantity, unitPrice }] }`이고 항목 금액과 총액은 받지 않는다(서버가 `quantity * unitPrice`로 산출). 성공은 `200 ApiResponse<PaymentItemDraftResponse>`이며 저장된 초안 전체와 **낙관적 검증 토큰(`draftToken`)**을 함께 돌려준다(조회 응답도 같은 형태다). 예약 행 잠금 아래에서 기존 초안을 지우고 다시 저장한다. 전제는 **자병원 예약**(불일치 시 `FORBIDDEN_HOSPITAL`)이고 **진료 완료 상태**(아니면 `RESERVATION_NOT_CHARGEABLE`)이며, 저장 전에 합계까지 검증해 어차피 청구할 수 없는 구성이 초안으로 남지 않게 한다(청구가 최종 게이트다). 초안 쓰기 게이트는 활성 결제의 상태를 확인한다 — 활성 결제가 없거나 `REFUNDED`이면 작성할 수 있고, `PENDING`·`PAID`·`OFFLINE_PAID`·`OFFLINE_REQUIRED`이면 `PAYMENT_ITEM_ALREADY_CHARGED`(409)로 거부한다. `REFUNDED` 예외는 정정 재청구용 초안을 만들기 위해 필요하며, `OFFLINE_REQUIRED` 셀프 복구는 새 초안 대신 원 항목을 복제한다(§9-4).
 
 영수증은 보호자용(`/api/payments/{paymentId}/receipt`)과 병원용(`/api/hospital/payments/{paymentId}/receipt`)을 나눠 인가 주체를 분리한다 — 보호자는 자기 예약의 결제만, 스태프는 자병원 결제만 조회한다. 발급 대상이 아닌 상태(`PENDING`·`OFFLINE_REQUIRED`)는 `RECEIPT_NOT_AVAILABLE`(409)다.
 
@@ -971,8 +971,7 @@ Redis에는 시간에 따라 변하는 최종 응답이 아니라 페이지 단�
     - 검증: 저장(A) → 저장(B) → 청구(A) 순서를 실제 MySQL로 재현해 A의 청구가 409로 거부되고 결제 행이 생기지 않는지 확인한다.
   - **총액의 출처**: 총액은 **서버가 항목 합계로 산출**한다("클라이언트 결과를 믿지 않는다"는 위 검증 원칙과 같다). 청구 요청은 **총액도 항목도 body로 받지 않는다**(§8-7) — 받아서 검증하는 방식이 아니라 받지 않는 방식으로 고정한다. 총액을 요청에서 받는 형태로 되돌리지 않는다.
   - **항목 수정**: 락을 잡은 뒤 `WHERE payment_id IS NULL` 조건부 UPDATE/DELETE로만 반영한다. 0건이면 이미 청구된 것이므로 `PAYMENT_ITEM_ALREADY_CHARGED`(409)로 거부한다. 청구가 먼저 커밋되면 이후 수정은 이 조건에서 반드시 0건이 된다.
-  - **초안 쓰기 게이트(정정 재청구 도입 시 함께 교체)**: 항목 쓰기는 락 아래에서 "이 예약에 이미 결제가 있는가"를 먼저 보고 거부한다. 현재 구현은 `exists(reservation_id)`라 **예약에 결제 행이 하나라도 있으면 새 초안을 만들 수 없다** — 정정 재청구는 환불된 과거 결제가 남은 상태에서 새 초안을 작성해야 하므로 이 검사를 그대로 두면 성립하지 않는다. 따라서 정정 재청구 구현 PR은 청구 선기록의 `exists(reservation_id)`와 **이 초안 게이트를 함께** 바꾼다(두 곳 모두 교체 대상).
-  - **교체 후 초안 게이트의 정확한 술어**: "활성 결제가 있으면 거부"만으로는 **정정 재청구도 막힌다** — 전액 환불은 `superseded_at`을 세우지 않으므로(대체는 재청구 트랜잭션에서 일어난다) `REFUNDED` 결제가 그대로 활성이기 때문이다. 그래서 게이트는 **활성 결제의 상태까지 본다**.
+  - **초안 쓰기 게이트(PR #172에서 교체 완료)**: 항목 쓰기는 예약 행 락 아래에서 활성 결제를 조회하고 **상태까지 판정**한다. 단순히 "활성 결제가 있으면 거부"하면 정정 대기 중인 `REFUNDED` 결제도 막히므로 아래 표의 술어를 적용한다. 청구 선기록도 같은 PR에서 과거 결제 존재 여부가 아니라 활성 결제 기준으로 교체했다.
 
 | 그 예약의 활성 결제 | 초안 쓰기 | 근거 |
 | --- | --- | --- |
@@ -1134,13 +1133,13 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 
 ## 9-10. 병원 리뷰 작성권·정합성
 
-리뷰 자격은 현재 유효한 결제 상태로, 작성 단위는 예약으로 분리한다. 로그인 보호자가 예약 소유자이고 같은 예약에 `PAID` 또는 `OFFLINE_PAID` 결제가 있을 때만 작성할 수 있다. `REFUNDED`, `PENDING`, `OFFLINE_REQUIRED`, 결제 없음은 거부한다. `reviews.UNIQUE(reservation_id)`는 활성 리뷰 중복을 막고, `reservations.reviewed_at`은 사용자가 Hard Delete한 뒤에도 최초 1회 작성권을 다시 쓰지 못하게 한다.
+리뷰 자격은 현재 활성 결제 상태로, 작성 단위는 예약으로 분리한다. 로그인 보호자가 예약 소유자이고 같은 예약의 활성 결제가 `PAID` 또는 `OFFLINE_PAID`일 때만 작성할 수 있다. 활성 결제가 `REFUNDED`, `PENDING`, `OFFLINE_REQUIRED`이거나 결제가 없으면 거부하며, 대체된 과거 결제는 자격 판정에 사용하지 않는다. `reviews.UNIQUE(reservation_id)`는 활성 리뷰 중복을 막고, `reservations.reviewed_at`은 사용자가 Hard Delete한 뒤에도 최초 1회 작성권을 다시 쓰지 못하게 한다.
 
 최초 작성은 `reviewed_at IS NULL`이면서 유효 결제가 존재하는 예약만 조건부 UPDATE해 작성권을 선점한 뒤 같은 트랜잭션에서 리뷰를 INSERT한다. UPDATE 1건만 성공으로 인정하고, INSERT가 실패하면 선점도 롤백한다. 단순 선조회 후 저장하는 check-then-act는 금지한다.
 
 환불 Tx2는 `PAID→REFUNDED` 조건부 전이, 리뷰 Hard Delete, `reviewed_at=NULL`을 하나의 로컬 트랜잭션으로 묶는다. 리뷰 작성과 환불이 경합하면 최종 결과는 둘 중 하나다. 작성이 먼저 커밋되면 환불이 그 리뷰를 삭제하고 작성권을 초기화하며, 환불이 먼저 커밋되면 작성의 유효 결제 조건부 선점이 0건이 되어 실패한다. 어느 순서에서도 `REFUNDED` 결제에 리뷰가 남아서는 안 된다. 이를 실제 MySQL 다중 스레드 통합 테스트로 검증한다.
 
-사용자 직접 삭제는 리뷰 행만 삭제하고 `reviewed_at`을 유지한다. 환불 삭제만 `reviewed_at`을 초기화한다. 정정 재청구로 예약당 결제가 1:N이 되면, 같은 예약에 새 `PAID` 결제가 생긴 경우 초기화된 작성권을 다시 사용할 수 있다(예약당 최초 1회 제한은 그대로이므로 작성 기회 자체는 늘지 않는다). 정정 재청구는 §9-4에서 확정한 정책이며 구현은 후속이다. 신고·숨김·관리자 검수, AI 추천·검색 랭킹 반영은 현재 범위 밖이다.
+사용자 직접 삭제는 리뷰 행만 삭제하고 `reviewed_at`을 유지한다. 환불 삭제만 `reviewed_at`을 초기화한다. 정정 재청구로 예약당 결제가 1:N이 되며, 같은 예약에 새 활성 `PAID` 결제가 생긴 경우 초기화된 작성권을 다시 사용할 수 있다(예약당 최초 1회 제한은 그대로이므로 작성 기회 자체는 늘지 않는다). 정정 재청구는 §9-4의 계약대로 구현됐다. 신고·숨김·관리자 검수, AI 추천·검색 랭킹 반영은 현재 범위 밖이다.
 
 ## 9-11. 이미지 업로드 (`ImageStorageGateway`)
 
