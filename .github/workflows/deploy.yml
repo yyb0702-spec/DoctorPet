@@ -168,6 +168,23 @@ jobs:
               exit 0
             fi
 
+            # 서버 ~/DoctorPet에 추적 파일(예: docker-compose.yml)의 커밋되지 않은 로컬 수정이
+            # 남아 있으면 아래 git checkout --detach가 그 변경을 덮어쓰길 거부해 배포 전체가
+            # 실패한다 — 실제로 이 문제로 연속된 배포(#57~#60)가 매번 같은 이유로 막혔다.
+            # 이 파이프라인의 설계 원칙은 "서버의 추적 파일 상태는 항상 git이 결정한다"는 것
+            # (바로 아래 주석 참고) — .active_color 같은 gitignore 대상 상태 파일만 서버 로컬
+            # 상태를 갖고, 추적 파일에 남은 로컬 수정은 실수(SSH로 직접 테스트하며 임시로 고친
+            # 뒤 git에 반영하는 걸 깜빡한 경우 등)로 보고 배포가 매번 그 자리에서 영구히 막히지
+            # 않도록 자동으로 되돌린다. 완전히 조용히 버리면 같은 실수가 반복돼도 못 알아채므로,
+            # 무엇을 버리는지 diff를 로그에 남긴 뒤 버린다 — git reset --hard는 추적 파일만
+            # 되돌리고 gitignore 대상(untracked) 파일은 건드리지 않는다.
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "::warning::~/DoctorPet에 커밋되지 않은 로컬 변경이 있어 배포 전에 되돌립니다. 실제로 필요한 변경이었다면 git으로 커밋해 반영해 주세요. 아래는 되돌리기 전 diff입니다."
+              git status --short
+              git diff
+              git reset --hard HEAD
+            fi
+
             # 이미지와 Compose 설정을 같은 커밋으로 고정한다(리뷰 지적 P1) — git pull로 실행
             # 시점의 최신 develop을 쓰면, CI를 통과한 이미지(SHA A)와 그 사이 develop에 병합된
             # 최신 docker-compose.yml(SHA B)이 조합돼 환경변수·포트·서비스 구조가 어긋난 채로
