@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.payment.dto.response.PaymentItemDraftResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentItemResponse;
+import com.doctorpet.domain.payment.entity.Payment;
 import com.doctorpet.domain.payment.entity.PaymentItem;
 import com.doctorpet.domain.payment.exception.PaymentErrorCode;
 import com.doctorpet.domain.payment.port.ReservationChargeView;
@@ -61,7 +62,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("진료 완료된 자병원 예약의 초안을 전체 교체하고, 항목 금액은 서버가 수량×단가로 산출한다")
     void replaceDrafts_savesServerCalculatedAmounts() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
         given(paymentItemRepository.saveAll(any())).willAnswer(invocation -> invocation.getArgument(0));
 
         PaymentItemDraftResponse savedResponse = paymentItemDraftService.replaceDrafts(
@@ -86,7 +87,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("음수 단가의 할인 항목을 포함해도 합계가 양수면 초안으로 저장된다")
     void replaceDrafts_allowsDiscountItem() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
         given(paymentItemRepository.saveAll(any())).willAnswer(invocation -> invocation.getArgument(0));
 
         PaymentItemDraftResponse savedResponse = paymentItemDraftService.replaceDrafts(
@@ -101,7 +102,10 @@ class PaymentItemDraftServiceTest {
     @DisplayName("이미 청구가 시작된 예약이면 PAYMENT_ITEM_ALREADY_CHARGED(409)이고 아무것도 쓰지 않는다")
     void replaceDrafts_alreadyCharged_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(true);
+        // 활성 결제가 REFUNDED가 아니면(여기선 PENDING) 이미 청구가 시작된 것이라 초안을 바꿀 수 없다(고도화 3.5-a 초안 게이트).
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID))
+                .willReturn(Optional.of(Payment.pending(
+                        RESERVATION_ID, "pay_active", PAYMENT_METHOD_ID, "VISA", "1234", 20_000)));
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(
                 RESERVATION_ID, STAFF_MEMBER_ID, List.of(new PaymentItemCommand("진찰료", 1, 20_000))))
@@ -115,7 +119,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("빈 목록이면 INVALID_PAYMENT_ITEM")
     void replaceDrafts_emptyItems_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() ->
                 paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID, List.of()))
@@ -128,7 +132,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("수량이 0이거나 음수면 INVALID_PAYMENT_ITEM(요청 DTO @Positive를 우회한 경로까지 막는다)")
     void replaceDrafts_nonPositiveQuantity_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID,
                 List.of(new PaymentItemCommand("진찰료", 0, 20_000))))
@@ -145,7 +149,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("항목명이 비어 있으면 INVALID_PAYMENT_ITEM")
     void replaceDrafts_blankName_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID,
                 List.of(new PaymentItemCommand("  ", 1, 20_000))))
@@ -157,7 +161,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("할인이 커서 합계가 0 이하가 되면 INVALID_AMOUNT — 청구할 수 없는 구성은 초안으로도 남기지 않는다")
     void replaceDrafts_nonPositiveTotal_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID, List.of(
                 new PaymentItemCommand("진찰료", 1, 20_000),
@@ -171,7 +175,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("항목 하나의 수량×단가가 int 범위를 넘으면 INVALID_AMOUNT(오버플로가 음수로 되감기지 않는다)")
     void replaceDrafts_lineAmountOverflow_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID,
                 List.of(new PaymentItemCommand("과다 항목", 2, Integer.MAX_VALUE))))
@@ -184,7 +188,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("항목별로는 int 범위 안이어도 합계가 넘치면 INVALID_AMOUNT")
     void replaceDrafts_totalOverflow_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID, List.of(
                 new PaymentItemCommand("항목1", 1, Integer.MAX_VALUE),
@@ -197,7 +201,7 @@ class PaymentItemDraftServiceTest {
     @DisplayName("합계가 절대 상한을 넘으면 INVALID_AMOUNT")
     void replaceDrafts_overMaxTotal_rejected() {
         stubChargeableReservationForUpdate();
-        given(paymentRepository.existsByReservationId(RESERVATION_ID)).willReturn(false);
+        given(paymentRepository.findActiveByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentItemDraftService.replaceDrafts(RESERVATION_ID, STAFF_MEMBER_ID,
                 List.of(new PaymentItemCommand("진찰료", 2, MAX_AMOUNT / 2 + 1))))

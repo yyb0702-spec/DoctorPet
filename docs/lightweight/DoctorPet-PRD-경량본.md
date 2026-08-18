@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.59, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.61, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 제품 개요
@@ -78,7 +78,7 @@ AI 상담은 비로그인 사용자도 임시 정보로 이용할 수 있다. MV
 - 노쇼 판정·정정과 전 병원 통합 이력
 - 빌링키 후불 결제와 오프라인 정산
 - 오청구 전액 환불과 결제수단 기본값·예약 결제수단 재지정
-- 청구 항목화, 구조화 JSON 영수증, `OFFLINE_REQUIRED` 셀프 재청구, 정정 재청구 (정책 확정·구현 후속)
+- 청구 항목화, 구조화 JSON 영수증, `OFFLINE_REQUIRED` 셀프 재청구, 정정 재청구 (구현 완료)
 - 알림 폴링
 ### 확장
 - 전국 단위 병원 데이터 확대와 성능 분석 기반 검색 인덱스 고도화

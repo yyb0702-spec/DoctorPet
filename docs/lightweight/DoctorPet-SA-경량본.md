@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.59, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.61, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 시스템 구성
@@ -164,7 +164,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 보호자 셀프 재청구는 `OFFLINE_REQUIRED`에서만 허용하고, `PENDING`에서는 이중 결제 위험 때문에 허용하지 않는다(정산 스케줄러가 확정한다). 원 항목·총액은 새 결제로 원자적으로 그대로 승계하며, 항목이 없던 기존 결제에는 가짜 항목을 만들지 않는다.
 - 활성 결제는 상태가 아니라 `superseded_at IS NULL`로 판정한다. 대체는 `OFFLINE_REQUIRED`·`REFUNDED`에서만 허용하고 `PAID`·`OFFLINE_PAID`는 대체하지 않는다.
 - 셀프 재청구와 오프라인 정산은 둘 다 활성 조건을 포함한 조건부 UPDATE로만 성립해 먼저 커밋한 쪽만 이긴다(자동결제·현장 수납 이중 수납 방지).
-- 정정 재청구는 전액 환불된 결제 뒤에 새 결제 행을 만들고 이전 결제에 연결하는 방식으로 확정했다. 예약당 활성 결제는 1건이며, 예약당 결제 1건을 강제하는 현재 제약을 활성 결제 기준으로 교체하기 전까지는 구현이 동작하지 않는다.
+- 정정 재청구는 전액 환불된 결제 뒤에 새 결제 행을 만들고 이전 결제에 연결하는 방식으로 구현됐다. 구 `UNIQUE(reservation_id)`는 생성 컬럼 `active_reservation_id`의 UNIQUE로 교체됐고, `superseded_at IS NULL`인 활성 결제만 예약당 1건으로 강제한다. 보호자 셀프 재청구와 병원 스태프 정정 재청구 API는 각각 원 결제 승계와 새 정정 초안 합계로 새 결제를 생성한다.
 - 부분 환불과 현장 수납분 환불은 계약 미확정·범위 밖이다.
 - 결제 웹훅은 확장 범위이다.
 ## 9. 슬롯과 스케줄러
