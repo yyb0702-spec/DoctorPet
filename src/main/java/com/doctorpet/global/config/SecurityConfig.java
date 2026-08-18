@@ -3,6 +3,7 @@ package com.doctorpet.global.config;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtAuthenticationFilter;
+import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +18,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.util.StringUtils;
 
 @Configuration
 @RequiredArgsConstructor
@@ -30,8 +32,29 @@ public class SecurityConfig {
     // 주입받지 않고 @Value로 직접 읽는 이유는 CorsConfig의 클래스 주석 참고 — 기존 @WebMvcTest
     // 슬라이스 테스트들이 이 값 때문에 새 빈을 mock으로 추가하지 않아도 되게 한다. 비어 있으면
     // (기본값) 아래 filterChain()이 어떤 오리진도 허용하지 않는다(fail-closed).
+    //
+    // (PR 4차 리뷰 이후 CI `integrationTest`에서 실측으로 드러난 버그 수정) 원래 이 필드를
+    // 곧바로 `@Value("${cors.allowed-origins:}") private List<String>`로 선언했었다 — 오리진이
+    // 하나뿐이거나(기존 테스트) 아예 빈 문자열일 때는 우연히 잘 동작해 놓쳤지만, 실제로 콤마로
+    // 구분된 여러 오리진(예: `http://localhost:5173,http://127.0.0.1:5173`, 이번 라운드에서
+    // 로컬 프론트 dev 오리진 두 개를 기본값으로 채우며 처음 노출됨)을 넣으면 Spring이 이를
+    // 두 개로 쪼갠 List가 아니라 콤마까지 통째로 담은 문자열 1개짜리 List로 바인딩해, preflight의
+    // Origin이 그 어느 쪽과도 정확히 일치하지 않아 정상 오리진까지 403으로 거부됐다(CI가 실제로
+    // 이 증상으로 잡아냄 — `Status expected:<200> but was:<403>`). 원문 문자열을 그대로 받아
+    // 이 클래스가 직접 콤마로 split·trim하면 이 바인딩 방식에 기대지 않아도 되므로, 오리진 개수와
+    // 무관하게 항상 의도한 대로 파싱된다.
     @Value("${cors.allowed-origins:}")
-    private List<String> corsAllowedOrigins;
+    private String corsAllowedOriginsRaw;
+
+    private static List<String> parseAllowedOrigins(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -74,10 +97,10 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
-                // 브라우저 프론트엔드용 CORS(기능 구멍 점검 대응) — corsAllowedOrigins가 기본값
-                // (빈 리스트)이면 어떤 오리진도 허용하지 않아 지금까지의 동작과 동일하다(Origin
-                // 헤더가 없는 요청에는 애초에 영향이 없다).
-                .cors(cors -> cors.configurationSource(CorsConfig.corsConfigurationSource(corsAllowedOrigins)))
+                // 브라우저 프론트엔드용 CORS(기능 구멍 점검 대응) — parseAllowedOrigins가 빈
+                // 문자열을 빈 리스트로 바꾸므로, 미설정 시 어떤 오리진도 허용하지 않는다(fail-closed).
+                .cors(cors -> cors.configurationSource(
+                        CorsConfig.corsConfigurationSource(parseAllowedOrigins(corsAllowedOriginsRaw))))
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
