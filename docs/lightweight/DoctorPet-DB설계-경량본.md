@@ -169,7 +169,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
 | `id` | BIGINT | PK |
-| `reservation_id` | BIGINT | 예약 FK, UNIQUE |
+| `reservation_id` | BIGINT | 예약 FK. 정정·복구 이력을 보존하므로 예약과 결제는 1:N |
 | `merchant_payment_id` | VARCHAR | 가맹점 결제 ID, UNIQUE |
 | `payment_method_id` | BIGINT | 결제수단 FK |
 | `card_brand_snapshot` | VARCHAR | 결제 당시 카드사, `NULL` 가능 |
@@ -186,10 +186,14 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `created_at` | DATETIME | 생성 시각 |
 | `paid_at` | DATETIME | 결제 완료 시각, `NULL` 가능 |
 | `refunded_at` | DATETIME | 전액 환불 확정 시각, `NULL` 가능 |
+| `correction_of` | BIGINT | 정정한 이전 결제 FK, `NULL` 가능 |
+| `recovery_of` | BIGINT | 셀프 재청구로 대체한 이전 결제 FK, `NULL` 가능. `correction_of`와 동시 사용 금지 |
+| `superseded_at` | DATETIME | 다른 결제로 대체된 시각, `NULL`이면 활성 |
+| `active_reservation_id` | BIGINT | 저장 생성 컬럼. 활성 결제일 때만 `reservation_id`, 아니면 `NULL` |
 
-정정 재청구·셀프 재청구 도입 시 추가·교체할 항목(계약 확정, 구현 후속): `correction_of`(정정한 이전 결제 id, `NULL` 가능), `recovery_of`(셀프 재청구로 대체한 이전 결제 id, `NULL` 가능이며 `correction_of`와 동시 사용 금지), `superseded_at`(대체된 시각 — `NULL`이 활성 마커), 생성 컬럼 `active_reservation_id`(활성일 때만 `reservation_id`)와 `UNIQUE(active_reservation_id)`. `CHECK (NOT (correction_of IS NOT NULL AND recovery_of IS NOT NULL))`가 두 체인의 동시 소속을 막는다. 이 UNIQUE가 기존 `UNIQUE(reservation_id)`를 대신해 "예약당 활성 결제 1건"을 강제하며, 환불·대체된 과거 결제는 `NULL`이라 제약을 타지 않고 이력으로 남는다.
+`UNIQUE(active_reservation_id)`가 "예약당 활성 결제 1건"을 강제하며 기존 `UNIQUE(reservation_id)`는 제거됐다. `CHECK (NOT (correction_of IS NOT NULL AND recovery_of IS NOT NULL))`는 한 결제가 정정·복구 체인에 동시에 속하는 것을 막는다. 환불·대체된 과거 결제의 `active_reservation_id`는 `NULL`이므로 제약을 타지 않고 이력으로 남는다.
 
-교체 순서는 expand/contract를 지킨다 — ① 새 컬럼·생성 컬럼·`UNIQUE(active_reservation_id)` 추가(구 UNIQUE 유지) → ② 중복 활성 검사와 마커 기록 → ③ `UNIQUE(reservation_id)` 제거 → ④ 다음 배포에서 재청구 경로 활성화. ③을 ①보다 먼저 하면 두 제약이 모두 없는 창에서 활성 결제가 2건 생긴다.
+제약 교체는 `PaymentActiveConstraintMigrationRunner`가 expand/contract 순서로 수행한다 — ① 새 컬럼·생성 컬럼·`UNIQUE(active_reservation_id)` 추가(구 UNIQUE 유지) → ② 중복 활성 검사와 마커 기록 → ③ `UNIQUE(reservation_id)` 제거. 재청구 경로는 이 마이그레이션이 완료된 스키마에서 동작한다.
 
 ### `payment_refunds`
 | 필드 | 타입 | 제약·설명 |
