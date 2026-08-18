@@ -6,7 +6,6 @@ import com.doctorpet.global.security.JwtAuthenticationFilter;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -21,7 +20,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.util.StringUtils;
 
-@Slf4j
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -96,17 +94,8 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        // (진단용 로그, PR 리뷰 CORS 회귀 반복 실패 추적) 두 차례 수정(@Value List → @Value
-        // String+split → Environment.getProperty)에도 CI에서 같은 증상이 재발할 경우, 다음
-        // CI 로그에서 이 필드에 실제로 어떤 원문 값이 들어왔는지 바로 확인하기 위해 남겨둔다.
-        // 문제가 해소되면(다음 CI 그린 확인 후) 지워도 된다.
-        String corsAllowedOriginsRaw = environment.getProperty("cors.allowed-origins", "");
-        List<String> corsAllowedOrigins = parseAllowedOrigins(corsAllowedOriginsRaw);
-        log.info(
-                "CORS 허용 오리진 로딩: raw=[{}], parsed={}",
-                corsAllowedOriginsRaw,
-                corsAllowedOrigins
-        );
+        List<String> corsAllowedOrigins =
+                parseAllowedOrigins(environment.getProperty("cors.allowed-origins", ""));
 
         http
                 .csrf(AbstractHttpConfigurer::disable)
