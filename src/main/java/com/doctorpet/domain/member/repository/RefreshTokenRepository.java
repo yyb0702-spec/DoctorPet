@@ -2,8 +2,10 @@ package com.doctorpet.domain.member.repository;
 
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.MemberBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.TokenHasher;
 import java.time.Duration;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -32,13 +34,14 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 @RequiredArgsConstructor
-public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenBlacklistPort {
+public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenBlacklistPort, PasswordChangeInvalidationPort {
 
     private static final String KEY_PREFIX = "refresh:";
     private static final String LOCK_KEY_PREFIX = "refresh-lock:";
     private static final String FENCE_KEY_PREFIX = "refresh-fence:";
     private static final String WITHDRAWN_KEY_PREFIX = "withdrawn:";
     private static final String LOGOUT_BLACKLIST_KEY_PREFIX = "at-blacklist:";
+    private static final String PASSWORD_CHANGED_KEY_PREFIX = "pwd-changed-at:";
 
     // 회원당 재발급 요청을 직렬화하는 락의 TTL. 크래시 등으로 unlock()이 못 불려도 이 시간 뒤엔
     // 자동으로 풀린다 — 정상 처리(회원 조회 + JWT 2개 생성 + Redis CAS 1회)는 이보다 훨씬 빨리 끝난다.
@@ -277,6 +280,36 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
         return Boolean.TRUE.equals(redisTemplate.hasKey(logoutBlacklistKey(jti)));
     }
 
+    /*
+     * 비밀번호 재설정 시 기존 Access Token 무효화(기능 구멍 점검 대응, PasswordChangeInvalidationPort
+     * 참고) — 이 시각을 "이 회원의 마지막 비밀번호 재설정 시각"으로 기록해둔다. blacklistMember()
+     * (탈퇴)와 달리 memberId를 통째로 막지 않는 이유: 비밀번호 재설정 직후 사용자가 새 비밀번호로
+     * 곧바로 재로그인하는 것이 정상 흐름인데, memberId 단위로 막으면 그때 발급되는 새 Access
+     * Token까지 최대 TTL만큼 같이 막혀버린다. 대신 "이 시각 이전에 발급된 토큰"만 걸러내도록
+     * 시각 자체를 저장해두고, isTokenInvalidatedByPasswordChange()가 토큰의 iat과 비교한다.
+     *
+     * TTL을 Access Token 만료 시간과 맞추는 이유는 blacklistMember()·blacklistAccessToken()과
+     * 동일하다 — 그 시점 이후엔 재설정 이전에 발급된 토큰도 어차피 자연 만료라, 이 키가 사라져도
+     * 안전하다.
+     */
+    public void invalidateTokensIssuedBeforeNow(Long memberId, Duration ttl) {
+        redisTemplate.opsForValue().set(passwordChangedKey(memberId), String.valueOf(System.currentTimeMillis()), ttl);
+    }
+
+    /**
+     * JwtAuthenticationFilter가 Access Token 인증 직전에 호출해, 이 토큰이 마지막 비밀번호
+     * 재설정보다 먼저 발급됐는지 확인한다. 재설정 이력이 없으면(키 자체가 없거나 TTL 만료)
+     * false — 아무 토큰도 걸러내지 않는다.
+     */
+    @Override
+    public boolean isTokenInvalidatedByPasswordChange(Long memberId, Date tokenIssuedAt) {
+        String value = redisTemplate.opsForValue().get(passwordChangedKey(memberId));
+        if (value == null) {
+            return false;
+        }
+        return tokenIssuedAt.getTime() < Long.parseLong(value);
+    }
+
     /**
      * 저장된 값(예: {@code "5:a3f5..."})에서 콜론 앞 펜싱 토큰을 떼고 순수 해시만 반환한다.
      * 콜론이 없으면(펜싱 토큰이 아직 한 번도 기록되지 않음 — 로그인 직후 save(), 또는 #123
@@ -307,5 +340,9 @@ public class RefreshTokenRepository implements MemberBlacklistPort, AccessTokenB
 
     private String logoutBlacklistKey(String jti) {
         return LOGOUT_BLACKLIST_KEY_PREFIX + jti;
+    }
+
+    private String passwordChangedKey(Long memberId) {
+        return PASSWORD_CHANGED_KEY_PREFIX + memberId;
     }
 }

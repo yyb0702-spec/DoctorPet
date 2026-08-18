@@ -3,7 +3,9 @@ package com.doctorpet.global.config;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtAuthenticationFilter;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -23,6 +25,13 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
+
+    // 브라우저 프론트엔드용 CORS 허용 오리진(기능 구멍 점검 대응, CorsConfig 참고). 별도 빈으로
+    // 주입받지 않고 @Value로 직접 읽는 이유는 CorsConfig의 클래스 주석 참고 — 기존 @WebMvcTest
+    // 슬라이스 테스트들이 이 값 때문에 새 빈을 mock으로 추가하지 않아도 되게 한다. 비어 있으면
+    // (기본값) 아래 filterChain()이 어떤 오리진도 허용하지 않는다(fail-closed).
+    @Value("${cors.allowed-origins:}")
+    private List<String> corsAllowedOrigins;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -65,6 +74,10 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
+                // 브라우저 프론트엔드용 CORS(기능 구멍 점검 대응) — corsAllowedOrigins가 기본값
+                // (빈 리스트)이면 어떤 오리진도 허용하지 않아 지금까지의 동작과 동일하다(Origin
+                // 헤더가 없는 요청에는 애초에 영향이 없다).
+                .cors(cors -> cors.configurationSource(CorsConfig.corsConfigurationSource(corsAllowedOrigins)))
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->

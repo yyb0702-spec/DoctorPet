@@ -139,6 +139,17 @@ public class JwtTokenProvider {
         return remainingMillis > 0 ? Duration.ofMillis(remainingMillis) : Duration.ZERO;
     }
 
+    /**
+     * 토큰의 발급 시각(iat)을 반환한다. {@link #validateToken(String)}으로 서명·만료를 먼저
+     * 검증한 뒤에만 호출해야 한다 — 비밀번호 재설정 이후 발급된 토큰인지 판단하는 데 쓴다
+     * (PasswordChangeInvalidationPort 참고). iat/exp는 초 단위로 잘리므로(클래스 상단 jti 도입
+     * 배경 주석 참고) 같은 초 안에서 벌어지는 재설정↔재로그인 경합은 이 비교로 완전히 걸러내지
+     * 못할 수 있다 — 실무적으로 무시할 수 있는 폭이라 별도 처리하지 않는다.
+     */
+    public Date getIssuedAt(String token) {
+        return parseClaims(token).getIssuedAt();
+    }
+
     public MemberPrincipal getMemberPrincipal(String token) {
         Claims claims = parseClaims(token);
 

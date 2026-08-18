@@ -3,6 +3,7 @@ package com.doctorpet.domain.member.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.Date;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,7 @@ class RefreshTokenRepositoryIntegrationTest {
         redisTemplate.delete("refresh:" + MEMBER_ID);
         redisTemplate.delete("refresh-lock:" + MEMBER_ID);
         redisTemplate.delete("refresh-fence:" + MEMBER_ID);
+        redisTemplate.delete("pwd-changed-at:" + MEMBER_ID);
     }
 
     @Test
@@ -59,6 +61,33 @@ class RefreshTokenRepositoryIntegrationTest {
         refreshTokenRepository.blacklistMember(MEMBER_ID, Duration.ofMinutes(1));
 
         assertThat(refreshTokenRepository.isBlacklisted(MEMBER_ID)).isTrue();
+    }
+
+    @Test
+    void 재설정_이력이_없으면_isTokenInvalidatedByPasswordChange가_false다() {
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, new Date()))
+                .isFalse();
+    }
+
+    @Test
+    void invalidateTokensIssuedBeforeNow_이후에는_그_이전에_발급된_토큰이_무효로_판정된다() throws InterruptedException {
+        Date issuedBeforeReset = new Date();
+        Thread.sleep(10);
+
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(MEMBER_ID, Duration.ofMinutes(1));
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, issuedBeforeReset))
+                .isTrue();
+    }
+
+    @Test
+    void invalidateTokensIssuedBeforeNow_이후에_발급된_토큰은_무효로_판정되지_않는다() throws InterruptedException {
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(MEMBER_ID, Duration.ofMinutes(1));
+        Thread.sleep(10);
+        Date issuedAfterReset = new Date();
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, issuedAfterReset))
+                .isFalse();
     }
 
     @Test

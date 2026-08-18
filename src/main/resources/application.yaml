@@ -45,6 +45,13 @@ server:
   # 뒤 종료한다.
   shutdown: graceful
 
+# 브라우저 프론트엔드용 CORS 허용 오리진(기능 구멍 점검 대응, CorsProperties·CorsConfig 참고).
+# 기본값은 빈 리스트 — 어떤 오리진도 허용하지 않아 프론트가 아직 없는 지금 상태와 동일하게
+# 동작한다. 프론트 도메인이 정해지면 CORS_ALLOWED_ORIGINS에 콤마로 구분해 정확한 오리진
+# (스킴+호스트+포트, 예: https://app.doctorpet.example)을 채워야 한다.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+
 logging:
   level:
     org.hibernate.SQL: debug
@@ -124,6 +131,20 @@ ai:
 member:
   email-verified-backfill:
     enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
+
+# 회원가입·이메일 인증 재발송·비밀번호 재설정 요청 IP 기준 rate limit(기능 구멍 점검 대응) —
+# 셋 다 비인증 상태에서 임의의 이메일로 메일을 발송시킬 수 있어 메일 폭탄·발송 한도 소진으로
+# 이어질 수 있었다. ai.rate-limit과 같은 이유로 도메인별로 분리한다(AuthRateLimitProperties
+# 참고). trusted-proxies는 이 프로젝트의 고정 토폴로지(nginx가 유일한 리버스 프록시)를 반영해
+# 기본값을 "nginx"로 미리 채워둔다 — ai.rate-limit.trusted-proxies와 달리 이 값을 비워두는
+# 환경변수를 배포 파이프라인에 별도로 추가할 필요가 없다.
+auth:
+  rate-limit:
+    signup-per-ip-per-hour: ${AUTH_RATE_LIMIT_SIGNUP_PER_IP_PER_HOUR:5}
+    verify-email-resend-per-ip-per-hour: ${AUTH_RATE_LIMIT_VERIFY_EMAIL_RESEND_PER_IP_PER_HOUR:5}
+    password-reset-request-per-ip-per-hour: ${AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST_PER_IP_PER_HOUR:5}
+    window: ${AUTH_RATE_LIMIT_WINDOW:1h}
+    trusted-proxies: ${AUTH_RATE_LIMIT_TRUSTED_PROXIES:nginx}
 
 # 기존 chat_messages에 멱등 재전송 키를 안전하게 추가한다. Hibernate보다 먼저 nullable 추가·UUID
 # 백필·UNIQUE·NOT NULL 순서로 적용하며, 배포 중 구버전 INSERT는 트리거가 UUID를 채운다.

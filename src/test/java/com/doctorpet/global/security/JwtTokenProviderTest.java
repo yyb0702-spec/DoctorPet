@@ -158,4 +158,16 @@ class JwtTokenProviderTest {
 
         assertThat(jwtTokenProvider.getJti(tokenA)).isNotEqualTo(jwtTokenProvider.getJti(tokenB));
     }
+
+    @Test
+    @DisplayName("getIssuedAt은 발급 시각(iat)을 반환한다 — 비밀번호 재설정 이전 발급 여부 판단(PasswordChangeInvalidationPort)에 사용")
+    void getIssuedAt_returnsIssuedAtClaim() {
+        Date before = new Date(System.currentTimeMillis() / 1000 * 1000); // JWT iat는 초 단위로 잘린다
+        String token = jwtTokenProvider.generateAccessToken(1L, "guardian@example.com", "GUARDIAN");
+
+        Date issuedAt = jwtTokenProvider.getIssuedAt(token);
+
+        assertThat(issuedAt).isNotNull();
+        assertThat(issuedAt).isAfterOrEqualTo(before);
+    }
 }

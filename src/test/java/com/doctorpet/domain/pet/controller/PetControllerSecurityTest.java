@@ -22,6 +22,7 @@ import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.MemberPrincipal;
 import com.doctorpet.global.security.TokenType;
 import java.math.BigDecimal;
@@ -66,6 +67,9 @@ class PetControllerSecurityTest {
 
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort; // #124 - JwtAuthenticationFilter 생성자 의존성
+
+    @MockitoBean
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     @DisplayName("Authorization 헤더 없이 요청하면 401을 반환한다 — /api/pets가 실수로 permitAll이 되면 이 테스트가 잡는다")

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.doctorpet.domain.hospital.dto.response.FavoriteHospitalPageResponse;
 import com.doctorpet.domain.hospital.service.HospitalFavoriteService;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -46,6 +47,9 @@ class MemberFavoriteHospitalControllerTest {
 
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
+
+    @MockitoBean
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
 
     @AfterEach
     void clearSecurityContext() {

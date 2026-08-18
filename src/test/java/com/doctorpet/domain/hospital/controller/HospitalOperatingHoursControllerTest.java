@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.doctorpet.domain.hospital.service.HospitalOperatingHoursApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -51,6 +52,9 @@ class HospitalOperatingHoursControllerTest {
 
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
+
+    @MockitoBean
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     void hospitalStaffCancelsTemporaryClosure() throws Exception {
