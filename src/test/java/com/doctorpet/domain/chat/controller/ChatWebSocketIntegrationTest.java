@@ -24,10 +24,10 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -328,7 +328,7 @@ class ChatWebSocketIntegrationTest {
     private record ChatFixture(Long reservationId, Long guardianId, Long staffId) {
     }
 
-    private record StompFrames(WebSocket socket, BlockingQueue<String> frames) {
+    private record StompFrames(WebSocket socket, BlockingDeque<String> frames) {
 
         void send(String frame) {
             socket.sendText(frame, true).join();
@@ -344,20 +344,35 @@ class ChatWebSocketIntegrationTest {
             return frames.poll(1, TimeUnit.SECONDS);
         }
 
+        /**
+         * 기대 문구가 담긴 프레임이 올 때까지 기다리되, 지나친 프레임은 버리지 않고 큐 앞으로 되돌린다.
+         * 한 번의 전송으로 보낸 쪽은 topic 브로드캐스트(내용+clientMessageId)와 개인 ACK(clientMessageId)를
+         * 각각 받는데 둘의 도착 순서가 보장되지 않는다. 버리면 ACK이 먼저 온 경우 내용 대기가 ACK을 삼켜,
+         * 뒤따르는 clientMessageId 대기가 빈 큐에서 타임아웃한다(간헐 실패의 원인).
+         */
         String awaitFrameContaining(String expected) throws InterruptedException {
-            for (int attempt = 0; attempt < 5; attempt++) {
-                String received = awaitFrame();
-                if (received.contains(expected)) {
-                    return received;
+            List<String> skipped = new ArrayList<>();
+            try {
+                for (int attempt = 0; attempt < 5; attempt++) {
+                    String received = awaitFrame();
+                    if (received.contains(expected)) {
+                        return received;
+                    }
+                    skipped.add(received);
+                }
+                throw new AssertionError("STOMP frame does not contain: " + expected);
+            } finally {
+                // 다른 검증이 기다리는 프레임일 수 있으므로 원래 순서대로 되돌린다.
+                for (int i = skipped.size() - 1; i >= 0; i--) {
+                    frames.addFirst(skipped.get(i));
                 }
             }
-            throw new AssertionError("STOMP frame does not contain: " + expected);
         }
     }
 
     private static final class CapturingWebSocketListener implements WebSocket.Listener {
 
-        private final BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+        private final BlockingDeque<String> frames = new LinkedBlockingDeque<>();
         private final StringBuilder buffer = new StringBuilder();
 
         @Override
@@ -383,7 +398,7 @@ class ChatWebSocketIntegrationTest {
             webSocket.request(1);
         }
 
-        private BlockingQueue<String> frames() {
+        private BlockingDeque<String> frames() {
             return frames;
         }
     }
