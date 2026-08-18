@@ -1,27 +1,68 @@
-// 병원 스태프 — 운영 대시보드. 승인 대기 건수만 정확히 낼 수 있다
-// (목록 API에 날짜·복수상태 필터가 없어 "오늘 예약" 류 집계는 이번 범위에서 뺀다).
+// 병원 스태프 — 운영 대시보드. 승인 대기(날짜·시간순)와 미수금(현장 수납 필요)을 한눈에.
+// 목록 API에 날짜 필터가 없어(SA §8-6) "오늘 예약" 정확 집계는 빼고, 불러온 범위 안에서 정리한다.
 import { Link } from 'react-router-dom'
 import { useStaffReservations } from '@/features/staffReservations/hooks'
+import { groupByDate } from '@/features/staffReservations/schedule'
+import { useHospitalPayments } from '@/features/staffPayments/hooks'
 import { ReservationStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
-import { ReservationStatus } from '@/types/enums'
+import { PaymentStatus, ReservationStatus } from '@/types/enums'
 
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('ko-KR')
+// 새 요청·자동 노쇼가 스태프 조작 없이도 바뀌므로 주기적으로 갱신한다(30초).
+const POLL_MS = 30_000
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+// 미수금(자동 결제 실패 → 현장 수납 필요) 요약. 불러온 페이지 안에서 센다.
+function OutstandingCard() {
+  const query = useHospitalPayments(0, 100)
+  const outstanding =
+    query.data?.content.filter(
+      (p) => p.paymentStatus === PaymentStatus.OFFLINE_REQUIRED,
+    ) ?? []
+
+  if (query.isLoading || query.isError || outstanding.length === 0) return null
+
+  return (
+    <Card className="border-destructive">
+      <CardHeader>
+        <CardTitle className="text-destructive">미수금 · 현장 수납 필요</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          자동 결제에 실패해 현장 수납이 필요한 결제가{' '}
+          <strong className="text-destructive">{outstanding.length}건</strong>{' '}
+          있어요.
+        </p>
+        <Button variant="outline" asChild>
+          <Link to="/staff/payments">결제 관리로</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function StaffDashboardPage() {
-  const pending = useStaffReservations({
-    status: ReservationStatus.REQUESTED,
-    page: 0,
-    size: 3,
-  })
+  const pending = useStaffReservations(
+    { status: ReservationStatus.REQUESTED, page: 0, size: 20 },
+    { refetchInterval: POLL_MS },
+  )
+
+  // 승인 대기를 날짜별·이른 시간부터 묶는다.
+  const groups = pending.data ? groupByDate(pending.data.content, true) : []
 
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">운영 대시보드</h1>
+
+      <OutstandingCard />
 
       <Card>
         <CardHeader>
@@ -41,19 +82,31 @@ export function StaffDashboardPage() {
               {pending.data.content.length === 0 ? (
                 <EmptyState message="승인 대기 중인 예약이 없어요." />
               ) : (
-                <div className="space-y-2">
-                  {pending.data.content.map((item) => (
-                    <div
-                      key={item.reservationId}
-                      className="flex items-center justify-between rounded-md border p-3 text-sm"
-                    >
-                      <div>
-                        <span className="font-medium">{item.petName}</span>
-                        <span className="ml-2 text-muted-foreground">
-                          {fmt(item.reservedAt)}
+                <div className="space-y-4">
+                  {groups.map((group) => (
+                    <div key={group.date} className="space-y-2">
+                      <h2 className="text-sm font-semibold text-muted-foreground">
+                        {group.label}{' '}
+                        <span className="font-normal">
+                          · {group.items.length}건
                         </span>
-                      </div>
-                      <ReservationStatusBadge status={item.reservationStatus} />
+                      </h2>
+                      {group.items.map((item) => (
+                        <div
+                          key={item.reservationId}
+                          className="flex items-center justify-between rounded-md border p-3 text-sm"
+                        >
+                          <div>
+                            <span className="font-medium">{item.petName}</span>
+                            <span className="ml-2 text-muted-foreground">
+                              {fmtTime(item.reservedAt)}
+                            </span>
+                          </div>
+                          <ReservationStatusBadge
+                            status={item.reservationStatus}
+                          />
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

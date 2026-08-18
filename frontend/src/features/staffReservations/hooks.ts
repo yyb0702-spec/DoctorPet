@@ -1,7 +1,14 @@
 // 병원 스태프 예약 운영 쿼리·mutation 훅.
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { staffReservationApi } from './api'
 import type { StaffReservationListParams } from './types'
+import type { ReservationStatus } from '@/types/enums'
 
 export const staffReservationKeys = {
   all: ['staff', 'reservations'] as const,
@@ -9,12 +16,40 @@ export const staffReservationKeys = {
     ['staff', 'reservations', 'list', params] as const,
 }
 
-export function useStaffReservations(params: StaffReservationListParams = {}) {
+interface StaffQueryOptions {
+  // 스태프에겐 실시간 알림(SSE)이 없어(백엔드 제약) 새 요청·자동 노쇼를 폴링으로 반영한다.
+  refetchInterval?: number
+}
+
+export function useStaffReservations(
+  params: StaffReservationListParams = {},
+  options: StaffQueryOptions = {},
+) {
   return useQuery({
     queryKey: staffReservationKeys.list(params),
     queryFn: () => staffReservationApi.list(params),
     placeholderData: keepPreviousData,
+    refetchInterval: options.refetchInterval,
   })
+}
+
+// 상태 탭별 건수(totalElements)만 가볍게 집계한다(size:1). 탭 배지·triage용.
+export function useStaffReservationCounts(
+  statuses: ReservationStatus[],
+  options: StaffQueryOptions = {},
+): Partial<Record<ReservationStatus, number>> {
+  const results = useQueries({
+    queries: statuses.map((status) => ({
+      queryKey: staffReservationKeys.list({ status, page: 0, size: 1 }),
+      queryFn: () => staffReservationApi.list({ status, page: 0, size: 1 }),
+      refetchInterval: options.refetchInterval,
+    })),
+  })
+  const counts: Partial<Record<ReservationStatus, number>> = {}
+  statuses.forEach((status, i) => {
+    counts[status] = results[i].data?.totalElements
+  })
+  return counts
 }
 
 // 승인·거절·체크인·진료 전이·노쇼는 상태 탭(요청/확정/내원 등)을 넘나들며 목록을

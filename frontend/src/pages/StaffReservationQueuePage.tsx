@@ -8,18 +8,28 @@ import {
   useConfirmNoShow,
   useRejectReservation,
   useRestoreNoShow,
+  useStaffReservationCounts,
   useStaffReservations,
   useStartTreatment,
 } from '@/features/staffReservations/hooks'
 import { REJECT_REASONS } from '@/features/staffReservations/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
+import {
+  groupByDate,
+  isOverdue,
+  isUpcomingStatus,
+} from '@/features/staffReservations/schedule'
 import { ReservationStatusBadge } from '@/components/common/StatusBadge'
 import { ReasonPrompt } from '@/components/common/ReasonPrompt'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
+import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
 import { ReservationStatus } from '@/types/enums'
+
+// 새 요청·자동 노쇼가 스태프 조작 없이도 바뀌므로 주기적으로 갱신한다(30초).
+const POLL_MS = 30_000
 
 const TABS: ReservationStatus[] = [
   ReservationStatus.REQUESTED,
@@ -186,32 +196,92 @@ export function RowActions({ item }: { item: StaffReservationListItem }) {
   }
 }
 
+function ReservationCard({ item }: { item: StaffReservationListItem }) {
+  const overdue = isOverdue(item)
+  return (
+    <Card className={cn(overdue && 'border-destructive')}>
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">{item.petName}</span>
+            <ReservationStatusBadge status={item.reservationStatus} />
+            {overdue && (
+              <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                지연 · 자동 노쇼 임박
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">{fmt(item.reservedAt)}</p>
+          <p className="text-xs text-muted-foreground">
+            전체 예약 {item.reservationHistory.totalReservationCount} · 진료완료{' '}
+            {item.reservationHistory.completedCount} · 취소{' '}
+            {item.reservationHistory.cancelCount} ·{' '}
+            <span
+              className={
+                item.reservationHistory.noShowCount > 0
+                  ? 'font-semibold text-destructive'
+                  : undefined
+              }
+            >
+              노쇼 {item.reservationHistory.noShowCount}회
+            </span>{' '}
+            (전 병원 기준)
+          </p>
+          {item.rejectionReason && (
+            <p className="text-xs text-muted-foreground">
+              거절 사유: {item.rejectionReason}
+            </p>
+          )}
+        </div>
+        <RowActions item={item} />
+      </CardContent>
+    </Card>
+  )
+}
+
 export function StaffReservationQueuePage() {
   const [status, setStatus] = useState<ReservationStatus>(
     ReservationStatus.REQUESTED,
   )
   const [page, setPage] = useState(0)
-  const query = useStaffReservations({ status, page, size: 20 })
+  const query = useStaffReservations(
+    { status, page, size: 20 },
+    { refetchInterval: POLL_MS },
+  )
+  const counts = useStaffReservationCounts(TABS, { refetchInterval: POLL_MS })
 
   const handleTab = (next: ReservationStatus) => {
     setStatus(next)
     setPage(0)
   }
 
+  // 불러온 페이지를 예약 시각으로 날짜별 그룹핑한다(예정 상태는 이른 시간부터, 이력은 최근부터).
+  const groups = query.data
+    ? groupByDate(query.data.content, isUpcomingStatus(status))
+    : []
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">예약 관리</h1>
       <div className="flex flex-wrap gap-1 border-b pb-2">
-        {TABS.map((t) => (
-          <Button
-            key={t}
-            size="sm"
-            variant={t === status ? 'default' : 'ghost'}
-            onClick={() => handleTab(t)}
-          >
-            {TAB_LABEL[t]}
-          </Button>
-        ))}
+        {TABS.map((t) => {
+          const count = counts[t]
+          return (
+            <Button
+              key={t}
+              size="sm"
+              variant={t === status ? 'default' : 'ghost'}
+              onClick={() => handleTab(t)}
+            >
+              {TAB_LABEL[t]}
+              {count ? (
+                <span className="ml-1 rounded-full bg-muted px-1.5 text-xs tabular-nums">
+                  {count}
+                </span>
+              ) : null}
+            </Button>
+          )
+        })}
       </div>
 
       {query.isLoading && <PageLoader />}
@@ -220,42 +290,17 @@ export function StaffReservationQueuePage() {
         <EmptyState message="해당 상태의 예약이 없어요." />
       )}
 
-      <div className="space-y-3">
-        {query.data?.content.map((item) => (
-          <Card key={item.reservationId}>
-            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">{item.petName}</span>
-                  <ReservationStatusBadge status={item.reservationStatus} />
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {fmt(item.reservedAt)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  전체 예약 {item.reservationHistory.totalReservationCount} ·
-                  진료완료 {item.reservationHistory.completedCount} · 취소{' '}
-                  {item.reservationHistory.cancelCount} ·{' '}
-                  <span
-                    className={
-                      item.reservationHistory.noShowCount > 0
-                        ? 'font-semibold text-destructive'
-                        : undefined
-                    }
-                  >
-                    노쇼 {item.reservationHistory.noShowCount}회
-                  </span>{' '}
-                  (전 병원 기준)
-                </p>
-                {item.rejectionReason && (
-                  <p className="text-xs text-muted-foreground">
-                    거절 사유: {item.rejectionReason}
-                  </p>
-                )}
-              </div>
-              <RowActions item={item} />
-            </CardContent>
-          </Card>
+      <div className="space-y-5">
+        {groups.map((group) => (
+          <div key={group.date} className="space-y-2">
+            <h2 className="text-sm font-semibold text-muted-foreground">
+              {group.label}{' '}
+              <span className="font-normal">· {group.items.length}건</span>
+            </h2>
+            {group.items.map((item) => (
+              <ReservationCard key={item.reservationId} item={item} />
+            ))}
+          </div>
         ))}
       </div>
 
