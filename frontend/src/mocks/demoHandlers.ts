@@ -288,7 +288,7 @@ export const demoHandlers = [
     const body = (await request.json()) as { nickname?: string }
     const nickname = (body.nickname ?? '').trim()
     if (!nickname || nickname.length > 255) {
-      return fail('COMMON_400', '닉네임은 1~255자여야 합니다.', 400)
+      return fail('COMMON_001', '입력값이 올바르지 않습니다.', 400)
     }
     demoMember = { ...demoMember, nickname }
     return ok(demoMember)
@@ -303,7 +303,7 @@ export const demoHandlers = [
     if (detail) return ok(detail)
     const summary = mockHospitals.find((h) => h.hospitalId === id)
     if (summary) return ok(synthDetail(summary))
-    return fail('HOSPITAL_NOT_FOUND', '병원을 찾을 수 없습니다.', 404)
+    return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
   }),
 
   // --- 결제수단 ---
@@ -325,14 +325,19 @@ export const demoHandlers = [
   }),
 
   // --- 보호자 JSON 영수증 (dev:mock 오프라인 전용) ---
-  // PAID·OFFLINE_PAID·REFUNDED 결제만 제공한다. 그 외 상태·미존재는 백엔드처럼 404.
+  // PAID·OFFLINE_PAID·REFUNDED 결제만 제공한다. 백엔드는 "결제가 없다"와 "발급 불가 상태다"를
+  // 다른 코드·상태로 구분하므로(PaymentReceiptService) 목도 그대로 나눈다 — 한쪽으로 뭉개면
+  // dev:mock에서 검증한 오류 처리가 실연동과 달라진다(PR #180 리뷰).
   http.get(`${BASE}/payments/:paymentId/receipt`, ({ params }) => {
     const paymentId = Number(params.paymentId)
     const record = Object.values(mockPaymentByReservation)
       .flat()
       .find((p) => p.paymentId === paymentId)
-    if (!record || !RECEIPT_STATUSES.has(record.status)) {
-      return fail('RECEIPT_NOT_AVAILABLE', '영수증을 발급할 수 없는 결제입니다.', 404)
+    if (!record) {
+      return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+    }
+    if (!RECEIPT_STATUSES.has(record.status)) {
+      return fail('PAYMENT_013', '영수증을 발급할 수 있는 결제가 아닙니다.', 409)
     }
     const detail = mockReservationDetail[record.reservationId]
     const receipt: Receipt = {
@@ -372,7 +377,7 @@ export const demoHandlers = [
     const pet = demoPets.find((p) => p.petId === Number(params.petId))
     return pet
       ? ok(pet)
-      : fail('PET_001', '펫을 찾을 수 없습니다.', 404)
+      : fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
   }),
   http.post(`${BASE}/pets`, async ({ request }) => {
     const b = (await request.json()) as Record<string, unknown>
@@ -389,7 +394,7 @@ export const demoHandlers = [
   }),
   http.patch(`${BASE}/pets/:petId`, async ({ params, request }) => {
     const pet = demoPets.find((p) => p.petId === Number(params.petId))
-    if (!pet) return fail('PET_001', '펫을 찾을 수 없습니다.', 404)
+    if (!pet) return fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
     Object.assign(pet, await request.json())
     return ok(pet)
   }),
