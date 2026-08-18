@@ -2,8 +2,8 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 버전 | v1.2 |
-| 작성 기준일 | 2026-08-17 |
+| 문서 버전 | v1.3 |
+| 작성 기준일 | 2026-08-18 |
 | 상태 | 설계 확정, 구현 진행 중 |
 | 전제(동결 baseline) | `docker-compose.yml`, `.github/workflows/deploy.yml` (2026-08-10 시점 — blue/green 컷오버 로직 자체의 동결 기준이며, 이후 RDS 이전(이슈 #163)이 MySQL 부분을, ElastiCache 이전이 Redis 부분을 변경했다. 4-3절 참고) |
 | 관련 문서 | `docs/architecture/DoctorPet-SA.md`(제품 도메인 설계, 이 문서와 별개 — 배포 인프라는 SA 범위 밖) |
@@ -28,9 +28,36 @@
 
 여러 대안을 검토하고 아래처럼 확정했다. 각 결정은 "지금 실제로 겪는 문제만 정확히 풀고, 그 이상은 나중 결정으로 미룬다"는 같은 원칙을 따른다.
 
-### 3-1. nginx 범위 — 포트 스위치만 (도메인·HTTPS 제외)
+### 3-1. nginx 범위 — 포트 스위치 (2026-08-11) → 도메인·HTTPS 연결(2026-08-18, doctorpet.click)
 
-nginx는 8080 포트 뒤에서 app-blue/app-green 중 활성 쪽으로 리버스 프록시하는 역할만 한다. 외부에서 보이는 접속 방식(EC2 IP:8080)은 바꾸지 않는다. 도메인 연결·TLS 종료(Let's Encrypt/certbot)는 완전히 별개 결정으로 미룬다 — 지금 도메인도 인증서도 없는 상태에서 같이 묶으면 무중단 배포라는 원래 목표가 늦어진다. nginx를 진입점으로 미리 만들어두면, 나중에 도메인·인증서를 붙일 때 `server_name`과 `listen 443 ssl`만 추가하면 되므로 이번 작업이 다음 단계를 오히려 쉽게 만든다.
+**(2026-08-11 최초 결정, 이제는 과거 상태)** nginx는 8080 포트 뒤에서 app-blue/app-green 중 활성 쪽으로 리버스 프록시하는 역할만 했다. 외부에서 보이는 접속 방식(EC2 IP:8080)은 바꾸지 않았다. 도메인 연결·TLS 종료(Let's Encrypt/certbot)는 완전히 별개 결정으로 미뤘다 — 당시엔 도메인도 인증서도 없는 상태에서 같이 묶으면 무중단 배포라는 원래 목표가 늦어졌기 때문이다. nginx를 진입점으로 미리 만들어두면, 나중에 도메인·인증서를 붙일 때 `server_name`과 `listen 443 ssl`만 추가하면 되므로 이번 작업이 다음 단계를 오히려 쉽게 만든다고 예고해뒀다.
+
+**(2026-08-18, doctorpet.click 도메인 등록으로 반영)** 위에서 예고한 그 다음 단계 — `doctorpet.click`을 Route 53에서 등록한 뒤, 예고한 그대로 `nginx/nginx.conf`에 `server_name`·`listen 443 ssl` 서버 블록과 ACME HTTP-01 챌린지용 `listen 80` 서버 블록을 추가했다. 인증서 발급·갱신은 `docker-compose.yml`에 새로 추가한 `certbot` 서비스(`certbot/certbot` 이미지, `--webroot` 방식)가 맡는다. 기존 8080은 당장 걷어내지 않고 그대로 남겨뒀다(기존 접근 경로를 도메인 전환이 자리잡기 전에 끊지 않기 위함) — 나중에 도메인 전환이 안정되면 별도로 정리할지 결정한다.
+
+**인증서 발급·갱신 부트스트랩(닭과 달걀 문제)**: `nginx.conf`의 443 서버 블록은 `/etc/letsencrypt/live/doctorpet.click/{fullchain,privkey}.pem`을 읽는데, certbot이 한 번도 성공하지 못한 최초 상태에는 이 파일이 없다 — 파일이 없으면 nginx 자체가 설정 검증(`nginx -t`)부터 통과하지 못해 뜨지 못하고, nginx가 안 뜨면 80 서버 블록의 ACME 챌린지 응답도 불가능해 certbot이 애초에 인증서를 발급받을 기회가 없다. `docker-compose.yml`의 nginx `entrypoint`가 이 경로에 인증서가 없을 때만 자체 서명 임시 인증서(유효기간 1일)를 그 자리에 직접 만들어 nginx가 일단 뜨게 한다 — 이후 아래 최초 발급 절차로 certbot이 실제 인증서를 같은 경로에 덮어쓰면, 다음 컨테이너 재시작부터는 이 임시 발급 로직이 조건에 안 걸려 아무 일도 하지 않는다.
+
+**EC2에서 최초 1회 실행할 절차**(AWS 콘솔 작업은 별도 — 아래 참고):
+
+```bash
+cd ~/DoctorPet
+# nginx가 (임시 자체 서명 인증서로라도) 이미 떠 있는 상태에서 실행한다 — 80에서 ACME 챌린지를 받아야 하므로.
+docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+  -d doctorpet.click --email <운영 담당 이메일> --agree-tos --no-eff-email
+# 발급 성공 후 nginx가 새 인증서를 읽도록 reload
+docker compose exec nginx nginx -s reload
+```
+
+**갱신 자동화(EC2 crontab, 한 번만 등록)** — Let's Encrypt 인증서는 90일 유효라 주기 갱신이 필요하다. 이 저장소의 `deploy.yml`은 코드 배포 시에만 실행되므로, 갱신은 별도로 EC2 host의 cron에 등록한다:
+
+```bash
+# crontab -e
+0 3 * * * cd ~/DoctorPet && docker compose run --rm certbot renew --webroot -w /var/www/certbot --quiet && docker compose exec nginx nginx -s reload
+```
+
+**AWS 콘솔에서 사람이 직접 해야 하는 작업(코드로 자동화되지 않음)**:
+1. **Elastic IP 할당·연결** — EC2 퍼블릭 IP가 재부팅 시 바뀌면 Route 53 A 레코드가 옛 IP를 계속 가리켜 도메인이 조용히 끊긴다. Elastic IP를 이 인스턴스에 연결해 고정한다.
+2. **보안 그룹 인바운드 80·443 상시 허용** — 배포 파이프라인이 SSH(22)만 배포 구간 한정으로 임시 허용하는 것과 달리(`deploy.yml`), 80·443은 실제 사용자 트래픽이 항상 들어와야 하므로 상시 열어둔다.
+3. **Route 53 A 레코드** — `doctorpet.click`(및 필요하면 `www.doctorpet.click`)이 위 Elastic IP를 가리키도록 호스팅 영역에 A 레코드를 추가·확인한다(Route 53에서 도메인을 등록하면 호스팅 영역은 보통 자동 생성된다).
 
 ### 3-2. MySQL/Redis — 이번 범위에서 제외
 
@@ -131,6 +158,7 @@ upstream app_upstream {
 - `nginx/nginx.conf` — 정적 설정(git 추적).
 - `nginx/conf.d/` — `upstream-active.conf`를 담는 디렉터리(파일 자체는 git 비추적, `.gitignore`에 추가).
 - `.github/workflows/deploy.yml` — 대상 색 판단 → target 배포 → 헬스체크 → nginx reload → old 색 정지 순서로 재작성.
+- **(2026-08-18, doctorpet.click HTTPS 추가)** `docker-compose.yml` — nginx `ports`에 80·443 추가, `certbot-etc`/`certbot-webroot` 볼륨과 그걸 공유하는 `certbot` 서비스 신설, nginx `entrypoint`에 인증서 부트스트랩(자체 서명 임시 인증서) 로직 추가. `nginx/nginx.conf` — ACME 챌린지용 `listen 80`, 실제 서비스용 `listen 443 ssl` 서버 블록 추가(위 3-1절 참고). `deploy.yml`은 이번엔 변경하지 않았다 — 인증서 발급·갱신은 코드 배포와 무관한 별도 절차(EC2 crontab)로 다뤄서다.
 
 ## 7. 주의사항 (구현 시 반드시 지킬 것)
 
@@ -158,3 +186,6 @@ upstream app_upstream {
 - [ ] 의도적으로 healthcheck 실패하는 이미지로 배포해 "target만 정리되고 기존 색은 안 건드려지는지" 확인
 - [ ] `server.shutdown: graceful` + `stop_grace_period: 35s`가 실제로 진행 중인 요청을 지켜주는지 확인(리뷰 지적 P1, PR #136) — 예: 인위적으로 5초 이상 걸리는 요청(또는 테스트용 지연 엔드포인트)을 이전 색에 걸어둔 채 컷오버를 실행해, `docker compose stop`이 그 요청을 끊지 않고 응답까지 받는지 확인. 정적 설정 검토만으로는 실제 드레인 여부를 보장할 수 없다.
 - [ ] SA 문서 또는 별도 인프라 섹션에 최종 반영 여부 결정(이 문서를 정본으로 유지할지, SA에 흡수할지)
+- [ ] **(2026-08-18 추가, doctorpet.click)** AWS 콘솔 작업(Elastic IP 연결, 보안 그룹 80·443 상시 허용, Route 53 A 레코드) — 사람이 직접 해야 하는 작업이라 코드 검증과 별개로 여전히 미완료.
+- [ ] EC2에서 `docker compose run --rm certbot certonly --webroot ...`로 최초 인증서 발급, `https://doctorpet.click` 실제 접속 확인 — 로컬 샌드박스는 JDK/Docker가 없어 nginx.conf 문법을 직접 실행 검증하지 못했다(브레이스 균형·YAML 파싱·openssl 자체 서명 명령만 별도로 검증). 실제 certbot 발급·443 서비스는 EC2에서 검증 필요.
+- [ ] EC2 crontab에 `certbot renew` 등록 및 최소 1회 dry-run(`docker compose run --rm certbot renew --dry-run`)으로 갱신 경로 확인.

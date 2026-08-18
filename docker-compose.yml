@@ -197,8 +197,13 @@ services:
     # 이제 호스트 포트 8080은 nginx가 갖는다 — app-blue/app-green 중 활성 색으로만 리버스
     # 프록시한다(docs/architecture/DoctorPet-무중단배포.md). 컷오버는 nginx 설정 파일을 바꾸고
     # `nginx -s reload`하는 방식이라 컨테이너 재시작 없이 순간적으로 전환된다.
+    #
+    # 80/443은 doctorpet.click 도메인·HTTPS 연결(무중단배포 문서 3-1절)로 추가됐다 — 8080은
+    # 기존 접근 경로를 당장 끊지 않기 위해 그대로 남겨뒀다(nginx/nginx.conf 상단 주석 참고).
     ports:
       - "8080:8080"
+      - "80:80"
+      - "443:443"
     volumes:
       # nginx.conf 단일 파일이 아니라 nginx/ 디렉터리 전체를 하나로 마운트한다(운영 배포 반영
       # 안 됨 버그 수정 — /ws/chat WebSocket 프록시 블록이 코드에는 있는데 실제 컨테이너
@@ -226,6 +231,15 @@ services:
       # 쌓이는 걸 막고, 컨테이너가 교체돼도 이력이 남게 한다. 로테이션은 이번 범위에 포함하지
       # 않는다(운영 규모가 커지면 별도로 검토, 무중단 배포 문서 참고).
       - nginx-logs:/var/log/nginx
+      # doctorpet.click HTTPS(무중단배포 문서 3-1절) — certbot 서비스와 이 두 볼륨을 공유한다.
+      # certbot-etc에는 발급된 인증서(nginx.conf가 읽는 /etc/letsencrypt/live/doctorpet.click/*)가
+      # 담긴다 — 평소엔 certbot만 쓰지만, 최초 부팅 시 이 경로에 아직 아무 인증서도 없으면
+      # 아래 entrypoint가 자체 서명 임시 인증서를 여기 직접 만들어 nginx가 뜰 수 있게 하므로
+      # (닭과 달걀 문제, nginx.conf 443 서버 블록 주석 참고) 쓰기 가능하게 마운트한다.
+      # certbot-webroot는 ACME HTTP-01 챌린지 파일(certbot이 쓰고 nginx가 80에서 서빙)만 담아
+      # nginx는 읽기만 하면 돼 읽기 전용으로 마운트한다.
+      - certbot-etc:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot:ro
     # 이미지 기본 /etc/nginx/nginx.conf, /etc/nginx/conf.d(둘 다 실제 파일/디렉터리로 이미지
     # 안에 존재)를 지우고, 위에서 통째로 마운트한 /etc/nginx/custom 밑의 같은 이름을 가리키는
     # 심볼릭 링크로 바꾼 뒤 nginx를 시작한다. rm 없이 ln -sf만 쓰면 대상이 실제 디렉터리(conf.d)일
@@ -255,6 +269,15 @@ services:
     # 실행되지 않는다 — nginx가 뜨지 않고 컨테이너가 즉시 종료되며 restart: unless-stopped로
     # 크래시루프에 빠진다. 그래서 아래 command를 명시적으로 함께 지정해 이미지 기본 CMD와
     # 동일한 인자를 다시 채워 넣는다.
+    #
+    # doctorpet.click HTTPS 부트스트랩(무중단배포 문서 3-1절) — nginx.conf의 443 서버 블록은
+    # /etc/letsencrypt/live/doctorpet.click/{fullchain,privkey}.pem을 읽는데, 이 서버에서
+    # certbot이 실제 인증서를 발급받기 전(최초 배포, 볼륨 초기화 등)에는 이 파일이 없다. 파일이
+    # 없으면 nginx가 설정 검증(nginx -t) 단계에서부터 뜨지 못하는데, nginx가 안 뜨면 80 서버
+    # 블록의 ACME 챌린지 응답도 불가능해져 certbot이 애초에 인증서를 발급받을 방법이 없다(닭과
+    # 달걀 문제) — 그래서 파일이 없을 때만 자체 서명 임시 인증서를 그 경로에 직접 만들어 nginx가
+    # 일단 뜨게 한다. certbot이 실제 인증서 발급에 성공하면 같은 경로의 파일을 실제 인증서로
+    # 덮어쓰므로, 다음 컨테이너 재시작부터는 이 if 블록이 조건에 안 걸려 아무 일도 하지 않는다.
     entrypoint:
       - /bin/sh
       - -c
@@ -262,6 +285,15 @@ services:
         rm -rf /etc/nginx/nginx.conf /etc/nginx/conf.d &&
         ln -s /etc/nginx/custom/nginx.conf /etc/nginx/nginx.conf &&
         ln -s /etc/nginx/custom/conf.d /etc/nginx/conf.d &&
+        if [ ! -f /etc/letsencrypt/live/doctorpet.click/fullchain.pem ]; then
+          echo "doctorpet.click 인증서가 아직 없어 자체 서명 임시 인증서를 생성합니다 (닭과 달걀 문제 — nginx.conf 443 서버 블록 주석 참고). certbot이 실제 인증서를 발급하면 이 파일은 교체됩니다." &&
+          apk add --no-cache openssl >/dev/null &&
+          mkdir -p /etc/letsencrypt/live/doctorpet.click &&
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /etc/letsencrypt/live/doctorpet.click/privkey.pem \
+            -out /etc/letsencrypt/live/doctorpet.click/fullchain.pem \
+            -subj "/CN=doctorpet.click";
+        fi &&
         exec /docker-entrypoint.sh "$@"
       - custom-entrypoint-shim
     command: ["nginx", "-g", "daemon off;"]
@@ -270,6 +302,17 @@ services:
     # 이미지 태그를 export하기 전 타이밍에 엉뚱한 태그(local 폴백)로 기동을 시도할 수 있다.
     # nginx는 컷오버 대상 색과 독립적으로 항상 떠 있어야 하는 서비스라 이 결합을 두지 않는 게
     # 맞다 — 업스트림이 아직 안 떠 있으면 그 사이 요청은 502를 받을 뿐, nginx 자체는 정상 기동한다.
+
+  # doctorpet.click 인증서 발급·갱신 전용(무중단배포 문서 3-1절) — mysql/redis와 같은 이유로
+  # deploy.yml이 관리하는 "상시 인프라"가 아니다. 이 서비스는 up -d 대상에 포함하지 않고,
+  # 필요할 때(최초 발급, 갱신) `docker compose run --rm certbot ...`으로 직접 실행하는 1회성
+  # 도구다 — 그래서 restart 정책도, 상시 실행을 뜻하는 command도 두지 않는다. 최초 발급·갱신
+  # 명령 예시는 무중단배포 문서 3-1절 참고.
+  certbot:
+    image: certbot/certbot:v5.6.0
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
 
   # 모니터링 스택(Prometheus+Grafana)은 docker-compose.monitoring.yml로 분리했다(재리뷰
   # 지적 P1) — 이전엔 여기 있었는데, GRAFANA_ADMIN_PASSWORD가 이 파일 안의 유일한 `:?`
@@ -286,3 +329,7 @@ volumes:
   mysql-data:
   payment-audit-logs:
   nginx-logs:
+  # doctorpet.click 인증서(certbot-etc)·ACME 챌린지 파일(certbot-webroot) — nginx·certbot
+  # 서비스 정의 참고.
+  certbot-etc:
+  certbot-webroot:
