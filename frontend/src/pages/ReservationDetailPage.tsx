@@ -17,6 +17,7 @@ import {
   rechargeablePaymentId,
 } from '@/features/payments/activePayment'
 import type { PaymentChargeResult } from '@/features/payments/types'
+import { paymentMethodLabels } from '@/features/payments/methodLabel'
 import { ReceiptDialog } from '@/components/common/ReceiptDialog'
 import { ReservationProgress } from '@/features/reservations/ReservationProgress'
 import {
@@ -144,18 +145,6 @@ function fmt(iso: string): string {
   return new Date(iso).toLocaleString('ko-KR')
 }
 
-// 결제수단 표시명. 간편결제로 발급한 빌링키는 카드 정보가 비어 올 수 있어 그때는 등록일로 구분한다.
-function methodLabel(method: {
-  cardBrand: string | null
-  cardLast4: string | null
-  createdAt: string
-}): string {
-  if (method.cardBrand) {
-    return `${method.cardBrand} ****${method.cardLast4 ?? '****'}`
-  }
-  return `카드 (${new Date(method.createdAt).toLocaleDateString('ko-KR')} 등록)`
-}
-
 /**
  * 자동 결제 실패(OFFLINE_REQUIRED)를 보호자가 직접 다시 결제하는 패널(SA §9-4, 고도화 3.3).
  *
@@ -171,6 +160,7 @@ function RechargePanel({ reservationId }: { reservationId: number }) {
 
   // 백엔드가 ACTIVE만 반환하지만, 삭제·만료 수단으로는 재청구가 성립하지 않으므로 화면에서도 거른다.
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+  const labels = paymentMethodLabels(methods)
 
   if (methodsQuery.isLoading) {
     return <p className="text-xs text-muted-foreground">결제수단을 불러오는 중…</p>
@@ -223,7 +213,7 @@ function RechargePanel({ reservationId }: { reservationId: number }) {
               checked={selectedId === m.id}
               onChange={() => setSelectedId(m.id)}
             />
-            <span>{methodLabel(m)}</span>
+            <span>{labels.get(m.id)}</span>
           </label>
         ))}
       </div>
