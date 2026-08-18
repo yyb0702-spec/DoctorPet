@@ -209,8 +209,14 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("밀리초 정밀도 클레임이 없는 구버전 토큰이면 getIssuedAt은 표준 iat(초 단위)로 폴백한다")
     void getIssuedAt_tokenWithoutMillisClaim_fallsBackToStandardIat() {
-        Date issuedAtWithMillis = new Date(1_700_000_000_500L); // 임의의 .500ms 시각
-        Date truncatedToSecond = new Date(1_700_000_000_000L); // JWT 표준 iat이 저장하는 초 단위 값
+        // 발급 시각을 고정된 과거 시각(예: 2023년)으로 하드코딩하면, buildTokenWithoutIssuedAtMillisClaim이
+        // 그 시각 + 1시간을 만료 시각으로 잡아 CI가 실행되는 "지금" 기준으로는 이미 만료된 토큰이
+        // 만들어진다 — getIssuedAt()이 쓰는 parseClaims()는 엄격 파싱이라 만료된 토큰이면
+        // ExpiredJwtException을 던진다(실제로 이렇게 실패했었다). 만료 걱정 없이 밀리초 절삭만
+        // 검증하려고 "현재 시각을 초 단위로 내림 + 임의의 500ms"를 발급 시각으로 쓴다.
+        long nowFlooredToSecond = System.currentTimeMillis() / 1000 * 1000;
+        Date issuedAtWithMillis = new Date(nowFlooredToSecond + 500); // 임의의 .500ms 시각
+        Date truncatedToSecond = new Date(nowFlooredToSecond); // JWT 표준 iat이 저장하는 초 단위 값
         String legacyToken = buildTokenWithoutIssuedAtMillisClaim("1", issuedAtWithMillis);
 
         Date issuedAt = jwtTokenProvider.getIssuedAt(legacyToken);
