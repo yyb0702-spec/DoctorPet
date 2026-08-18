@@ -1,8 +1,8 @@
 // ReceiptDialog가 Receipt를 받아 총액·항목(음수 조정 포함)·카드·환불 정보를 그리는지,
-// paymentId가 null이면 닫히는지, 로딩·오류 상태와 항목화 이전 결제의 빈 items를 처리하는지
-// 검증(PR #158 영수증). 조회는 fetcher 주입으로 대체한다.
+// paymentId가 null이면 닫히는지, 로딩·오류 상태와 항목화 이전 결제의 빈 items를 처리하는지,
+// 닫았다 다시 열면 재조회하는지 검증(PR #158 영수증). 조회는 fetcher 주입으로 대체한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ReceiptDialog } from './ReceiptDialog'
 import type { Receipt } from '@/features/payments/types'
@@ -33,26 +33,34 @@ function sampleReceipt(overrides: Partial<Receipt> = {}): Receipt {
   }
 }
 
-// 오류 케이스에서 재시도까지 기다리지 않도록 retry를 끈다.
+// 오류 케이스에서 재시도까지 기다리지 않도록 retry를 끈다. staleTime은 테스트가 앱 전역
+// 설정(app/queryClient.ts)을 재현할 수 있도록 주입받는다.
 function renderWithFetcher(
   paymentId: number | null,
   fetcher: (paymentId: number) => Promise<Receipt>,
+  queryDefaults: { staleTime?: number } = {},
 ) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, ...queryDefaults } },
   })
   const spy = vi.fn(fetcher)
-  const utils = render(
+  const view = (id: number | null) => (
     <QueryClientProvider client={queryClient}>
       <ReceiptDialog
-        paymentId={paymentId}
+        paymentId={id}
         scope="guardian"
         fetcher={spy}
         onClose={() => {}}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   )
-  return { fetcher: spy, ...utils }
+  const utils = render(view(paymentId))
+  return {
+    ...utils,
+    fetcher: spy,
+    // 다이얼로그를 닫거나(null) 다시 여는(id) 동작.
+    setPaymentId: (id: number | null) => utils.rerender(view(id)),
+  }
 }
 
 function renderDialog(paymentId: number | null, receipt = sampleReceipt()) {
@@ -94,6 +102,24 @@ describe('ReceiptDialog', () => {
     // 총액은 상단 한 곳에만 나타나고(항목 표의 합계 줄이 없어) 중복되지 않는다.
     expect(await screen.findAllByText('30,000원')).toHaveLength(1)
     expect(screen.queryByText('합계')).not.toBeInTheDocument()
+  })
+
+  it('닫았다가 같은 결제를 다시 열면 영수증을 다시 조회한다', async () => {
+    // 앱 전역 staleTime은 30초다(app/queryClient.ts). 그 값이 그대로 적용되면 환불·정정
+    // 재청구 직후 재열람에 캐시된 옛 상태가 남으므로, ReceiptDialog는 staleTime: 0으로
+    // 열 때마다 다시 읽어야 한다(PR #180 리뷰 P2).
+    const { fetcher, setPaymentId } = renderWithFetcher(
+      9006,
+      () => Promise.resolve(sampleReceipt()),
+      { staleTime: 30_000 },
+    )
+    expect(await screen.findByText('진찰료')).toBeInTheDocument()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+
+    setPaymentId(null)
+    setPaymentId(9006)
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
   })
 
   it('환불된 결제는 환불 완료 라벨을 표시한다', async () => {
