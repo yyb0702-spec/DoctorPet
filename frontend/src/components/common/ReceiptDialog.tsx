@@ -38,6 +38,9 @@ export function ReceiptDialog({
     queryKey: ['receipt', scope, paymentId],
     queryFn: () => fetcher(paymentId as number),
     enabled: paymentId != null,
+    // 영수증은 결제 상태(환불·정정 재청구)에 따라 바뀌므로 열 때마다 다시 불러온다. 전역
+    // staleTime(30s)을 그대로 두면 환불 직후 30초 내 재열람 시 캐시된 PAID가 남는다(PR #180 리뷰).
+    staleTime: 0,
   })
 
   if (paymentId == null) return null
