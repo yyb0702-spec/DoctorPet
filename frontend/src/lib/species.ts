@@ -19,8 +19,8 @@ export const SPECIES_EMOJI: Record<PetSpecies, string> = {
   BIRD: '🐦',
   RABBIT: '🐰',
   HAMSTER: '🐹',
-  GUINEA_PIG: '🐹',
-  FERRET: '🐾',
+  GUINEA_PIG: '🐭',
+  FERRET: '🦦',
   REPTILE: '🦎',
 }
 
