@@ -59,7 +59,7 @@
 ### 3-4. 세션·상태 공유, SSE·STOMP 연결
 
 - **RDS·ElastiCache로 DB·캐시 상태는 이미 외부화돼 있어 어느 인스턴스가 요청을 받아도 같은 DB·Redis를 본다 — 여기까지는 sticky session이 필요 없다.** 다만 이건 요청-응답형 API에만 해당한다. **실시간 푸시(SSE 알림, STOMP 채팅)는 상태가 외부화돼 있지 않고, ALB 기본 라운드로빈에서 정상 사용 중에도 메시지 유실이 생긴다(리뷰 지적 P1) — 3-5절 참고.** sticky session을 켜도 이 문제는 해결되지 않는다(두 사용자가 서로 다른 인스턴스에 붙어 있는 채팅방이면 sticky session 자체가 성립하지 않는다).
-- **SSE 연결(`/api/notifications/subscribe`) idle timeout 주의(리뷰 지적으로 표현 정정)**: 실제 `SseEmitter` 타임아웃은 `SseEmitterRegistry.EMITTER_TIMEOUT_MS`로 30분(1800초)이고(이 문서 이전 버전이 "최대 3600초"라고 적었던 건 nginx `proxy_read_timeout 3600s`와 혼동한 오기였다 — 정정), 앱은 이미 15초 간격으로 heartbeat(`SseEmitterRegistry.HEARTBEAT_INTERVAL_SEC = 15`, `comment("ping")`)를 보낸다. ALB idle timeout(기본 60초)은 "연결 총수명"이 아니라 "그 시간 동안 아무 데이터도 안 오가면 끊는다"는 기준이라, 15초 heartbeat가 정상적으로 통과되기만 하면 기본 60초에서도 유지될 가능성이 높다. 그래도 안전 마진과 향후 heartbeat 주기 변경 여지를 감안해 idle timeout을 heartbeat 간격보다 충분히 크게(예: 최소 앱의 emitter 타임아웃인 1800초 이상) 설정하는 걸 권장하되, 무조건 최댓값(4000초)으로 올리기보다 실제 연결 유지 테스트(장시간 idle 상태로 연결 유지되는지)로 값을 검증한다.
+- **SSE 연결(`/api/notifications/subscribe`) idle timeout 주의(리뷰 지적으로 표현 정정, 2차 지적으로 권장값 재정정)**: 실제 `SseEmitter` 타임아웃은 `SseEmitterRegistry.EMITTER_TIMEOUT_MS`로 30분(1800초)이고(이 문서 이전 버전이 "최대 3600초"라고 적었던 건 nginx `proxy_read_timeout 3600s`와 혼동한 오기였다 — 정정), 앱은 이미 15초 간격으로 heartbeat(`SseEmitterRegistry.HEARTBEAT_INTERVAL_SEC = 15`, `comment("ping")`)를 보낸다. ALB idle timeout(기본 60초)은 "연결 총수명"이 아니라 "마지막 통신 이후 아무 데이터도 안 오가면 끊는다"는 기준이므로, 권장값도 **연결 총수명(1800초)이 아니라 heartbeat 주기(15초)를 기준으로 잡아야 한다** — 60~120초처럼 heartbeat 주기보다 충분히 큰 값이면 정상 heartbeat는 여유 있게 통과시키면서도, heartbeat가 끊긴 죽은 연결을 오래 안 붙잡는다. emitter 타임아웃(1800초)에 맞춰 idle timeout을 그만큼 크게 잡으면 heartbeat가 멈춘 죽은 연결도 최대 30분간 살아 있는 것처럼 유지될 수 있어 오히려 부정확하다. 정확한 값은 실제 연결 유지 테스트(heartbeat가 정상 통과되는지, 의도적으로 heartbeat를 끊었을 때 예상한 시간 안에 연결이 정리되는지)로 검증한다.
 - 컷오버 순간의 SSE 재연결(무중단배포 문서 7절의 "알려진 한계")은 인스턴스 이중화 이후에도 동일하게 남는다 — ALB는 이 문제를 해결해주지 않는다.
 
 ### 3-5. 실시간 푸시(SSE·STOMP 채팅) 다중 인스턴스 fan-out — 이 설계의 선행 구현 항목(리뷰 지적 P1)
@@ -104,5 +104,5 @@
 - [ ] 2번째 EC2 인스턴스를 1번째와 다른 AZ에 프로비저닝 (기존과 동일 구성 복제, 3-2절)
 - [ ] EC2 보안그룹을 ALB 보안그룹에서만 8080 인바운드를 허용하도록 변경 (직접 인터넷 노출 제거)
 - [ ] `deploy.yml`을 다중 인스턴스 롤링 배포로 확장 — 배포 전 `DeregisterTargets` 호출·drain 대기, 배포·헬스체크 후 `RegisterTargets`로 재등록하는 순서를 스크립트에 직접 구현(3-3절, deregistration delay 설정만으로는 부족)
-- [ ] ALB idle timeout을 heartbeat(15초) 대비 충분히 크게 설정하고, 값은 실제 연결 유지 테스트로 검증 (3-4절, 무조건 최댓값 아님)
+- [ ] ALB idle timeout을 heartbeat(15초) 기준 60~120초대로 설정하고, 값은 실제 연결 유지 테스트로 검증 (3-4절 — 연결 총수명이 아니라 heartbeat 주기 기준, emitter 타임아웃 1800초에 맞추지 않는다)
 - [ ] (별도 결정) RDS Multi-AZ, ElastiCache 복제본 추가 여부
