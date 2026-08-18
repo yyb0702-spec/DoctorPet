@@ -50,7 +50,7 @@ export interface Receipt {
   guardianMemberId: number
   petId: number
   petName: string
-  petSpecies: string // DOG / CAT (예약 시점 스냅샷)
+  petSpecies: string // 백엔드 PetSpecies 8종 중 하나(DOG/CAT/BIRD/RABBIT/HAMSTER/GUINEA_PIG/FERRET/REPTILE), 예약 시점 스냅샷
   status: PaymentStatus
   paymentChannel: PaymentChannel | null // BILLING_KEY / OFFLINE
   paidAt: string | null // 빌링키 자동 결제 완료 시각

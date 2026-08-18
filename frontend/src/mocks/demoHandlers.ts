@@ -1,7 +1,7 @@
 // 데모 목 핸들러 — 백엔드 없이 전체 UI를 체험하기 위해 "실연동" 엔드포인트까지 mock 한다.
 // VITE_FULL_MOCK=true (npm run dev:mock)일 때만 browser.ts가 이 핸들러를 얹는다.
 // 기본 개발(npm run dev)에서는 얹지 않으므로 실연동은 그대로 백엔드로 간다.
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type HttpResponseResolver } from 'msw'
 import {
   hospitalOfSlot,
   mockHospitals,
@@ -170,6 +170,54 @@ let demoMethods: PaymentMethod[] = [
 let methodSeq = 2
 let reservationSeq = 6000
 
+// 보호자(GET /payments/:id/receipt)와 스태프(GET /hospital/payments/:id/receipt)는 동일한 영수증
+// 데이터를 쓴다 — 조회 권한(엔드포인트)만 다르므로 같은 빌더를 두 경로에 등록한다(PR #180 리뷰).
+// 한쪽만 등록하면 dev:mock에서 스태프 영수증 버튼이 매칭 핸들러가 없어 네트워크 오류가 난다.
+// 백엔드는 "결제가 없다"(PAYMENT_005 404)와 "발급 불가 상태다"(PAYMENT_013 409)를 구분하므로
+// (PaymentReceiptService) 목도 그대로 나눈다 — 한쪽으로 뭉개면 검증한 오류 처리가 실연동과 달라진다.
+const receiptResolver: HttpResponseResolver<{ paymentId: string }> = ({ params }) => {
+  const paymentId = Number(params.paymentId)
+  const record = Object.values(mockPaymentByReservation)
+    .flat()
+    .find((p) => p.paymentId === paymentId)
+  if (!record) {
+    return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+  }
+  if (!RECEIPT_STATUSES.has(record.status)) {
+    return fail('PAYMENT_013', '영수증을 발급할 수 있는 결제가 아닙니다.', 409)
+  }
+  const detail = mockReservationDetail[record.reservationId]
+  const receipt: Receipt = {
+    paymentId: record.paymentId,
+    reservationId: record.reservationId,
+    hospitalId: detail?.hospital.hospitalId ?? 1,
+    guardianMemberId: 1,
+    petId: detail?.petSnapshot.petId ?? 1,
+    petName: detail?.petSnapshot.name ?? '초코',
+    petSpecies: detail?.petSnapshot.species ?? 'DOG',
+    status: record.status,
+    paymentChannel: record.paymentChannel,
+    paidAt: record.paidAt,
+    offlineSettledAt: record.offlineSettledAt,
+    cardBrandSnapshot: record.cardBrandSnapshot,
+    cardLast4Snapshot: record.cardLast4Snapshot,
+    // 데모용 항목 — 진찰료 + 검사비로 총액을 구성한다(항목 표 시연).
+    items: [
+      { name: '진찰료', quantity: 1, unitPrice: 15000, amount: 15000 },
+      {
+        name: '검사·처치',
+        quantity: 1,
+        unitPrice: record.amount - 15000,
+        amount: record.amount - 15000,
+      },
+    ],
+    totalAmount: record.amount,
+    refundStatus: record.refundedAt ? 'COMPLETED' : null,
+    refundedAt: record.refundedAt,
+  }
+  return ok(receipt)
+}
+
 export const demoHandlers = [
   // --- 인증 ---
   http.post(`${BASE}/auth/signup`, () => ok({ memberId: 1 }, 201)),
@@ -324,52 +372,9 @@ export const demoHandlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // --- 보호자 JSON 영수증 (dev:mock 오프라인 전용) ---
-  // PAID·OFFLINE_PAID·REFUNDED 결제만 제공한다. 백엔드는 "결제가 없다"와 "발급 불가 상태다"를
-  // 다른 코드·상태로 구분하므로(PaymentReceiptService) 목도 그대로 나눈다 — 한쪽으로 뭉개면
-  // dev:mock에서 검증한 오류 처리가 실연동과 달라진다(PR #180 리뷰).
-  http.get(`${BASE}/payments/:paymentId/receipt`, ({ params }) => {
-    const paymentId = Number(params.paymentId)
-    const record = Object.values(mockPaymentByReservation)
-      .flat()
-      .find((p) => p.paymentId === paymentId)
-    if (!record) {
-      return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
-    }
-    if (!RECEIPT_STATUSES.has(record.status)) {
-      return fail('PAYMENT_013', '영수증을 발급할 수 있는 결제가 아닙니다.', 409)
-    }
-    const detail = mockReservationDetail[record.reservationId]
-    const receipt: Receipt = {
-      paymentId: record.paymentId,
-      reservationId: record.reservationId,
-      hospitalId: detail?.hospital.hospitalId ?? 1,
-      guardianMemberId: 1,
-      petId: detail?.petSnapshot.petId ?? 1,
-      petName: detail?.petSnapshot.name ?? '초코',
-      petSpecies: detail?.petSnapshot.species ?? 'DOG',
-      status: record.status,
-      paymentChannel: record.paymentChannel,
-      paidAt: record.paidAt,
-      offlineSettledAt: record.offlineSettledAt,
-      cardBrandSnapshot: record.cardBrandSnapshot,
-      cardLast4Snapshot: record.cardLast4Snapshot,
-      // 데모용 항목 — 진찰료 + 검사비로 총액을 구성한다(항목 표 시연).
-      items: [
-        { name: '진찰료', quantity: 1, unitPrice: 15000, amount: 15000 },
-        {
-          name: '검사·처치',
-          quantity: 1,
-          unitPrice: record.amount - 15000,
-          amount: record.amount - 15000,
-        },
-      ],
-      totalAmount: record.amount,
-      refundStatus: record.refundedAt ? 'COMPLETED' : null,
-      refundedAt: record.refundedAt,
-    }
-    return ok(receipt)
-  }),
+  // --- JSON 영수증 (dev:mock 오프라인 전용) — 보호자·스태프 공통 빌더(위 receiptResolver) ---
+  http.get(`${BASE}/payments/:paymentId/receipt`, receiptResolver),
+  http.get(`${BASE}/hospital/payments/:paymentId/receipt`, receiptResolver),
 
   // --- 펫 프로필 (dev:mock 오프라인 전용. 실연동(npm run dev)에선 백엔드로 감) ---
   http.get(`${BASE}/pets`, () => ok(demoPets)),
