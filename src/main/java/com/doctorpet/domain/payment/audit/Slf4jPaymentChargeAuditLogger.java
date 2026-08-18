@@ -21,8 +21,9 @@ import org.springframework.stereotype.Component;
 public class Slf4jPaymentChargeAuditLogger implements PaymentChargeAuditLogger {
 
     @Override
-    public void recordChargeAccepted(Long staffMemberId, Long reservationId, Long paymentId, int amount) {
-        log.info("AUDIT 진료비 청구 접수: staffMemberId={}, reservationId={}, paymentId={}, amount={}",
-                staffMemberId, reservationId, paymentId, amount);
+    public void recordChargeAccepted(
+            PaymentChargeChannel channel, Long actorMemberId, Long reservationId, Long paymentId, int amount) {
+        log.info("AUDIT 진료비 청구 접수: channel={}, actorMemberId={}, reservationId={}, paymentId={}, amount={}",
+                channel, actorMemberId, reservationId, paymentId, amount);
     }
 }

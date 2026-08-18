@@ -35,24 +35,36 @@ class Slf4jPaymentChargeAuditLoggerTest {
     }
 
     @Test
-    @DisplayName("AUDIT 마커와 스태프·예약·결제·금액을 한 줄로 남긴다")
+    @DisplayName("AUDIT 마커와 채널·행위자·예약·결제·금액을 한 줄로 남긴다")
     void recordsAuditLine() {
-        auditLogger.recordChargeAccepted(9L, 100L, 1L, 50_000);
+        auditLogger.recordChargeAccepted(PaymentChargeChannel.STAFF_CHARGE, 9L, 100L, 1L, 50_000);
 
         assertThat(appender.list).hasSize(1);
         String message = appender.list.get(0).getFormattedMessage();
         assertThat(message)
                 .contains("AUDIT")
-                .contains("staffMemberId=9")
+                .contains("channel=STAFF_CHARGE")
+                .contains("actorMemberId=9")
                 .contains("reservationId=100")
                 .contains("paymentId=1")
                 .contains("amount=50000");
     }
 
     @Test
+    @DisplayName("보호자 셀프 복구는 GUARDIAN_RECOVERY 채널로 남겨 스태프 청구와 구분된다")
+    void recordsGuardianRecoveryChannel() {
+        auditLogger.recordChargeAccepted(PaymentChargeChannel.GUARDIAN_RECOVERY, 51L, 100L, 2L, 50_000);
+
+        String message = appender.list.get(0).getFormattedMessage();
+        assertThat(message)
+                .contains("channel=GUARDIAN_RECOVERY")
+                .contains("actorMemberId=51");
+    }
+
+    @Test
     @DisplayName("감사 로그에 민감정보(빌링키·카드번호)를 남기지 않는다")
     void doesNotLogSensitiveData() {
-        auditLogger.recordChargeAccepted(9L, 100L, 1L, 50_000);
+        auditLogger.recordChargeAccepted(PaymentChargeChannel.STAFF_CHARGE, 9L, 100L, 1L, 50_000);
 
         String message = appender.list.get(0).getFormattedMessage();
         assertThat(message.toLowerCase())

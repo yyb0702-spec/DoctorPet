@@ -136,6 +136,9 @@ public class SecurityConfig {
                         ).hasRole("GUARDIAN")
                         // 보호자 결제 내역 조회 (SA §8-7, 이슈 #47). 본인 예약 여부는 서비스에서 재검증한다.
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/payments").hasRole("GUARDIAN")
+                        // 보호자 결제 실패 셀프 복구(다시 결제, 고도화 3.3). GET /payments 매처는 GET만 가드하므로
+                        // 이 POST 경로를 명시 매처로 두지 않으면 anyRequest().authenticated()로 떨어져 스태프도 호출 가능해진다.
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/payments/recharge").hasRole("GUARDIAN")
                         // 보호자 JSON 영수증 조회 (SA §9-4 영수증). 본인 결제 여부는 서비스에서 재검증한다.
                         // POST /api/payments/webhook(permitAll)과 경로 접두사를 공유하므로 GET·하위 경로로 좁혀 매칭한다.
                         .requestMatchers(HttpMethod.GET, "/api/payments/*/receipt").hasRole("GUARDIAN")

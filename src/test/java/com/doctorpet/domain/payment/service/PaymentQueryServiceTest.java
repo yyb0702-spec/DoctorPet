@@ -68,7 +68,7 @@ class PaymentQueryServiceTest {
     @DisplayName("보호자 본인 예약의 결제가 있으면 1건을 표시용 카드정보와 함께 반환한다")
     void guardian_success() {
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(reservation()));
-        given(paymentRepository.findByReservationId(RESERVATION_ID)).willReturn(Optional.of(paidPayment()));
+        given(paymentRepository.findByReservationIdOrderByIdDesc(RESERVATION_ID)).willReturn(List.of(paidPayment()));
 
         List<PaymentHistoryResponse> result = paymentQueryService.getForGuardian(RESERVATION_ID, GUARDIAN_ID);
 
@@ -82,7 +82,7 @@ class PaymentQueryServiceTest {
     @DisplayName("결제 전이면 예약은 있어도 빈 내역을 반환한다")
     void guardian_emptyBeforeCharge() {
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(reservation()));
-        given(paymentRepository.findByReservationId(RESERVATION_ID)).willReturn(Optional.empty());
+        given(paymentRepository.findByReservationIdOrderByIdDesc(RESERVATION_ID)).willReturn(List.of());
 
         assertThat(paymentQueryService.getForGuardian(RESERVATION_ID, GUARDIAN_ID)).isEmpty();
     }
@@ -112,7 +112,7 @@ class PaymentQueryServiceTest {
     void hospital_success() {
         given(staffHospitalPort.findHospitalIdByMemberId(STAFF_MEMBER_ID)).willReturn(Optional.of(HOSPITAL_ID));
         given(reservationLookupPort.findForCharge(RESERVATION_ID)).willReturn(Optional.of(reservation()));
-        given(paymentRepository.findByReservationId(RESERVATION_ID)).willReturn(Optional.of(paidPayment()));
+        given(paymentRepository.findByReservationIdOrderByIdDesc(RESERVATION_ID)).willReturn(List.of(paidPayment()));
 
         List<PaymentHistoryResponse> result = paymentQueryService.getForHospital(RESERVATION_ID, STAFF_MEMBER_ID);
 

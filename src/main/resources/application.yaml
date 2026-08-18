@@ -21,6 +21,21 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
+  # Redis 커맨드 타임아웃(ElastiCache PR 재검토 지적 P1) — 값을 안 주면 Lettuce 기본값 60초가
+  # 그대로 적용된다(LettuceClientConfigurationBuilder). 로컬 컨테이너 Redis는 loopback이라 죽으면
+  # 즉시 connection refused로 끝나 이게 문제가 안 됐지만, ElastiCache(ENI 경유 + TLS 핸드셰이크 +
+  # 보안그룹 + 유지관리 창)로 옮기면서 "즉시 거부" 대신 "조용히 블랙홀"(SG 규칙 오변경, 노드 교체
+  # 중 상태 등)이 현실적인 실패 모드가 됐다. JwtAuthenticationFilter는 인증된 모든 요청마다 Redis
+  # hasKey를 2번 호출하는데(RefreshTokenRepository의 탈퇴·로그아웃 블랙리스트 조회, fail-closed라
+  # 예외 처리 자체는 그대로 둔다), 커맨드 타임아웃이 60초면 그 요청들이 톰캣 스레드를 60초씩 붙잡아
+  # 기본 200 스레드가 수 초 만에 고갈될 수 있고, Dockerfile의 HEALTHCHECK(curl -f .../actuator/health,
+  # --timeout=5s)도 RedisHealthIndicator 때문에 같이 막혀 컨테이너가 unhealthy로 떨어질 수 있다.
+  # connect-timeout은 커넥션 자체를 맺는 단계(TLS 핸드셰이크 포함)라 커맨드 타임아웃보다 짧게 둔다.
+  data:
+    redis:
+      timeout: 2s
+      connect-timeout: 1s
+
 server:
   # 무중단 배포 컷오버 시 진행 중인 요청을 끝까지 처리하고 나서 종료한다(리뷰 지적 P1, PR #136) —
   # 기본값 IMMEDIATE는 SIGTERM을 받는 즉시 연결을 끊어, 결제·AI 상담처럼 오래 걸리는 요청이
