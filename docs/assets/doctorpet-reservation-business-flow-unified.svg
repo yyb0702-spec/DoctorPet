@@ -12,8 +12,8 @@
   <text x="80" y="102" class="note">실선: 상태 전이 · 점선: 커밋 후 전달 또는 기존 흐름 재진입 · 모든 연결선은 노드 바깥 여백으로만 배치</text>
 
   <text x="80" y="156" class="lane">1. 예약 요청과 병원 승인</text>
-  <rect x="100" y="190" width="260" height="82" rx="10" class="box"/><text x="230" y="240" class="text">보호자: 병원 검색·상세 조회</text>
-  <path d="M360 231H425" class="edge"/>
+  <rect x="100" y="190" width="300" height="82" rx="10" class="box"/><text x="250" y="240" class="text">보호자: 병원 검색·상세 조회</text>
+  <path d="M400 231H425" class="edge"/>
   <rect x="425" y="190" width="220" height="82" rx="10" class="box"/><text x="535" y="240" class="text">예약 슬롯 선택</text>
   <path d="M645 231H700" class="edge"/>
   <polygon points="820,160 940,231 820,302 700,231" class="decision"/><text x="820" y="237" class="text">슬롯 상태</text>
@@ -31,7 +31,7 @@
   <text x="80" y="716" class="lane">2. 예약 대기열과 슬롯 반환</text>
   <path d="M820 302V390H600V770" class="edge"/><text x="838" y="342" class="label">RESERVED</text>
   <rect x="415" y="780" width="370" height="86" rx="10" class="box"/><text x="600" y="815" class="text">대기열 등록: WAITING</text><text x="600" y="843" class="sub">예약 4시간 전까지만</text>
-  <path d="M1530 456V720H900V850" class="edge"/>
+  <path d="M1400 436H1355V850H1000" class="edge"/>
   <rect x="800" y="810" width="200" height="80" rx="10" class="box"/><text x="900" y="858" class="text">슬롯 반환 트리거</text>
   <path d="M900 890V950" class="edge"/>
   <polygon points="900,958 1040,1028 900,1098 760,1028" class="decision"/><text x="900" y="1034" class="text">활성 대기열 존재?</text>
@@ -43,13 +43,13 @@
   <rect x="1125" y="988" width="330" height="80" rx="10" class="box"/><text x="1290" y="1022" class="text">OFFERED 전이</text><text x="1290" y="1050" class="sub">10분 이하 제안 + 알림 저장</text>
   <path d="M1290 1068V1130" class="edge"/>
   <polygon points="1290,1138 1420,1208 1290,1278 1160,1208" class="decision"/><text x="1290" y="1214" class="text">보호자 응답</text>
-  <path d="M1420 1208H1710V900H900V958" class="edge"/><text x="1440" y="1186" class="label">거절·만료</text>
+  <path d="M1420 1208H1710V910H1040V850H1000" class="edge"/><text x="1440" y="1186" class="label">거절·만료</text>
   <path d="M1290 1278V1340" class="edge"/><text x="1308" y="1318" class="label">수락</text>
   <rect x="1090" y="1350" width="400" height="84" rx="10" class="box"/><text x="1290" y="1385" class="text">신규 REQUESTED 생성</text><text x="1290" y="1413" class="sub">기존 병원 승인·거절 흐름 재진입</text>
   <path d="M1490 1392H1740V125H1155V190" class="dash"/>
 
   <text x="80" y="1516" class="lane">3. 진료와 결제</text>
-  <path d="M1155 637V1570H600" class="edge"/>
+  <path d="M995 596H270V1495H600V1535" class="edge"/>
   <rect x="470" y="1535" width="260" height="72" rx="10" class="box"/><text x="600" y="1580" class="text">CHECKED_IN</text>
   <path d="M730 1571H790" class="edge"/>
   <rect x="800" y="1535" width="260" height="72" rx="10" class="box"/><text x="930" y="1580" class="text">IN_TREATMENT</text>
@@ -67,14 +67,16 @@
   <rect x="620" y="2110" width="320" height="84" rx="10" class="box"/><text x="780" y="2144" class="text">PENDING 유지</text><text x="780" y="2172" class="sub">단건 조회·제한 재시도</text>
   <path d="M620 2152H520" class="edge"/>
   <polygon points="390,2082 520,2152 390,2222 260,2152" class="decision"/><text x="390" y="2146" class="text">정산 결과</text><text x="390" y="2170" class="sub">확정 가능?</text>
-  <path d="M390 2082V1940H1600V1983" class="edge"/><text x="410" y="2058" class="label">PAID</text>
+  <path d="M390 2082H220V2300H1770V2023H1730" class="edge"/><text x="238" y="2062" class="label">PAID</text>
   <path d="M260 2152H180" class="edge"/><text x="188" y="2129" class="label">미확정</text>
-  <rect x="80" y="2110" width="100" height="84" rx="10" class="box"/><text x="130" y="2144" class="text">PENDING</text><text x="130" y="2172" class="sub">운영 확인</text>
+  <rect x="40" y="2110" width="140" height="84" rx="10" class="box"/><text x="110" y="2144" class="text">PENDING</text><text x="110" y="2172" class="sub">운영 확인</text>
   <path d="M390 2222V2242H1180" class="edge"/><text x="585" y="2224" class="label">실패·재시도 소진</text>
   <path d="M1280 2093V2240H1180" class="edge"/><text x="1298" y="2218" class="label">재시도 무의미</text>
   <rect x="850" y="2200" width="330" height="84" rx="10" class="box"/><text x="1015" y="2234" class="text">OFFLINE_REQUIRED</text><text x="1015" y="2262" class="sub">병원 현장 수납 필요</text>
   <path d="M850 2242H770" class="edge"/>
   <rect x="500" y="2200" width="260" height="84" rx="10" class="box"/><text x="630" y="2234" class="text">OFFLINE_PAID</text><text x="630" y="2262" class="sub">현장 수납 정산</text>
+  <path d="M1600 2063V2120" class="edge"/><text x="1618" y="2094" class="label">전액 환불</text>
+  <rect x="1470" y="2130" width="260" height="72" rx="10" class="box"/><text x="1600" y="2175" class="text">REFUNDED</text>
 
   <path d="M80 2315H1720" class="divider"/>
   <text x="80" y="2352" class="lane">4. 예외: 병원 휴업·폐업</text>
