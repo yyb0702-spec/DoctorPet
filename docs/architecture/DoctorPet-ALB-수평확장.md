@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 버전 | v1.2 (리뷰 반영 — SSE·STOMP fan-out 선행 구현 명시, AZ 분산 배치, deregistration 절차, idle timeout 수치 정정, ALB 도입 시 X-Forwarded-For 2홉 신뢰 체인 보강) |
+| 문서 버전 | v1.3 (리뷰 반영 — SSE·STOMP fan-out 선행 구현 명시, AZ 분산 배치, deregistration 절차, idle timeout 수치 정정, ALB 도입 시 X-Forwarded-For 2홉 신뢰 체인 보강, XFF 스푸핑 검증 기준 분리) |
 | 작성 기준일 | 2026-08-18 |
 | 상태 | **설계만 완료, 실제 인프라 미구현** — 아래 2절 트리거 조건 충족 전까지 운영 환경에는 반영하지 않는다 |
 | 전제 | RDS(이슈 #163)·ElastiCache(이슈 #169)로 DB·Redis가 이미 EC2 밖으로 분리되어 있다는 걸 전제로 한다 |
@@ -48,9 +48,12 @@
 - **보안그룹 변경**: 지금 EC2가 8080을 인터넷에 직접 공개하고 있다면, ALB 도입 후에는 EC2 보안그룹의 8080 인바운드를 ALB 보안그룹에서만 허용하도록 좁힌다 — RDS `doctorpet-rds-sg`/ElastiCache `doctorpet-redis-sg`가 EC2 SG에서만 허용하는 것과 같은 원칙.
 - **RDS·ElastiCache**: 이미 EC2 밖으로 분리돼 있어(이슈 #163, #169) 여러 인스턴스가 공유해도 추가 코드 변경이 필요 없다 — 단, 이건 DB·캐시 상태에 한정된 얘기다. **실시간 푸시(SSE·STOMP 채팅)는 이 범위 밖이고 별도 코드 작업이 필요하다 — 3-5절 참고(리뷰 지적 P1).** 다만 인스턴스를 이중화하면서 DB·캐시가 여전히 단일 장애점(Single-AZ, 복제본 0)으로 남는 비대칭이 생긴다 — 5절 잔존 위험 참고.
 - **X-Forwarded-For 신뢰 체인이 ALB 도입으로 한 홉 늘어난다(리뷰 지적 P1)** — `docker-compose.yml`의 `AI_RATE_LIMIT_TRUSTED_PROXIES: nginx` 주석에 이미 적혀 있듯, 익명 AI 상담 요청의 rate limit은 `AiClientIpResolver`가 신뢰하는 프록시(현재 nginx 하나)의 `X-Forwarded-For`만 벗겨내 실제 클라이언트 IP를 찾는 구조다. `AiClientIpResolver.resolve()`는 XFF를 오른쪽(마지막 hop)부터 왼쪽으로 훑으면서, 신뢰 목록에 없는 첫 IP를 만나면 그 자리에서 멈춘다. 지금은 "클라이언트 → nginx → app" 1홉이라 nginx만 신뢰 목록에 있으면 정확하다. ALB가 앞에 붙으면 "클라이언트 → ALB → nginx → app" 2홉이 되는데, ALB는 자신이 본 클라이언트 IP를 XFF에 추가해 nginx로 넘기고, nginx는 `proxy_add_x_forwarded_for`로 자기 `$remote_addr`(=ALB의 사설 IP)을 그 뒤에 또 추가한다 — app에 도착하는 XFF는 `..., 실제클라이언트IP, ALB사설IP` 형태가 된다. `AiClientIpResolver`의 신뢰 목록에 ALB IP가 없으면 오른쪽에서 처음 만나는(=신뢰 목록에 없는) 값이 ALB의 사설 IP가 되어 그 자리에서 멈춰버리고, 그 뒤에 있는 실제 클라이언트 IP까지 훑지 못한다 — **결과적으로 ALB를 거친 모든 익명 사용자가 ALB IP 하나로 집계돼 익명 AI rate limit(분당 3회·일 30회)을 서로 나눠 쓰게 된다.** 두 가지 해결 방향이 있고 이 설계는 ①을 권장한다:
-  - **① (권장) nginx `ngx_http_realip_module`로 ALB를 신뢰 프록시로 등록** — `set_real_ip_from <ALB가 위치한 서브넷 CIDR>;` + `real_ip_header X-Forwarded-For;` + `real_ip_recursive on;`을 nginx.conf에 추가하면, nginx가 자기 `$remote_addr`를 XFF에서 뽑아낸 실제 클라이언트 IP로 스스로 교체한 뒤 그 값을 기준으로 XFF를 다시 구성해 app에 넘긴다 — app에 도착하는 시점엔 이미 1홉짜리 체인(`실제클라이언트IP`)으로 정리돼 있어 `AiClientIpResolver`·`AI_RATE_LIMIT_TRUSTED_PROXIES`는 전혀 손댈 필요가 없다. ALB의 서브넷 CIDR은 3-2절 위 항목에서 확보하는 "ALB용 AZ 2개 이상의 서브넷"과 같은 값이라 실제 구현 시점에 이미 알고 있는 값이다.
+  - **① (권장) nginx `ngx_http_realip_module`로 ALB를 신뢰 프록시로 등록** — `set_real_ip_from <ALB가 위치한 서브넷 CIDR>;` + `real_ip_header X-Forwarded-For;` + `real_ip_recursive on;`을 nginx.conf에 추가하면, nginx가 자기 `$remote_addr`를 XFF에서 뽑아낸 실제 클라이언트 IP로 스스로 교체한 뒤 그 값을 기준으로 XFF를 다시 구성해 app에 넘긴다 — app에 도착하는 시점엔 이미 1홉짜리 체인(`실제클라이언트IP`)으로 정리돼 있어 `AiClientIpResolver`·`AI_RATE_LIMIT_TRUSTED_PROXIES`는 전혀 손댈 필요가 없다. ALB의 서브넷 CIDR은 3-2절 위 항목에서 확보하는 "ALB용 AZ 2개 이상의 서브넷"과 같은 값이라 실제 구현 시점에 이미 알고 있는 값이다. **신뢰 근거는 헤더 내용이 아니라 TCP 접속 상대다** — `real_ip` 모듈은 "$remote_addr(직접 접속해온 상대, 곧 ALB의 사설 IP)가 신뢰 CIDR 안에 있을 때만" XFF를 근거로 재계산을 하고, 그 값을 헤더에 뭐라고 적었는지는 신뢰 여부와 무관하다. 클라이언트가 ALB로 보내는 요청에 임의의 `X-Forwarded-For: 1.1.1.1, 2.2.2.2`를 미리 채워 넣어도 ALB는 그 값을 지우지 않고 그대로 둔 채 자신이 실제로 관찰한 접속 IP만 맨 뒤에 추가한다(AWS 문서 기준 동작) — nginx가 오른쪽부터(=ALB가 가장 마지막에 추가한 값부터) 신뢰 CIDR 밖의 첫 값을 찾아 그것만 `$remote_addr`로 채택하므로, 클라이언트가 앞쪽에 무엇을 써넣든 최종 판단에 전혀 영향을 주지 않는다. `AiClientIpResolver`도 같은 원리(오른쪽부터 훑어 신뢰 목록 밖 첫 값에서 멈춤)로 동작하므로, 이 둘이 합쳐지면 "ALB가 실제로 관찰한 접속 IP"만 최종적으로 신뢰되고 클라이언트가 자체 주입한 XFF 접두부는 구조적으로 무시된다(리뷰 지적 P1 대응).
   - **② (대안) `AiClientIpResolver`가 CIDR 범위를 신뢰 프록시로 지원하도록 코드 확장** — 지금 `AiRateLimitProperties.trustedProxies`는 리터럴 IP·호스트명만 지원해(`List<String>`, `isTrustedProxy()`가 정확히 일치하거나 DNS 재해석한 값과 일치할 때만 신뢰) CIDR을 못 쓴다. 이 대안을 택하면 CIDR 파싱·서브넷 매칭 로직을 새로 추가해야 하는 반면, ①은 인프라 설정만으로 끝난다 — 이 문서(설계 전용, 코드 변경 없음 원칙)와의 정합성을 위해 ①을 기본 권장안으로 삼는다.
-  - 어느 쪽을 택하든, 구현 후 반드시 **2홉 프록시 환경에서 실제 클라이언트 IP가 분리되는지 검증**해야 한다 — 예: 서로 다른 두 클라이언트(또는 XFF를 조작한 curl 요청 두 개)로 익명 AI 상담을 연속 호출해 rate limit이 각자 독립적으로 집계되는지(한쪽이 429를 받아도 다른 쪽은 영향받지 않는지) 확인한다.
+  - **어느 쪽을 택하든, 검증 항목을 "IP가 분리되는지"로 뭉뚱그리면 안 된다(리뷰 지적 P1) — "서로 다른 실제 클라이언트"와 "같은 클라이언트가 XFF를 조작한 요청"은 정반대 기준으로 검증해야 하는 별개 케이스다.** 세 가지를 분리해서 각각 확인한다:
+    - 실제 발신지 IP가 다른 두 클라이언트(또는 서로 다른 실제 소스 IP에서 ALB로 보낸 두 요청) → **서로 독립적으로 집계돼야 한다**(한쪽이 429를 받아도 다른 쪽은 영향받지 않음).
+    - 같은 클라이언트가 요청마다 임의의 `X-Forwarded-For` 값을 주입 → **반드시 동일 클라이언트로 집계돼야 한다** — 이 케이스가 "분리"로 나오면 rate limit이 헤더 조작으로 우회되는 취약점이므로 실패로 판정한다(공격자가 헤더만 바꿔가며 익명 AI 요청 한도를 무제한으로 늘릴 수 있다는 뜻이다).
+    - ALB가 실제로 관찰해 추가한 접속 IP만 최종적으로 신뢰되고, 그 앞의 클라이언트 제공 XFF 값은 실제로 무시되는지(위 ①의 신뢰 근거 설명대로 동작하는지) 직접 확인한다.
 
 ### 3-3. 배포 파이프라인 변경
 
@@ -107,7 +110,10 @@
 - [ ] ALB + Target Group 생성(서로 다른 AZ의 서브넷 2개 이상), 헬스체크를 `/healthz`로 설정
 - [ ] 2번째 EC2 인스턴스를 1번째와 다른 AZ에 프로비저닝 (기존과 동일 구성 복제, 3-2절)
 - [ ] EC2 보안그룹을 ALB 보안그룹에서만 8080 인바운드를 허용하도록 변경 (직접 인터넷 노출 제거)
-- [ ] **nginx에 `ngx_http_realip_module`로 ALB 서브넷을 신뢰 프록시로 등록**(`set_real_ip_from`+`real_ip_header X-Forwarded-For`+`real_ip_recursive on`, 3-2절) — 2홉 프록시(클라이언트→ALB→nginx→app)에서 익명 AI 상담 rate limit이 실제 클라이언트별로 분리되는지(서로 다른 클라이언트가 서로의 429에 영향받지 않는지) 직접 검증
+- [ ] **nginx에 `ngx_http_realip_module`로 ALB 서브넷을 신뢰 프록시로 등록**(`set_real_ip_from`+`real_ip_header X-Forwarded-For`+`real_ip_recursive on`, 3-2절) — 아래 세 가지를 각각 직접 검증(뭉뚱그려 "IP가 분리되는지"만 확인하지 않는다):
+  - 실제 발신지 IP가 다른 두 클라이언트는 rate limit이 서로 독립적으로 집계된다(한쪽 429가 다른 쪽에 영향 없음).
+  - 같은 클라이언트가 `X-Forwarded-For`를 임의로 조작한 요청은 동일 클라이언트로 집계된다(분리되면 실패 — 헤더 조작으로 우회 가능하다는 뜻).
+  - ALB가 실제로 관찰해 추가한 접속 IP만 신뢰되고, 클라이언트가 미리 채워 보낸 XFF 값은 무시된다.
 - [ ] `deploy.yml`을 다중 인스턴스 롤링 배포로 확장 — 배포 전 `DeregisterTargets` 호출·drain 대기, 배포·헬스체크 후 `RegisterTargets`로 재등록하는 순서를 스크립트에 직접 구현(3-3절, deregistration delay 설정만으로는 부족)
 - [ ] ALB idle timeout을 heartbeat(15초) 기준 60~120초대로 설정하고, 값은 실제 연결 유지 테스트로 검증 (3-4절 — 연결 총수명이 아니라 heartbeat 주기 기준, emitter 타임아웃 1800초에 맞추지 않는다)
 - [ ] (별도 결정) RDS Multi-AZ, ElastiCache 복제본 추가 여부
