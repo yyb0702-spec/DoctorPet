@@ -35,9 +35,12 @@ class NotificationWaitlistOfferedTypeMigrationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    // 이 테스트는 type 컬럼을 대기열 유형 이전 ENUM으로 되돌리므로, 복원도 현재 목표 스키마 전체로 해야 한다 —
+    // 대기열 러너만 돌리면 RESERVATION_REQUESTED(#166)가 빠진 채 남아 이후 테스트의 병원 알림 저장이 실패한다.
     @AfterEach
     void restoreMigrationState() {
         new NotificationWaitlistOfferedTypeMigrationRunner(jdbcTemplate).migrateBeforeJpa();
+        new NotificationReservationRequestedTypeMigrationRunner(jdbcTemplate).migrateBeforeJpa();
     }
 
     @Test
