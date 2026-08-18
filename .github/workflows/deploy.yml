@@ -161,6 +161,36 @@ jobs:
             # 않는다.
             git checkout --detach "$DEPLOY_SHA"
 
+            # ElastiCache 컷오버 안전장치(PR #170 재검토 지적 P1) — 옛 로컬 redis 컨테이너가
+            # 아직 떠 있는데 앱은 이미 다른(ElastiCache 등) 엔드포인트를 보고 있는 상태에서,
+            # 옛 컨테이너 안에 refresh:*(Refresh Token)·withdrawn:*(탈퇴 익명화 마커)·
+            # at-blacklist:*(로그아웃/탈퇴 액세스 토큰 블랙리스트) 키가 하나라도 남아 있으면
+            # 배포를 여기서 중단한다. 이 값들은 옛 저장소에만 있고 새 저장소로 자동 이관되지
+            # 않는다 — 그대로 두면 정상 세션의 Refresh Token이 조용히 사라지고, 이미 로그아웃·
+            # 탈퇴 처리로 폐기했어야 할 Access Token이 블랙리스트 없이 TTL 만료 전까지 다시
+            # 유효해지는 실질적 보안 문제가 생긴다("이 환경엔 키가 없었다"는 1회 관찰만으로는
+            # 재사용 가능한 배포 절차의 안전성이 보장되지 않는다는 지적을 그대로 받아들인다).
+            # 옛 컨테이너가 이미 제거됐거나(docker compose ps -q redis가 빈 값) .env에
+            # SPRING_DATA_REDIS_HOST를 아예 안 채워 로컬 redis를 계속 쓰는 중이면(로컬 개발
+            # 등) 이 블록은 검사할 게 없어 아무 일도 하지 않는다 — 옛 컨테이너를 실제로 내리고
+            # 나면(운영 조치, 무중단배포 문서 7절) 이 검사도 영구히 no-op이 된다.
+            OLD_REDIS_CONTAINER="$(docker compose ps -q redis 2>/dev/null || true)"
+            CURRENT_REDIS_HOST="$(grep -E '^SPRING_DATA_REDIS_HOST=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+            if [ -n "$OLD_REDIS_CONTAINER" ] && [ -n "$CURRENT_REDIS_HOST" ] && [ "$CURRENT_REDIS_HOST" != "redis" ]; then
+              STALE_KEYS_FOUND=0
+              for KEY_PATTERN in 'refresh:*' 'withdrawn:*' 'at-blacklist:*'; do
+                KEY_COUNT="$(docker compose exec -T redis redis-cli --scan --pattern "$KEY_PATTERN" 2>/dev/null | wc -l | tr -d '[:space:]')"
+                if [ -n "$KEY_COUNT" ] && [ "$KEY_COUNT" -gt 0 ] 2>/dev/null; then
+                  echo "::error::옛 로컬 redis 컨테이너에 '$KEY_PATTERN' 키가 ${KEY_COUNT}건 남아 있습니다."
+                  STALE_KEYS_FOUND=1
+                fi
+              done
+              if [ "$STALE_KEYS_FOUND" -eq 1 ]; then
+                echo "::error::ElastiCache로 전환됐지만 옛 로컬 redis에 세션·블랙리스트 키가 남아 있어 배포를 중단합니다. TTL을 보존해 새 저장소로 이관하고 위 건수가 0이 되는 것을 확인하거나, JWT_SECRET을 회전해 기존 토큰을 전부 폐기한 뒤 재시도하세요(docs/architecture/DoctorPet-무중단배포.md 7절 참고)."
+                exit 1
+              fi
+            fi
+
             # 무중단 배포(blue/green) — docs/architecture/DoctorPet-무중단배포.md 참고.
             # .active_color가 없으면 이 서버에서의 최초 배포로 보고 blue를 그대로 대상으로
             # 삼는다(컷오버할 기존 색이 없으므로).
