@@ -1,5 +1,6 @@
 // 병원 스태프 결제 도메인 타입 (SA §8-7, /api/hospital/**).
 import type { PaymentStatus } from '@/types/enums'
+import type { PaymentChargeResult } from '@/features/payments/types'
 
 // 병원 결제/환불 대시보드 목록 항목(GET /api/hospital/payments). 진료 완료 예약 기준이며,
 // 아직 청구 전이면 paymentId 이하 필드가 전부 null이다.
@@ -20,15 +21,9 @@ export interface HospitalPaymentListItem {
 
 // PaymentChargeResponse — 진료비 청구 결과. PENDING이면 정산 스케줄러가 나중에
 // 확정하므로 사람이 강제로 바꾸는 API는 없다(§9-4 전진 단선 상태 머신).
-export interface StaffChargeResult {
-  paymentId: number
-  reservationId: number
-  status: PaymentStatus
-  amount: number
-  cardBrandSnapshot: string | null
-  cardLast4Snapshot: string | null
-  failureReason: string | null
-}
+// 보호자 셀프 복구와 같은 응답(PaymentChargeResponse)이라 정의를 공유한다 — 같은 계약을 두 벌
+// 두면 백엔드 DTO가 바뀔 때 한쪽만 고쳐질 수 있다.
+export type StaffChargeResult = PaymentChargeResult
 
 // 청구 항목 초안(GET/PUT /api/hospital/reservations/{id}/payment-items, SA §8-7·§9-4).
 // 항목 금액(amount)과 총액은 서버가 산출하므로 입력에는 없고 응답에만 있다.

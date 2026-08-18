@@ -10,6 +10,19 @@ export interface PaymentMethod {
   createdAt: string
 }
 
+// PaymentChargeResponse — 청구·재청구 결과(SA §8-7). 승인 실패도 HTTP 오류가 아니라 레코드가 생기고
+// status(OFFLINE_REQUIRED 등)로 결과를 표현하므로, 호출부는 2xx를 성공으로 뭉개지 말고 status를 읽어야 한다.
+// 보호자 셀프 복구(재청구)와 스태프 청구가 같은 응답을 쓴다.
+export interface PaymentChargeResult {
+  paymentId: number
+  reservationId: number
+  status: PaymentStatus
+  amount: number
+  cardBrandSnapshot: string | null
+  cardLast4Snapshot: string | null
+  failureReason: string | null
+}
+
 // 결제 내역 항목 (실연동, GET /reservations/{id}/payments → PaymentHistoryResponse[], #47).
 // 예약당 여러 건일 수 있다(예: 빌링키 자동 청구 실패 → 오프라인 수납).
 // 민감정보(빌링키·카드번호 원본)는 없고 표시용 스냅샷(brand·last4)만 온다.

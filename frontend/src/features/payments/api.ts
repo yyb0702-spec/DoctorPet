@@ -1,6 +1,6 @@
 // 결제 API. 결제수단(등록/조회/삭제)·결제 내역 조회 모두 실연동.
 import { http } from '@/lib/api/client'
-import type { PaymentMethod, PaymentRecord, Receipt } from './types'
+import type { PaymentChargeResult, PaymentMethod, PaymentRecord, Receipt } from './types'
 
 export const paymentApi = {
   // 결제수단 — 실연동 (SA §8-7).
@@ -15,6 +15,15 @@ export const paymentApi = {
   // 결제 내역 — 실연동 (SA §8-7, #47). 예약당 여러 건 가능(배열).
   getReservationPayments: (reservationId: number) =>
     http.get<PaymentRecord[]>(`/reservations/${reservationId}/payments`),
+
+  // 결제 실패 셀프 복구(다시 결제) — 실연동 (SA §9-4, 고도화 3.3). 활성 결제가 OFFLINE_REQUIRED일
+  // 때만 서버가 성립시킨다(그 외 409). 금액·항목은 보내지 않는다 — 원 결제 총액·항목을 서버가 승계한다.
+  // 201로 새 결제가 생기며, 승인 실패도 레코드가 생기고 status로 결과가 온다.
+  recharge: (reservationId: number, paymentMethodId: number) =>
+    http.post<PaymentChargeResult>(
+      `/reservations/${reservationId}/payments/recharge`,
+      { paymentMethodId },
+    ),
 
   // JSON 영수증 — 실연동 (PR #158). PAID·OFFLINE_PAID·REFUNDED 결제만. 본인 결제만 조회된다.
   getReceipt: (paymentId: number) =>

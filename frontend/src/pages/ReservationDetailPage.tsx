@@ -6,8 +6,17 @@ import {
   useCancelReservation,
   useReservationDetail,
 } from '@/features/reservations/hooks'
-import { useReservationPayments } from '@/features/payments/hooks'
+import {
+  usePaymentMethods,
+  useRechargePayment,
+  useReservationPayments,
+} from '@/features/payments/hooks'
 import { paymentApi } from '@/features/payments/api'
+import {
+  activePaymentId,
+  rechargeablePaymentId,
+} from '@/features/payments/activePayment'
+import type { PaymentChargeResult } from '@/features/payments/types'
 import { ReceiptDialog } from '@/components/common/ReceiptDialog'
 import { ReservationProgress } from '@/features/reservations/ReservationProgress'
 import {
@@ -15,6 +24,7 @@ import {
   ReservationProgressBadge,
 } from '@/components/common/StatusBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { cn } from '@/lib/utils'
@@ -134,6 +144,117 @@ function fmt(iso: string): string {
   return new Date(iso).toLocaleString('ko-KR')
 }
 
+// 결제수단 표시명. 간편결제로 발급한 빌링키는 카드 정보가 비어 올 수 있어 그때는 등록일로 구분한다.
+function methodLabel(method: {
+  cardBrand: string | null
+  cardLast4: string | null
+  createdAt: string
+}): string {
+  if (method.cardBrand) {
+    return `${method.cardBrand} ****${method.cardLast4 ?? '****'}`
+  }
+  return `카드 (${new Date(method.createdAt).toLocaleDateString('ko-KR')} 등록)`
+}
+
+/**
+ * 자동 결제 실패(OFFLINE_REQUIRED)를 보호자가 직접 다시 결제하는 패널(SA §9-4, 고도화 3.3).
+ *
+ * 결제수단을 새로 골라야만 재청구가 성립한다 — 같은 수단으로 다시 시도하는 버튼이 아니다.
+ * 응답이 201이어도 결제 성공이 아니다: 승인 실패도 레코드가 생기고 status로 내려오므로
+ * 2xx를 성공으로 뭉개지 않고 status를 읽어 결과를 보여준다.
+ */
+function RechargePanel({ reservationId }: { reservationId: number }) {
+  const methodsQuery = usePaymentMethods()
+  const recharge = useRechargePayment(reservationId)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [result, setResult] = useState<PaymentChargeResult | null>(null)
+
+  // 백엔드가 ACTIVE만 반환하지만, 삭제·만료 수단으로는 재청구가 성립하지 않으므로 화면에서도 거른다.
+  const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+
+  if (methodsQuery.isLoading) {
+    return <p className="text-xs text-muted-foreground">결제수단을 불러오는 중…</p>
+  }
+
+  if (methods.length === 0) {
+    return (
+      <div className="space-y-2 rounded-md border p-3">
+        <p className="text-sm text-muted-foreground">
+          다시 결제하려면 사용할 결제수단이 필요해요.
+        </p>
+        <Button size="sm" variant="outline" asChild>
+          <Link to="/payment-methods">결제수단 등록하러 가기</Link>
+        </Button>
+      </div>
+    )
+  }
+
+  // 재청구 성공(PAID)이면 아래 결제 내역이 새 결제로 갱신되므로 패널은 결과만 짧게 알린다.
+  if (result?.status === PaymentStatus.PAID) {
+    return (
+      <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900">
+        결제가 완료됐어요.
+      </p>
+    )
+  }
+  if (result?.status === PaymentStatus.PENDING) {
+    return (
+      <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+        결제 결과를 확인하고 있어요. 결과가 정해지면 알려드려요.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm text-muted-foreground">
+        다시 결제할 결제수단을 선택하세요. 금액은 원래 청구 금액 그대로예요.
+      </p>
+      <div className="grid gap-1">
+        {methods.map((m) => (
+          <label
+            key={m.id}
+            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+          >
+            <input
+              type="radio"
+              name={`recharge-method-${reservationId}`}
+              value={m.id}
+              checked={selectedId === m.id}
+              onChange={() => setSelectedId(m.id)}
+            />
+            <span>{methodLabel(m)}</span>
+          </label>
+        ))}
+      </div>
+      {/* 재청구했는데 또 실패한 경우. 상태는 다시 OFFLINE_REQUIRED라 패널이 그대로 열려 있다. */}
+      {result?.status === PaymentStatus.OFFLINE_REQUIRED && (
+        <p className="text-sm text-destructive">
+          결제에 실패했어요. 다른 결제수단으로 다시 시도하거나 병원에서 수납해 주세요.
+          {result.failureReason && ` (${result.failureReason})`}
+        </p>
+      )}
+      {recharge.isError && (
+        <p className="text-sm text-destructive">
+          {recharge.error instanceof ApiError
+            ? recharge.error.message
+            : '다시 결제하지 못했어요.'}
+        </p>
+      )}
+      <Button
+        size="sm"
+        disabled={selectedId === null || recharge.isPending}
+        onClick={() => {
+          if (selectedId === null) return
+          recharge.mutate(selectedId, { onSuccess: setResult })
+        }}
+      >
+        {recharge.isPending ? '결제 중…' : '이 수단으로 결제'}
+      </Button>
+    </div>
+  )
+}
+
 export function ReservationDetailPage() {
   const { reservationId } = useParams()
   const id = Number(reservationId)
@@ -148,6 +269,9 @@ export function ReservationDetailPage() {
 
   const r = detailQuery.data
   const payments = paymentsQuery.data ?? []
+  // 활성 판정은 최신 생성분 추론이다(응답에 supersededAt이 없다). 실제 성립 여부는 서버의 조건부 전이가 강제한다.
+  const activeId = activePaymentId(payments)
+  const rechargeableId = rechargeablePaymentId(payments)
   const cancelable = CANCELABLE.includes(r.reservationStatus)
   const info = banner(r.reservationStatus, r.paymentStatus)
   const showProgress =
@@ -233,7 +357,14 @@ export function ReservationDetailPage() {
                   <span className="text-2xl font-bold">
                     {p.amount.toLocaleString('ko-KR')}원
                   </span>
-                  <PaymentStatusBadge status={p.status} />
+                  <div className="flex items-center gap-2">
+                    {/* 결제가 여러 건이면 어느 것이 현재 청구인지 구분해 준다. 대체된 결제는
+                        지우지 않고 이력으로 남기므로(SA §9-4) 목록에 함께 보인다. */}
+                    {payments.length > 1 && p.paymentId !== activeId && (
+                      <Badge variant="muted">대체됨</Badge>
+                    )}
+                    <PaymentStatusBadge status={p.status} />
+                  </div>
                 </div>
                 {p.cardBrandSnapshot && (
                   <p className="text-muted-foreground">
@@ -269,6 +400,12 @@ export function ReservationDetailPage() {
                   >
                     영수증 보기
                   </Button>
+                )}
+
+                {/* 셀프 복구(다시 결제)는 활성 결제가 OFFLINE_REQUIRED일 때만. PENDING에서는
+                    승인 여부가 불확정이라 절대 노출하지 않는다 — 이중 결제 위험(SA §9-4·§9-7). */}
+                {p.paymentId === rechargeableId && (
+                  <RechargePanel reservationId={r.reservationId} />
                 )}
               </div>
             ))}

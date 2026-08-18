@@ -12,7 +12,7 @@ import {
   useStaffReservationPayments,
 } from '@/features/staffPayments/hooks'
 import { staffPaymentApi } from '@/features/staffPayments/api'
-import { activePaymentId } from '@/features/staffPayments/activePayment'
+import { activePaymentId } from '@/features/payments/activePayment'
 import type { PaymentItemInput } from '@/features/staffPayments/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
 import { ReservationStatusBadge, PaymentStatusBadge } from '@/components/common/StatusBadge'
