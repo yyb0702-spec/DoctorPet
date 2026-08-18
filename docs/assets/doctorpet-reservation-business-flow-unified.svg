@@ -76,9 +76,8 @@
   <path d="M390 2082H220V2300H1770V2023H1730" class="edge"/><text x="238" y="2062" class="label">PAID</text>
   <path d="M260 2152H180" class="edge"/><text x="188" y="2129" class="label">미확정</text>
   <rect x="40" y="2110" width="140" height="84" rx="10" class="box"/><text x="110" y="2144" class="text">PENDING</text><text x="110" y="2172" class="sub">운영 확인</text>
-  <path d="M390 2222V2242H1180" class="edge"/><text x="585" y="2224" class="label">실패·재시도 소진</text>
-  <path d="M1280 2093V2240H1180" class="edge"/><text x="1298" y="2218" class="label">재시도 무의미</text>
-  <rect x="850" y="2200" width="330" height="84" rx="10" class="box"/><text x="1015" y="2234" class="text">OFFLINE_REQUIRED</text><text x="1015" y="2262" class="sub">병원 현장 수납 필요</text>
+  <path d="M940 2152H1100V2190H1015V2200" class="edge"/><text x="945" y="2180" class="label">조회 결과 FAILED 확정</text>
+  <rect x="850" y="2200" width="330" height="84" rx="10" class="box"/><text x="1015" y="2234" class="text">OFFLINE_REQUIRED</text><text x="1015" y="2262" class="sub">병원 현장 수납 또는 보호자 재청구</text>
   <path d="M850 2242H770" class="edge"/>
   <rect x="500" y="2200" width="260" height="84" rx="10" class="box"/><text x="630" y="2234" class="text">OFFLINE_PAID</text><text x="630" y="2262" class="sub">현장 수납 정산</text>
   <path d="M1600 2063V2120" class="edge"/><text x="1618" y="2094" class="label">전액 환불</text>
