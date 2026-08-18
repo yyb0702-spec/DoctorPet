@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { HospitalMap } from '@/components/common/HospitalMap'
 import { cn } from '@/lib/utils'
 import { PetSpecies } from '@/types/enums'
+import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
 
 const PAGE_SIZE = 20
 
@@ -85,20 +86,16 @@ export function HospitalSearchPage() {
 
       {/* 필터 칩 */}
       <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant={species === PetSpecies.DOG ? 'default' : 'outline'}
-          onClick={() => toggleSpecies(PetSpecies.DOG)}
-        >
-          강아지
-        </Button>
-        <Button
-          size="sm"
-          variant={species === PetSpecies.CAT ? 'default' : 'outline'}
-          onClick={() => toggleSpecies(PetSpecies.CAT)}
-        >
-          고양이
-        </Button>
+        {SPECIES_ORDER.map((s) => (
+          <Button
+            key={s}
+            size="sm"
+            variant={species === s ? 'default' : 'outline'}
+            onClick={() => toggleSpecies(s)}
+          >
+            {SPECIES_LABEL[s]}
+          </Button>
+        ))}
         <Button
           size="sm"
           variant={params.nightCare ? 'default' : 'outline'}

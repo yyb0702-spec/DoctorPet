@@ -6,26 +6,13 @@ import type { Receipt } from '@/features/payments/types'
 import { PaymentStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { ApiError } from '@/lib/api/error'
+import { speciesLabel } from '@/lib/species'
 import { PaymentChannel } from '@/types/enums'
 
 const REFUND_STATUS_LABEL: Record<string, string> = {
   REQUESTED: '환불 처리 중',
   COMPLETED: '환불 완료',
   FAILED: '환불 실패',
-}
-
-// 백엔드 PetSpecies 8종(SA §4 pet_profiles) 표시 라벨. 영수증 petSpecies는 예약 시점 스냅샷이라
-// 프론트 입력용 enum(DOG/CAT)과 달리 8종 전부 올 수 있다. 알 수 없는 값은 강아지/고양이로 뭉개지
-// 않고 원문을 그대로 보여준다(PR #180 리뷰).
-const PET_SPECIES_LABEL: Record<string, string> = {
-  DOG: '강아지',
-  CAT: '고양이',
-  BIRD: '새',
-  RABBIT: '토끼',
-  HAMSTER: '햄스터',
-  GUINEA_PIG: '기니피그',
-  FERRET: '페럿',
-  REPTILE: '파충류',
 }
 
 function fmt(iso: string): string {
@@ -114,8 +101,7 @@ export function ReceiptDialog({
             <dl className="grid grid-cols-[84px_1fr] gap-y-1.5">
               <dt className="text-muted-foreground">반려동물</dt>
               <dd>
-                {receipt.petName} (
-                {PET_SPECIES_LABEL[receipt.petSpecies] ?? receipt.petSpecies})
+                {receipt.petName} ({speciesLabel(receipt.petSpecies)})
               </dd>
               {receipt.cardBrandSnapshot && (
                 <>

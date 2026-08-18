@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
+import { speciesLabel } from '@/lib/species'
 
 const NICKNAME_MAX = 255
 
@@ -225,7 +226,7 @@ export function MyPage() {
                   <span className="flex items-center gap-2 font-medium">
                     {p.name}
                     <Badge variant="secondary">
-                      {p.species === 'DOG' ? '강아지' : '고양이'}
+                      {speciesLabel(p.species)}
                     </Badge>
                   </span>
                   <span className="text-muted-foreground">

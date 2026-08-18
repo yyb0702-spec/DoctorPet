@@ -19,6 +19,7 @@ import {
 import type { PaymentChargeResult } from '@/features/payments/types'
 import { paymentMethodLabels } from '@/features/payments/methodLabel'
 import { ReceiptDialog } from '@/components/common/ReceiptDialog'
+import { speciesLabel } from '@/lib/species'
 import { ReservationProgress } from '@/features/reservations/ReservationProgress'
 import {
   PaymentStatusBadge,
@@ -323,8 +324,7 @@ export function ReservationDetailPage() {
           <dl className="grid grid-cols-[80px_1fr] gap-y-1 pt-2">
             <dt className="text-muted-foreground">반려동물</dt>
             <dd>
-              {r.petSnapshot.name} (
-              {r.petSnapshot.species === 'DOG' ? '강아지' : '고양이'})
+              {r.petSnapshot.name} ({speciesLabel(r.petSnapshot.species)})
             </dd>
             <dt className="text-muted-foreground">진료 시간</dt>
             <dd>{fmt(r.slot.startAt)}</dd>

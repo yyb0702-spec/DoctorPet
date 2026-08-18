@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { PetSpecies } from '@/types/enums'
+import { SPECIES_ORDER, SPECIES_LABEL, speciesEmoji, speciesLabel } from '@/lib/species'
 
 export function PetsPage() {
   const petsQuery = usePets()
@@ -67,8 +68,11 @@ export function PetsPage() {
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 {...register('species')}
               >
-                <option value={PetSpecies.DOG}>강아지</option>
-                <option value={PetSpecies.CAT}>고양이</option>
+                {SPECIES_ORDER.map((s) => (
+                  <option key={s} value={s}>
+                    {SPECIES_LABEL[s]}
+                  </option>
+                ))}
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -105,12 +109,12 @@ export function PetsPage() {
       <Card className="h-fit border-dashed bg-muted/30">
         <CardContent className="flex items-center gap-4 p-5">
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-2xl">
-            {preview.species === PetSpecies.CAT ? '🐱' : '🐶'}
+            {speciesEmoji(preview.species)}
           </span>
           <div className="space-y-0.5">
             <p className="font-semibold">{preview.name || '이름 미입력'}</p>
             <p className="text-sm text-muted-foreground">
-              {preview.species === PetSpecies.CAT ? '고양이' : '강아지'}
+              {speciesLabel(preview.species)}
               {Number.isFinite(preview.age) && ` · ${preview.age}살`}
               {Number.isFinite(preview.weight) && ` · ${preview.weight}kg`}
             </p>

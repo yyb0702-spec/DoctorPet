@@ -40,10 +40,16 @@ export const SlotStatus = {
 } as const
 export type SlotStatus = (typeof SlotStatus)[keyof typeof SlotStatus]
 
-// 반려동물 종 (SA §4 pet_profiles)
+// 반려동물 종 (SA §4 pet_profiles). 백엔드 PetSpecies 화이트리스트(8종)와 일치.
 export const PetSpecies = {
   DOG: 'DOG',
   CAT: 'CAT',
+  BIRD: 'BIRD',
+  RABBIT: 'RABBIT',
+  HAMSTER: 'HAMSTER',
+  GUINEA_PIG: 'GUINEA_PIG',
+  FERRET: 'FERRET',
+  REPTILE: 'REPTILE',
 } as const
 export type PetSpecies = (typeof PetSpecies)[keyof typeof PetSpecies]
 
@@ -71,7 +77,7 @@ export const PaymentMethodStatus = {
 export type PaymentMethodStatus =
   (typeof PaymentMethodStatus)[keyof typeof PaymentMethodStatus]
 
-// 진료역량 분류·화이트리스트 (SA §4 hospital_capabilities, 13개 값 고정)
+// 진료역량 분류·화이트리스트 (SA §4 hospital_capabilities). 백엔드 CapabilityValue와 일치(19개 값: 종 8 + 검사 3 + 치료 5 + 장비 3)
 export const CapabilityType = {
   SPECIES: 'SPECIES',
   EXAM: 'EXAM',
@@ -84,6 +90,12 @@ export type CapabilityType =
 export const CapabilityValue = {
   DOG: 'DOG',
   CAT: 'CAT',
+  BIRD: 'BIRD',
+  RABBIT: 'RABBIT',
+  HAMSTER: 'HAMSTER',
+  GUINEA_PIG: 'GUINEA_PIG',
+  FERRET: 'FERRET',
+  REPTILE: 'REPTILE',
   BLOOD_TEST: 'BLOOD_TEST',
   XRAY: 'XRAY',
   ULTRASOUND: 'ULTRASOUND',

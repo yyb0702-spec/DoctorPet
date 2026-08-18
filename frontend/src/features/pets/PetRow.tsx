@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Field } from '@/components/common/Field'
-import { PetSpecies } from '@/types/enums'
+import { SPECIES_ORDER, SPECIES_LABEL, speciesLabel } from '@/lib/species'
 import { ApiError } from '@/lib/api/error'
 
 export function PetRow({ pet }: { pet: Pet }) {
@@ -64,8 +64,11 @@ export function PetRow({ pet }: { pet: Pet }) {
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 {...register('species')}
               >
-                <option value={PetSpecies.DOG}>강아지</option>
-                <option value={PetSpecies.CAT}>고양이</option>
+                {SPECIES_ORDER.map((s) => (
+                  <option key={s} value={s}>
+                    {SPECIES_LABEL[s]}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="나이(살)" htmlFor={`age-${pet.petId}`} error={errors.age?.message}>
@@ -122,7 +125,7 @@ export function PetRow({ pet }: { pet: Pet }) {
           <div className="flex items-center gap-2">
             <span className="font-semibold">{pet.name}</span>
             <Badge variant="secondary">
-              {pet.species === 'DOG' ? '강아지' : '고양이'}
+              {speciesLabel(pet.species)}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
