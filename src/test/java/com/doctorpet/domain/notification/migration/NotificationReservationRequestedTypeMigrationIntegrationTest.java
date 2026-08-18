@@ -82,6 +82,10 @@ class NotificationReservationRequestedTypeMigrationIntegrationTest {
     void migration_beforeLegacyTypoFix_failsWithoutAlteringColumn() {
         // 대기열 유형 마이그레이션이 먼저 끝나야 한다 — 여기서 목표 ENUM을 적용하면 오타 값을 쓰는 기존 행이
         // 잘려 나간다. 순서가 뒤집힌 상황을 조용히 통과시키지 않는 것이 이 테스트의 계약이다.
+        // LEGACY_ENUM에는 RESERVATION_REQUESTED가 없다 — 그 값을 쓰는 행이 하나라도 남아 있으면 이 ALTER 자체가
+        // MySQL strict 모드에서 "Data truncated"로 실패해, 검증하려는 러너 동작에 도달하지 못한다. 공유 테스트 DB에는
+        // 다른 통합 테스트가 남긴 행이 있을 수 있으므로 좁히기 전에 먼저 지운다(대기열 유형 테스트와 같은 관례).
+        jdbcTemplate.update("delete from notifications where type = 'RESERVATION_REQUESTED'");
         jdbcTemplate.execute("alter table notifications modify column type " + LEGACY_ENUM + " not null");
         jdbcTemplate.update(
                 "delete from schema_migrations where migration_key = ?",
