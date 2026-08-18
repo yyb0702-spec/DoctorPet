@@ -245,10 +245,16 @@ services:
     # 버전의 설명은 틀렸다(리뷰 지적이 정확함). 지금은 템플릿·envsubst를 안 써서 실질 영향은
     # 작지만, 이미지 업데이트나 향후 템플릿 도입 시 조용히 회귀할 수 있는 위험이라 command
     # 대신 아래처럼 ENTRYPOINT를 감싸는 방식으로 바꿔, 심볼릭 링크 설정 이후 원래
-    # docker-entrypoint.sh를 "nginx"를 첫 인자로 그대로 넘겨 호출한다 — CMD는 아예 건드리지
-    # 않으므로(이미지 기본값 `nginx -g daemon off;` 그대로 유지) docker-entrypoint.sh 입장에서는
-    # 이 프로젝트가 ENTRYPOINT/CMD를 전혀 커스터마이징하지 않은 것과 완전히 동일하게 동작하고,
-    # /docker-entrypoint.d/ 초기화 스크립트도 원래처럼 실행된다.
+    # docker-entrypoint.sh를 "nginx"를 첫 인자로 그대로 넘겨 호출한다.
+    # (리뷰 지적 P0, 재정정) entrypoint를 설정하면 Compose는 이미지의 기본 CMD를
+    # 아예 무시한다("If entrypoint is non-null, Compose ignores any default command
+    # from the image" — Docker Compose 공식 문서). 즉 command를 같이 지정하지 않으면
+    # 위 스크립트의 "$@"가 완전히 비어버려서 exec /docker-entrypoint.sh "$@"가 인자 없이
+    # 호출되고, docker-entrypoint.sh 내부의 [ "$1" = 'nginx' ] 조건이 거짓이 되어
+    # /docker-entrypoint.d/ 초기화 스크립트뿐 아니라 마지막의 `exec "$@"`(nginx 기동 자체)도
+    # 실행되지 않는다 — nginx가 뜨지 않고 컨테이너가 즉시 종료되며 restart: unless-stopped로
+    # 크래시루프에 빠진다. 그래서 아래 command를 명시적으로 함께 지정해 이미지 기본 CMD와
+    # 동일한 인자를 다시 채워 넣는다.
     entrypoint:
       - /bin/sh
       - -c
@@ -258,6 +264,7 @@ services:
         ln -s /etc/nginx/custom/conf.d /etc/nginx/conf.d &&
         exec /docker-entrypoint.sh "$@"
       - custom-entrypoint-shim
+    command: ["nginx", "-g", "daemon off;"]
     # app-blue/app-green을 depends_on으로 걸지 않는다 — 걸면 `docker compose up -d nginx`가
     # (기본 프로파일인) app-blue까지 같이 시작시키려 들어, 배포 스크립트가 아직 대상 색의
     # 이미지 태그를 export하기 전 타이밍에 엉뚱한 태그(local 폴백)로 기동을 시도할 수 있다.
