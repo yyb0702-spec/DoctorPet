@@ -2,8 +2,10 @@ package com.doctorpet.domain.member.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,6 +20,8 @@ import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
 import com.doctorpet.domain.member.exception.MemberErrorCode;
+import com.doctorpet.domain.member.service.AuthRateLimitAction;
+import com.doctorpet.domain.member.service.AuthRateLimiter;
 import com.doctorpet.domain.member.service.AuthService;
 import com.doctorpet.domain.member.service.EmailVerificationService;
 import com.doctorpet.domain.member.service.PasswordResetService;
@@ -26,6 +30,7 @@ import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -77,6 +82,11 @@ class AuthControllerTest {
     @MockitoBean
     private PasswordResetService passwordResetService;
 
+    // 스텁하지 않으면 Mockito 기본값(void 메서드는 아무 것도 안 함)이라 기존 테스트 동작에는
+    // 영향이 없다 — rate limit 통과를 별도로 stub할 필요가 없다(기능 구멍 점검 대응).
+    @MockitoBean
+    private AuthRateLimiter authRateLimiter;
+
     // addFilters=false는 MockMvc가 필터를 "실행"하지 않게 할 뿐, @WebMvcTest는 Filter 타입 빈을
     // 기본 포함 대상으로 슬라이스 컨텍스트에 여전히 생성한다. JwtAuthenticationFilter가 생성자에서
     // JwtTokenProvider·MemberBlacklistPort·AccessTokenBlacklistPort를 요구하므로, 이 빈들이 없으면
@@ -90,6 +100,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
+
+    @MockitoBean
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
 
     @AfterEach
     void clearSecurityContext() {
@@ -198,6 +211,36 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
+    }
+
+    @Test
+    @DisplayName("회원가입은 authRateLimiter로 SIGNUP 행동을 먼저 확인한다(기능 구멍 점검 대응)")
+    void signup_checksRateLimit() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
+        given(authService.signup(any(SignupRequest.class))).willReturn(new SignupResponse(1L));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        verify(authRateLimiter).check(any(), eq(AuthRateLimitAction.SIGNUP));
+    }
+
+    @Test
+    @DisplayName("회원가입 rate limit을 초과하면 429와 MEMBER_011을 반환하고 실제 가입은 시도하지 않는다")
+    void signup_rateLimitExceeded_returnsTooManyRequests() throws Exception {
+        SignupRequest request = new SignupRequest("guardian@example.com", "password1234", "보호자닉네임", "010-1234-5678");
+        willThrow(new ServiceException(MemberErrorCode.RATE_LIMIT_EXCEEDED))
+                .given(authRateLimiter).check(any(), eq(AuthRateLimitAction.SIGNUP));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("MEMBER_011"));
+
+        verify(authService, never()).signup(any());
     }
 
     @Test
@@ -463,6 +506,23 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
         verify(emailVerificationService).resendVerificationEmail("guardian@example.com");
+        verify(authRateLimiter).check(any(), eq(AuthRateLimitAction.VERIFY_EMAIL_RESEND));
+    }
+
+    @Test
+    @DisplayName("인증 메일 재발송 rate limit을 초과하면 429와 MEMBER_011을 반환한다")
+    void resendVerificationEmail_rateLimitExceeded_returnsTooManyRequests() throws Exception {
+        EmailRequest request = new EmailRequest("guardian@example.com");
+        willThrow(new ServiceException(MemberErrorCode.RATE_LIMIT_EXCEEDED))
+                .given(authRateLimiter).check(any(), eq(AuthRateLimitAction.VERIFY_EMAIL_RESEND));
+
+        mockMvc.perform(post("/api/auth/verify-email/resend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("MEMBER_011"));
+
+        verify(emailVerificationService, never()).resendVerificationEmail(anyString());
     }
 
     @Test
@@ -489,6 +549,23 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
 
         verify(passwordResetService).requestPasswordReset("guardian@example.com");
+        verify(authRateLimiter).check(any(), eq(AuthRateLimitAction.PASSWORD_RESET_REQUEST));
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정 요청 rate limit을 초과하면 429와 MEMBER_011을 반환한다")
+    void requestPasswordReset_rateLimitExceeded_returnsTooManyRequests() throws Exception {
+        EmailRequest request = new EmailRequest("guardian@example.com");
+        willThrow(new ServiceException(MemberErrorCode.RATE_LIMIT_EXCEEDED))
+                .given(authRateLimiter).check(any(), eq(AuthRateLimitAction.PASSWORD_RESET_REQUEST));
+
+        mockMvc.perform(post("/api/auth/password-reset/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("MEMBER_011"));
+
+        verify(passwordResetService, never()).requestPasswordReset(anyString());
     }
 
     @Test

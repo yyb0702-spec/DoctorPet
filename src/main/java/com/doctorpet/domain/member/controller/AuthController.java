@@ -7,6 +7,8 @@ import com.doctorpet.domain.member.dto.request.ReissueRequest;
 import com.doctorpet.domain.member.dto.request.SignupRequest;
 import com.doctorpet.domain.member.dto.response.LoginResponse;
 import com.doctorpet.domain.member.dto.response.SignupResponse;
+import com.doctorpet.domain.member.service.AuthRateLimitAction;
+import com.doctorpet.domain.member.service.AuthRateLimiter;
 import com.doctorpet.domain.member.service.AuthService;
 import com.doctorpet.domain.member.service.EmailVerificationService;
 import com.doctorpet.domain.member.service.PasswordResetService;
@@ -44,9 +46,18 @@ public class AuthController {
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
     private final PasswordResetService passwordResetService;
+    private final AuthRateLimiter authRateLimiter;
 
+    // 회원가입·이메일 인증 재발송·비밀번호 재설정 요청은 비인증 상태에서 임의의 이메일로 메일을
+    // 발송시킬 수 있어 IP 기준 rate limit을 먼저 통과해야 한다(기능 구멍 점검 대응,
+    // AuthRateLimiter 참고). 로그인·재발급은 이미 계정 잠금(A 도메인 결정 #1)·회원당 재발급
+    // 직렬화(RefreshTokenRepository)로 별도 방어가 있어 이 rate limit 대상에 포함하지 않는다.
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<SignupResponse>> signup(@Valid @RequestBody SignupRequest request) {
+    public ResponseEntity<ApiResponse<SignupResponse>> signup(
+            @Valid @RequestBody SignupRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        authRateLimiter.check(httpRequest, AuthRateLimitAction.SIGNUP);
         SignupResponse response = authService.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response));
@@ -95,14 +106,22 @@ public class AuthController {
     // 계정 존재 여부·인증 여부를 노출하지 않기 위해 항상 200을 반환한다(EmailVerificationService
     // 참고) — 실제로 메일이 발송됐는지는 응답만으로 알 수 없다.
     @PostMapping("/verify-email/resend")
-    public ResponseEntity<ApiResponse<Void>> resendVerificationEmail(@Valid @RequestBody EmailRequest request) {
+    public ResponseEntity<ApiResponse<Void>> resendVerificationEmail(
+            @Valid @RequestBody EmailRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        authRateLimiter.check(httpRequest, AuthRateLimitAction.VERIFY_EMAIL_RESEND);
         emailVerificationService.resendVerificationEmail(request.email());
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     // 계정 존재 여부를 노출하지 않기 위해 항상 200을 반환한다(PasswordResetService 참고).
     @PostMapping("/password-reset/request")
-    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(@Valid @RequestBody EmailRequest request) {
+    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
+            @Valid @RequestBody EmailRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        authRateLimiter.check(httpRequest, AuthRateLimitAction.PASSWORD_RESET_REQUEST);
         passwordResetService.requestPasswordReset(request.email());
         return ResponseEntity.ok(ApiResponse.success());
     }

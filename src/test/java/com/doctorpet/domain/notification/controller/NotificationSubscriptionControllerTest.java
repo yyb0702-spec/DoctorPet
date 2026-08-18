@@ -13,6 +13,7 @@ import com.doctorpet.domain.notification.service.NotificationSubscriptionService
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtTokenProvider;
@@ -59,6 +60,9 @@ class NotificationSubscriptionControllerTest {
 
     @MockitoBean
     private AccessTokenBlacklistPort accessTokenBlacklistPort;
+
+    @MockitoBean
+    private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
 
     @Test
     @DisplayName("구독 경로는 인증 헤더가 없어도 401/403으로 막히지 않는다(EventSource가 헤더를 못 싣기 때문)")

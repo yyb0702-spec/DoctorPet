@@ -3,6 +3,7 @@ package com.doctorpet.domain.member.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.Date;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,7 @@ class RefreshTokenRepositoryIntegrationTest {
         redisTemplate.delete("refresh:" + MEMBER_ID);
         redisTemplate.delete("refresh-lock:" + MEMBER_ID);
         redisTemplate.delete("refresh-fence:" + MEMBER_ID);
+        redisTemplate.delete("pwd-changed-at:" + MEMBER_ID);
     }
 
     @Test
@@ -59,6 +61,53 @@ class RefreshTokenRepositoryIntegrationTest {
         refreshTokenRepository.blacklistMember(MEMBER_ID, Duration.ofMinutes(1));
 
         assertThat(refreshTokenRepository.isBlacklisted(MEMBER_ID)).isTrue();
+    }
+
+    @Test
+    void 재설정_이력이_없으면_isTokenInvalidatedByPasswordChange가_false다() {
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, new Date()))
+                .isFalse();
+    }
+
+    @Test
+    void invalidateTokensIssuedBeforeNow_이후에는_그_이전에_발급된_토큰이_무효로_판정된다() throws InterruptedException {
+        Date issuedBeforeReset = new Date();
+        Thread.sleep(10);
+
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(MEMBER_ID, Duration.ofMinutes(1));
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, issuedBeforeReset))
+                .isTrue();
+    }
+
+    @Test
+    void invalidateTokensIssuedBeforeNow_이후에_발급된_토큰은_무효로_판정되지_않는다() throws InterruptedException {
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(MEMBER_ID, Duration.ofMinutes(1));
+        Thread.sleep(10);
+        Date issuedAfterReset = new Date();
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, issuedAfterReset))
+                .isFalse();
+    }
+
+    // PR 리뷰 지적 P2 — tokenIssuedAt이 null이면 비교 불가능이지 "통과"가 아니다. 재설정 이력이
+    // 있는데도 비교 기준이 없으면 fail-closed로 무효화 처리해야 한다.
+    @Test
+    void 재설정_이력이_있고_tokenIssuedAt이_null이면_안전하게_무효로_판정된다() {
+        refreshTokenRepository.invalidateTokensIssuedBeforeNow(MEMBER_ID, Duration.ofMinutes(1));
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, null))
+                .isTrue();
+    }
+
+    // PR 리뷰 지적 P2 — Redis에 저장된 재설정 시각 값이 손상돼(Long.parseLong 실패) 있어도
+    // NumberFormatException을 그대로 던져 인증 필터 체인을 깨뜨리는 대신 fail-closed로 처리한다.
+    @Test
+    void 재설정_시각_값이_손상되면_안전하게_무효로_판정된다() {
+        redisTemplate.opsForValue().set("pwd-changed-at:" + MEMBER_ID, "not-a-number", Duration.ofMinutes(1));
+
+        assertThat(refreshTokenRepository.isTokenInvalidatedByPasswordChange(MEMBER_ID, new Date()))
+                .isTrue();
     }
 
     @Test

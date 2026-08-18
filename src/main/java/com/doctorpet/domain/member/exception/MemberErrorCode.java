@@ -33,7 +33,11 @@ public enum MemberErrorCode implements ErrorCode {
     // 이메일 인증·비밀번호 재설정 토큰이 없거나(오타·변조), 이미 사용됐거나, 만료된 경우를 모두
     // 포괄한다 — Redis에 저장된 토큰은 만료되면 키 자체가 사라져 "없음"과 "만료됨"을 구분할 수
     // 없으므로(MemberTokenRepository), 두 상황을 하나의 코드로 통일해 응답한다.
-    INVALID_OR_EXPIRED_TOKEN(HttpStatus.BAD_REQUEST, "MEMBER_010", "유효하지 않거나 만료된 링크입니다. 다시 요청해주세요.");
+    INVALID_OR_EXPIRED_TOKEN(HttpStatus.BAD_REQUEST, "MEMBER_010", "유효하지 않거나 만료된 링크입니다. 다시 요청해주세요."),
+    // 회원가입·이메일 인증 재발송·비밀번호 재설정 요청 - 비인증 상태에서 임의의 이메일로
+    // 메일을 계속 발송시킬 수 있어(메일 폭탄, SES 등 발송 한도 소진) IP 기준으로 제한한다
+    // (기능 구멍 점검 대응, AuthRateLimiter 참고).
+    RATE_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "MEMBER_011", "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
 
     private final HttpStatus httpStatus;
     private final String code;

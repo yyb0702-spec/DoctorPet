@@ -19,6 +19,15 @@ image:
   storage:
     provider: fake
 
+# 위와 같은 이유(테스트 리소스가 main application.yaml을 가림) — cors.allowed-origins의 main
+# 기본값(CORS_ALLOWED_ORIGINS 미설정 시 로컬 프론트 dev 오리진 2개)이 테스트 컨텍스트에서는
+# 아예 안 보여, CorsDefaultAllowedOriginsIntegrationTest가 CI에서 raw=[](빈 값)를 읽어
+# 정상 오리진까지 403으로 거부됐다(이슈 #181, CI 4차 실패). main과 동일한 플레이스홀더를
+# 여기에도 둬서, CORS_ALLOWED_ORIGINS 환경변수가 없을 때의 동작이 테스트와 실제 앱 모두에서
+# 같도록 맞춘다.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
 # 테스트 프로파일은 local이 아니므로 Swagger/OpenAPI를 노출하지 않는 운영 기본값을 명시한다.
 springdoc:
   api-docs:

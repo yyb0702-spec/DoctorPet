@@ -25,6 +25,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider jwtTokenProvider;
     private final MemberBlacklistPort memberBlacklistPort;
     private final AccessTokenBlacklistPort accessTokenBlacklistPort;
+    private final PasswordChangeInvalidationPort passwordChangeInvalidationPort;
 
     @Override
     protected void doFilterInternal(
@@ -55,6 +56,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // 그 토큰(jti) 한 장만 걸러낸다. 그래야 로그아웃 직후 재로그인으로 받은 새 토큰은
             // 같은 memberId라도 영향을 받지 않는다(AccessTokenBlacklistPort 참고).
             if (accessTokenBlacklistPort.isBlacklisted(jwtTokenProvider.getJti(token))) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // 비밀번호 재설정 이전에 발급된 Access Token 차단(기능 구멍 점검 대응,
+            // PasswordChangeInvalidationPort 참고) — 재설정으로 Refresh Token은 지워져도,
+            // 이미 발급된 Access Token은 만료 전까지 서명 검증만으로 계속 유효했다. 공격자가
+            // 세션(Access Token)을 쥔 채로 계정을 탈취했다면, 피해자가 비밀번호를 바꿔도 공격자는
+            // 그 토큰이 자연 만료될 때까지 계속 API를 호출할 수 있었다. 탈퇴(memberBlacklistPort)와
+            // 달리 memberId 전체를 막지 않고 "재설정 이전에 발급된 토큰인지"(iat 비교)만 걸러내,
+            // 재설정 직후 재로그인으로 받은 새 토큰은 영향받지 않는다.
+            if (passwordChangeInvalidationPort.isTokenInvalidatedByPasswordChange(
+                    principal.memberId(), jwtTokenProvider.getIssuedAt(token))) {
                 filterChain.doFilter(request, response);
                 return;
             }
