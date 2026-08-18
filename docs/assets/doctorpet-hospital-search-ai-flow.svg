@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1180" viewBox="0 0 1600 1180" role="img" aria-labelledby="title desc">
+<title id="title">DoctorPet 병원 검색 공공데이터 AI 플로우</title><desc id="desc">공공데이터 적재와 병원 검색, AI 안전 검색 도구 흐름</desc>
+<defs><style>.t{font:700 36px 'Malgun Gothic',sans-serif}.h{font:700 21px 'Malgun Gothic',sans-serif}.n{font:600 19px 'Malgun Gothic',sans-serif;text-anchor:middle}.s{font:500 15px 'Malgun Gothic',sans-serif;text-anchor:middle}.l{font:600 15px 'Malgun Gothic',sans-serif}.b{fill:#fff;stroke:#000;stroke-width:2.2}.d{fill:#fff;stroke:#000;stroke-width:2.2}.e{fill:none;stroke:#000;stroke-width:2.6;marker-end:url(#a)}.x{stroke:#000;stroke-dasharray:6 7}</style><marker id="a" markerWidth="11" markerHeight="11" refX="10" refY="4" orient="auto"><path d="M0 0L11 4L0 8Z"/></marker></defs>
+<rect width="1600" height="1180" fill="#fff"/><text x="70" y="68" class="t">DoctorPet 병원 · 검색 · 공공데이터 · AI 플로우</text>
+<text x="70" y="125" class="h">1. 공공데이터와 병원 운영 상태</text>
+<rect x="90" y="170" width="270" height="76" rx="10" class="b"/><text x="225" y="204" class="n">전국 동물병원 공공데이터</text><text x="225" y="230" class="s">초기 적재·주기 갱신</text><path d="M360 208H420" class="e"/>
+<rect x="420" y="170" width="290" height="76" rx="10" class="b"/><text x="565" y="204" class="n">정규화·WGS84 좌표 변환</text><text x="565" y="230" class="s">유효 데이터만 반영</text><path d="M710 208H770" class="e"/>
+<rect x="770" y="170" width="280" height="76" rx="10" class="b"/><text x="910" y="204" class="n">병원·상세·역량 Upsert</text><text x="910" y="230" class="s">제휴 정보 보강</text><path d="M1050 208H1110" class="e"/>
+<rect x="1110" y="170" width="330" height="76" rx="10" class="b"/><text x="1275" y="204" class="n">영업·휴업·폐업 상태 반영</text><text x="1275" y="230" class="s">예약 가능 여부의 서버 기준</text>
+<path d="M80 315H1520" class="x"/>
+<text x="70" y="365" class="h">2. 직접 검색</text>
+<rect x="90" y="410" width="250" height="76" rx="10" class="b"/><text x="215" y="456" class="n">검색 조건 입력</text><path d="M340 448H400" class="e"/>
+<polygon points="520,385 640,448 520,511 400,448" class="d"/><text x="520" y="454" class="n">기본 첫 페이지</text>
+<path d="M640 448H700" class="e"/><text x="655" y="427" class="l">캐시 확인</text><rect x="700" y="410" width="250" height="76" rx="10" class="b"/><text x="825" y="456" class="n">Redis 검색 캐시</text>
+<path d="M950 448H1010" class="e"/><text x="965" y="427" class="l">미스</text><rect x="1010" y="410" width="300" height="76" rx="10" class="b"/><text x="1160" y="456" class="n">QueryDSL 조건 검색</text><path d="M1310 448H1370" class="e"/><rect x="1370" y="410" width="160" height="76" rx="10" class="b"/><text x="1450" y="456" class="n">목록 응답</text>
+<path d="M825 486V550H1450V486" class="e"/><text x="1000" y="538" class="l">캐시 저장 후 동일 응답</text>
+<path d="M80 630H1520" class="x"/>
+<text x="70" y="680" class="h">3. AI 상담 기반 검색</text>
+<rect x="90" y="725" width="260" height="76" rx="10" class="b"/><text x="220" y="771" class="n">증상·선택 위치 입력</text><path d="M350 763H410" class="e"/>
+<rect x="410" y="725" width="270" height="76" rx="10" class="b"/><text x="545" y="759" class="n">개인정보 패턴 마스킹</text><text x="545" y="785" class="s">입력 길이·요청 횟수 제한</text><path d="M680 763H740" class="e"/>
+<rect x="740" y="725" width="270" height="76" rx="10" class="b"/><text x="875" y="759" class="n">AI Gateway</text><text x="875" y="785" class="s">진단·처방 문구 생성 금지</text><path d="M1010 763H1070" class="e"/>
+<rect x="1070" y="725" width="300" height="76" rx="10" class="b"/><text x="1220" y="759" class="n">제한된 검색 Tool 호출</text><text x="1220" y="785" class="s">역량·거리·영업 조건만 변환</text>
+<path d="M1220 801V875H1160V486" class="e"/><text x="1238" y="850" class="l">구조화 조건으로 검색 재사용</text>
+<path d="M875 801V925H520" class="e"/><text x="680" y="906" class="l">Tool 실패: 서버 고정 안내·직접 검색 유도</text><rect x="350" y="935" width="340" height="76" rx="10" class="b"/><text x="520" y="969" class="n">fallback=true 응답</text><text x="520" y="995" class="s">사용자가 검색 조건을 직접 조정</text>
+</svg>

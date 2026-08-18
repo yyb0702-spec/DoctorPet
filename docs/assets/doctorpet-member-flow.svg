@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1280" viewBox="0 0 1600 1280" role="img" aria-labelledby="title desc">
+<title id="title">DoctorPet 인증 회원 프로필 플로우</title><desc id="desc">로그인 잠금, 비밀번호 재설정, 단일 세션, 반려동물 프로필과 탈퇴 흐름</desc>
+<defs><style>.t{font:700 36px 'Malgun Gothic',sans-serif}.h{font:700 21px 'Malgun Gothic',sans-serif}.n{font:600 19px 'Malgun Gothic',sans-serif;text-anchor:middle}.s{font:500 15px 'Malgun Gothic',sans-serif;text-anchor:middle}.l{font:600 15px 'Malgun Gothic',sans-serif}.b{fill:#fff;stroke:#000;stroke-width:2.2}.d{fill:#fff;stroke:#000;stroke-width:2.2}.e{fill:none;stroke:#000;stroke-width:2.6;marker-end:url(#a)}.x{stroke:#000;stroke-dasharray:6 7}</style><marker id="a" markerWidth="11" markerHeight="11" refX="10" refY="4" orient="auto"><path d="M0 0L11 4L0 8Z"/></marker></defs>
+<rect width="1600" height="1280" fill="#fff"/><text x="70" y="68" class="t">DoctorPet 인증 · 회원 · 프로필 플로우</text>
+<text x="70" y="125" class="h">1. 로그인 · 잠금 · 비밀번호 재설정</text>
+<rect x="90" y="170" width="240" height="76" rx="10" class="b"/><text x="210" y="216" class="n">로그인 요청</text><path d="M330 208H390" class="e"/>
+<rect x="390" y="170" width="250" height="76" rx="10" class="b"/><text x="515" y="216" class="n">이메일·비밀번호 검증</text><path d="M640 208H700" class="e"/>
+<polygon points="810,145 920,208 810,271 700,208" class="d"/><text x="810" y="214" class="n">성공?</text>
+<path d="M920 208H980" class="e"/><text x="936" y="187" class="l">성공</text><rect x="980" y="170" width="310" height="76" rx="10" class="b"/><text x="1135" y="204" class="n">단일 Refresh 세션 발급</text><text x="1135" y="230" class="s">새 로그인 시 기존 세션 종료</text>
+<path d="M810 271V330" class="e"/><text x="828" y="310" class="l">실패</text><rect x="655" y="340" width="310" height="76" rx="10" class="b"/><text x="810" y="386" class="n">실패 횟수 누적</text><path d="M965 378H1025" class="e"/>
+<polygon points="1135,315 1245,378 1135,441 1025,378" class="d"/><text x="1135" y="384" class="n">5회 연속?</text>
+<path d="M1245 378H1305" class="e"/><text x="1260" y="357" class="l">예</text><rect x="1305" y="340" width="220" height="76" rx="10" class="b"/><text x="1415" y="374" class="n">계정 잠금</text><text x="1415" y="400" class="s">30분 후 자동 해제</text>
+<path d="M1135 441V500" class="e"/><text x="1153" y="480" class="l">비밀번호 재설정</text><rect x="980" y="510" width="310" height="76" rx="10" class="b"/><text x="1135" y="544" class="n">이메일 인증 후 비밀번호 변경</text><text x="1135" y="570" class="s">성공 시 잠금 해제·세션 폐기</text>
+<path d="M980 548H875V208H700" class="e"/>
+<path d="M80 635H1520" class="x"/>
+<text x="70" y="685" class="h">2. 반려동물 프로필</text>
+<rect x="90" y="730" width="250" height="76" rx="10" class="b"/><text x="215" y="776" class="n">프로필 등록·수정</text><path d="M340 768H400" class="e"/>
+<rect x="400" y="730" width="300" height="76" rx="10" class="b"/><text x="550" y="764" class="n">이름·종·건강 정보 저장</text><text x="550" y="790" class="s">다마리 등록 가능</text><path d="M700 768H760" class="e"/>
+<rect x="760" y="730" width="330" height="76" rx="10" class="b"/><text x="925" y="764" class="n">선택 사진: Presigned URL</text><text x="925" y="790" class="s">클라이언트 S3 직접 업로드</text><path d="M1090 768H1150" class="e"/>
+<rect x="1150" y="730" width="280" height="76" rx="10" class="b"/><text x="1290" y="776" class="n">사진 URL만 저장</text>
+<path d="M80 875H1520" class="x"/>
+<text x="70" y="925" class="h">3. 회원 탈퇴</text>
+<rect x="90" y="970" width="230" height="76" rx="10" class="b"/><text x="205" y="1016" class="n">탈퇴 요청</text><path d="M320 1008H390" class="e"/>
+<polygon points="535,945 680,1008 535,1071 390,1008" class="d"/><text x="535" y="1002" class="n">활성 예약 또는</text><text x="535" y="1026" class="s">미수금 존재?</text>
+<path d="M680 1008H750" class="e"/><text x="695" y="987" class="l">예</text><rect x="750" y="970" width="270" height="76" rx="10" class="b"/><text x="885" y="1016" class="n">409 탈퇴 보류</text>
+<path d="M535 1071V1140" class="e"/><text x="553" y="1120" class="l">아니오</text><rect x="360" y="1150" width="350" height="76" rx="10" class="b"/><text x="535" y="1184" class="n">Soft Delete·이메일 익명화</text><text x="535" y="1210" class="s">전화번호·찜·세션 정리</text><path d="M710 1188H780" class="e"/><rect x="780" y="1150" width="350" height="76" rx="10" class="b"/><text x="955" y="1184" class="n">기존 인증 토큰 차단 표시</text><text x="955" y="1210" class="s">새 로그인·재가입 흐름 분리</text>
+</svg>
