@@ -10,10 +10,12 @@ import {
   useSettleOffline,
   useStaffReservationPayments,
 } from '@/features/staffPayments/hooks'
+import { staffPaymentApi } from '@/features/staffPayments/api'
 import type { PaymentItemInput } from '@/features/staffPayments/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
 import { ReservationStatusBadge, PaymentStatusBadge } from '@/components/common/StatusBadge'
 import { ReasonPrompt } from '@/components/common/ReasonPrompt'
+import { ReceiptDialog } from '@/components/common/ReceiptDialog'
 import { Field } from '@/components/common/Field'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -34,6 +36,13 @@ function fmt(iso: string): string {
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
 }
+
+// 영수증을 제공하는 결제 상태(PR #158). 그 외는 백엔드가 404를 준다.
+const RECEIPT_STATUSES: PaymentStatus[] = [
+  PaymentStatus.PAID,
+  PaymentStatus.OFFLINE_PAID,
+  PaymentStatus.REFUNDED,
+]
 
 interface ItemRow {
   name: string
@@ -172,6 +181,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
   const paymentsQuery = useStaffReservationPayments(reservationId)
   const settleOffline = useSettleOffline(reservationId)
   const refund = useRefundPayment(reservationId)
+  const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null)
 
   if (paymentsQuery.isLoading) return <PageLoader />
   if (paymentsQuery.isError) {
@@ -199,6 +209,12 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
         <CardTitle>결제 결과</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <ReceiptDialog
+          paymentId={receiptPaymentId}
+          scope="staff"
+          fetcher={staffPaymentApi.getReceipt}
+          onClose={() => setReceiptPaymentId(null)}
+        />
         {payments.map((p) => (
           <div key={p.paymentId} className="space-y-2">
             <div className="flex items-center justify-between">
@@ -270,6 +286,16 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
                   refund.mutate({ paymentId: p.paymentId, reason })
                 }
               />
+            )}
+
+            {RECEIPT_STATUSES.includes(p.status) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setReceiptPaymentId(p.paymentId)}
+              >
+                영수증 보기
+              </Button>
             )}
           </div>
         ))}

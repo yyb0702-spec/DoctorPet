@@ -6,6 +6,7 @@ import {
   hospitalOfSlot,
   mockHospitals,
   mockNotifications,
+  mockPaymentByReservation,
   mockReservationDetail,
   mockReservations,
 } from './data'
@@ -13,10 +14,13 @@ import type {
   HospitalDetail,
   HospitalSummary,
 } from '@/features/hospitals/types'
-import type { PaymentMethod } from '@/features/payments/types'
+import type { PaymentMethod, Receipt } from '@/features/payments/types'
 import type { Pet } from '@/features/pets/api'
 
 const BASE = '/api'
+
+// 영수증을 제공하는 결제 상태(백엔드와 동일, PR #158).
+const RECEIPT_STATUSES = new Set(['PAID', 'OFFLINE_PAID', 'REFUNDED'])
 
 // 상세를 따로 정의하지 않은 병원(4~25)은 검색 요약에서 최소 상세를 합성한다(클릭 404 방지).
 function synthDetail(h: HospitalSummary): HospitalDetail {
@@ -48,6 +52,8 @@ function synthDetail(h: HospitalSummary): HospitalDetail {
         ]
       : null,
     capabilities: partner ? ['DOG', 'CAT', 'XRAY'] : null,
+    reservationResponseRate: partner ? 92 : null,
+    averageApprovalMinutes: partner ? 24 : null,
   }
 }
 
@@ -87,6 +93,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
       { dayOfWeek: 'SUNDAY', closed: true, openTime: null, closeTime: null },
     ],
     capabilities: ['DOG', 'CAT', 'XRAY', 'ULTRASOUND', 'DENTAL_CARE'],
+    reservationResponseRate: 96,
+    averageApprovalMinutes: 18,
   },
   2: {
     hospitalId: 2,
@@ -111,6 +119,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
       { dayOfWeek: 'SUNDAY', closed: false, openTime: '00:00', closeTime: '23:59' },
     ],
     capabilities: ['DOG', 'CAT', 'BLOOD_TEST', 'CT', 'ONCOLOGY_CARE'],
+    reservationResponseRate: 88,
+    averageApprovalMinutes: 31,
   },
   3: {
     hospitalId: 3,
@@ -127,6 +137,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     emergency: null,
     businessHours: null,
     capabilities: null,
+    reservationResponseRate: null,
+    averageApprovalMinutes: null,
   },
 }
 
@@ -310,6 +322,48 @@ export const demoHandlers = [
   http.delete(`${BASE}/payment-methods/:id`, ({ params }) => {
     demoMethods = demoMethods.filter((m) => m.id !== Number(params.id))
     return new HttpResponse(null, { status: 204 })
+  }),
+
+  // --- 보호자 JSON 영수증 (dev:mock 오프라인 전용) ---
+  // PAID·OFFLINE_PAID·REFUNDED 결제만 제공한다. 그 외 상태·미존재는 백엔드처럼 404.
+  http.get(`${BASE}/payments/:paymentId/receipt`, ({ params }) => {
+    const paymentId = Number(params.paymentId)
+    const record = Object.values(mockPaymentByReservation)
+      .flat()
+      .find((p) => p.paymentId === paymentId)
+    if (!record || !RECEIPT_STATUSES.has(record.status)) {
+      return fail('RECEIPT_NOT_AVAILABLE', '영수증을 발급할 수 없는 결제입니다.', 404)
+    }
+    const detail = mockReservationDetail[record.reservationId]
+    const receipt: Receipt = {
+      paymentId: record.paymentId,
+      reservationId: record.reservationId,
+      hospitalId: detail?.hospital.hospitalId ?? 1,
+      guardianMemberId: 1,
+      petId: detail?.petSnapshot.petId ?? 1,
+      petName: detail?.petSnapshot.name ?? '초코',
+      petSpecies: detail?.petSnapshot.species ?? 'DOG',
+      status: record.status,
+      paymentChannel: record.paymentChannel,
+      paidAt: record.paidAt,
+      offlineSettledAt: record.offlineSettledAt,
+      cardBrandSnapshot: record.cardBrandSnapshot,
+      cardLast4Snapshot: record.cardLast4Snapshot,
+      // 데모용 항목 — 진찰료 + 검사비로 총액을 구성한다(항목 표 시연).
+      items: [
+        { name: '진찰료', quantity: 1, unitPrice: 15000, amount: 15000 },
+        {
+          name: '검사·처치',
+          quantity: 1,
+          unitPrice: record.amount - 15000,
+          amount: record.amount - 15000,
+        },
+      ],
+      totalAmount: record.amount,
+      refundStatus: record.refundedAt ? 'COMPLETED' : null,
+      refundedAt: record.refundedAt,
+    }
+    return ok(receipt)
   }),
 
   // --- 펫 프로필 (dev:mock 오프라인 전용. 실연동(npm run dev)에선 백엔드로 감) ---

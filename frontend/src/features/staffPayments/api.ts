@@ -1,6 +1,6 @@
 // 병원 스태프 결제 API (SA §8-7, ROLE_HOSPITAL_STAFF).
 import { http } from '@/lib/api/client'
-import type { PaymentRecord } from '@/features/payments/types'
+import type { PaymentRecord, Receipt } from '@/features/payments/types'
 import type { PageResponse } from '@/types/api'
 import type {
   HospitalPaymentListItem,
@@ -48,4 +48,7 @@ export const staffPaymentApi = {
     http.post<PaymentRecord>(`/hospital/payments/${paymentId}/refund`, {
       reason,
     }),
+  // JSON 영수증 — 실연동 (PR #158). PAID·OFFLINE_PAID·REFUNDED 결제만. 자병원 결제만 조회된다.
+  getReceipt: (paymentId: number) =>
+    http.get<Receipt>(`/hospital/payments/${paymentId}/receipt`),
 }

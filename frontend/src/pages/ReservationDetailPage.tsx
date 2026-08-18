@@ -1,4 +1,5 @@
 // 예약 상세 (실연동, PR #68). 상태별 안내 배너 + 진행 스텝 + 취소.
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { MapPin, Phone } from 'lucide-react'
 import {
@@ -6,6 +7,8 @@ import {
   useReservationDetail,
 } from '@/features/reservations/hooks'
 import { useReservationPayments } from '@/features/payments/hooks'
+import { paymentApi } from '@/features/payments/api'
+import { ReceiptDialog } from '@/components/common/ReceiptDialog'
 import { ReservationProgress } from '@/features/reservations/ReservationProgress'
 import {
   PaymentStatusBadge,
@@ -24,6 +27,13 @@ import { ChatPanel } from '@/features/chat/ChatPanel'
 const CANCELABLE: ReservationStatus[] = [
   ReservationStatus.REQUESTED,
   ReservationStatus.CONFIRMED,
+]
+
+// 영수증을 제공하는 결제 상태(PR #158). 그 외 상태(PENDING·OFFLINE_REQUIRED)는 백엔드가 404를 준다.
+const RECEIPT_STATUSES: PaymentStatusType[] = [
+  PaymentStatus.PAID,
+  PaymentStatus.OFFLINE_PAID,
+  PaymentStatus.REFUNDED,
 ]
 
 type Tone = 'info' | 'success' | 'warning' | 'danger'
@@ -130,6 +140,7 @@ export function ReservationDetailPage() {
   const detailQuery = useReservationDetail(id)
   const paymentsQuery = useReservationPayments(id)
   const cancel = useCancelReservation()
+  const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null)
 
   if (detailQuery.isLoading) return <PageLoader />
   if (detailQuery.isError || !detailQuery.data)
@@ -250,6 +261,15 @@ export function ReservationDetailPage() {
                     환불 완료 · {fmt(p.refundedAt)}
                   </p>
                 )}
+                {RECEIPT_STATUSES.includes(p.status) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setReceiptPaymentId(p.paymentId)}
+                  >
+                    영수증 보기
+                  </Button>
+                )}
               </div>
             ))}
           </CardContent>
@@ -291,6 +311,13 @@ export function ReservationDetailPage() {
           <Link to="/hospitals">다른 병원 찾기</Link>
         </Button>
       )}
+
+      <ReceiptDialog
+        paymentId={receiptPaymentId}
+        scope="guardian"
+        fetcher={paymentApi.getReceipt}
+        onClose={() => setReceiptPaymentId(null)}
+      />
     </div>
   )
 }
