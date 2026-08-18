@@ -208,21 +208,31 @@ services:
     # -c 옵션으로 커스텀 경로를 nginx에 직접 넘기는 대신 이 심볼릭 링크 방식을 쓴 이유: deploy.yml의
     # `nginx -t`/`nginx -s reload`가 기본 경로(/etc/nginx/nginx.conf)를 그대로 쓰므로, 배포
     # 스크립트를 전혀 건드리지 않고 마운트 방식만 바꿔서 버그를 고칠 수 있다.
-    # entrypoint는 건드리지 않는다 — nginx 공식 이미지의 기본 ENTRYPOINT(/docker-entrypoint.sh)는
-    # 첫 인자가 정확히 "nginx"/"nginx-debug"일 때만 /docker-entrypoint.d/의 부수 초기화
-    # 스크립트(IPv6 기본 리스닝, envsubst 템플릿 처리 등)를 실행하고 항상 마지막엔 `exec "$@"`로
-    # 넘겨받는 구조다. 아래 CMD의 첫 인자는 "/bin/sh"라 그 조건에 해당하지 않아 이번 변경으로도
-    # 그 스크립트들은 원래부터 실행되지 않는다(이 프로젝트는 템플릿·envsubst를 쓰지 않고
-    # worker_processes도 nginx.conf에 명시돼 있어 실질적 영향은 없다) — 그래도 ENTRYPOINT 자체는
-    # 건드리지 않는 게 이미지 업데이트에 더 안전해 그대로 둔다.
-    command:
+    #
+    # (리뷰 지적 P2, 최초 버전에서 정정) command(CMD)가 아니라 entrypoint(ENTRYPOINT)를 덮어써서
+    # 심볼릭 링크 설정을 한다 — 최초 버전은 command만 `/bin/sh -c "... && exec nginx ..."`로
+    # 바꿨는데, 이러면 컨테이너에 전달되는 첫 인자($1)가 "nginx"가 아니라 "/bin/sh"가 돼버려
+    # nginx 공식 ENTRYPOINT(/docker-entrypoint.sh)의 `[ "$1" = 'nginx' ]` 조건이 거짓이 되고,
+    # /docker-entrypoint.d/의 초기화 스크립트(IPv6 기본 리스닝, envsubst 템플릿 처리, worker
+    # process 튜닝 등)가 스킵된다. 이 프로젝트가 변경 전 원래 compose 설정에는 command 자체가
+    # 없어 이미지 기본 CMD(`nginx -g daemon off;`, 첫 인자가 정확히 "nginx")를 그대로 썼으므로,
+    # 그 스크립트들은 이 PR 이전에는 실제로 실행되고 있었다 — "원래부터 실행 안 됐다"는 최초
+    # 버전의 설명은 틀렸다(리뷰 지적이 정확함). 지금은 템플릿·envsubst를 안 써서 실질 영향은
+    # 작지만, 이미지 업데이트나 향후 템플릿 도입 시 조용히 회귀할 수 있는 위험이라 command
+    # 대신 아래처럼 ENTRYPOINT를 감싸는 방식으로 바꿔, 심볼릭 링크 설정 이후 원래
+    # docker-entrypoint.sh를 "nginx"를 첫 인자로 그대로 넘겨 호출한다 — CMD는 아예 건드리지
+    # 않으므로(이미지 기본값 `nginx -g daemon off;` 그대로 유지) docker-entrypoint.sh 입장에서는
+    # 이 프로젝트가 ENTRYPOINT/CMD를 전혀 커스터마이징하지 않은 것과 완전히 동일하게 동작하고,
+    # /docker-entrypoint.d/ 초기화 스크립트도 원래처럼 실행된다.
+    entrypoint:
       - /bin/sh
       - -c
       - |
         rm -rf /etc/nginx/nginx.conf /etc/nginx/conf.d &&
         ln -s /etc/nginx/custom/nginx.conf /etc/nginx/nginx.conf &&
         ln -s /etc/nginx/custom/conf.d /etc/nginx/conf.d &&
-        exec nginx -g 'daemon off;'
+        exec /docker-entrypoint.sh "$@"
+      - custom-entrypoint-shim
     # app-blue/app-green을 depends_on으로 걸지 않는다 — 걸면 `docker compose up -d nginx`가
     # (기본 프로파일인) app-blue까지 같이 시작시키려 들어, 배포 스크립트가 아직 대상 색의
     # 이미지 태그를 export하기 전 타이밍에 엉뚱한 태그(local 폴백)로 기동을 시도할 수 있다.
