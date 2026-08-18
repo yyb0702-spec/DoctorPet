@@ -29,7 +29,7 @@ const CANCELABLE: ReservationStatus[] = [
   ReservationStatus.CONFIRMED,
 ]
 
-// 영수증을 제공하는 결제 상태(PR #158). 그 외 상태(PENDING·OFFLINE_REQUIRED)는 백엔드가 404를 준다.
+// 영수증을 제공하는 결제 상태(PR #158). 그 외(PENDING·OFFLINE_REQUIRED)는 발급 대상이 아니라 백엔드가 409(RECEIPT_NOT_AVAILABLE)를 준다(결제 자체가 없으면 404).
 const RECEIPT_STATUSES: PaymentStatusType[] = [
   PaymentStatus.PAID,
   PaymentStatus.OFFLINE_PAID,

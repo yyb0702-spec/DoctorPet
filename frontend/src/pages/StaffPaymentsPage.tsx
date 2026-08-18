@@ -31,7 +31,7 @@ function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
 }
 
-// 영수증을 제공하는 결제 상태(PR #158). 그 외는 백엔드가 404를 준다.
+// 영수증을 제공하는 결제 상태(PR #158). 그 외는 발급 대상이 아니라 백엔드가 409(RECEIPT_NOT_AVAILABLE), 결제 자체가 없으면 404다.
 const RECEIPT_STATUSES: PaymentStatus[] = [
   PaymentStatus.PAID,
   PaymentStatus.OFFLINE_PAID,
