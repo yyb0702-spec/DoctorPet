@@ -20,6 +20,7 @@ import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -42,6 +43,7 @@ public class ReservationApplicationService {
     private final PaymentMethodService paymentMethodService;
     private final PaymentQueryService paymentQueryService;
     private final HospitalService hospitalService;
+    private final ReservationNotificationPublisher notificationPublisher;
 
     @Transactional
     public ReservationResponse request(
@@ -67,12 +69,20 @@ public class ReservationApplicationService {
         ReservationSlot slot = reservationService.findSlot(request.slotId());
         hospitalService.assertReservationRequestAvailable(slot.getHospitalId());
 
-        return reservationService.request(
+        ReservationResponse reservation = reservationService.request(
                 memberId,
                 request,
                 pet.name(),
                 pet.species().name()
         );
+        // 병원이 확인해야 할 REQUESTED 예약이 생겼으므로 같은 트랜잭션 안에서 병원 수신 알림을 남긴다(#166).
+        // 예약 생성이 롤백되면 알림도 남지 않는다(기존 승인·거절 발행과 동일 계약). 실시간 전송(SSE)은
+        // 커밋 이후 AFTER_COMMIT 리스너가 처리한다.
+        notificationPublisher.publishReservationRequested(
+                reservation.hospitalId(),
+                reservation.reservationId()
+        );
+        return reservation;
     }
 
     @Transactional
@@ -92,7 +102,7 @@ public class ReservationApplicationService {
         // 대기열 제안 이후 병원이 휴무·폐업 상태로 바뀔 수 있으므로, 일반 예약과 동일하게
         // REQUESTED 생성 직전에 병원의 현재 예약 가능 상태를 다시 확인한다.
         hospitalService.assertReservationRequestAvailable(slot.getHospitalId());
-        return reservationService.requestFromWaitlist(
+        ReservationResponse reservation = reservationService.requestFromWaitlist(
                 memberId,
                 petId,
                 paymentMethodId,
@@ -100,6 +110,13 @@ public class ReservationApplicationService {
                 pet.name(),
                 pet.species().name()
         );
+        // 대기열 승급 수락도 병원 입장에서는 확인해야 할 새 REQUESTED 예약이다 — 일반 요청과 동일하게 발행해
+        // 대기열 출신 예약만 병원 알림에서 빠지는 구멍을 막는다(#166).
+        notificationPublisher.publishReservationRequested(
+                reservation.hospitalId(),
+                reservation.reservationId()
+        );
+        return reservation;
     }
 
     @Transactional

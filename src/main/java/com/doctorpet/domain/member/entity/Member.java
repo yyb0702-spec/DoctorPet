@@ -8,6 +8,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
@@ -28,7 +29,11 @@ import org.hibernate.annotations.SQLRestriction;
         // 이름을 명시하지 않으면 Hibernate가 버전에 따라 다른 이름을 생성해 DB 오류 메시지에서
         // 제약을 식별하기 어렵다. GlobalExceptionHandler가 이 이름 대신 벤더 오류 코드(MySQL 1062)로
         // 중복 여부를 판별하긴 하지만, 제약 자체는 이름을 고정해두는 편이 디버깅에 유리하다.
-        uniqueConstraints = @UniqueConstraint(name = "uk_members_email", columnNames = "email")
+        uniqueConstraints = @UniqueConstraint(name = "uk_members_email", columnNames = "email"),
+        // 병원 수신 알림의 SSE fan-out 대상 조회(findIdsByHospitalIdAndRole)용. 알림 1건마다 커밋한 요청
+        // 스레드에서 돌지만 인덱스가 없어 members 풀스캔이었고, members는 전체 보호자를 포함해 계속 커진다
+        // (#166). 기존 DB에는 MemberHospitalStaffIndexMigrationRunner가 같은 정의로 적용한다.
+        indexes = @Index(name = "idx_members_hospital_role", columnList = "hospital_id, role")
 )
 @SQLRestriction("deleted_at is null")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

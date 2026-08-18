@@ -1,9 +1,10 @@
 package com.doctorpet.domain.notification.adapter;
 
-// 예약 도메인의 알림 발행 요청을 notifications 테이블 저장으로 연결한다(#88).
+// 예약 도메인의 알림 발행 요청을 notifications 테이블 저장으로 연결한다(#88, 병원 수신은 #166).
 // 저장은 호출자의 상태 전이 트랜잭션에 참여하므로, 전이가 롤백되면 알림도 남지 않는다.
 // (실시간 전송은 이 클래스의 책임이 아니다 — 별도로 도입되는 push 채널이 저장된 알림을 전달한다.)
 
+import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.service.NotificationService;
@@ -18,6 +19,20 @@ public class StoringReservationNotificationPublisher
         implements ReservationNotificationPublisher {
 
     private final NotificationService notificationService;
+
+    // 유일한 병원 수신 발행이다 — 수신자가 회원이 아니라 병원이므로 recipientType을 명시하는 오버로드를 쓴다.
+    // 문구에 보호자·펫 등 동적 정보를 넣지 않는다(상세는 resourceId로 연결한다, 고도화 알림 3.10).
+    @Override
+    public void publishReservationRequested(Long hospitalId, Long reservationId) {
+        notificationService.create(
+                NotificationRecipientType.HOSPITAL,
+                hospitalId,
+                NotificationType.RESERVATION_REQUESTED,
+                "새로운 예약 요청이 접수되었습니다.",
+                NotificationResourceType.RESERVATION,
+                reservationId
+        );
+    }
 
     @Override
     public void publishConfirmed(Long guardianMemberId, Long reservationId) {
