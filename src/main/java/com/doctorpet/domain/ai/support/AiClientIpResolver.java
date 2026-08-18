@@ -24,13 +24,14 @@ public class AiClientIpResolver {
     private final AiRateLimitProperties properties;
 
     public String resolve(HttpServletRequest request) {
-        String remoteAddress = rawRemoteAddr(request);
+        HttpServletRequest rawRequest = unwrapToRawRequest(request);
+        String remoteAddress = rawRequest.getRemoteAddr();
         Set<String> trustedProxies = Set.copyOf(properties.getTrustedProxies());
         if (!isTrustedProxy(remoteAddress, trustedProxies)) {
             return remoteAddress;
         }
 
-        String forwardedFor = request.getHeader(X_FORWARDED_FOR);
+        String forwardedFor = rawRequest.getHeader(X_FORWARDED_FOR);
         if (!StringUtils.hasText(forwardedFor)) {
             log.warn(
                     "신뢰 프록시 요청에 X-Forwarded-For 헤더가 없어 직접 연결 주소를 사용합니다. "
@@ -69,15 +70,21 @@ public class AiClientIpResolver {
     // 써서 클라이언트가 보낸 XFF를 보존한 채 실제 연결 주소를 뒤에 추가하므로, 공격자가 요청마다
     // XFF의 첫 값을 바꾸면 그 스푸핑된 값이 그대로 remoteAddr로 승격된다 — 아래 isTrustedProxy
     // 검사가 nginx를 거치지 않은 직접 연결로 오판해 검증 없이 그 값을 그대로 반환하고, AI rate
-    // limit도 함께 무력화된다. ServletRequestWrapper 체인을 원본 요청까지 풀어, 어떤 필터도 손대지
-    // 않은 진짜 TCP peer 주소를 신뢰 판정 기준으로 삼는다 — forward-headers-strategy 설정과
-    // 무관하게 항상 안전하다.
-    private String rawRemoteAddr(HttpServletRequest request) {
+    // limit도 함께 무력화된다.
+    //
+    // remoteAddr만 원본으로 되돌리는 것으로는 충분하지 않다 — ForwardedHeaderFilter가 만드는
+    // 래핑된 요청은 getHeader("X-Forwarded-For")도 항상 null을 반환하도록 재정의한다(다운스트림이
+    // 이미 처리된 forwarded 헤더를 또 읽지 못하게 하는 의도적 동작). remoteAddr만 원본으로 풀고
+    // X-Forwarded-For는 여전히 래핑된 요청에서 읽으면, "신뢰 프록시가 맞지만 XFF 헤더가 없다"는
+    // 분기로 빠져 모든 요청이 nginx 자신의 주소로 통째로 뭉뚱그려진다(전체 사용자가 같은
+    // rate limit 버킷을 공유하게 되는 훨씬 심각한 회귀 — 회귀 테스트 실패로 발견했다). 그래서
+    // remoteAddr와 X-Forwarded-For 둘 다 같은 원본(언래핑된) 요청에서 읽어야 한다.
+    private HttpServletRequest unwrapToRawRequest(HttpServletRequest request) {
         ServletRequest current = request;
         while (current instanceof ServletRequestWrapper wrapper) {
             current = wrapper.getRequest();
         }
-        return current.getRemoteAddr();
+        return (HttpServletRequest) current;
     }
 
     // trustedProxies 항목은 리터럴 IP뿐 아니라 호스트명(예: 컴포즈 서비스명 "nginx")도 허용한다

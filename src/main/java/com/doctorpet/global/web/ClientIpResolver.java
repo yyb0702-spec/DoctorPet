@@ -47,12 +47,13 @@ public class ClientIpResolver {
             new ConcurrentHashMap<>();
 
     public String resolve(HttpServletRequest request, Set<String> trustedProxies) {
-        String remoteAddress = rawRemoteAddr(request);
+        HttpServletRequest rawRequest = unwrapToRawRequest(request);
+        String remoteAddress = rawRequest.getRemoteAddr();
         if (!isTrustedProxy(remoteAddress, trustedProxies)) {
             return remoteAddress;
         }
 
-        String forwardedFor = request.getHeader(X_FORWARDED_FOR);
+        String forwardedFor = rawRequest.getHeader(X_FORWARDED_FOR);
         if (!StringUtils.hasText(forwardedFor)) {
             log.warn(
                     "신뢰 프록시 요청에 X-Forwarded-For 헤더가 없어 직접 연결 주소를 사용합니다. "
@@ -91,18 +92,26 @@ public class ClientIpResolver {
     // 뒤에 추가하므로, 공격자가 요청마다 XFF의 첫 값을 바꾸면 ForwardedHeaderFilter가 그
     // 스푸핑된 값을 그대로 remoteAddr로 승격시킨다. 그러면 바로 아래 isTrustedProxy(remoteAddress,
     // ...) 검사가 nginx를 거치지 않은 직접 연결로 오판해, 스푸핑된 값을 검증 없이 그대로
-    // 반환해버려 IP별 rate limit이 무력화된다. ServletRequestWrapper 체인을 원본 요청까지
-    // 풀어, ForwardedHeaderFilter를 포함해 어떤 필터도 손대지 않은 진짜 TCP peer 주소를 신뢰
-    // 판정 기준으로 삼는다 — forward-headers-strategy 설정이나 앞으로 추가될 다른 래핑 필터와
-    // 무관하게 항상 안전하다(이 값이 신뢰 프록시로 확인된 뒤에는, 아래 로직이 여전히
-    // X-Forwarded-For 헤더 자체를 오른쪽부터 훑어 실제 클라이언트 IP를 뽑아낸다 — 이 부분은
-    // 그대로 유지된다).
-    private String rawRemoteAddr(HttpServletRequest request) {
+    // 반환해버려 IP별 rate limit이 무력화된다.
+    //
+    // remoteAddr만 원본으로 되돌리는 것으로는 충분하지 않다 — ForwardedHeaderFilter가 만드는
+    // 래핑된 요청은 getHeader("X-Forwarded-For")도 항상 null을 반환하도록 재정의한다(다운스트림이
+    // 이미 처리된 forwarded 헤더를 또 읽고 새어나가지 않게 하려는 의도적 동작,
+    // ForwardedHeaderRemovingRequest 참고). remoteAddr만 원본으로 풀고 X-Forwarded-For는 여전히
+    // 래핑된 요청에서 읽으면, "신뢰 프록시가 맞지만 XFF 헤더가 없다"는 분기로 빠져 모든 요청이
+    // nginx 자신의 주소로 통째로 뭉뚱그려진다(전체 사용자가 같은 rate limit 버킷을 공유하게
+    // 되는 훨씬 심각한 회귀 — 실제로 이 문제를 잡아준 회귀 테스트 실패로 발견했다). 그래서
+    // remoteAddr와 X-Forwarded-For 둘 다 같은 원본(언래핑된) 요청에서 읽어야 한다.
+    //
+    // ServletRequestWrapper 체인을 원본 요청까지 풀어, ForwardedHeaderFilter를 포함해 어떤
+    // 필터도 손대지 않은 진짜 요청 객체를 신뢰 판정·XFF 파싱 기준으로 삼는다 —
+    // forward-headers-strategy 설정이나 앞으로 추가될 다른 래핑 필터와 무관하게 항상 안전하다.
+    private HttpServletRequest unwrapToRawRequest(HttpServletRequest request) {
         ServletRequest current = request;
         while (current instanceof ServletRequestWrapper wrapper) {
             current = wrapper.getRequest();
         }
-        return current.getRemoteAddr();
+        return (HttpServletRequest) current;
     }
 
     // trustedProxies 항목은 리터럴 IP뿐 아니라 호스트명(예: 컴포즈 서비스명 "nginx")도 허용한다.
