@@ -57,6 +57,27 @@ export function useChargePayment(reservationId: number) {
   })
 }
 
+// 정정 재청구(SA §9-4). useChargePayment와 같은 저장→청구 순서 계약이며 마지막 호출만
+// correctionCharge다. 활성 결제가 REFUNDED일 때만 서버가 성립시킨다(그 외 409). 성공하면 기존
+// 환불 결제를 대체하는 새 결제가 생기므로 결제 내역을 무효화해 타임라인을 다시 불러온다.
+export function useCorrectionCharge(reservationId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (items: PaymentItemInput[]) => {
+      const saved = await staffPaymentApi.saveItemDrafts(reservationId, items)
+      return staffPaymentApi.correctionCharge(reservationId, saved.draftToken)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: staffPaymentKeys.reservationPayments(reservationId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: staffPaymentKeys.itemDrafts(reservationId),
+      })
+    },
+  })
+}
+
 export function useSettleOffline(reservationId: number) {
   const queryClient = useQueryClient()
   return useMutation({

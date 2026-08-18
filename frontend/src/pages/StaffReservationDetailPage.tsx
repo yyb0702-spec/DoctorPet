@@ -5,12 +5,14 @@ import { useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import {
   useChargePayment,
+  useCorrectionCharge,
   useItemDrafts,
   useRefundPayment,
   useSettleOffline,
   useStaffReservationPayments,
 } from '@/features/staffPayments/hooks'
 import { staffPaymentApi } from '@/features/staffPayments/api'
+import { activePaymentId } from '@/features/staffPayments/activePayment'
 import type { PaymentItemInput } from '@/features/staffPayments/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
 import { ReservationStatusBadge, PaymentStatusBadge } from '@/components/common/StatusBadge'
@@ -74,10 +76,20 @@ function isRowValid(row: ItemRow): boolean {
 // 진료비 청구 — 총액을 직접 입력하지 않고 청구 항목을 작성한다. 저장된 초안의 합계로 서버가
 // 청구하므로(SA §8-7·§9-4), 이 폼은 항목 목록을 저장한 뒤 body 없이 청구를 호출한다.
 // 할인·조정은 단가를 음수로 넣어 표현한다(수량은 항상 양수).
-function ChargeForm({ reservationId }: { reservationId: number }) {
+function ChargeForm({
+  reservationId,
+  mode = 'charge',
+}: {
+  reservationId: number
+  // 'correction'이면 정정 재청구(기존 환불 결제를 대체). 항목 편집·저장 흐름은 정상 청구와 같고
+  // 마지막 청구 호출만 다르다(SA §9-4).
+  mode?: 'charge' | 'correction'
+}) {
   const draftsQuery = useItemDrafts(reservationId)
   const [rows, setRows] = useState<ItemRow[] | null>(null)
   const charge = useChargePayment(reservationId)
+  const correction = useCorrectionCharge(reservationId)
+  const mutation = mode === 'correction' ? correction : charge
 
   // 저장해 둔 초안이 있으면 그대로 이어서 편집한다. 첫 로드 이후에는 사용자의 편집을 덮지 않는다.
   const effectiveRows =
@@ -102,7 +114,7 @@ function ChargeForm({ reservationId }: { reservationId: number }) {
     effectiveRows.length > 0 && effectiveRows.every(isRowValid) && total > 0
 
   const submit = () =>
-    charge.mutate(
+    mutation.mutate(
       effectiveRows.map<PaymentItemInput>((row) => ({
         name: row.name.trim(),
         quantity: Number(row.quantity),
@@ -167,11 +179,17 @@ function ChargeForm({ reservationId }: { reservationId: number }) {
         </p>
       </div>
 
-      {charge.isError && (
-        <p className="text-sm text-destructive">{errorMessage(charge.error)}</p>
+      {mutation.isError && (
+        <p className="text-sm text-destructive">{errorMessage(mutation.error)}</p>
       )}
-      <Button disabled={!canSubmit || charge.isPending} onClick={submit}>
-        {charge.isPending ? '청구 중…' : '진료비 청구'}
+      <Button disabled={!canSubmit || mutation.isPending} onClick={submit}>
+        {mutation.isPending
+          ? mode === 'correction'
+            ? '정정 청구 중…'
+            : '청구 중…'
+          : mode === 'correction'
+            ? '정정 재청구'
+            : '진료비 청구'}
       </Button>
     </div>
   )
@@ -182,6 +200,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
   const settleOffline = useSettleOffline(reservationId)
   const refund = useRefundPayment(reservationId)
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null)
+  const [correctingId, setCorrectingId] = useState<number | null>(null)
 
   if (paymentsQuery.isLoading) return <PageLoader />
   if (paymentsQuery.isError) {
@@ -202,6 +221,8 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
       </Card>
     )
   }
+
+  const activeId = activePaymentId(payments)
 
   return (
     <Card>
@@ -297,6 +318,28 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
                 영수증 보기
               </Button>
             )}
+
+            {/* 정정 재청구는 활성(최신) 결제가 REFUNDED일 때만. 금액 정정은 항목 수정이 아니라
+                기존 환불 결제를 대체하는 새 결제로만 한다(SA §9-4). */}
+            {p.paymentId === activeId &&
+              p.status === PaymentStatus.REFUNDED &&
+              (correctingId === p.paymentId ? (
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm text-muted-foreground">
+                    정정할 청구 항목을 다시 작성하세요. 기존 환불 결제를 대체하는 새
+                    결제가 생성됩니다.
+                  </p>
+                  <ChargeForm reservationId={reservationId} mode="correction" />
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCorrectingId(p.paymentId)}
+                >
+                  정정 재청구
+                </Button>
+              ))}
           </div>
         ))}
       </CardContent>

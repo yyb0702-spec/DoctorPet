@@ -36,6 +36,13 @@ export const staffPaymentApi = {
       `/hospital/reservations/${reservationId}/payments`,
       { draftToken },
     ),
+  // 정정 재청구 — 기존 PAID를 전액 환불한 뒤 새 결제로 대체한다(SA §9-4). charge와 같은 초안 토큰
+  // 계약이며 엔드포인트만 다르다. 활성 결제가 REFUNDED일 때만 서버가 조건부로 허용한다(그 외 409).
+  correctionCharge: (reservationId: number, draftToken: string) =>
+    http.post<StaffChargeResult>(
+      `/hospital/reservations/${reservationId}/payments/correction`,
+      { draftToken },
+    ),
   getPayments: (reservationId: number) =>
     http.get<PaymentRecord[]>(
       `/hospital/reservations/${reservationId}/payments`,
