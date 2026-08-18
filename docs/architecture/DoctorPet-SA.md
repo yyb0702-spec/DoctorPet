@@ -50,7 +50,7 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 - Gradle, JUnit5, Mockito, @SpringBootTest
 - 인프라(도전): Docker, AWS(EC2·RDS·ElastiCache), GitHub Actions, k6
 
-확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 `AiGateway` 추상화를 유지하면서 OpenAI `gpt-4.1-mini`의 Structured Outputs로 연동한다(§9-5). 실시간 알림은 MVP2에서 단방향 SSE를 사용하며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 적용한다(§9-8). 양방향 WebSocket+STOMP는 채팅 도입 시에만 재논의한다.
+확정 사항: 병원 검색 최초 진입 기본 첫 페이지의 정적 조회 결과만 Redis 원격 캐시에 저장한다(TTL·키 prefix는 구현 시 조정, §9-2). AI는 `AiGateway` 추상화를 유지하면서 OpenAI `gpt-4.1-mini`의 Structured Outputs로 연동한다(§9-5). 실시간 알림은 MVP2에서 단방향 SSE를 사용하며, 티켓 인증·커밋 이후 전송·회원당 연결 상한을 적용한다(§9-8). 양방향 WebSocket+STOMP는 병원↔회원 예약 채팅 전용으로 도입했다(§9-12) — 알림 전송을 WebSocket으로 이전하지는 않는다.
 
 시간 정책: 애플리케이션의 업무 시각은 `TimePolicy.SEOUL_ZONE_ID`를 적용한 공통 `Clock`을 사용한다. JPA `@CreatedDate`·`@LastModifiedDate`와 시간 기반 배치는 같은 Clock으로 `LocalDateTime`을 생성해 JVM 기본 시간대가 UTC인 환경에서도 저장 시각과 비교 기준이 어긋나지 않게 한다.
 
