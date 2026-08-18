@@ -1,6 +1,7 @@
 package com.doctorpet.domain.payment.controller;
 
 import com.doctorpet.domain.payment.dto.request.PaymentChargeRequest;
+import com.doctorpet.domain.payment.dto.request.PaymentCorrectionRequest;
 import jakarta.validation.Valid;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.dto.response.PaymentHistoryResponse;
@@ -45,6 +46,23 @@ public class HospitalPaymentController {
         PaymentChargeResponse response = paymentApplicationService.charge(
                 reservationId, principal.memberId(), request.draftToken());
         // 결제 레코드 생성이므로 201. 승인 실패도 레코드는 생성되며 status(OFFLINE_REQUIRED 등)로 결과를 표현한다.
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+    }
+
+    /*
+      정정 재청구(고도화 3.5-a, SA §9-4). 전액 환불된 결제의 금액을 정정하기 위해, 스태프가 정정 초안을 새로 작성한
+      뒤 호출한다. 기존 REFUNDED 결제를 대체하고 새 결제를 선기록·승인한다. 금액은 정상 청구와 같이 서버가 정정
+      초안 합계로 산출하며 요청은 초안 검증 토큰만 보낸다. 스태프 식별·자병원 검증은 @AuthenticationPrincipal 기반이다.
+     */
+    @PostMapping("/{reservationId}/payments/correction")
+    public ResponseEntity<ApiResponse<PaymentChargeResponse>> correctionCharge(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable Long reservationId,
+            @Valid @RequestBody PaymentCorrectionRequest request
+    ) {
+        PaymentChargeResponse response = paymentApplicationService.correctionCharge(
+                reservationId, principal.memberId(), request.draftToken());
+        // 새 결제 레코드 생성이므로 201. 승인 실패도 레코드는 생성되며 status로 결과를 표현한다.
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
