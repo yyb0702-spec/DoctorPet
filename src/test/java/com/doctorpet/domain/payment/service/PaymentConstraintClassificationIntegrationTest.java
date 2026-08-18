@@ -34,7 +34,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * 내려주는 ER_DUP_ENTRY 메시지 형식에 제약명이 담겨 substring 매칭이 실제로 동작하는지는 검증하지 못한다.
  * 여기서는 merchant_payment_id를 고정해 실제 uk_payments_merchant_payment_id 충돌을 일으키고, 그 위반이
  * DUPLICATE_CHARGE로 오분류되지 않고 원 예외로 전파되는지 확인한다. (reservation_id UNIQUE 경쟁 →
- * DUPLICATE_CHARGE의 실제 MySQL 검증은 동시 청구를 다루는 PaymentChargeConcurrencyTest가 담당한다.)
+ * DUPLICATE_CHARGE의 실제 MySQL 검증은 동시 청구를 다루는 PaymentChargeConcurrencyIntegrationTest가 담당한다.)
  * 게이트웨이 호출 전 단계(Tx1)만 다루므로 예약·스태프 port는 목으로 주입한다. 전체 컨텍스트(MySQL·Redis·env)가
  * 필요하다 — 없으면 BLOCKED.
  */

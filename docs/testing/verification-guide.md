@@ -6,12 +6,18 @@
 
 | Level | 확인 대상 | 실행 예 |
 | --- | --- | --- |
-| 1 | 빌드·단위 테스트 | `./gradlew test` |
+| 1 | 빌드·단위 테스트 | `./gradlew test` (MySQL·Redis 없이 Level 1/2만 빠르게 보려면 `./gradlew unitTest`) |
 | 2 | API 계약 — 상태코드·`ApiResponse` 포맷·Validation | MockMvc / `@WebMvcTest` |
-| 3 | DB·트랜잭션·동시성 | `@SpringBootTest` + `ExecutorService`·`CountDownLatch` |
+| 3 | DB·트랜잭션·동시성 | `@SpringBootTest` + `ExecutorService`·`CountDownLatch` (Level 3만 따로 보려면 `./gradlew integrationTest`) |
 | 5 | 로컬 앱 기동 | `./gradlew bootRun` (MySQL·Redis 필요) |
 | 6 | 실제 HTTP 요청 | http 파일·curl로 실제 응답 확인 |
 
+- `test`/`unitTest`/`integrationTest` 세 태스크 — `test`는 항상 전체(Level 1~3)를 돌리는 기존
+  태스크다(CI 최적화로 새로 생기지 않았다). `unitTest`(클래스명이 `*IntegrationTest`로 안 끝나는
+  것만)·`integrationTest`(`*IntegrationTest`로 끝나는 것만)는 CI가 두 잡으로 병렬 실행하려고
+  build.gradle에 추가한 필터링 전용 태스크다(2차 리뷰 지적 P2, CI 최적화 PR). 셋 다 같은
+  소스셋을 도니 어느 걸 돌려도 통과 기준은 같다 — `test`/`integrationTest` 둘 다 로컬 build
+  cache로 인한 FROM-CACHE 오판을 막기 위해 `doNotCacheIf`가 걸려 있다(build.gradle 참고).
 - Level 4(외부 메시징 통합)는 없다 — Kafka 미사용. Level 7(k6 부하)은 도전 과제 착수 시 추가한다.
 - **Mock PASS는 실제 MySQL·Redis·PortOne·LLM이 동작한다는 증거가 아니다.** 반대로 서버를 한 번 기동했다고 예외 상황이 검증된 것도 아니다.
 - **Level 3·5·6이 실패하면 코드보다 환경을 먼저 의심한다** — MySQL·Redis 컨테이너가 켜져 있는지(`docker compose ps` 등) 확인한 뒤 코드를 본다.

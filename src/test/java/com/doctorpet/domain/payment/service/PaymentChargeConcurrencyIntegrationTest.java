@@ -38,10 +38,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * UNIQUE(reservation_id) + PENDING 선기록으로 정확히 1건만 성립하는지 실제 MySQL로 검증한다.
  * Mockito 슬라이스로는 DB UNIQUE 경쟁 자체를 확인할 수 없다. 예약·스태프 port는 목으로 주입하고
  * 게이트웨이는 fake다. 전체 컨텍스트(MySQL·Redis·fake gateway·JWT/enc-key env)가 필요하다 —
- * 없으면 BLOCKED. (기존 AuthServiceConcurrencyTest와 동일한 인프라 전제.)
+ * 없으면 BLOCKED. (AuthServiceConcurrencyIntegrationTest와 동일한 인프라 전제.)
+ *
+ * 클래스명을 IntegrationTest로 맞췄다(CI 최적화) — ci.yml이 이름 패턴으로 Level 1/2(빠름)와
+ * Level 3(느림, MySQL·Redis 필요) 잡을 나눈다.
  */
 @SpringBootTest
-class PaymentChargeConcurrencyTest {
+class PaymentChargeConcurrencyIntegrationTest {
 
     private static final int CONCURRENT_REQUESTS = 20;
     private static final Long STAFF_MEMBER_ID = 9L;
