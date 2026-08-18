@@ -109,6 +109,23 @@ export function HospitalDetailPage() {
               가장 빠른 진료 가능: {earliestLabel}
             </p>
           )}
+          {/* 예약 응답 지표(제휴 병원, PR #165). 집계할 예약이 없으면 null이라 숨긴다. */}
+          {isPartner &&
+            (data.reservationResponseRate != null ||
+              data.averageApprovalMinutes != null) && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {data.reservationResponseRate != null && (
+                  <Badge variant="outline">
+                    예약 응답률 {data.reservationResponseRate}%
+                  </Badge>
+                )}
+                {data.averageApprovalMinutes != null && (
+                  <Badge variant="outline">
+                    평균 승인 {data.averageApprovalMinutes}분
+                  </Badge>
+                )}
+              </div>
+            )}
         </div>
 
         {/* 위치 지도 (주소 기반, 제휴 여부 무관) */}

@@ -1,6 +1,6 @@
 // 결제 API. 결제수단(등록/조회/삭제)·결제 내역 조회 모두 실연동.
 import { http } from '@/lib/api/client'
-import type { PaymentMethod, PaymentRecord } from './types'
+import type { PaymentMethod, PaymentRecord, Receipt } from './types'
 
 export const paymentApi = {
   // 결제수단 — 실연동 (SA §8-7).
@@ -15,4 +15,8 @@ export const paymentApi = {
   // 결제 내역 — 실연동 (SA §8-7, #47). 예약당 여러 건 가능(배열).
   getReservationPayments: (reservationId: number) =>
     http.get<PaymentRecord[]>(`/reservations/${reservationId}/payments`),
+
+  // JSON 영수증 — 실연동 (PR #158). PAID·OFFLINE_PAID·REFUNDED 결제만. 본인 결제만 조회된다.
+  getReceipt: (paymentId: number) =>
+    http.get<Receipt>(`/payments/${paymentId}/receipt`),
 }

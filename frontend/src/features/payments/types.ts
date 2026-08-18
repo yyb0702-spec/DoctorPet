@@ -27,3 +27,38 @@ export interface PaymentRecord {
   offlineSettledAt: string | null // 병원 현장 수납 완료 시각(#36)
   refundedAt: string | null // 전액 환불 확정 시각(MVP+ #37)
 }
+
+// 환불 이력 상태(SA §4 payment_refunds). 결제 상태(PaymentStatus)와 별개로 환불 처리 진행을 나타낸다.
+export type RefundStatus = 'REQUESTED' | 'COMPLETED' | 'FAILED'
+
+// 영수증 항목 1건(PaymentItemResponse). 할인·조정은 음수 unitPrice·amount로 표시된다.
+// 항목화 이전 결제는 항목이 없어 items가 빈 배열이다(백필하지 않음, SA §9-4).
+export interface ReceiptItem {
+  name: string
+  quantity: number
+  unitPrice: number
+  amount: number
+}
+
+// JSON 영수증(GET /api/payments/{id}/receipt · /api/hospital/payments/{id}/receipt, PR #158).
+// PAID·OFFLINE_PAID·REFUNDED 결제에만 제공된다. 결제 시점 스냅샷(항목·총액·카드 brand/last4,
+// 예약 시점 펫 이름·종)만 담고, 환불 사유·빌링키·카드번호 원본은 담지 않는다(SA §9-4).
+export interface Receipt {
+  paymentId: number
+  reservationId: number
+  hospitalId: number
+  guardianMemberId: number
+  petId: number
+  petName: string
+  petSpecies: string // 백엔드 PetSpecies 8종 중 하나(DOG/CAT/BIRD/RABBIT/HAMSTER/GUINEA_PIG/FERRET/REPTILE), 예약 시점 스냅샷
+  status: PaymentStatus
+  paymentChannel: PaymentChannel | null // BILLING_KEY / OFFLINE
+  paidAt: string | null // 빌링키 자동 결제 완료 시각
+  offlineSettledAt: string | null // 현장 수납 완료 시각
+  cardBrandSnapshot: string | null
+  cardLast4Snapshot: string | null
+  items: ReceiptItem[]
+  totalAmount: number // payments.amount 정본(항목 합계 재계산 아님)
+  refundStatus: RefundStatus | null // 환불 이력이 없으면 null
+  refundedAt: string | null
+}

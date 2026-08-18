@@ -1,11 +1,12 @@
 // 데모 목 핸들러 — 백엔드 없이 전체 UI를 체험하기 위해 "실연동" 엔드포인트까지 mock 한다.
 // VITE_FULL_MOCK=true (npm run dev:mock)일 때만 browser.ts가 이 핸들러를 얹는다.
 // 기본 개발(npm run dev)에서는 얹지 않으므로 실연동은 그대로 백엔드로 간다.
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type HttpResponseResolver } from 'msw'
 import {
   hospitalOfSlot,
   mockHospitals,
   mockNotifications,
+  mockPaymentByReservation,
   mockReservationDetail,
   mockReservations,
 } from './data'
@@ -13,10 +14,13 @@ import type {
   HospitalDetail,
   HospitalSummary,
 } from '@/features/hospitals/types'
-import type { PaymentMethod } from '@/features/payments/types'
+import type { PaymentMethod, Receipt } from '@/features/payments/types'
 import type { Pet } from '@/features/pets/api'
 
 const BASE = '/api'
+
+// 영수증을 제공하는 결제 상태(백엔드와 동일, PR #158).
+const RECEIPT_STATUSES = new Set(['PAID', 'OFFLINE_PAID', 'REFUNDED'])
 
 // 상세를 따로 정의하지 않은 병원(4~25)은 검색 요약에서 최소 상세를 합성한다(클릭 404 방지).
 function synthDetail(h: HospitalSummary): HospitalDetail {
@@ -48,6 +52,8 @@ function synthDetail(h: HospitalSummary): HospitalDetail {
         ]
       : null,
     capabilities: partner ? ['DOG', 'CAT', 'XRAY'] : null,
+    reservationResponseRate: partner ? 92 : null,
+    averageApprovalMinutes: partner ? 24 : null,
   }
 }
 
@@ -87,6 +93,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
       { dayOfWeek: 'SUNDAY', closed: true, openTime: null, closeTime: null },
     ],
     capabilities: ['DOG', 'CAT', 'XRAY', 'ULTRASOUND', 'DENTAL_CARE'],
+    reservationResponseRate: 96,
+    averageApprovalMinutes: 18,
   },
   2: {
     hospitalId: 2,
@@ -111,6 +119,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
       { dayOfWeek: 'SUNDAY', closed: false, openTime: '00:00', closeTime: '23:59' },
     ],
     capabilities: ['DOG', 'CAT', 'BLOOD_TEST', 'CT', 'ONCOLOGY_CARE'],
+    reservationResponseRate: 88,
+    averageApprovalMinutes: 31,
   },
   3: {
     hospitalId: 3,
@@ -127,6 +137,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     emergency: null,
     businessHours: null,
     capabilities: null,
+    reservationResponseRate: null,
+    averageApprovalMinutes: null,
   },
 }
 
@@ -157,6 +169,54 @@ let demoMethods: PaymentMethod[] = [
 ]
 let methodSeq = 2
 let reservationSeq = 6000
+
+// 보호자(GET /payments/:id/receipt)와 스태프(GET /hospital/payments/:id/receipt)는 동일한 영수증
+// 데이터를 쓴다 — 조회 권한(엔드포인트)만 다르므로 같은 빌더를 두 경로에 등록한다(PR #180 리뷰).
+// 한쪽만 등록하면 dev:mock에서 스태프 영수증 버튼이 매칭 핸들러가 없어 네트워크 오류가 난다.
+// 백엔드는 "결제가 없다"(PAYMENT_005 404)와 "발급 불가 상태다"(PAYMENT_013 409)를 구분하므로
+// (PaymentReceiptService) 목도 그대로 나눈다 — 한쪽으로 뭉개면 검증한 오류 처리가 실연동과 달라진다.
+const receiptResolver: HttpResponseResolver<{ paymentId: string }> = ({ params }) => {
+  const paymentId = Number(params.paymentId)
+  const record = Object.values(mockPaymentByReservation)
+    .flat()
+    .find((p) => p.paymentId === paymentId)
+  if (!record) {
+    return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+  }
+  if (!RECEIPT_STATUSES.has(record.status)) {
+    return fail('PAYMENT_013', '영수증을 발급할 수 있는 결제가 아닙니다.', 409)
+  }
+  const detail = mockReservationDetail[record.reservationId]
+  const receipt: Receipt = {
+    paymentId: record.paymentId,
+    reservationId: record.reservationId,
+    hospitalId: detail?.hospital.hospitalId ?? 1,
+    guardianMemberId: 1,
+    petId: detail?.petSnapshot.petId ?? 1,
+    petName: detail?.petSnapshot.name ?? '초코',
+    petSpecies: detail?.petSnapshot.species ?? 'DOG',
+    status: record.status,
+    paymentChannel: record.paymentChannel,
+    paidAt: record.paidAt,
+    offlineSettledAt: record.offlineSettledAt,
+    cardBrandSnapshot: record.cardBrandSnapshot,
+    cardLast4Snapshot: record.cardLast4Snapshot,
+    // 데모용 항목 — 진찰료 + 검사비로 총액을 구성한다(항목 표 시연).
+    items: [
+      { name: '진찰료', quantity: 1, unitPrice: 15000, amount: 15000 },
+      {
+        name: '검사·처치',
+        quantity: 1,
+        unitPrice: record.amount - 15000,
+        amount: record.amount - 15000,
+      },
+    ],
+    totalAmount: record.amount,
+    refundStatus: record.refundedAt ? 'COMPLETED' : null,
+    refundedAt: record.refundedAt,
+  }
+  return ok(receipt)
+}
 
 export const demoHandlers = [
   // --- 인증 ---
@@ -276,7 +336,7 @@ export const demoHandlers = [
     const body = (await request.json()) as { nickname?: string }
     const nickname = (body.nickname ?? '').trim()
     if (!nickname || nickname.length > 255) {
-      return fail('COMMON_400', '닉네임은 1~255자여야 합니다.', 400)
+      return fail('COMMON_001', '입력값이 올바르지 않습니다.', 400)
     }
     demoMember = { ...demoMember, nickname }
     return ok(demoMember)
@@ -291,7 +351,7 @@ export const demoHandlers = [
     if (detail) return ok(detail)
     const summary = mockHospitals.find((h) => h.hospitalId === id)
     if (summary) return ok(synthDetail(summary))
-    return fail('HOSPITAL_NOT_FOUND', '병원을 찾을 수 없습니다.', 404)
+    return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
   }),
 
   // --- 결제수단 ---
@@ -312,13 +372,17 @@ export const demoHandlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
+  // --- JSON 영수증 (dev:mock 오프라인 전용) — 보호자·스태프 공통 빌더(위 receiptResolver) ---
+  http.get(`${BASE}/payments/:paymentId/receipt`, receiptResolver),
+  http.get(`${BASE}/hospital/payments/:paymentId/receipt`, receiptResolver),
+
   // --- 펫 프로필 (dev:mock 오프라인 전용. 실연동(npm run dev)에선 백엔드로 감) ---
   http.get(`${BASE}/pets`, () => ok(demoPets)),
   http.get(`${BASE}/pets/:petId`, ({ params }) => {
     const pet = demoPets.find((p) => p.petId === Number(params.petId))
     return pet
       ? ok(pet)
-      : fail('PET_001', '펫을 찾을 수 없습니다.', 404)
+      : fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
   }),
   http.post(`${BASE}/pets`, async ({ request }) => {
     const b = (await request.json()) as Record<string, unknown>
@@ -335,7 +399,7 @@ export const demoHandlers = [
   }),
   http.patch(`${BASE}/pets/:petId`, async ({ params, request }) => {
     const pet = demoPets.find((p) => p.petId === Number(params.petId))
-    if (!pet) return fail('PET_001', '펫을 찾을 수 없습니다.', 404)
+    if (!pet) return fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
     Object.assign(pet, await request.json())
     return ok(pet)
   }),

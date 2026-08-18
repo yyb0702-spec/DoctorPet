@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  // tests/ 는 Node API로 저장소 파일을 읽는 계약 가드다. 앱 소스(tsconfig.app.json)에는
+  // Node 타입을 노출하지 않으려고 이 프로젝트에 둔다.
+  "include": ["vite.config.ts", "tests"]
 }

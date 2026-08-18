@@ -2,8 +2,10 @@
 // 상태 필터는 현재 불러온 페이지 안에서만 적용된다(백엔드가 상태별 재조회를 지원하지 않음 — §Phase B 설계 노트).
 import { useState } from 'react'
 import { useHospitalPayments, useRefundPayment, useSettleOffline } from '@/features/staffPayments/hooks'
+import { staffPaymentApi } from '@/features/staffPayments/api'
 import type { HospitalPaymentListItem } from '@/features/staffPayments/types'
 import { ReasonPrompt } from '@/components/common/ReasonPrompt'
+import { ReceiptDialog } from '@/components/common/ReceiptDialog'
 import { PaymentStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -29,7 +31,20 @@ function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
 }
 
-function PaymentRow({ item }: { item: HospitalPaymentListItem }) {
+// 영수증을 제공하는 결제 상태(PR #158). 그 외는 발급 대상이 아니라 백엔드가 409(RECEIPT_NOT_AVAILABLE), 결제 자체가 없으면 404다.
+const RECEIPT_STATUSES: PaymentStatus[] = [
+  PaymentStatus.PAID,
+  PaymentStatus.OFFLINE_PAID,
+  PaymentStatus.REFUNDED,
+]
+
+function PaymentRow({
+  item,
+  onOpenReceipt,
+}: {
+  item: HospitalPaymentListItem
+  onOpenReceipt: (paymentId: number) => void
+}) {
   const settleOffline = useSettleOffline(item.reservationId)
   const refund = useRefundPayment(item.reservationId)
 
@@ -90,6 +105,18 @@ function PaymentRow({ item }: { item: HospitalPaymentListItem }) {
             }
           />
         )}
+
+        {item.paymentStatus != null &&
+          RECEIPT_STATUSES.includes(item.paymentStatus) &&
+          item.paymentId != null && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenReceipt(item.paymentId as number)}
+            >
+              영수증
+            </Button>
+          )}
       </CardContent>
     </Card>
   )
@@ -98,6 +125,7 @@ function PaymentRow({ item }: { item: HospitalPaymentListItem }) {
 export function StaffPaymentsPage() {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['key']>('ALL')
   const [page, setPage] = useState(0)
+  const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null)
   const query = useHospitalPayments(page, 20)
 
   const items = query.data?.content ?? []
@@ -135,9 +163,20 @@ export function StaffPaymentsPage() {
 
       <div className="space-y-3">
         {filtered.map((item) => (
-          <PaymentRow key={item.reservationId} item={item} />
+          <PaymentRow
+            key={item.reservationId}
+            item={item}
+            onOpenReceipt={setReceiptPaymentId}
+          />
         ))}
       </div>
+
+      <ReceiptDialog
+        paymentId={receiptPaymentId}
+        scope="staff"
+        fetcher={staffPaymentApi.getReceipt}
+        onClose={() => setReceiptPaymentId(null)}
+      />
 
       {query.data && query.data.totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
