@@ -1,6 +1,8 @@
 package com.doctorpet.domain.ai.support;
 
 import com.doctorpet.domain.ai.config.AiRateLimitProperties;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletRequestWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -22,7 +24,7 @@ public class AiClientIpResolver {
     private final AiRateLimitProperties properties;
 
     public String resolve(HttpServletRequest request) {
-        String remoteAddress = request.getRemoteAddr();
+        String remoteAddress = rawRemoteAddr(request);
         Set<String> trustedProxies = Set.copyOf(properties.getTrustedProxies());
         if (!isTrustedProxy(remoteAddress, trustedProxies)) {
             return remoteAddress;
@@ -58,6 +60,24 @@ public class AiClientIpResolver {
                 invalidAddressCount
         );
         return remoteAddress;
+    }
+
+    // (PR 리뷰 지적 P1, 이슈 #181 — auth rate limit용 ClientIpResolver와 동일한 원인) 이 프로젝트가
+    // CORS same-origin 오판을 고치려고 server.forward-headers-strategy: framework를 켰는데, 그
+    // 부작용으로 Spring의 ForwardedHeaderFilter가 이 클래스보다 먼저 실행되며 X-Forwarded-For의
+    // 첫 값으로 request.getRemoteAddr()를 덮어쓰게 됐다. nginx는 $proxy_add_x_forwarded_for를
+    // 써서 클라이언트가 보낸 XFF를 보존한 채 실제 연결 주소를 뒤에 추가하므로, 공격자가 요청마다
+    // XFF의 첫 값을 바꾸면 그 스푸핑된 값이 그대로 remoteAddr로 승격된다 — 아래 isTrustedProxy
+    // 검사가 nginx를 거치지 않은 직접 연결로 오판해 검증 없이 그 값을 그대로 반환하고, AI rate
+    // limit도 함께 무력화된다. ServletRequestWrapper 체인을 원본 요청까지 풀어, 어떤 필터도 손대지
+    // 않은 진짜 TCP peer 주소를 신뢰 판정 기준으로 삼는다 — forward-headers-strategy 설정과
+    // 무관하게 항상 안전하다.
+    private String rawRemoteAddr(HttpServletRequest request) {
+        ServletRequest current = request;
+        while (current instanceof ServletRequestWrapper wrapper) {
+            current = wrapper.getRequest();
+        }
+        return current.getRemoteAddr();
     }
 
     // trustedProxies 항목은 리터럴 IP뿐 아니라 호스트명(예: 컴포즈 서비스명 "nginx")도 허용한다

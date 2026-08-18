@@ -1,5 +1,7 @@
 package com.doctorpet.global.web;
 
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletRequestWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -45,7 +47,7 @@ public class ClientIpResolver {
             new ConcurrentHashMap<>();
 
     public String resolve(HttpServletRequest request, Set<String> trustedProxies) {
-        String remoteAddress = request.getRemoteAddr();
+        String remoteAddress = rawRemoteAddr(request);
         if (!isTrustedProxy(remoteAddress, trustedProxies)) {
             return remoteAddress;
         }
@@ -80,6 +82,27 @@ public class ClientIpResolver {
                 invalidAddressCount
         );
         return remoteAddress;
+    }
+
+    // (PR 리뷰 지적 P1, 이슈 #181) server.forward-headers-strategy: framework가 켜져 있으면
+    // Spring의 ForwardedHeaderFilter가 이 클래스보다 먼저(필터 체인 최상단 근처) 실행되며,
+    // X-Forwarded-For의 첫 값으로 request.getRemoteAddr()를 덮어쓴다. nginx는
+    // $proxy_add_x_forwarded_for를 써서 클라이언트가 보낸 XFF를 보존한 채 실제 연결 주소를
+    // 뒤에 추가하므로, 공격자가 요청마다 XFF의 첫 값을 바꾸면 ForwardedHeaderFilter가 그
+    // 스푸핑된 값을 그대로 remoteAddr로 승격시킨다. 그러면 바로 아래 isTrustedProxy(remoteAddress,
+    // ...) 검사가 nginx를 거치지 않은 직접 연결로 오판해, 스푸핑된 값을 검증 없이 그대로
+    // 반환해버려 IP별 rate limit이 무력화된다. ServletRequestWrapper 체인을 원본 요청까지
+    // 풀어, ForwardedHeaderFilter를 포함해 어떤 필터도 손대지 않은 진짜 TCP peer 주소를 신뢰
+    // 판정 기준으로 삼는다 — forward-headers-strategy 설정이나 앞으로 추가될 다른 래핑 필터와
+    // 무관하게 항상 안전하다(이 값이 신뢰 프록시로 확인된 뒤에는, 아래 로직이 여전히
+    // X-Forwarded-For 헤더 자체를 오른쪽부터 훑어 실제 클라이언트 IP를 뽑아낸다 — 이 부분은
+    // 그대로 유지된다).
+    private String rawRemoteAddr(HttpServletRequest request) {
+        ServletRequest current = request;
+        while (current instanceof ServletRequestWrapper wrapper) {
+            current = wrapper.getRequest();
+        }
+        return current.getRemoteAddr();
     }
 
     // trustedProxies 항목은 리터럴 IP뿐 아니라 호스트명(예: 컴포즈 서비스명 "nginx")도 허용한다.

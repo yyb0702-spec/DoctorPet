@@ -2,13 +2,17 @@ package com.doctorpet.global.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.filter.ForwardedHeaderFilter;
 
 /**
  * domain.ai.support.AiClientIpResolverTest와 같은 시나리오를 검증한다 — 이 클래스는 그 로직을
@@ -111,5 +115,43 @@ class ClientIpResolverTest {
 
         int warnCount = output.toString().split("신뢰 프록시 호스트명을 해석하지 못했습니다", -1).length - 1;
         assertThat(warnCount).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName(
+            "ForwardedHeaderFilter가 remoteAddr를 XFF 첫 값으로 덮어써도 "
+                    + "스푸핑된 값으로 신뢰 판정을 우회할 수 없다(PR 리뷰 지적 P1, 이슈 #181)"
+    )
+    void resolve_forwardedHeaderFilterActive_ignoresSpoofedLeadingXffEntry() throws Exception {
+        // server.forward-headers-strategy: framework가 켜지면 이 클래스보다 먼저 실행되는
+        // ForwardedHeaderFilter가 X-Forwarded-For의 첫 값으로 request.getRemoteAddr()를
+        // 덮어쓴다. nginx는 $proxy_add_x_forwarded_for로 클라이언트가 보낸 XFF를 보존한 채
+        // 실제 연결 주소(여기서는 198.51.100.50)를 뒤에 추가하므로, 공격자가 매 요청 XFF의
+        // 첫 값을 바꿔도(1.1.1.1 → 9.9.9.9) rate limit 키로 쓰이는 최종 해석 결과는 항상
+        // nginx가 실제로 덧붙인 마지막 값과 같아야 한다 — 그렇지 않으면(고친 rawRemoteAddr
+        // 없이 request.getRemoteAddr()를 그대로 썼다면) 공격자가 이 값을 자유롭게 조작해
+        // IP별 rate limit을 우회할 수 있다.
+        assertThat(resolveThroughForwardedHeaderFilter("1.1.1.1, 198.51.100.50"))
+                .isEqualTo("198.51.100.50");
+        assertThat(resolveThroughForwardedHeaderFilter("9.9.9.9, 198.51.100.50"))
+                .isEqualTo("198.51.100.50");
+    }
+
+    // MockHttpServletRequest를 실제 org.springframework.web.filter.ForwardedHeaderFilter에
+    // 통과시켜, 이 필터가 만드는 (getRemoteAddr()가 재정의된) 래핑된 요청 객체를 그대로
+    // ClientIpResolver에 넘긴다 — 필터 체인 순서까지 재현해야 이번 회귀를 실제로 잡아낼 수
+    // 있다(단순 MockHttpServletRequest만으로는 이 필터의 remoteAddr 재정의 자체가 재현되지
+    // 않아 통과해버린다).
+    private String resolveThroughForwardedHeaderFilter(String forwardedFor) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.1"); // 신뢰 프록시(nginx)의 실제 TCP peer 주소
+        request.addHeader("X-Forwarded-For", forwardedFor);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AtomicReference<HttpServletRequest> wrapped = new AtomicReference<>();
+        new ForwardedHeaderFilter()
+                .doFilter(request, response, (req, res) -> wrapped.set((HttpServletRequest) req));
+
+        return resolver.resolve(wrapped.get(), Set.of("10.0.0.1"));
     }
 }
