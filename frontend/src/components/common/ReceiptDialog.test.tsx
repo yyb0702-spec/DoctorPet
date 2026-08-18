@@ -134,4 +134,17 @@ describe('ReceiptDialog', () => {
     // 상태 배지와 환불 상세줄 두 곳에 "환불 완료"가 나타난다.
     expect(await screen.findAllByText(/환불 완료/)).toHaveLength(2)
   })
+
+  it('DOG·CAT 외 종(예: RABBIT)도 8종 라벨로 표시하고 고양이로 뭉개지 않는다', async () => {
+    // 백엔드 PetSpecies는 8종이라 예약 시점 스냅샷에 RABBIT 등이 올 수 있다(PR #180 리뷰).
+    renderDialog(9006, sampleReceipt({ petName: '깡총', petSpecies: 'RABBIT' }))
+    expect(await screen.findByText(/토끼/)).toBeInTheDocument()
+    expect(screen.queryByText(/고양이/)).not.toBeInTheDocument()
+  })
+
+  it('라벨 맵에 없는 종 값은 강아지·고양이로 뭉개지 않고 원문을 그대로 보여준다', async () => {
+    renderDialog(9006, sampleReceipt({ petName: '보노', petSpecies: 'PLATYPUS' }))
+    expect(await screen.findByText(/PLATYPUS/)).toBeInTheDocument()
+    expect(screen.queryByText(/고양이/)).not.toBeInTheDocument()
+  })
 })
