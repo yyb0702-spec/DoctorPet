@@ -2,10 +2,10 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 버전 | v1.1 |
-| 작성 기준일 | 2026-08-15 |
+| 문서 버전 | v1.2 |
+| 작성 기준일 | 2026-08-17 |
 | 상태 | 설계 확정, 구현 진행 중 |
-| 전제(동결 baseline) | `docker-compose.yml`, `.github/workflows/deploy.yml` (2026-08-10 시점 — blue/green 컷오버 로직 자체의 동결 기준이며, 이후 RDS 이전(이슈 #163)이 MySQL 부분만 변경했다. 4-3절 참고) |
+| 전제(동결 baseline) | `docker-compose.yml`, `.github/workflows/deploy.yml` (2026-08-10 시점 — blue/green 컷오버 로직 자체의 동결 기준이며, 이후 RDS 이전(이슈 #163)이 MySQL 부분을, ElastiCache 이전이 Redis 부분을 변경했다. 4-3절 참고) |
 | 관련 문서 | `docs/architecture/DoctorPet-SA.md`(제품 도메인 설계, 이 문서와 별개 — 배포 인프라는 SA 범위 밖) |
 
 이 문서는 배포 인프라 설계 전용 문서다. 제품 도메인(회원·예약·결제 등) SA와 델타 관계가 아니라, 처음부터 별도 레이어라 SA 부록A `[결정 필요]`에 넣지 않고 독립 문서로 둔다.
@@ -34,25 +34,25 @@ nginx는 8080 포트 뒤에서 app-blue/app-green 중 활성 쪽으로 리버스
 
 ### 3-2. MySQL/Redis — 이번 범위에서 제외
 
-`deploy.yml`은 `docker compose pull app` + `up -d`로 **app 서비스만** 갱신한다. redis는 이미지·설정이 안 바뀌는 한 이 과정에서 재시작되지 않는다 — 즉 지금도 정상적인 코드 배포에서 redis 다운타임은 발생하지 않는다.
+`deploy.yml`은 `docker compose pull app-<color>` + `up -d --no-deps app-<color>`로 **대상 색 app만** 갱신한다 — mysql·redis는 이미 RDS·ElastiCache 이전으로 이 파이프라인의 관리 대상 자체에서 빠졌다(4-3절 참고). 즉 정상적인 코드 배포에서 DB·Redis 다운타임은 애초에 이 배포 스크립트가 손대지 않는 영역이라 발생하지 않는다.
 
-MySQL은 이 문서가 처음 쓰였을 때(2026-08-10)는 compose 네트워크 내부 컨테이너였지만, 이후 별도 작업(이슈 #163, RDS 이관)으로 AWS RDS(db.t3.micro, Single-AZ)로 옮겼다 — 아래 4절 다이어그램·7절 주의사항에 반영돼 있다. DB 계층 자체가 끊기는 경우(RDS 유지관리·장애)를 무중단으로 만들려면 Multi-AZ가 필요한데, 지금은 Single-AZ라 그 경우까지 무중단을 보장하지는 않는다 — RDS 유지관리 시간대는 짧고 예측 가능해 이번 blue/green 설계(코드 배포 시 다운타임 제거)와는 별개 문제로 남겨둔다. Redis를 관리형(ElastiCache)으로 옮기는 건 아직 미래 카드다(3-4절 참고).
+MySQL은 이 문서가 처음 쓰였을 때(2026-08-10)는 compose 네트워크 내부 컨테이너였지만, 이후 별도 작업(이슈 #163, RDS 이관)으로 AWS RDS(db.t3.micro, Single-AZ)로 옮겼다 — 아래 4절 다이어그램·7절 주의사항에 반영돼 있다. DB 계층 자체가 끊기는 경우(RDS 유지관리·장애)를 무중단으로 만들려면 Multi-AZ가 필요한데, 지금은 Single-AZ라 그 경우까지 무중단을 보장하지는 않는다 — RDS 유지관리 시간대는 짧고 예측 가능해 이번 blue/green 설계(코드 배포 시 다운타임 제거)와는 별개 문제로 남겨둔다. Redis도 같은 이유로 관리형(ElastiCache, Valkey 엔진)으로 옮겼다 — 3-4절 참고.
 
 ### 3-3. EC2 인스턴스 2대 분리 (앱/DB) — 지금은 보류
 
 당초 검토안이었으나, 다음 순서로 재검토하기로 했다:
 
-1. **1단계(이번 작업)**: 같은 EC2 안에서 nginx + blue/green. 배포 중 발생할 수 있는 자원 경합(blue/green 컨테이너가 짧게 동시 구동되며 redis와 CPU/메모리를 다투는 것 — MySQL은 RDS 이전 완료로 이 EC2 밖에 있어 해당 없음, 3-4절 참고)은 배포 순간에만 나타나는 일시적 리스크이고, 이 프로젝트의 트래픽 목표(PRD 성공 기준 P95 300ms, 100 RPS)를 감안하면 인스턴스에 적당한 여유만 있으면 체감될 가능성이 낮다.
+1. **1단계(이번 작업)**: 같은 EC2 안에서 nginx + blue/green. 배포 중 발생할 수 있는 자원 경합(blue/green 컨테이너가 짧게 동시 구동되며 CPU/메모리를 다투는 것 — MySQL·Redis 모두 RDS·ElastiCache 이전 완료로 이 EC2 밖에 있어 해당 없음, 3-4절 참고)은 배포 순간에만 나타나는 일시적 리스크이고, 이 프로젝트의 트래픽 목표(PRD 성공 기준 P95 300ms, 100 RPS)를 감안하면 인스턴스에 적당한 여유만 있으면 체감될 가능성이 낮다.
 2. **관찰**: 1단계 배포 후 배포 중 CPU·메모리 사용률, RDS 커넥션 풀(HikariCP) 대기시간 같은 지표를 관찰한다.
-3. **필요 시에만 2단계**: 실제로 경합이 관측되면(응답 지연 증가, 커넥션 에러 등) 그때 앱 EC2를 분리·확장하는 걸 검토한다(DB는 이미 RDS로 분리돼 있다). 분리 시 redis 호스트 포트를 열어야 할 수 있지만, `0.0.0.0` 전체 공개가 아니라 보안그룹을 앱 인스턴스의 SG ID로만 스코프하면 지금의 "호스트 포트 비공개" 원칙(리뷰 지적 P2)을 훼손하지 않는다.
+3. **필요 시에만 2단계**: 실제로 경합이 관측되면(응답 지연 증가, 커넥션 에러 등) 그때 앱 EC2를 분리·확장하는 걸 검토한다(DB·Redis는 이미 RDS·ElastiCache로 분리돼 있어 이 시나리오에서 추가로 옮길 상태 저장소가 없다).
 
 측정 없이 미리 인스턴스를 늘리는 건 확정되지 않은 리스크에 비용을 미리 지불하는 셈이라 채택하지 않는다.
 
-### 3-4. RDS 이전(완료, 2026-08) / ElastiCache 이전 — 미래 카드로 보류
+### 3-4. RDS 이전(완료, 2026-08) / ElastiCache 이전(완료, 2026-08)
 
 **MySQL → RDS는 이미 완료했다**(이슈 #163) — 작성 당시(2026-08-10)엔 "비용·마이그레이션 부담이 과해 미래로 보류"라고 판단했지만, 인스턴스 확장(2대+ALB) 논의를 시작하면서 "여러 인스턴스가 DB를 공유하려면 DB부터 외부로 빼야 한다"는 전제가 먼저 필요해져 이 blue/green 설계와는 별개 트리거로 앞당겨졌다. db.t3.micro·Single-AZ로 시작했고, 로컬 mysql 컨테이너 정의는 `docker-compose.yml`에 로컬 개발용으로만 남겨뒀다(`deploy.yml`의 EC2 배포 대상에서는 제외).
 
-Redis는 여전히 EC2 로컬 컨테이너다 — DB 운영 부담이 크지 않고 지금은 EC2 1대라 문제가 없지만, 인스턴스를 2대 이상으로 늘리면 인스턴스별 로컬 Redis가 서로 다른 상태(Refresh Token, 로그인 락아웃, 검색 캐시)를 들고 있게 돼 요청이 어느 인스턴스로 가느냐에 따라 동작이 달라지는 문제가 생긴다 — ElastiCache 이관은 2번째 인스턴스를 추가하기 전에 반드시 먼저 끝나야 하는 선행 작업으로 재확정한다.
+**Redis → ElastiCache도 완료했다**(2026-08) — 원래는 "2번째 인스턴스를 추가하기 전에 반드시 먼저 끝나야 하는 선행 작업"으로 못박아뒀던 항목인데, ALB+2인스턴스 확장 자체를 비용 부담으로 보류하기로 하면서 그 트리거는 사라졌다. 그럼에도 RDS와 같은 이유로 별도 진행했다 — 지금 Redis에 저장되는 값(Refresh Token, 로그아웃/탈퇴 시 액세스 토큰 블랙리스트, 검색 캐시, AI Rate Limit 카운터)은 로컬 컨테이너가 사라지면(인스턴스 교체, AMI 재구성 등) 다시 만들어지지 않고 통째로 유실되는데, 그중 블랙리스트 유실은 "이미 폐기한 토큰이 다시 유효해지는" 실질적 보안 이슈였다. Valkey 엔진(Redis OSS 7.2 완전 호환, 노드 기반 동일 스펙 대비 최대 20% 저렴), cache.t4g.micro, 클러스터 모드 비활성화·Multi-AZ 미사용(비용 우선, RDS Single-AZ와 같은 판단)으로 구성했고, RBAC 사용자 그룹(`doctorpet-redis-users`)의 AUTH 비밀번호 인증을 강제한다 — AWS가 클러스터마다 기본 제공하는 무비밀번호 `default` 사용자는 이 그룹에서 빠져 있어 접근할 수 없다. 로컬 redis 컨테이너 정의는 MySQL과 같은 원칙으로 `docker-compose.yml`에 로컬 개발용으로만 남겨뒀다(`deploy.yml`의 EC2 배포 대상에서는 제외, 4-3절 참고). **잔존 위험(재검토 지적 P2, RDS 문단과 같은 수준으로 명시)**: 이걸로 해결되는 건 "EC2 인스턴스가 사라지는" 시나리오뿐이다 — 복제본 0·Multi-AZ 미사용 구성이라 ElastiCache 노드 자체가 장애·교체될 때는 Refresh Token·블랙리스트가 여전히 그대로 사라진다. RDS Single-AZ와 같은 비용 우선 판단이고 별도로 반대하지 않지만, "유실 문제를 완전히 해결했다"는 뜻은 아니다.
 
 ### 3-5. 두 번째 EC2로 앱을 완전 이중화(ALB 등) / ECS Fargate — 제외
 
@@ -79,18 +79,19 @@ Redis는 여전히 EC2 로컬 컨테이너다 — DB 운영 부담이 크지 않
 - `app-blue`/`app-green`은 mysql/redis와 동일한 원칙으로 호스트 포트를 게시하지 않는다 — nginx만 내부 compose 네트워크로 접근한다.
 - 정상 운영 중에는 **활성 색 하나만 컨테이너가 떠 있다**(비활성 색은 정지 상태) — 두 색을 상시 동시에 띄우는 구조가 아니다. 배포하는 짧은 구간에만 두 색이 동시에 뜬다(신규 색 헬스체크 통과까지).
 
-### 4-3. RDS 이전 후 (2026-08, 현재)
+### 4-3. RDS·ElastiCache 이전 후 (2026-08, 현재)
 
 ```
 인터넷 ── :8080 ── [nginx] ──(활성 색만)── [app-blue] ┐
-                                        [app-green] ┘── redis (compose 네트워크 내부, 호스트 포트 비공개)
+                                        [app-green] ┘── ElastiCache Valkey (EC2 밖, cache.t4g.micro, VPC 내부 전용, TLS+AUTH)
                                                     └── RDS MySQL (EC2 밖, db.t3.micro·Single-AZ, VPC 내부 전용)
 ```
 
 - MySQL이 compose 네트워크에서 빠지고 AWS RDS로 이동했다(이슈 #163) — `SPRING_DATASOURCE_URL`이 서비스명(`mysql:3306`) 대신 RDS 엔드포인트를 가리킨다. RDS 보안그룹은 EC2 보안그룹에서만 3306을 허용해, "호스트 포트 비공개" 원칙과 동등한 수준의 접근 제한을 유지한다.
 - 앱이 RDS에 접속할 때 쓰는 `SPRING_DATASOURCE_USERNAME`/`PASSWORD`는 RDS 마스터 계정이 아니라 `doctorpet` 스키마 권한만 가진 전용 사용자다(RDS PR 재검토 지적 P1). `MYSQL_ROOT_PASSWORD`(로컬 mysql 컨테이너 초기화 전용)와도 완전히 분리되어 있다 — 앱/EC2 환경변수가 노출돼도 피해 범위가 `doctorpet` 스키마로 한정된다. 마스터 계정은 이 전용 사용자를 만들거나 스키마 변경 권한을 조정하는 관리 작업에만 쓴다(`.env.example` 참고).
-- 컷오버 절차 자체(아래 4-4절)는 바뀌지 않는다 — `--no-deps`가 건너뛰는 `depends_on`은 이제 redis 하나뿐이고(로컬 mysql 컨테이너는 `docker-compose.yml`에 정의만 남아 있고 EC2 배포 대상에서는 빠졌다), RDS는 compose가 관리하는 서비스가 아니라서 애초에 컷오버 로직과 무관하다.
-- 로컬 개발은 이 다이어그램과 다르다 — `.env`에 `SPRING_DATASOURCE_URL` 등을 채우지 않으면 기본값대로 로컬 `mysql` 컨테이너를 그대로 쓴다(`docker-compose.yml`/`.env.example` 참고).
+- Redis도 compose 네트워크에서 빠지고 AWS ElastiCache(Valkey)로 이동했다 — `SPRING_DATA_REDIS_HOST`가 서비스명(`redis`) 대신 ElastiCache 기본 엔드포인트를 가리킨다. 전용 보안그룹(`doctorpet-redis-sg`)이 EC2 보안그룹에서만 6379를 허용해 RDS와 동일한 접근 제한 수준을 유지하고, 전송 중 암호화(TLS)를 필수로 설정했다. 인증은 RBAC 사용자 그룹(`doctorpet-redis-users`)의 AUTH 비밀번호로 강제한다 — AWS가 기본 제공하는 무비밀번호 `default` 사용자는 이 그룹에 없어 접근할 수 없다.
+- 컷오버 절차 자체(아래 4-4절)는 바뀌지 않는다 — `--no-deps`가 건너뛰는 `depends_on`은 로컬 개발 환경에서만 의미가 있고(로컬 mysql·redis 컨테이너는 `docker-compose.yml`에 정의만 남아 있고 EC2 배포 대상에서는 둘 다 빠졌다), RDS·ElastiCache는 compose가 관리하는 서비스가 아니라서 애초에 컷오버 로직과 무관하다.
+- 로컬 개발은 이 다이어그램과 다르다 — `.env`에 `SPRING_DATASOURCE_URL`/`SPRING_DATA_REDIS_HOST` 등을 채우지 않으면 기본값대로 로컬 `mysql`/`redis` 컨테이너를 그대로 쓴다(`docker-compose.yml`/`.env.example` 참고).
 
 ### 4-4. 컷오버 메커니즘
 
@@ -105,7 +106,7 @@ upstream app_upstream {
 
 컷오버 절차:
 
-1. 비활성 색(target)에 새 이미지로 컨테이너를 띄운다(`--no-deps`로 redis는 건드리지 않는다 — RDS 이전 후 로컬 mysql은 EC2 배포 대상이 아니라 애초에 해당 없음, 4-3절 참고).
+1. 비활성 색(target)에 새 이미지로 컨테이너를 띄운다(`--no-deps`는 로컬 개발용 `depends_on`을 건너뛰는 것으로, RDS·ElastiCache 이전 후 로컬 mysql/redis는 EC2 배포 대상이 아니라 애초에 해당 없음, 4-3절 참고).
 2. target이 healthy가 될 때까지 폴링한다(기존 로직 재사용).
 3. healthy면 `upstream-active.conf`를 target 색으로 다시 쓰고 `nginx -s reload`한다. reload는 그레이스풀해서 이미 연결된 요청은 기존 업스트림(active였던 색)으로 마저 처리되고, 새 연결부터 target으로 붙는다 — 이 지점이 실제 "무중단 전환"이다.
 4. **reload 성공 직후** `.active_color`, `.last_deployed_sha`를 갱신한다(리뷰 지적, PR #136 — 예전엔 이전 색 정지 다음에 갱신했는데, 정지가 실패해 스크립트가 일찍 끝나면 실제 활성 색과 상태 파일이 어긋난 채 남는 문제가 있었다). 백업 파일 삭제·옛 단일 app 컨테이너 최종 제거처럼 실패해도 무방한 후처리는 상태 기록 *뒤*로 미룬다.
@@ -138,6 +139,7 @@ upstream app_upstream {
 - **1회성 마이그레이션(중요, AWS 콘솔 작업 아님)**: 이 변경 이전에는 `app` 컨테이너가 호스트 포트 8080을 직접 게시하고 있었다. 이 브랜치를 develop에 머지해 처음 배포할 때, 옛 `app` 컨테이너가 여전히 8080을 물고 있으면 nginx가 그 포트를 못 가져가 충돌한다. `deploy.yml`이 `docker ps --filter publish=8080 --filter name=app`으로 옛 컨테이너를 찾아 자동으로 정지·제거하도록 이미 반영해뒀다 — 사람이 EC2에 수동으로 들어가서 지울 필요는 없다. app-blue/app-green은 애초에 호스트 포트를 게시하지 않아 이 필터에 걸리지 않고, 두 번째 배포부터는 옛 컨테이너 자체가 없어서 이 블록은 항상 아무 일도 하지 않는다. 이 정리는 대상 앱이 healthy로 확인된 뒤·nginx 기동 직전에 수행한다(리뷰 지적) — app-blue/green이 8080을 게시하지 않아 옛 컨테이너와 공존 가능하므로, 헬스체크보다 먼저 옛 컨테이너를 내리면 "옛 앱 정지 ~ 새 앱 pull·기동·헬스체크 통과"까지 불필요하게 다운타임이 늘어난다.
 - **컷오버 순간의 SSE 연결은 예외적으로 끊긴다(알려진 한계, 리뷰 지적)**: `/api/notifications/subscribe`는 최대 3600s 열려 있는 연결인데, 컷오버는 `nginx -s reload` 후 5초 드레인만 주고 이전 색을 `stop`한다. 일반 요청은 5초 안에 끝나 문제가 없지만, 드레인 시작 이전부터 열려 있던 SSE 연결은 이전 색이 정지되며 강제로 끊긴다. `EventSource`가 명세상 자동 재연결하므로 기능적으로는 새 색에 다시 붙어 복구되지만(알림 폴링과 달리 진짜 무중단은 아니다), 배포 순간에 한해 재연결 한 번이 발생한다는 점은 SSE를 쓰는 다른 기능을 추가할 때도 같이 감안한다.
 - **로컬 개발 시 `nginx/conf.d/upstream-active.conf`를 직접 만들어야 한다(실제로 겪은 문제)**: 이 파일은 git 비추적이라 저장소를 새로 클론하거나 `nginx/conf.d/upstream-active.conf.example`을 복사하지 않은 채 `docker compose up`을 실행하면, nginx가 `upstream app_upstream`을 찾지 못해 "host not found in upstream" 오류로 기동 즉시 재시작을 반복한다(`restart: unless-stopped`라 계속 재시작 루프에 빠지고, 브라우저에서는 그 사이 타이밍에 연결 거부로 보인다). EC2에서는 `deploy.yml`이 최초 배포 시 이 파일을 자동 생성해주지만, 로컬은 그 부트스트랩 로직이 없으므로 `cp nginx/conf.d/upstream-active.conf.example nginx/conf.d/upstream-active.conf`를 먼저 실행해야 한다.
+- **상태 저장소를 관리형으로 옮긴 뒤에는 EC2의 옛 로컬 컨테이너를 반드시 내린다(ElastiCache PR 재검토 지적 P1)**: `docker-compose.yml`의 `mysql`/`redis` 서비스 정의는 로컬 개발용으로 계속 남아 있고 `restart: unless-stopped`다 — RDS·ElastiCache로 전환해도 EC2에서 이미 떠 있던 옛 컨테이너를 누가 직접 내리지 않으면 계속 살아 있다. 이게 특히 위험한 건 두 컨테이너의 실패 모드가 비대칭이라서다: 로컬 mysql은 root 비밀번호가 RDS와 달라 `.env`가 잘못돼도 인증 실패로 시끄럽게 죽지만, 로컬 redis는 `requirepass`가 아예 없어서 `.env`에서 Redis 4줄이 빠지거나 오타가 나면 앱이 조용히 옛 로컬 redis로 폴백해버린다 — 아무 에러 없이 Refresh Token·블랙리스트가 갈라져, ElastiCache 이전이 막으려던 "이미 폐기한 토큰이 다시 유효해지는" 문제가 신호 없이 되돌아올 수 있다. 컷오버가 끝나면 `docker compose rm -sf mysql redis`(또는 서비스별로)로 실제로 내리고, 재발 방지를 위해 이 문서에 그 사실을 남겨둔다.
 
 ## 8. 구현 체크리스트
 
