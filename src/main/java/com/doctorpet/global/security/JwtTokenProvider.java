@@ -27,6 +27,10 @@ public class JwtTokenProvider {
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_TOKEN_TYPE = "tokenType";
+    // 표준 iat(NumericDate)는 초 단위로 잘려 PasswordChangeInvalidationPort의 밀리초 단위
+    // 비교와 정밀도가 어긋난다(리뷰 지적 P2, getIssuedAt() 문서 참고) — 별도 커스텀 클레임에
+    // 발급 시각을 밀리초 그대로 심어 그 문제를 피한다.
+    private static final String CLAIM_ISSUED_AT_MILLIS = "iam";
 
     private final JwtProperties jwtProperties;
 
@@ -61,6 +65,8 @@ public class JwtTokenProvider {
                 // 동시 재발급 테스트에서 실제로 재현됨). jti(무작위 UUID)로 토큰마다 유일성을 보장한다.
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
+                // CLAIM_ISSUED_AT_MILLIS 선언부 참고 — 표준 iat과 별개로 밀리초 정밀도를 그대로 보존한다.
+                .claim(CLAIM_ISSUED_AT_MILLIS, now.getTime())
                 .expiration(expiration)
                 .signWith(key)
                 .compact();
@@ -140,14 +146,33 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 토큰의 발급 시각(iat)을 반환한다. {@link #validateToken(String)}으로 서명·만료를 먼저
-     * 검증한 뒤에만 호출해야 한다 — 비밀번호 재설정 이후 발급된 토큰인지 판단하는 데 쓴다
-     * (PasswordChangeInvalidationPort 참고). iat/exp는 초 단위로 잘리므로(클래스 상단 jti 도입
-     * 배경 주석 참고) 같은 초 안에서 벌어지는 재설정↔재로그인 경합은 이 비교로 완전히 걸러내지
-     * 못할 수 있다 — 실무적으로 무시할 수 있는 폭이라 별도 처리하지 않는다.
+     * 토큰의 발급 시각을 반환한다. {@link #validateToken(String)}으로 서명·만료를 먼저 검증한
+     * 뒤에만 호출해야 한다 — 비밀번호 재설정 이후 발급된 토큰인지 판단하는 데 쓴다
+     * (PasswordChangeInvalidationPort 참고).
+     *
+     * 표준 iat(NumericDate) 클레임이 아니라 {@link #CLAIM_ISSUED_AT_MILLIS} 커스텀 클레임을
+     * 우선 읽는다(리뷰 지적 P2 반영) — iat는 JWT 스펙상 초 단위로 잘리는데,
+     * PasswordChangeInvalidationPort는 Redis에 밀리초 단위(`System.currentTimeMillis()`)로
+     * 비밀번호 변경 시각을 저장해두고 그대로 비교한다. 두 정밀도가 다르면, 비밀번호 재설정
+     * 직후 같은 초 안에 재로그인해 받은 새 토큰의 iat이 (초 단위로 내림된 값이라) 실제 재설정
+     * 시각보다 작게 계산돼 잘못 무효화될 수 있다 — 그것도 그 요청 한 번이 아니라, 저장된
+     * 두 값이 고정값이라 그 토큰이 자연 만료될 때까지 매 요청 계속 401이 난다. 그렇다고
+     * 양쪽을 초 단위로 맞추면 반대 방향 문제가 생긴다 — "재설정 직전 같은 초에 발급된 탈취
+     * 토큰"을 걸러내지 못하는 보안 구멍이 열린다. 커스텀 클레임에 발급 시각을 밀리초 그대로
+     * 심어두면 이 트레이드오프 자체가 사라진다.
+     *
+     * 이 클레임이 없는(이 변경 배포 이전에 발급된) 토큰은 표준 iat로 폴백한다 — Access Token은
+     * 최대 1시간, Refresh Token은 최대 14일까지 배포 이후에도 남아있을 수 있어(getJti()의 jti
+     * 없는 구버전 토큰 폴백과 동일한 이유), 폴백 없이 클레임이 없다고 예외를 던지면 배포 직후
+     * 이미 로그인해 있던 사용자들이 일제히 인증 실패한다.
      */
     public Date getIssuedAt(String token) {
-        return parseClaims(token).getIssuedAt();
+        Claims claims = parseClaims(token);
+        // Number로 읽는다(Long 고정 대신) — JSON 파서가 값 크기에 따라 Integer/Long 중 무엇으로
+        // 역직렬화하든(현재 시각의 밀리초 값은 Integer 범위를 넘어 실질적으로 항상 Long이지만)
+        // RequiredTypeException 없이 안전하게 받기 위한 방어적 처리다.
+        Number issuedAtMillis = claims.get(CLAIM_ISSUED_AT_MILLIS, Number.class);
+        return issuedAtMillis != null ? new Date(issuedAtMillis.longValue()) : claims.getIssuedAt();
     }
 
     public MemberPrincipal getMemberPrincipal(String token) {

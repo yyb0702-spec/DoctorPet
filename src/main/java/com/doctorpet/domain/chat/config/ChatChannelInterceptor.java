@@ -5,9 +5,11 @@ import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.TokenType;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Date;
 import java.util.Map;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -45,6 +47,7 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     private final JwtTokenProvider jwtTokenProvider;
     private final MemberBlacklistPort memberBlacklistPort;
     private final AccessTokenBlacklistPort accessTokenBlacklistPort;
+    private final PasswordChangeInvalidationPort passwordChangeInvalidationPort;
     private final ChatMessageService chatMessageService;
     private final ChatSessionAuthenticationStore sessionAuthenticationStore;
     private final Clock applicationClock;
@@ -72,7 +75,8 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
                     accessor,
                     authentication,
                     authenticatedSession.accessTokenJti(),
-                    authenticatedSession.expiresAt()
+                    authenticatedSession.expiresAt(),
+                    authenticatedSession.issuedAt()
             );
             // wrap()으로 얻은 accessor에 user를 설정한 뒤 원 Message를 그대로 반환하면,
             // STOMP 세션에 Principal 변경이 반영되지 않을 수 있다. CONNECT 뒤 프레임도 같은
@@ -123,8 +127,16 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
         }
         MemberPrincipal principal = jwtTokenProvider.getMemberPrincipal(token);
         String accessTokenJti = jwtTokenProvider.getJti(token);
+        Date issuedAt = jwtTokenProvider.getIssuedAt(token);
+        // 비밀번호 재설정 이전에 발급된 Access Token 차단(리뷰 지적 — 기능 구멍 점검 대응이
+        // JwtAuthenticationFilter에만 반영되고 이 STOMP CONNECT 경로는 빠져 있었다). /ws/chat은
+        // HTTP Upgrade 단계에서 permitAll이라 JwtAuthenticationFilter를 아예 거치지 않으므로,
+        // 여기서 직접 확인하지 않으면 HTTP API는 막혀도 채팅 WebSocket은 재설정 이전 토큰으로
+        // 계속 새로 열 수 있었다.
         if (memberBlacklistPort.isBlacklisted(principal.memberId())
-                || accessTokenBlacklistPort.isBlacklisted(accessTokenJti)) {
+                || accessTokenBlacklistPort.isBlacklisted(accessTokenJti)
+                || passwordChangeInvalidationPort.isTokenInvalidatedByPasswordChange(
+                        principal.memberId(), issuedAt)) {
             throw new AccessDeniedException("사용할 수 없는 STOMP Access Token입니다.");
         }
         Authentication authentication = new UsernamePasswordAuthenticationToken(
@@ -133,7 +145,8 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
         return new AuthenticatedSession(
                 authentication,
                 accessTokenJti,
-                Instant.now(applicationClock).plus(jwtTokenProvider.getRemainingTtl(token))
+                Instant.now(applicationClock).plus(jwtTokenProvider.getRemainingTtl(token)),
+                issuedAt
         );
     }
 
@@ -176,7 +189,8 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     private record AuthenticatedSession(
             Authentication authentication,
             String accessTokenJti,
-            Instant expiresAt
+            Instant expiresAt,
+            Date issuedAt
     ) {
     }
 }

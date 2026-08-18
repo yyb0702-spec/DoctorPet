@@ -14,11 +14,13 @@ import com.doctorpet.global.security.AccessTokenBlacklistPort;
 import com.doctorpet.global.security.JwtTokenProvider;
 import com.doctorpet.global.security.MemberBlacklistPort;
 import com.doctorpet.global.security.MemberPrincipal;
+import com.doctorpet.global.security.PasswordChangeInvalidationPort;
 import com.doctorpet.global.security.TokenType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +43,7 @@ class ChatChannelInterceptorTest {
     @Mock private JwtTokenProvider jwtTokenProvider;
     @Mock private MemberBlacklistPort memberBlacklistPort;
     @Mock private AccessTokenBlacklistPort accessTokenBlacklistPort;
+    @Mock private PasswordChangeInvalidationPort passwordChangeInvalidationPort;
     @Mock private ChatMessageService chatMessageService;
 
     private ChatChannelInterceptor interceptor;
@@ -49,10 +52,10 @@ class ChatChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         sessionAuthenticationStore = new ChatSessionAuthenticationStore(
-                memberBlacklistPort, accessTokenBlacklistPort, Clock.systemUTC());
+                memberBlacklistPort, accessTokenBlacklistPort, passwordChangeInvalidationPort, Clock.systemUTC());
         interceptor = new ChatChannelInterceptor(
-                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, chatMessageService,
-                sessionAuthenticationStore, Clock.systemUTC());
+                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, passwordChangeInvalidationPort,
+                chatMessageService, sessionAuthenticationStore, Clock.systemUTC());
     }
 
     @Test
@@ -111,6 +114,25 @@ class ChatChannelInterceptorTest {
 
         given(memberBlacklistPort.isBlacklisted(principal.memberId())).willReturn(false);
         given(accessTokenBlacklistPort.isBlacklisted("jti")).willReturn(true);
+        assertThatThrownBy(() -> interceptor.preSend(
+                stompMessage(StompCommand.CONNECT, null, "Bearer access-token"), null))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    @DisplayName("비밀번호 재설정 이전에 발급된 Access Token이면 CONNECT를 거부한다(리뷰 지적 — JwtAuthenticationFilter에만 있던 재설정 무효화가 STOMP 경로에도 적용돼야 함)")
+    void rejectsPasswordChangeInvalidatedAccessToken() {
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
+                MemberRole.GUARDIAN.name());
+        Date issuedAt = new Date();
+        given(jwtTokenProvider.validateToken("access-token")).willReturn(true);
+        given(jwtTokenProvider.getTokenType("access-token")).willReturn(TokenType.ACCESS);
+        given(jwtTokenProvider.getMemberPrincipal("access-token")).willReturn(principal);
+        given(jwtTokenProvider.getJti("access-token")).willReturn("jti");
+        given(jwtTokenProvider.getIssuedAt("access-token")).willReturn(issuedAt);
+        given(passwordChangeInvalidationPort.isTokenInvalidatedByPasswordChange(
+                principal.memberId(), issuedAt)).willReturn(true);
+
         assertThatThrownBy(() -> interceptor.preSend(
                 stompMessage(StompCommand.CONNECT, null, "Bearer access-token"), null))
                 .isInstanceOf(AccessDeniedException.class);
@@ -178,14 +200,30 @@ class ChatChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("CONNECT 뒤 비밀번호가 재설정되면 기존 세션의 구독과 전송을 차단한다(리뷰 지적 — CONNECT 시점 검사만으로는 CONNECT 이후의 재설정을 못 막음)")
+    void blocksExistingSessionWhenPasswordChangesAfterConnect() {
+        MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
+                MemberRole.GUARDIAN.name());
+        Message<?> subscribe = connectedStompMessage(
+                StompCommand.SUBSCRIBE, "/topic/chat/reservations/123", principal);
+        given(passwordChangeInvalidationPort.isTokenInvalidatedByPasswordChange(eq(principal.memberId()), any()))
+                .willReturn(true);
+
+        assertThatThrownBy(() -> interceptor.preSend(subscribe, null))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(chatMessageService);
+    }
+
+    @Test
     @DisplayName("CONNECT 뒤 Access Token 만료 시 기존 세션의 구독과 전송을 차단한다")
     void blocksExistingSessionAfterAccessTokenExpires() {
         Clock fixedClock = Clock.fixed(Instant.parse("2026-08-13T00:00:00Z"), ZoneOffset.UTC);
         ChatSessionAuthenticationStore expiredSessionStore = new ChatSessionAuthenticationStore(
-                memberBlacklistPort, accessTokenBlacklistPort, fixedClock);
+                memberBlacklistPort, accessTokenBlacklistPort, passwordChangeInvalidationPort, fixedClock);
         ChatChannelInterceptor expiredSessionInterceptor = new ChatChannelInterceptor(
-                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, chatMessageService,
-                expiredSessionStore, fixedClock);
+                jwtTokenProvider, memberBlacklistPort, accessTokenBlacklistPort, passwordChangeInvalidationPort,
+                chatMessageService, expiredSessionStore, fixedClock);
         MemberPrincipal principal = new MemberPrincipal(1L, "guardian@example.com",
                 MemberRole.GUARDIAN.name());
         Map<String, Object> sessionAttributes = new HashMap<>();

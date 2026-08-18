@@ -160,14 +160,61 @@ class JwtTokenProviderTest {
     }
 
     @Test
-    @DisplayName("getIssuedAt은 발급 시각(iat)을 반환한다 — 비밀번호 재설정 이전 발급 여부 판단(PasswordChangeInvalidationPort)에 사용")
+    @DisplayName("getIssuedAt은 발급 시각을 반환한다 — 비밀번호 재설정 이전 발급 여부 판단(PasswordChangeInvalidationPort)에 사용")
     void getIssuedAt_returnsIssuedAtClaim() {
-        Date before = new Date(System.currentTimeMillis() / 1000 * 1000); // JWT iat는 초 단위로 잘린다
+        long before = System.currentTimeMillis();
         String token = jwtTokenProvider.generateAccessToken(1L, "guardian@example.com", "GUARDIAN");
+        long after = System.currentTimeMillis();
 
         Date issuedAt = jwtTokenProvider.getIssuedAt(token);
 
         assertThat(issuedAt).isNotNull();
-        assertThat(issuedAt).isAfterOrEqualTo(before);
+        assertThat(issuedAt.getTime()).isBetween(before, after);
+    }
+
+    @Test
+    @DisplayName("getIssuedAt은 표준 iat(초 단위)가 아니라 밀리초 정밀도 커스텀 클레임을 반환한다(리뷰 지적 P2 — 같은 초 안의 재설정↔재로그인 경합 대응)")
+    void getIssuedAt_preservesMillisecondPrecision_notTruncatedToSecond() {
+        // 표준 iat만 썼다면 이 값이 초 단위(...000ms)로 잘려 나왔을 것이다. 커스텀 클레임 도입으로
+        // 밀리초가 보존되는지를 반복 시도로 확인한다 — 아주 드물게 발급 시각이 정각(.000ms)과
+        // 우연히 겹치는 1회성 실패를 피하기 위해 여러 번 시도해 그중 하나라도 성공하면 통과시킨다.
+        boolean sawNonZeroMillis = false;
+        for (int attempt = 0; attempt < 20 && !sawNonZeroMillis; attempt++) {
+            String token = jwtTokenProvider.generateAccessToken(1L, "guardian@example.com", "GUARDIAN");
+            Date issuedAt = jwtTokenProvider.getIssuedAt(token);
+            if (issuedAt.getTime() % 1000 != 0) {
+                sawNonZeroMillis = true;
+            }
+        }
+
+        assertThat(sawNonZeroMillis)
+                .withFailMessage("20회 시도 모두 밀리초가 정확히 0이었다 — 우연이라기엔 지나쳐 커스텀 클레임이 적용되지 않았을 가능성이 있다")
+                .isTrue();
+    }
+
+    /** 밀리초 정밀도 커스텀 클레임(iam)을 넣지 않은 토큰을 만든다 — 이 변경 배포 이전 발급된 구버전 토큰 상황을 재현한다. */
+    private String buildTokenWithoutIssuedAtMillisClaim(String subject, Date issuedAt) {
+        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        return Jwts.builder()
+                .subject(subject)
+                .claim("email", "guardian@example.com")
+                .claim("role", "GUARDIAN")
+                .claim("tokenType", "ACCESS")
+                .issuedAt(issuedAt)
+                .expiration(new Date(issuedAt.getTime() + 3_600_000L))
+                .signWith(key)
+                .compact();
+    }
+
+    @Test
+    @DisplayName("밀리초 정밀도 클레임이 없는 구버전 토큰이면 getIssuedAt은 표준 iat(초 단위)로 폴백한다")
+    void getIssuedAt_tokenWithoutMillisClaim_fallsBackToStandardIat() {
+        Date issuedAtWithMillis = new Date(1_700_000_000_500L); // 임의의 .500ms 시각
+        Date truncatedToSecond = new Date(1_700_000_000_000L); // JWT 표준 iat이 저장하는 초 단위 값
+        String legacyToken = buildTokenWithoutIssuedAtMillisClaim("1", issuedAtWithMillis);
+
+        Date issuedAt = jwtTokenProvider.getIssuedAt(legacyToken);
+
+        assertThat(issuedAt).isEqualTo(truncatedToSecond);
     }
 }
