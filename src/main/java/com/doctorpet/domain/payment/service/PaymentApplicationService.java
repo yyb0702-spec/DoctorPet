@@ -1,6 +1,7 @@
 package com.doctorpet.domain.payment.service;
 
 import com.doctorpet.domain.payment.audit.PaymentChargeAuditLogger;
+import com.doctorpet.domain.payment.audit.PaymentChargeChannel;
 import com.doctorpet.domain.payment.config.PaymentChargeProperties;
 import com.doctorpet.domain.payment.dto.response.PaymentChargeResponse;
 import com.doctorpet.domain.payment.entity.Payment;
@@ -82,10 +83,43 @@ public class PaymentApplicationService {
         // Tx1 — 검증 + 초안 항목 스탬프 + PENDING 선기록(커밋).
         PaymentPreRecord pre = paymentChargeService.preRecord(reservationId, staffMemberId, draftToken);
 
-        // 청구 접수 감사 기록(#84). Tx1 커밋 직후, 외부 승인 결과와 무관하게 "누가·얼마·어느 예약"을 남긴다 —
+        // 청구 접수 감사 기록(#84). Tx1 커밋 직후, 외부 승인 결과와 무관하게 "누가·어떤 채널로·얼마·어느 예약"을 남긴다 —
         // 과다청구를 코드로 막지는 않지만(후불 최종액 입력은 설계 의도) 사후 추적이 가능하게 한다.
-        chargeAuditLogger.recordChargeAccepted(staffMemberId, reservationId, pre.paymentId(), pre.amount());
+        chargeAuditLogger.recordChargeAccepted(
+                PaymentChargeChannel.STAFF_CHARGE, staffMemberId, reservationId, pre.paymentId(), pre.amount());
 
+        return approveFinalizeAndNotify(pre);
+    }
+
+    /**
+     * 정정 재청구(고도화 3.5-a). 전액 환불된 결제를 대체하는 새 결제를 선기록하고 정상 청구와 같은 승인·후확정·알림
+     * 파이프라인을 태운다. Tx1(preRecordCorrection)만 다르고 이후 흐름은 charge와 동일하다. 스태프가 환불 뒤 정정
+     * 초안을 작성한 상태에서 호출한다.
+     */
+    public PaymentChargeResponse correctionCharge(Long reservationId, Long staffMemberId, String draftToken) {
+        PaymentPreRecord pre = paymentChargeService.preRecordCorrection(reservationId, staffMemberId, draftToken);
+        chargeAuditLogger.recordChargeAccepted(
+                PaymentChargeChannel.STAFF_CORRECTION, staffMemberId, reservationId, pre.paymentId(), pre.amount());
+        return approveFinalizeAndNotify(pre);
+    }
+
+    /**
+     * 결제 실패 셀프 복구(고도화 3.3). OFFLINE_REQUIRED 결제를 대체하는 새 결제를 선기록하고 정상 청구와 같은
+     * 파이프라인을 태운다. 보호자가 ACTIVE 결제수단을 지정해 명시적으로 재청구할 때 호출한다. 감사 주체는 보호자다 —
+     * 스태프 청구와 구분되도록 GUARDIAN_RECOVERY 채널로 남긴다.
+     */
+    public PaymentChargeResponse recharge(Long reservationId, Long guardianMemberId, Long paymentMethodId) {
+        PaymentPreRecord pre = paymentChargeService.preRecordRecovery(reservationId, guardianMemberId, paymentMethodId);
+        chargeAuditLogger.recordChargeAccepted(
+                PaymentChargeChannel.GUARDIAN_RECOVERY, guardianMemberId, reservationId, pre.paymentId(), pre.amount());
+        return approveFinalizeAndNotify(pre);
+    }
+
+    /**
+     * 선기록 이후 공통 흐름 — 외부 승인(Tx 밖) → 상태 확정(Tx2) → 커밋 후 알림. 정상 청구·정정 재청구·셀프 복구가
+     * 모두 공유한다. 선기록만 각 흐름이 다르고, 승인 실패 분기·조건부 후확정·알림 계약은 동일하다(SA §9-4·§9-8).
+     */
+    private PaymentChargeResponse approveFinalizeAndNotify(PaymentPreRecord pre) {
         // 외부 승인(트랜잭션 밖). 결제수단이 ACTIVE가 아니면 게이트웨이 호출 없이 즉시 오프라인 확정(SA §9-4·§4-2).
         ChargeOutcome outcome = resolveOutcomeSafely(pre);
 
@@ -100,7 +134,7 @@ public class PaymentApplicationService {
         if (result.applied()) {
             try {
                 notificationPublisher.publishChargeResult(
-                        pre.guardianMemberId(), reservationId, payment.getId(), payment.getStatus(), payment.getAmount());
+                        pre.guardianMemberId(), pre.reservationId(), payment.getId(), payment.getStatus(), payment.getAmount());
             } catch (RuntimeException e) {
                 log.warn("결제 알림 발행 실패(결제는 확정됨): paymentId={}, status={}", payment.getId(), payment.getStatus(), e);
             }

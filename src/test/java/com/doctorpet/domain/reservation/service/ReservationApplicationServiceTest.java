@@ -27,6 +27,7 @@ import com.doctorpet.domain.reservation.entity.Reservation;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
 import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.notification.ReservationNotificationPublisher;
 import com.doctorpet.global.exception.ServiceException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -68,6 +69,9 @@ class ReservationApplicationServiceTest {
     @Mock
     private HospitalService hospitalService;
 
+    @Mock
+    private ReservationNotificationPublisher notificationPublisher;
+
     private ReservationApplicationService applicationService;
 
     @BeforeEach
@@ -78,7 +82,8 @@ class ReservationApplicationServiceTest {
                 petService,
                 paymentMethodService,
                 paymentQueryService,
-                hospitalService
+                hospitalService,
+                notificationPublisher
         );
     }
 
@@ -133,6 +138,7 @@ class ReservationApplicationServiceTest {
                 "초코",
                 "DOG"
         );
+        verify(notificationPublisher).publishReservationRequested(HOSPITAL_ID, 10L);
     }
 
     @Test
@@ -243,6 +249,33 @@ class ReservationApplicationServiceTest {
 
         verify(reservationService, never()).requestFromWaitlist(
                 any(), any(), any(), any(), any(), any());
+        verify(notificationPublisher, never()).publishReservationRequested(any(), any());
+    }
+
+    @Test
+    @DisplayName("대기열 수락으로 만든 예약도 병원 수신 알림을 발행한다")
+    void requestFromWaitlist_publishesHospitalNotification() {
+        ReservationResponse expected = new ReservationResponse(
+                11L,
+                PET_ID,
+                HOSPITAL_ID,
+                SLOT_ID,
+                null,
+                LocalDateTime.now()
+        );
+        given(petService.findOwnedActivePet(MEMBER_ID, PET_ID))
+                .willReturn(Optional.of(pet("초코", PetSpecies.DOG)));
+        given(paymentMethodService.isActiveAndOwnedBy(MEMBER_ID, PAYMENT_METHOD_ID)).willReturn(true);
+        given(reservationService.findSlot(SLOT_ID)).willReturn(slot());
+        given(reservationService.requestFromWaitlist(
+                MEMBER_ID, PET_ID, PAYMENT_METHOD_ID, SLOT_ID, "초코", "DOG"
+        )).willReturn(expected);
+
+        ReservationResponse result = applicationService.requestFromWaitlist(
+                MEMBER_ID, PET_ID, PAYMENT_METHOD_ID, SLOT_ID);
+
+        assertThat(result).isSameAs(expected);
+        verify(notificationPublisher).publishReservationRequested(HOSPITAL_ID, 11L);
     }
 
     @Test

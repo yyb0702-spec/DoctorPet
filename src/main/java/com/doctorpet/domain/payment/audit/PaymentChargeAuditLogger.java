@@ -12,12 +12,16 @@ package com.doctorpet.domain.payment.audit;
 public interface PaymentChargeAuditLogger {
 
     /**
-     * 청구 접수(Tx1 선기록 커밋) 시점의 감사 기록. 외부 승인 결과와 무관하게 "누가·얼마·어느 예약"을 남긴다.
+     * 청구 접수(Tx1 선기록 커밋) 시점의 감사 기록. 외부 승인 결과와 무관하게 "누가·어떤 채널로·얼마·어느 예약"을 남긴다.
      *
-     * @param staffMemberId 청구를 실행한 스태프(인증 주체). 요청 값이 아니라 @AuthenticationPrincipal로 식별된 값이어야 한다.
-     * @param reservationId 청구 대상 예약
-     * @param paymentId     선기록된 결제 레코드 식별자(후속 상태·정산과 대사용)
-     * @param amount        청구 금액(원)
+     * @param channel        청구 채널(스태프 청구/스태프 정정/보호자 셀프 복구). 스태프와 보호자를 구분하지 못하면
+     *                       셀프 복구를 스태프 청구로 오인해 감사 추적이 흐려진다(고도화 3.3·3.5-a).
+     * @param actorMemberId  청구를 실행한 인증 주체(스태프 또는 보호자). 요청 값이 아니라 @AuthenticationPrincipal로
+     *                       식별된 값이어야 한다.
+     * @param reservationId  청구 대상 예약
+     * @param paymentId      선기록된 결제 레코드 식별자(후속 상태·정산과 대사용)
+     * @param amount         청구 금액(원)
      */
-    void recordChargeAccepted(Long staffMemberId, Long reservationId, Long paymentId, int amount);
+    void recordChargeAccepted(
+            PaymentChargeChannel channel, Long actorMemberId, Long reservationId, Long paymentId, int amount);
 }

@@ -3,7 +3,7 @@
 | 정본 | 경로·버전 |
 | --- | --- |
 | 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.25 |
-| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.59, REST API는 §8 |
+| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.61, REST API는 §8 |
 | 코드 컨벤션 | `docs/architecture/DoctorPet-코드컨벤션.md` v1.0 |
 | 정책 원본 | `docs/domain/반려동물병원예약-정책정리본.md` v14 |
 ## 1. 관계 요약
@@ -248,7 +248,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | --- | --- | --- |
 | `id` | BIGINT | PK |
 | `member_id` | BIGINT | 회원 FK |
-| `type` | VARCHAR | `RESERVATION_CONFIRMED`, `RESERVATION_REJECTED`, `RESERVATION_HOSPITAL_CANCELED`, `PAYMENT_RESULT`, `PAYMENT_PENDING`, `NO_SHOW` |
+| `type` | VARCHAR | `RESERVATION_REQUESTED`(병원 수신), `RESERVATION_CONFIRMED`, `RESERVATION_REJECTED`, `RESERVATION_HOSPITAL_CANCELED`, `RESERVATION_WAITLIST_OFFERED`, `PAYMENT_RESULT`, `PAYMENT_PENDING`, `NO_SHOW` |
 | `content` | VARCHAR | 알림 내용 |
 | `resource_type` | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
 | `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |

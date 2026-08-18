@@ -53,8 +53,33 @@ x-app-common-env: &app-common-env
   SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}
   SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
   SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root}
-  SPRING_DATA_REDIS_HOST: redis
-  SPRING_DATA_REDIS_PORT: "6379"
+  # Redis 접속 정보도 DB와 같은 방식으로 .env에서 덮어쓸 수 있게 한다(ElastiCache 이관 완료,
+  # 이슈 #169). 기본값은 이 compose 파일이 같이 띄우는 로컬 redis 서비스를 그대로 가리켜 로컬
+  # 개발 동작은 변경이 없다 — EC2는 이미 ElastiCache로 전환됐고 이 로컬 redis 서비스는
+  # deploy.yml의 EC2 배포 대상에서 빠져 있다(무중단배포 문서 4-3·7절 참고, 컷오버 후에는 EC2에서
+  # 실제로 내려야 한다). 로컬 redis는 requirepass·TLS가 없으므로 PASSWORD 기본값은 빈 문자열
+  # (비밀번호 없음과 동일), SSL_ENABLED 기본값은 false다. ElastiCache로 전환할 때는 HOST/PORT/
+  # PASSWORD를 채우고, 클러스터에 전송 중 암호화(TLS)를 켰다면 SSL_ENABLED도 true로 같이 바꿔야
+  # 한다(.env.example 참고) — 이 값들은 Spring Boot의 spring.data.redis.* 표준 프로퍼티에 relaxed
+  # binding으로 매핑되므로 별도 코드 변경이 필요 없다(RedisConnectionFactory를 커스텀 설정하는
+  # 코드가 없어 전부 자동 구성에 의존한다).
+  SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+  # 값 전체를 따옴표로 감싼다(재검토 지적 P3, 근거 정정) — Docker Compose의 변수 치환은 이미
+  # 파싱된 YAML 값(문자열로 이미 확정된 스칼라) 안에서 텍스트만 바꾸고, 그 결과를 YAML로 다시
+  # 파싱하지 않는다(docker compose config로 직접 재현 — 따옴표를 떼도 "6379"/"false"로 그대로
+  # 나온다). 즉 따옴표가 타입 안전성에 실제로 영향을 주진 않는다 — 다만 값이 그대로 문자열임을
+  # 코드만 보고도 명확히 알 수 있게 하는 스타일 표기로 남겨둔다.
+  SPRING_DATA_REDIS_PORT: "${SPRING_DATA_REDIS_PORT:-6379}"
+  # USERNAME 변수가 기본으로 없는 건 실수가 아니다(리뷰 지적 P1 대응, .env.example 참고) — ElastiCache
+  # RBAC 사용자의 Username을 AWS가 안내하는 대로 "default"로 만들면(User ID는 달라도 됨), Redis/Valkey의
+  # AUTH 명령이 사용자명 없이 비밀번호만 줘도 암묵적으로 "default"를 대상으로 인증하므로(공식 문서:
+  # "the single argument form... assumes that the implicit username is default") PASSWORD만으로
+  # 정확히 그 RBAC 사용자로 인증된다(실제 EC2에서 actuator UP까지 확인됨). 다만 지금 그 사용자는
+  # on ~* +@all(전체 권한)이라 최소 권한은 아니다(재검토 지적) — 나중에 키 패턴을 좁힌 이름 있는
+  # 전용 사용자로 바꾸려면 아래 USERNAME을 채우면 된다(AUTH <username> <password> 2-인자 필요).
+  SPRING_DATA_REDIS_USERNAME: ${SPRING_DATA_REDIS_USERNAME:-}
+  SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
+  SPRING_DATA_REDIS_SSL_ENABLED: "${SPRING_DATA_REDIS_SSL_ENABLED:-false}"
   # nginx 리버스 프록시 도입 후 request.getRemoteAddr()는 실제 사용자가 아니라 nginx
   # 컨테이너 IP가 된다. AiClientIpResolver는 remoteAddr가 이 목록에 있을 때만
   # X-Forwarded-For를 신뢰하므로, 비워두면 익명 AI 상담 요청이 모두 nginx IP 하나로

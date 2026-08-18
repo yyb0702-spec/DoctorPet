@@ -52,6 +52,7 @@ class HospitalPaymentControllerTest {
 
     private static final Long STAFF_MEMBER_ID = 9L;
     private static final String CHARGE_URL = "/api/hospital/reservations/100/payments";
+    private static final String CORRECTION_URL = "/api/hospital/reservations/100/payments/correction";
     private static final String DRAFT_TOKEN = "0123456789abcdef0123456789abcdef";
     private static final String CHARGE_BODY = "{\"draftToken\":\"" + DRAFT_TOKEN + "\"}";
 
@@ -140,6 +141,50 @@ class HospitalPaymentControllerTest {
                         .content(CHARGE_BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PAYMENT_001"));
+    }
+
+    @Test
+    @DisplayName("정정 재청구 성공 시 201과 새 결제 결과를 반환하고, 인증된 스태프 id로 correctionCharge를 호출한다(3.5-a)")
+    void correctionCharge_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
+        given(paymentApplicationService.correctionCharge(eq(100L), eq(STAFF_MEMBER_ID), eq(DRAFT_TOKEN)))
+                .willReturn(new PaymentChargeResponse(2L, 100L, PaymentStatus.PAID, 30000, "VISA", "1234", null));
+
+        mockMvc.perform(post(CORRECTION_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHARGE_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.paymentId").value(2))
+                .andExpect(jsonPath("$.data.status").value("PAID"))
+                .andExpect(jsonPath("$.data.amount").value(30000));
+
+        verify(paymentApplicationService).correctionCharge(100L, STAFF_MEMBER_ID, DRAFT_TOKEN);
+    }
+
+    @Test
+    @DisplayName("정정 전제(활성 결제가 REFUNDED 아님) 위반은 서비스에서 CORRECTION_PRECONDITION_FAILED(PAYMENT_019, 409)로 응답한다")
+    void correctionCharge_preconditionFailed() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
+        given(paymentApplicationService.correctionCharge(eq(100L), eq(STAFF_MEMBER_ID), eq(DRAFT_TOKEN)))
+                .willThrow(new ServiceException(PaymentErrorCode.CORRECTION_PRECONDITION_FAILED));
+
+        mockMvc.perform(post(CORRECTION_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CHARGE_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_019"));
+    }
+
+    @Test
+    @DisplayName("정정 재청구도 초안 토큰이 비어 있으면 400(Validation)")
+    void correctionCharge_blankToken_badRequest() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(staffAuthentication(STAFF_MEMBER_ID));
+
+        mockMvc.perform(post(CORRECTION_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"draftToken\":\"\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

@@ -18,8 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 /*
   결제 내역 조회(#47, SA §8-7). 보호자(본인 예약)·병원 스태프(자병원 예약)가 권한 범위 내에서만 조회한다.
   예약 소유권·병원 정보는 예약 Repository를 직접 호출하지 않고 port(ReservationLookupPort)로만 얻는다(가드레일).
-  예약당 결제는 1건(UNIQUE)이라 0..1건이며, 향후 결제 이력 1:N 확장을 감안해 리스트로 반환한다.
-  결제 전이면 빈 리스트를 준다(예약은 존재하지만 아직 청구가 없는 경우).
+  정정·복구 재청구로 대체된 과거 결제도 이력으로 남으므로(고도화 3.3·3.5-a) 예약당 결제는 0..N건이며, 대체된
+  과거 결제까지 최신순으로 모두 내려준다("환불됨 → 재청구됨" 이력 투명성). 결제 전이면 빈 리스트를 준다.
  */
 @Service
 @RequiredArgsConstructor
@@ -71,9 +71,8 @@ public class PaymentQueryService {
     }
 
     private List<PaymentHistoryResponse> toHistory(Long reservationId) {
-        return paymentRepository.findByReservationId(reservationId)
+        return paymentRepository.findByReservationIdOrderByIdDesc(reservationId).stream()
                 .map(PaymentHistoryResponse::from)
-                .map(List::of)
-                .orElseGet(List::of);
+                .toList();
     }
 }

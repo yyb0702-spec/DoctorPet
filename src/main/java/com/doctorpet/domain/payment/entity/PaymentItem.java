@@ -102,6 +102,18 @@ public class PaymentItem {
         return new PaymentItem(reservationId, name, quantity, unitPrice, amount);
     }
 
+    /**
+     * 셀프 복구(3.3)에서 원 결제 항목을 새 복구 결제로 복제한다. 원 항목을 그대로 보존해야 하므로 값을 복사하고,
+     * 초안(payment_id NULL)이 아니라 처음부터 새 결제에 스탬프된 상태로 만든다 — 복구 항목은 사용자가 편집할 수
+     * 없고 원본을 승계만 하기 때문이다(고도화 3.3). 원 항목은 이미 검증·스탬프된 값이므로 재검증하지 않는다.
+     */
+    public static PaymentItem copiedTo(Long newPaymentId, PaymentItem source) {
+        PaymentItem copy = new PaymentItem(
+                source.reservationId, source.name, source.quantity, source.unitPrice, source.amount);
+        copy.paymentId = newPaymentId;
+        return copy;
+    }
+
     /** 아직 청구되지 않은 초안인지. 실제 스탬프는 조건부 bulk UPDATE가 하고 이 메서드는 조회·검증용이다. */
     public boolean isDraft() {
         return this.paymentId == null;
