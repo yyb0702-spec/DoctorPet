@@ -3,13 +3,13 @@
   <desc id="desc">검색부터 승인형 예약, 대기열 자동 승급, 진료, 결제, 병원 휴폐업 예외 처리를 정돈한 흑백 흐름도</desc>
   <defs>
     <style>
-      .title{font:700 35px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000}.section{font:700 23px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000}.text{font:600 19px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000;text-anchor:middle}.sub{font:500 15px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000;text-anchor:middle}.label{font:600 15px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000}.box{fill:#fff;stroke:#000;stroke-width:2.2}.decision{fill:#fff;stroke:#000;stroke-width:2.2}.edge{stroke:#000;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.dash{stroke:#000;stroke-width:2;stroke-dasharray:9 7;fill:none;marker-end:url(#arrow)}.rule{stroke:#000;stroke-width:1.5}
+      .title{font:700 35px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000}.section{font:700 23px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000}.text{font:600 19px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000;text-anchor:middle}.sub{font:500 15px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000;text-anchor:middle}.start{text-anchor:start}.label{font:600 15px 'Malgun Gothic','Noto Sans KR',sans-serif;fill:#000}.box{fill:#fff;stroke:#000;stroke-width:2.2}.decision{fill:#fff;stroke:#000;stroke-width:2.2}.edge{stroke:#000;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.dash{stroke:#000;stroke-width:2;stroke-dasharray:9 7;fill:none;marker-end:url(#arrow)}.rule{stroke:#000;stroke-width:1.5}
     </style>
     <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto"><path d="M0,0 L11,4 L0,8 Z" fill="#000"/></marker>
   </defs>
   <rect width="1600" height="2100" fill="#fff"/>
   <text x="70" y="70" class="title">DoctorPet 예약 · 대기열 · 진료 · 결제 비즈니스 플로우</text>
-  <text x="70" y="101" class="sub" text-anchor="start">흑백 발표·노션용 정리본 · 실선은 상태 전이, 점선은 재진입 또는 커밋 후 전달</text>
+  <text x="70" y="101" class="sub start">흑백 발표·노션용 정리본 · 실선은 상태 전이, 점선은 재진입 또는 커밋 후 전달</text>
 
   <!-- 01 reservation -->
   <text x="70" y="165" class="section">01. 예약 요청과 병원 승인</text><path d="M70 182H1530" class="rule"/>
@@ -41,7 +41,7 @@
   <rect x="110" y="940" width="310" height="76" rx="10" class="box"/><text x="265" y="986" class="text">슬롯 OPEN</text>
   <path d="M620 901V940" class="edge"/><text x="635" y="926" class="label">4시간 이내</text>
   <rect x="465" y="950" width="310" height="90" rx="10" class="box"/><text x="620" y="984" class="text">WAITING 시스템 CANCELED</text><text x="620" y="1011" class="sub">슬롯 OPEN</text>
-  <path d="M750 838H875" class="edge"/><text x="772" y="820" class="label">FIFO WAITING 존재·4시간 전</text>
+  <path d="M750 838H875" class="edge"/><text x="772" y="820" class="label">FIFO 대기자·4시간 전</text>
   <rect x="885" y="800" width="300" height="76" rx="10" class="box"/><text x="1035" y="834" class="text">OFFERED 전이</text><text x="1035" y="861" class="sub">10분 이하 제안 + 알림 저장</text>
   <path d="M1035 876V930" class="edge"/>
   <polygon points="1035,938 1160,1001 1035,1064 910,1001" class="decision"/><text x="1035" y="1007" class="text">보호자 응답</text>
@@ -52,7 +52,7 @@
 
   <!-- 03 care payment -->
   <text x="70" y="1265" class="section">03. 진료 · 청구 · 결제</text><path d="M70 1282H1530" class="rule"/>
-  <text x="80" y="1320" class="sub" text-anchor="start">CONFIRMED 이후 진료 흐름</text>
+  <text x="80" y="1320" class="sub start">CONFIRMED 이후 진료 흐름</text>
   <rect x="1110" y="1328" width="390" height="62" rx="10" class="box"/><text x="1305" y="1354" class="text">예약 단위 채팅</text><text x="1305" y="1377" class="sub">STOMP 메시지 저장 후 전달</text>
   <rect x="1110" y="1405" width="390" height="62" rx="10" class="box"/><text x="1305" y="1431" class="text">예약 알림</text><text x="1305" y="1454" class="sub">보호자 + 소속 병원 스태프 SSE fan-out</text>
   <rect x="80" y="1350" width="220" height="70" rx="10" class="box"/><text x="190" y="1393" class="text">CHECKED_IN</text>
