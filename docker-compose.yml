@@ -212,7 +212,7 @@ services:
       # 반면 디렉터리 bind mount는 안의 파일이 바뀌어도 경로 조회가 매번 새로 일어나 항상
       # 최신 내용을 본다 — conf.d가 원래부터 디렉터리 마운트라 이 문제가 없었고(배포 스크립트의
       # upstream-active.conf 컷오버가 항상 정상 반영됐던 이유), nginx.conf만 파일 마운트라
-      # 취약했다. 아래 entrypoint/command의 심볼릭 링크로 기존 /etc/nginx/nginx.conf,
+      # 취약했다. 아래 entrypoint의 심볼릭 링크로 기존 /etc/nginx/nginx.conf,
       # /etc/nginx/conf.d 경로를 그대로 쓰면서 실제 파일은 이 디렉터리 마운트 밑에 둬 두
       # 경로 모두 동일하게 안전해진다 — deploy.yml의 `nginx -t`/`nginx -s reload`(기본 경로
       # 사용) 쪽은 수정할 필요가 없다.
