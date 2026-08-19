@@ -38,6 +38,46 @@ const SLOT_STATUS_LABEL: Record<string, string> = {
   LEAD_TIME_CLOSED: '마감',
 }
 
+// 만석 슬롯의 대기 신청 버튼 — 슬롯마다 독립된 mutation을 갖는다. 공유 mutation 하나를
+// 여러 슬롯이 쓰면 pending·성공·실패 상태가 마지막 요청 기준으로 섞여, A 신청 실패가 B 신청
+// 성공에 가려지거나 그 반대가 된다. 슬롯별로 분리하면 각 결과가 자기 버튼에만 반영된다.
+// 성공하면 onSuccess가 내 대기열 캐시를 무효화해 이 슬롯이 부모에서 "대기중"으로 바뀌므로
+// 별도 성공 메시지는 두지 않는다(PR #188 리뷰).
+function WaitlistRegisterButton({
+  slotId,
+  startAt,
+}: {
+  slotId: number
+  startAt: string
+}) {
+  const register = useRegisterWaitlist()
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        disabled={register.isPending}
+        onClick={() => register.mutate(slotId)}
+        className={cn(
+          'rounded-md border px-3 py-2 text-sm transition-colors',
+          register.isPending ? 'cursor-wait opacity-60' : 'hover:bg-accent',
+        )}
+      >
+        <span>{formatSlotTime(startAt)}</span>
+        <span className="ml-1 text-xs text-muted-foreground">
+          {register.isPending ? '신청 중…' : '대기 신청'}
+        </span>
+      </button>
+      {register.isError && (
+        <p className="text-xs text-destructive">
+          {register.error instanceof ApiError
+            ? register.error.message
+            : '대기 신청에 실패했습니다.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -47,49 +87,24 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
   const methodsQuery = usePaymentMethods()
   const createReservation = useCreateReservation()
   const myWaitlistsQuery = useMyWaitlists()
-  const registerWaitlist = useRegisterWaitlist()
 
   const [slotId, setSlotId] = useState<number | null>(null)
   const [petId, setPetId] = useState<number | null>(null)
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null)
-  // 대기 신청은 슬롯별 액션이라 어느 슬롯이 처리 중인지 추적한다(버튼 라벨용).
-  // Set인 이유: 서로 다른 슬롯을 연달아 클릭하면 여러 건이 동시에 진행 중일 수 있다 —
-  // 단일 값이면 나중 클릭이 앞 슬롯의 pending 표시를 지워 중복 클릭을 막지 못한다(PR #188 리뷰).
-  const [registeringSlotIds, setRegisteringSlotIds] = useState<Set<number>>(
-    () => new Set(),
-  )
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
   const myWaitlists = myWaitlistsQuery.data ?? []
 
-  // registerWaitlist는 훅 하나를 여러 슬롯이 공유한다 — mutate()에 넘긴 콜백은 동시 호출 시
-  // 마지막 호출로 덮어써질 수 있어(TanStack Query 관찰자 공유) 정리가 안 될 수 있다. 호출별로
-  // 확실히 정리되도록 mutateAsync를 이 함수 자신의 try/finally로 감싼다(PR #188 리뷰).
-  const handleRegisterWaitlist = async (targetSlotId: number) => {
-    setRegisteringSlotIds((prev) => new Set(prev).add(targetSlotId))
-    try {
-      await registerWaitlist.mutateAsync(targetSlotId)
-    } catch {
-      // 에러 메시지는 registerWaitlist.isError로 아래에 노출한다.
-    } finally {
-      setRegisteringSlotIds((prev) => {
-        const next = new Set(prev)
-        next.delete(targetSlotId)
-        return next
-      })
-    }
-  }
-
   const dateAvailabilities = slotsQuery.data?.dateAvailabilities ?? []
   const slots = slotsQuery.data?.slots ?? []
 
-  // 날짜를 바꾸면 이전에 고른 슬롯은 무효 → 초기화. 이전 날짜에서 남은 대기 신청 결과 메시지도 지운다.
+  // 날짜를 바꾸면 이전에 고른 슬롯은 무효 → 초기화. 대기 신청 상태는 슬롯별 버튼이 각자
+  // 들고 있어(WaitlistRegisterButton) 날짜를 바꾸면 슬롯이 언마운트되며 함께 정리된다.
   const handleSelectDate = (date: string) => {
     if (date === selectedDate) return
     setSelectedDate(date)
     setSlotId(null)
-    registerWaitlist.reset()
   }
 
   const canSubmit =
@@ -190,7 +205,6 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                     // 대상 아님) 재신청은 항상 WAITLIST_002(409)다 — WAITING·OFFERED("대기중")와
                     // 구분해 버튼 자체를 숨긴다(PR #188 리뷰).
                     const blockReason = waitlistBlockReason(myWaitlists, s.slotId)
-                    const pending = registeringSlotIds.has(s.slotId)
                     if (blockReason === 'ACCEPTED') {
                       return (
                         <div
@@ -229,23 +243,11 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                       )
                     }
                     return (
-                      <button
+                      <WaitlistRegisterButton
                         key={s.slotId}
-                        type="button"
-                        disabled={pending}
-                        onClick={() => handleRegisterWaitlist(s.slotId)}
-                        className={cn(
-                          'rounded-md border px-3 py-2 text-sm transition-colors',
-                          pending
-                            ? 'cursor-wait opacity-60'
-                            : 'hover:bg-accent',
-                        )}
-                      >
-                        <span>{formatSlotTime(s.startAt)}</span>
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          {pending ? '신청 중…' : '대기 신청'}
-                        </span>
-                      </button>
+                        slotId={s.slotId}
+                        startAt={s.startAt}
+                      />
                     )
                   }
                   // AVAILABLE만 선택 가능, LEAD_TIME_CLOSED는 마감.
@@ -274,22 +276,6 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   )
                 })}
               </div>
-            )}
-            {registerWaitlist.isError && (
-              <p className="text-sm text-destructive">
-                {registerWaitlist.error instanceof ApiError
-                  ? registerWaitlist.error.message
-                  : '대기 신청에 실패했습니다.'}
-              </p>
-            )}
-            {registerWaitlist.isSuccess && registeringSlotIds.size === 0 && (
-              <p className="text-sm text-emerald-700">
-                대기 신청이 완료됐습니다.{' '}
-                <Link to="/waitlists" className="font-medium underline">
-                  내 대기열
-                </Link>
-                에서 확인하세요.
-              </p>
             )}
           </div>
         )}
