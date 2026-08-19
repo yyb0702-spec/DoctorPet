@@ -198,8 +198,10 @@ services:
     # 프록시한다(docs/architecture/DoctorPet-무중단배포.md). 컷오버는 nginx 설정 파일을 바꾸고
     # `nginx -s reload`하는 방식이라 컨테이너 재시작 없이 순간적으로 전환된다.
     #
-    # 80/443은 doctorpet.click 도메인·HTTPS 연결(무중단배포 문서 3-1절)로 추가됐다 — 8080은
-    # 기존 접근 경로를 당장 끊지 않기 위해 그대로 남겨뒀다(nginx/nginx.conf 상단 주석 참고).
+    # 80/443은 doctorpet.click 도메인·HTTPS 연결(무중단배포 문서 3-1절)로 추가됐다 — 8080 포트
+    # 자체는 기존 접근 경로를 당장 끊지 않기 위해 남겨뒀지만, 더 이상 앱으로 평문 프록시하지
+    # 않고 https://doctorpet.click로 리다이렉트만 한다(리뷰 지적 P1, nginx/nginx.conf 상단
+    # 주석 참고) — 평문으로 JWT·결제 응답이 오가는 것을 막기 위함이다.
     ports:
       - "8080:8080"
       - "80:80"

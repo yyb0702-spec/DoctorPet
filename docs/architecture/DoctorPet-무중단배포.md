@@ -32,7 +32,9 @@
 
 **(2026-08-11 최초 결정, 이제는 과거 상태)** nginx는 8080 포트 뒤에서 app-blue/app-green 중 활성 쪽으로 리버스 프록시하는 역할만 했다. 외부에서 보이는 접속 방식(EC2 IP:8080)은 바꾸지 않았다. 도메인 연결·TLS 종료(Let's Encrypt/certbot)는 완전히 별개 결정으로 미뤘다 — 당시엔 도메인도 인증서도 없는 상태에서 같이 묶으면 무중단 배포라는 원래 목표가 늦어졌기 때문이다. nginx를 진입점으로 미리 만들어두면, 나중에 도메인·인증서를 붙일 때 `server_name`과 `listen 443 ssl`만 추가하면 되므로 이번 작업이 다음 단계를 오히려 쉽게 만든다고 예고해뒀다.
 
-**(2026-08-18, doctorpet.click 도메인 등록으로 반영)** 위에서 예고한 그 다음 단계 — `doctorpet.click`을 Route 53에서 등록한 뒤, 예고한 그대로 `nginx/nginx.conf`에 `server_name`·`listen 443 ssl` 서버 블록과 ACME HTTP-01 챌린지용 `listen 80` 서버 블록을 추가했다. 인증서 발급·갱신은 `docker-compose.yml`에 새로 추가한 `certbot` 서비스(`certbot/certbot` 이미지, `--webroot` 방식)가 맡는다. 기존 8080은 당장 걷어내지 않고 그대로 남겨뒀다(기존 접근 경로를 도메인 전환이 자리잡기 전에 끊지 않기 위함) — 나중에 도메인 전환이 안정되면 별도로 정리할지 결정한다.
+**(2026-08-18, doctorpet.click 도메인 등록으로 반영)** 위에서 예고한 그 다음 단계 — `doctorpet.click`을 Route 53에서 등록한 뒤, 예고한 그대로 `nginx/nginx.conf`에 `server_name`·`listen 443 ssl` 서버 블록과 ACME HTTP-01 챌린지용 `listen 80` 서버 블록을 추가했다. 인증서 발급·갱신은 `docker-compose.yml`에 새로 추가한 `certbot` 서비스(`certbot/certbot` 이미지, `--webroot` 방식)가 맡는다.
+
+**(리뷰 지적 P1 반영)** 처음에는 8080을 기존과 동일하게 앱으로 평문 프록시하는 채로 남겨뒀는데, 이러면 HTTPS를 도입한 목적(전송 구간 보호) 자체가 무력화된다는 지적이었다 — `http://EC2 IP:8080`으로 JWT·결제 요청을 그대로 보낼 수 있고, 중간자가 토큰·요청 내용을 그대로 가로챌 수 있는 경로가 HTTPS 도입 후에도 계속 열려 있었기 때문이다. 정확한 지적이었다. 8080 포트 자체는 유지하되(기존 접근 경로를 도메인 전환이 자리잡기 전에 완전히 끊지는 않기 위함), 더 이상 앱으로 프록시하지 않고 `https://doctorpet.click`로 307(Temporary Redirect) 리다이렉트만 하도록 `nginx.conf`를 바꿨다 — 307은 301/302와 달리 요청 메서드·본문을 그대로 보존해, 8080에 POST로 요청을 보내던 클라이언트가 있어도 GET으로 깨지지 않는다. 다만 리다이렉트가 막을 수 있는 건 "nginx가 백엔드로 프록시해 응답 본문(토큰·결제 정보 등)을 평문으로 돌려주는 것"까지다 — 클라이언트가 8080으로 보내는 요청 자체(헤더·바디)가 클라이언트-nginx 구간에서 평문으로 오가는 것 자체는 리다이렉트로 막을 수 없다. 클라이언트가 전부 도메인으로 전환된 게 확인되면 8080 포트와 이 서버 블록 자체를 완전히 제거할 것 — 지금은 과도기 조치다.
 
 **인증서 발급·갱신 부트스트랩(닭과 달걀 문제)**: `nginx.conf`의 443 서버 블록은 `/etc/letsencrypt/live/doctorpet.click/{fullchain,privkey}.pem`을 읽는데, certbot이 한 번도 성공하지 못한 최초 상태에는 이 파일이 없다 — 파일이 없으면 nginx 자체가 설정 검증(`nginx -t`)부터 통과하지 못해 뜨지 못하고, nginx가 안 뜨면 80 서버 블록의 ACME 챌린지 응답도 불가능해 certbot이 애초에 인증서를 발급받을 기회가 없다. `docker-compose.yml`의 nginx `entrypoint`가 이 경로에 인증서가 없을 때만 자체 서명 임시 인증서(유효기간 1일)를 그 자리에 직접 만들어 nginx가 일단 뜨게 한다 — 이후 아래 최초 발급 절차로 certbot이 실제 인증서를 같은 경로에 덮어쓰면, 다음 컨테이너 재시작부터는 이 임시 발급 로직이 조건에 안 걸려 아무 일도 하지 않는다.
 
@@ -183,7 +185,8 @@ upstream app_upstream {
 - `nginx/nginx.conf` — 정적 설정(git 추적).
 - `nginx/conf.d/` — `upstream-active.conf`를 담는 디렉터리(파일 자체는 git 비추적, `.gitignore`에 추가).
 - `.github/workflows/deploy.yml` — 대상 색 판단 → target 배포 → 헬스체크 → nginx reload → old 색 정지 순서로 재작성.
-- **(2026-08-18, doctorpet.click HTTPS 추가)** `docker-compose.yml` — nginx `ports`에 80·443 추가, `certbot-etc`/`certbot-webroot` 볼륨과 그걸 공유하는 `certbot` 서비스 신설, nginx `entrypoint`에 인증서 부트스트랩(자체 서명 임시 인증서) 로직 추가. `nginx/nginx.conf` — ACME 챌린지용 `listen 80`, 실제 서비스용 `listen 443 ssl` 서버 블록 추가(위 3-1절 참고). `deploy.yml`은 이번엔 변경하지 않았다 — 인증서 발급·갱신은 코드 배포와 무관한 별도 절차(EC2 crontab)로 다뤄서다.
+- **(2026-08-18, doctorpet.click HTTPS 추가)** `docker-compose.yml` — nginx `ports`에 80·443 추가, `certbot-etc`/`certbot-webroot` 볼륨과 그걸 공유하는 `certbot` 서비스 신설, nginx `entrypoint`에 인증서 부트스트랩(자체 서명 임시 인증서) 로직 추가. `nginx/nginx.conf` — ACME 챌린지용 `listen 80`, 실제 서비스용 `listen 443 ssl` 서버 블록 추가, `ssl_protocols` 명시, 80 리다이렉트 호스트 하드코딩(위 3-1절 참고). `deploy.yml`은 이번엔 변경하지 않았다 — 인증서 발급·갱신은 코드 배포와 무관한 별도 절차(EC2 crontab)로 다뤄서다.
+- **(리뷰 지적 P1 반영)** `nginx/nginx.conf` — 기존 `listen 8080` 서버 블록이 계속 앱으로 평문 프록시하고 있어 HTTPS 도입 목적을 무력화한다는 지적으로, 프록시를 걷어내고 `https://doctorpet.click`로의 307 리다이렉트만 남겼다(위 3-1절 참고). `docker-compose.yml` nginx 서비스 주석도 이에 맞게 정정.
 
 ## 7. 주의사항 (구현 시 반드시 지킬 것)
 
