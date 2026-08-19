@@ -27,11 +27,6 @@ export interface Waitlist {
   canceledAt: string | null
 }
 
-// POST /api/reservation-waitlists 요청. 만석(RESERVED) 슬롯에만 신청 가능.
-export interface WaitlistCreateInput {
-  slotId: number
-}
-
 // POST /api/reservation-waitlists/{id}/accept 요청. 승급 제안 수락 → 예약 생성.
 export interface WaitlistAcceptInput {
   petId: number

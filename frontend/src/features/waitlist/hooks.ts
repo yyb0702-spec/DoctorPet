@@ -9,7 +9,6 @@ import { useAuthStore } from '@/lib/auth/authStore'
 export const waitlistKeys = {
   all: ['waitlists'] as const,
   list: () => ['waitlists', 'list'] as const,
-  detail: (id: number) => ['waitlists', id] as const,
 }
 
 // 목록 폴링 — WAITING→OFFERED 전이(배치 승급)와 offerExpiresAt 만료를 화면에 반영하기 위해
@@ -33,14 +32,6 @@ export function useMyWaitlists() {
     enabled: isAuthenticated,
     refetchInterval: (query) =>
       hasActiveWaitlist(query.state.data) ? POLL_INTERVAL_MS : false,
-  })
-}
-
-export function useWaitlistDetail(waitlistId: number) {
-  return useQuery({
-    queryKey: waitlistKeys.detail(waitlistId),
-    queryFn: () => waitlistApi.getDetail(waitlistId),
-    enabled: Number.isFinite(waitlistId),
   })
 }
 

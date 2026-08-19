@@ -171,6 +171,9 @@ let methodSeq = 2
 let reservationSeq = 6000
 
 // 예약 대기열 in-memory 저장소 (dev:mock 오프라인 전용). WAITING·OFFERED·종료 상태를 한 건씩 시드.
+// slotId(501~503)는 표시용 가짜 값이라 hospitalOfSlot() 인코딩 규칙(hospitalId*1_000_000+…)을
+// 따르지 않는다. 응답 계약엔 hospitalId가 없어 여기 얹지 않고, 수락 시 병원을 역산할 별도
+// 조회 테이블을 둔다(PR #188 리뷰: hospitalOfSlot(501)=0이 되어 병원명이 플레이스홀더로 깨지던 문제).
 const demoWaitlists = [
   {
     waitlistId: 1,
@@ -204,6 +207,9 @@ const demoWaitlists = [
   },
 ]
 let waitlistSeq = 4
+// waitlistId → hospitalId. 시드 501/502/503은 위 이유로 slotId에서 역산할 수 없어 직접 매핑하고,
+// 실제 플로우로 새로 생성되는 항목은 register 핸들러가 hospitalOfSlot(slotId)로 채워 넣는다.
+const demoWaitlistHospitalId: Record<number, number> = { 1: 1, 2: 2, 3: 1 }
 
 // 보호자(GET /payments/:id/receipt)와 스태프(GET /hospital/payments/:id/receipt)는 동일한 영수증
 // 데이터를 쓴다 — 조회 권한(엔드포인트)만 다르므로 같은 빌더를 두 경로에 등록한다(PR #180 리뷰).
@@ -509,7 +515,13 @@ export const demoHandlers = [
   }),
   http.post(`${BASE}/reservation-waitlists`, async ({ request }) => {
     const body = (await request.json()) as { slotId: number }
-    if (demoWaitlists.some((w) => w.slotId === body.slotId && w.status === 'WAITING')) {
+    if (
+      demoWaitlists.some(
+        (w) =>
+          w.slotId === body.slotId &&
+          (w.status === 'WAITING' || w.status === 'OFFERED'),
+      )
+    ) {
       return fail('WAITLIST_002', '이미 해당 예약 슬롯의 대기열에 등록했습니다.', 409)
     }
     const created = {
@@ -523,6 +535,7 @@ export const demoHandlers = [
       canceledAt: null,
     }
     demoWaitlists.unshift(created)
+    demoWaitlistHospitalId[created.waitlistId] = hospitalOfSlot(body.slotId)
     return ok(created, 201)
   }),
   http.delete(`${BASE}/reservation-waitlists/:waitlistId`, ({ params }) => {
@@ -552,7 +565,8 @@ export const demoHandlers = [
         petId: number
         paymentMethodId: number
       }
-      const hospitalId = hospitalOfSlot(target.slotId)
+      const hospitalId =
+        demoWaitlistHospitalId[target.waitlistId] ?? hospitalOfSlot(target.slotId)
       const reservationId = reservationSeq++
       const now = new Date().toISOString()
       target.status = 'ACCEPTED'

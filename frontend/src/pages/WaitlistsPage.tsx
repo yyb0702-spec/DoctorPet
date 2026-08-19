@@ -43,8 +43,10 @@ function dateTimeLabel(iso: string): string {
 // 제안 만료까지 남은 ms를 1초마다 갱신한다. 버튼 활성 여부도 이 값으로 판단한다.
 // 초기값은 useState 이니셜라이저가 잡고(카드는 waitlistId로 keyed라 offerExpiresAt이 고정),
 // 만료에 도달하면 인터벌을 멈춘다 — 이후로는 갱신할 값이 없다.
-function useCountdown(expiresAt: string): number {
-  const target = new Date(expiresAt).getTime()
+// expiresAt이 null이면(호출부 가드가 바뀌는 등) new Date(null)이 NaN을 만들어 "NaN:NaN"이
+// 표시될 수 있으니, 여기서 곧장 이미 만료된 것으로 취급한다(PR #188 리뷰).
+function useCountdown(expiresAt: string | null): number {
+  const target = expiresAt ? new Date(expiresAt).getTime() : 0
   const [remainingMs, setRemainingMs] = useState(() => target - Date.now())
   useEffect(() => {
     if (target - Date.now() <= 0) return
@@ -66,7 +68,15 @@ function formatCountdown(remainingMs: number): string {
 }
 
 // 수락 폼 — 펫·결제수단을 골라 예약을 생성한다(예약 요청 패널과 동일한 선택 UI).
-function OfferAcceptForm({ waitlistId }: { waitlistId: number }) {
+// onCancel: 마음이 바뀌면 거절 선택지로 돌아갈 수 있어야 한다 — 제한 시간 내 응답이라
+// 되돌아갈 방법이 없으면 사용자가 막다른 골목에 갇힌다(PR #188 리뷰).
+function OfferAcceptForm({
+  waitlistId,
+  onCancel,
+}: {
+  waitlistId: number
+  onCancel: () => void
+}) {
   const navigate = useNavigate()
   const petsQuery = usePets()
   const methodsQuery = usePaymentMethods()
@@ -86,20 +96,25 @@ function OfferAcceptForm({ waitlistId }: { waitlistId: number }) {
   // 사전조건 미충족이면 등록으로 유도(예약 요청과 동일).
   if (pets.length === 0 || methods.length === 0) {
     return (
-      <div className="rounded-md bg-accent p-3 text-sm text-accent-foreground">
-        수락하려면{' '}
-        {pets.length === 0 && (
-          <Link to="/pets" className="font-medium underline">
-            펫 프로필
-          </Link>
-        )}
-        {pets.length === 0 && methods.length === 0 && ' 과 '}
-        {methods.length === 0 && (
-          <Link to="/payment-methods" className="font-medium underline">
-            결제수단
-          </Link>
-        )}{' '}
-        등록이 필요합니다.
+      <div className="space-y-2">
+        <div className="rounded-md bg-accent p-3 text-sm text-accent-foreground">
+          수락하려면{' '}
+          {pets.length === 0 && (
+            <Link to="/pets" className="font-medium underline">
+              펫 프로필
+            </Link>
+          )}
+          {pets.length === 0 && methods.length === 0 && ' 과 '}
+          {methods.length === 0 && (
+            <Link to="/payment-methods" className="font-medium underline">
+              결제수단
+            </Link>
+          )}{' '}
+          등록이 필요합니다.
+        </div>
+        <Button size="sm" variant="outline" onClick={onCancel}>
+          뒤로
+        </Button>
       </div>
     )
   }
@@ -156,13 +171,22 @@ function OfferAcceptForm({ waitlistId }: { waitlistId: number }) {
             : '예약 수락에 실패했습니다.'}
         </p>
       )}
-      <Button
-        className="w-full"
-        disabled={!canSubmit || accept.isPending}
-        onClick={handleAccept}
-      >
-        {accept.isPending ? '예약 생성 중…' : '예약 확정'}
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          disabled={accept.isPending}
+          onClick={onCancel}
+        >
+          뒤로
+        </Button>
+        <Button
+          className="flex-1"
+          disabled={!canSubmit || accept.isPending}
+          onClick={handleAccept}
+        >
+          {accept.isPending ? '예약 생성 중…' : '예약 확정'}
+        </Button>
+      </div>
     </div>
   )
 }
@@ -171,7 +195,7 @@ function OfferAcceptForm({ waitlistId }: { waitlistId: number }) {
 function OfferSection({ item }: { item: Waitlist }) {
   const reject = useRejectWaitlist()
   const [accepting, setAccepting] = useState(false)
-  const remainingMs = useCountdown(item.offerExpiresAt ?? '')
+  const remainingMs = useCountdown(item.offerExpiresAt)
   const expired = remainingMs <= 0
 
   return (
@@ -207,7 +231,12 @@ function OfferSection({ item }: { item: Waitlist }) {
                 : '제안 거절에 실패했습니다.'}
             </p>
           )}
-          {accepting && <OfferAcceptForm waitlistId={item.waitlistId} />}
+          {accepting && (
+            <OfferAcceptForm
+              waitlistId={item.waitlistId}
+              onCancel={() => setAccepting(false)}
+            />
+          )}
         </>
       )}
     </div>

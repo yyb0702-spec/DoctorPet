@@ -52,7 +52,11 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
   const [petId, setPetId] = useState<number | null>(null)
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null)
   // 대기 신청은 슬롯별 액션이라 어느 슬롯이 처리 중인지 추적한다(버튼 라벨용).
-  const [registeringSlotId, setRegisteringSlotId] = useState<number | null>(null)
+  // Set인 이유: 서로 다른 슬롯을 연달아 클릭하면 여러 건이 동시에 진행 중일 수 있다 —
+  // 단일 값이면 나중 클릭이 앞 슬롯의 pending 표시를 지워 중복 클릭을 막지 못한다(PR #188 리뷰).
+  const [registeringSlotIds, setRegisteringSlotIds] = useState<Set<number>>(
+    () => new Set(),
+  )
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
@@ -69,9 +73,14 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
   )
 
   const handleRegisterWaitlist = (targetSlotId: number) => {
-    setRegisteringSlotId(targetSlotId)
+    setRegisteringSlotIds((prev) => new Set(prev).add(targetSlotId))
     registerWaitlist.mutate(targetSlotId, {
-      onSettled: () => setRegisteringSlotId(null),
+      onSettled: () =>
+        setRegisteringSlotIds((prev) => {
+          const next = new Set(prev)
+          next.delete(targetSlotId)
+          return next
+        }),
     })
   }
 
@@ -181,7 +190,7 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   // 만석(RESERVED) 슬롯은 예약 대신 대기 신청 경로를 얹는다.
                   if (s.availabilityStatus === 'RESERVED') {
                     const alreadyWaitlisted = activeWaitlistSlotIds.has(s.slotId)
-                    const pending = registeringSlotId === s.slotId
+                    const pending = registeringSlotIds.has(s.slotId)
                     if (alreadyWaitlisted) {
                       return (
                         <div
@@ -262,7 +271,7 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   : '대기 신청에 실패했습니다.'}
               </p>
             )}
-            {registerWaitlist.isSuccess && registeringSlotId === null && (
+            {registerWaitlist.isSuccess && registeringSlotIds.size === 0 && (
               <p className="text-sm text-emerald-700">
                 대기 신청이 완료됐습니다.{' '}
                 <Link to="/waitlists" className="font-medium underline">
