@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, PageLoader } from '@/components/common/States'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
+import { speciesLabel } from '@/lib/species'
 import { useAuthStore } from '@/lib/auth/authStore'
 
 // LocalDateTime("...THH:mm:ss")은 타임존이 없어 로컬 시각으로 파싱된다 → 시:분만 표시.
@@ -296,7 +297,7 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   variant={petId === p.petId ? 'default' : 'outline'}
                   onClick={() => setPetId(p.petId)}
                 >
-                  {p.name} ({p.species === 'DOG' ? '강아지' : '고양이'})
+                  {p.name} ({speciesLabel(p.species)})
                 </Button>
               ))}
             </div>

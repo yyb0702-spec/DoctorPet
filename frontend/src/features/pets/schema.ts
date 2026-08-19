@@ -4,9 +4,19 @@ import { PetSpecies } from '@/types/enums'
 
 export const petSchema = z.object({
   name: z.string().min(1, '이름을 입력해 주세요.').max(30, '이름은 30자 이하여야 합니다.'),
-  species: z.enum([PetSpecies.DOG, PetSpecies.CAT], {
-    message: '종을 선택해 주세요.',
-  }),
+  species: z.enum(
+    [
+      PetSpecies.DOG,
+      PetSpecies.CAT,
+      PetSpecies.BIRD,
+      PetSpecies.RABBIT,
+      PetSpecies.HAMSTER,
+      PetSpecies.GUINEA_PIG,
+      PetSpecies.FERRET,
+      PetSpecies.REPTILE,
+    ],
+    { message: '종을 선택해 주세요.' },
+  ),
   // Input에서 valueAsNumber로 등록 → NaN 방어 후 범위 검증.
   age: z
     .number({ message: '나이를 입력해 주세요.' })

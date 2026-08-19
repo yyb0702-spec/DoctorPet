@@ -6,6 +6,7 @@ import { MapPin, AlertTriangle, Stethoscope, CheckCircle2 } from 'lucide-react'
 import { useAiConsultation } from '@/features/ai/hooks'
 import type { UrgencyLevel } from '@/features/ai/types'
 import { PetSpecies } from '@/types/enums'
+import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -114,8 +115,8 @@ export function AiConsultationPage() {
 
           <div className="space-y-1.5">
             <p className="text-sm font-medium">반려동물</p>
-            <div className="flex gap-2">
-              {[PetSpecies.DOG, PetSpecies.CAT].map((s) => (
+            <div className="flex flex-wrap gap-2">
+              {SPECIES_ORDER.map((s) => (
                 <Button
                   key={s}
                   type="button"
@@ -123,7 +124,7 @@ export function AiConsultationPage() {
                   variant={species === s ? 'default' : 'outline'}
                   onClick={() => setSpecies(s)}
                 >
-                  {s === PetSpecies.DOG ? '강아지' : '고양이'}
+                  {SPECIES_LABEL[s]}
                 </Button>
               ))}
             </div>

@@ -17,6 +17,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
+import { speciesLabel } from '@/lib/species'
 
 // 상태별 배지 라벨·톤.
 const STATUS_META: Record<
@@ -143,7 +144,7 @@ function OfferAcceptForm({
               variant={petId === p.petId ? 'default' : 'outline'}
               onClick={() => setPetId(p.petId)}
             >
-              {p.name} ({p.species === 'DOG' ? '강아지' : '고양이'})
+              {p.name} ({speciesLabel(p.species)})
             </Button>
           ))}
         </div>
