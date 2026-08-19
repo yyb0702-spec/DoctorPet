@@ -5,18 +5,21 @@ import { useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import {
   useChargePayment,
+  useCorrectionCharge,
   useItemDrafts,
   useRefundPayment,
   useSettleOffline,
   useStaffReservationPayments,
 } from '@/features/staffPayments/hooks'
 import { staffPaymentApi } from '@/features/staffPayments/api'
+import { activePaymentId } from '@/features/payments/activePayment'
 import type { PaymentItemInput } from '@/features/staffPayments/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
 import { ReservationStatusBadge, PaymentStatusBadge } from '@/components/common/StatusBadge'
 import { ReasonPrompt } from '@/components/common/ReasonPrompt'
 import { ReceiptDialog } from '@/components/common/ReceiptDialog'
 import { Field } from '@/components/common/Field'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -74,10 +77,20 @@ function isRowValid(row: ItemRow): boolean {
 // 진료비 청구 — 총액을 직접 입력하지 않고 청구 항목을 작성한다. 저장된 초안의 합계로 서버가
 // 청구하므로(SA §8-7·§9-4), 이 폼은 항목 목록을 저장한 뒤 body 없이 청구를 호출한다.
 // 할인·조정은 단가를 음수로 넣어 표현한다(수량은 항상 양수).
-function ChargeForm({ reservationId }: { reservationId: number }) {
+function ChargeForm({
+  reservationId,
+  mode = 'charge',
+}: {
+  reservationId: number
+  // 'correction'이면 정정 재청구(기존 환불 결제를 대체). 항목 편집·저장 흐름은 정상 청구와 같고
+  // 마지막 청구 호출만 다르다(SA §9-4).
+  mode?: 'charge' | 'correction'
+}) {
   const draftsQuery = useItemDrafts(reservationId)
   const [rows, setRows] = useState<ItemRow[] | null>(null)
   const charge = useChargePayment(reservationId)
+  const correction = useCorrectionCharge(reservationId)
+  const mutation = mode === 'correction' ? correction : charge
 
   // 저장해 둔 초안이 있으면 그대로 이어서 편집한다. 첫 로드 이후에는 사용자의 편집을 덮지 않는다.
   const effectiveRows =
@@ -102,7 +115,7 @@ function ChargeForm({ reservationId }: { reservationId: number }) {
     effectiveRows.length > 0 && effectiveRows.every(isRowValid) && total > 0
 
   const submit = () =>
-    charge.mutate(
+    mutation.mutate(
       effectiveRows.map<PaymentItemInput>((row) => ({
         name: row.name.trim(),
         quantity: Number(row.quantity),
@@ -167,11 +180,17 @@ function ChargeForm({ reservationId }: { reservationId: number }) {
         </p>
       </div>
 
-      {charge.isError && (
-        <p className="text-sm text-destructive">{errorMessage(charge.error)}</p>
+      {mutation.isError && (
+        <p className="text-sm text-destructive">{errorMessage(mutation.error)}</p>
       )}
-      <Button disabled={!canSubmit || charge.isPending} onClick={submit}>
-        {charge.isPending ? '청구 중…' : '진료비 청구'}
+      <Button disabled={!canSubmit || mutation.isPending} onClick={submit}>
+        {mutation.isPending
+          ? mode === 'correction'
+            ? '정정 청구 중…'
+            : '청구 중…'
+          : mode === 'correction'
+            ? '정정 재청구'
+            : '진료비 청구'}
       </Button>
     </div>
   )
@@ -182,6 +201,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
   const settleOffline = useSettleOffline(reservationId)
   const refund = useRefundPayment(reservationId)
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null)
+  const [correctingId, setCorrectingId] = useState<number | null>(null)
 
   if (paymentsQuery.isLoading) return <PageLoader />
   if (paymentsQuery.isError) {
@@ -203,6 +223,8 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
     )
   }
 
+  const activeId = activePaymentId(payments)
+
   return (
     <Card>
       <CardHeader>
@@ -215,13 +237,24 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
           fetcher={staffPaymentApi.getReceipt}
           onClose={() => setReceiptPaymentId(null)}
         />
-        {payments.map((p) => (
+        {payments.map((p) => {
+          // 상태를 바꾸는 액션(현장 수납·환불·정정 재청구)은 활성 결제에만 노출한다. 셀프 복구·정정
+          // 재청구로 대체된 과거 결제는 상태(OFFLINE_REQUIRED·REFUNDED)를 그대로 유지하므로,
+          // 상태만으로 버튼을 그리면 과거 결제에도 노출돼 서버의 활성(superseded_at IS NULL) 조건에
+          // 걸려 409가 난다. 보호자 화면의 rechargeablePaymentId 가드와 같은 이유(SA §5-2·§9-4).
+          const isActive = p.paymentId === activeId
+          return (
           <div key={p.paymentId} className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-2xl font-bold">
                 {p.amount.toLocaleString('ko-KR')}원
               </span>
-              <PaymentStatusBadge status={p.status} />
+              <div className="flex items-center gap-2">
+                {payments.length > 1 && !isActive && (
+                  <Badge variant="muted">대체됨</Badge>
+                )}
+                <PaymentStatusBadge status={p.status} />
+              </div>
             </div>
             {p.cardBrandSnapshot && (
               <p className="text-sm text-muted-foreground">
@@ -244,7 +277,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
               </p>
             )}
 
-            {p.status === PaymentStatus.PENDING && (
+            {isActive && p.status === PaymentStatus.PENDING && (
               <div className="space-y-2 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
                 <p>결제 결과를 확인하고 있어요. 정산 배치가 자동으로 확정해요.</p>
                 <Button
@@ -257,7 +290,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
               </div>
             )}
 
-            {p.status === PaymentStatus.OFFLINE_REQUIRED && (
+            {isActive && p.status === PaymentStatus.OFFLINE_REQUIRED && (
               <div className="space-y-2">
                 {settleOffline.isError && (
                   <p className="text-sm text-destructive">
@@ -274,7 +307,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
               </div>
             )}
 
-            {p.status === PaymentStatus.PAID && (
+            {isActive && p.status === PaymentStatus.PAID && (
               <ReasonPrompt
                 triggerLabel="전액 환불"
                 triggerVariant="destructive"
@@ -288,6 +321,7 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
               />
             )}
 
+            {/* 영수증은 읽기라 대체된 과거 결제에도 열어 둔다(발급 대상 상태면). */}
             {RECEIPT_STATUSES.includes(p.status) && (
               <Button
                 size="sm"
@@ -297,8 +331,31 @@ function PaymentSection({ reservationId }: { reservationId: number }) {
                 영수증 보기
               </Button>
             )}
+
+            {/* 정정 재청구는 활성 결제가 REFUNDED일 때만. 금액 정정은 항목 수정이 아니라
+                기존 환불 결제를 대체하는 새 결제로만 한다(SA §9-4). */}
+            {isActive &&
+              p.status === PaymentStatus.REFUNDED &&
+              (correctingId === p.paymentId ? (
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm text-muted-foreground">
+                    정정할 청구 항목을 다시 작성하세요. 기존 환불 결제를 대체하는 새
+                    결제가 생성됩니다.
+                  </p>
+                  <ChargeForm reservationId={reservationId} mode="correction" />
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCorrectingId(p.paymentId)}
+                >
+                  정정 재청구
+                </Button>
+              ))}
           </div>
-        ))}
+          )
+        })}
       </CardContent>
     </Card>
   )
