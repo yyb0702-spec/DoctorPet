@@ -10,7 +10,7 @@ import {
   useMyWaitlists,
   useRegisterWaitlist,
 } from '@/features/waitlist/hooks'
-import { WaitlistStatus } from '@/features/waitlist/types'
+import { waitlistBlockReason } from '@/features/waitlist/slotBlock'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, PageLoader } from '@/components/common/States'
@@ -61,28 +61,24 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+  const myWaitlists = myWaitlistsQuery.data ?? []
 
-  // 활성(WAITING·OFFERED) 대기열이 걸린 슬롯 — 해당 슬롯은 "대기중"으로 표시해 중복 신청을 막는다.
-  const activeWaitlistSlotIds = new Set(
-    (myWaitlistsQuery.data ?? [])
-      .filter(
-        (w) =>
-          w.status === WaitlistStatus.WAITING ||
-          w.status === WaitlistStatus.OFFERED,
-      )
-      .map((w) => w.slotId),
-  )
-
-  const handleRegisterWaitlist = (targetSlotId: number) => {
+  // registerWaitlist는 훅 하나를 여러 슬롯이 공유한다 — mutate()에 넘긴 콜백은 동시 호출 시
+  // 마지막 호출로 덮어써질 수 있어(TanStack Query 관찰자 공유) 정리가 안 될 수 있다. 호출별로
+  // 확실히 정리되도록 mutateAsync를 이 함수 자신의 try/finally로 감싼다(PR #188 리뷰).
+  const handleRegisterWaitlist = async (targetSlotId: number) => {
     setRegisteringSlotIds((prev) => new Set(prev).add(targetSlotId))
-    registerWaitlist.mutate(targetSlotId, {
-      onSettled: () =>
-        setRegisteringSlotIds((prev) => {
-          const next = new Set(prev)
-          next.delete(targetSlotId)
-          return next
-        }),
-    })
+    try {
+      await registerWaitlist.mutateAsync(targetSlotId)
+    } catch {
+      // 에러 메시지는 registerWaitlist.isError로 아래에 노출한다.
+    } finally {
+      setRegisteringSlotIds((prev) => {
+        const next = new Set(prev)
+        next.delete(targetSlotId)
+        return next
+      })
+    }
   }
 
   const dateAvailabilities = slotsQuery.data?.dateAvailabilities ?? []
@@ -190,9 +186,23 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                 {slots.map((s) => {
                   // 만석(RESERVED) 슬롯은 예약 대신 대기 신청 경로를 얹는다.
                   if (s.availabilityStatus === 'RESERVED') {
-                    const alreadyWaitlisted = activeWaitlistSlotIds.has(s.slotId)
+                    // ACCEPTED 이력이 있으면 백엔드가 재활성화하지 않아(reactivateTerminalIfSlotReserved
+                    // 대상 아님) 재신청은 항상 WAITLIST_002(409)다 — WAITING·OFFERED("대기중")와
+                    // 구분해 버튼 자체를 숨긴다(PR #188 리뷰).
+                    const blockReason = waitlistBlockReason(myWaitlists, s.slotId)
                     const pending = registeringSlotIds.has(s.slotId)
-                    if (alreadyWaitlisted) {
+                    if (blockReason === 'ACCEPTED') {
+                      return (
+                        <div
+                          key={s.slotId}
+                          className="flex items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                        >
+                          <span>{formatSlotTime(s.startAt)}</span>
+                          <span className="ml-1 text-xs">예약완료</span>
+                        </div>
+                      )
+                    }
+                    if (blockReason === 'PENDING') {
                       return (
                         <div
                           key={s.slotId}

@@ -16,7 +16,8 @@ export const waitlistKeys = {
 const POLL_INTERVAL_MS = 15_000
 
 // 활성(WAITING·OFFERED) 항목이 있을 때만 의미가 있는 전이라, 종료 상태만 남으면 폴링을 멈춘다.
-function hasActiveWaitlist(data: Waitlist[] | undefined): boolean {
+// export: 폴링 게이트 조건을 훅 마운트 없이 단위 테스트하기 위해(PR #188 리뷰).
+export function hasActiveWaitlist(data: Waitlist[] | undefined): boolean {
   return (data ?? []).some(
     (w) =>
       w.status === WaitlistStatus.WAITING ||

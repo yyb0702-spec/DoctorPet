@@ -41,13 +41,22 @@ function dateTimeLabel(iso: string): string {
   })
 }
 
+// 백엔드는 오프셋 없는 LocalDateTime(서울 기준 AgoraClock 격의 서버 시계)을 그대로 보낸다.
+// new Date()로 그냥 파싱하면 브라우저가 자기 로컬 시간대로 해석해, 서울이 아닌 시간대에서는
+// 카운트다운이 몇 시간씩 어긋나 수락·거절 버튼이 조기에 사라지거나 너무 오래 남는다. 서울은
+// DST가 없는 고정 UTC+9라 오프셋을 명시해 파싱한다(PR #188 리뷰).
+function parseSeoulDateTime(iso: string): number {
+  const withOffset = /[Zz]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}+09:00`
+  return new Date(withOffset).getTime()
+}
+
 // 제안 만료까지 남은 ms를 1초마다 갱신한다. 버튼 활성 여부도 이 값으로 판단한다.
 // 초기값은 useState 이니셜라이저가 잡고(카드는 waitlistId로 keyed라 offerExpiresAt이 고정),
 // 만료에 도달하면 인터벌을 멈춘다 — 이후로는 갱신할 값이 없다.
 // expiresAt이 null이면(호출부 가드가 바뀌는 등) new Date(null)이 NaN을 만들어 "NaN:NaN"이
 // 표시될 수 있으니, 여기서 곧장 이미 만료된 것으로 취급한다(PR #188 리뷰).
 function useCountdown(expiresAt: string | null): number {
-  const target = expiresAt ? new Date(expiresAt).getTime() : 0
+  const target = expiresAt ? parseSeoulDateTime(expiresAt) : 0
   const [remainingMs, setRemainingMs] = useState(() => target - Date.now())
   useEffect(() => {
     if (target - Date.now() <= 0) return
@@ -92,6 +101,34 @@ function OfferAcceptForm({
 
   if (petsQuery.isLoading || methodsQuery.isLoading) {
     return <PageLoader label="선택 정보 불러오는 중…" />
+  }
+
+  // 조회 실패를 "등록된 펫/결제수단이 없다"와 구분한다 — 구분하지 않으면 실제로는 등록돼
+  // 있는데도 재시도 수단 없이 "등록이 필요합니다"만 보여, 제한 시간 안에 응답을 못 할 수
+  // 있다(PR #188 리뷰).
+  if (petsQuery.isError || methodsQuery.isError) {
+    return (
+      <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+        <p className="text-destructive">
+          펫·결제수단 정보를 불러오지 못했습니다.
+        </p>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (petsQuery.isError) petsQuery.refetch()
+              if (methodsQuery.isError) methodsQuery.refetch()
+            }}
+          >
+            다시 시도
+          </Button>
+          <Button size="sm" variant="outline" onClick={onCancel}>
+            뒤로
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   // 사전조건 미충족이면 등록으로 유도(예약 요청과 동일).
