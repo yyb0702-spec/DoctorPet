@@ -430,6 +430,16 @@ jobs:
                 # 운영 트래픽은 이 실패한 배포 시도를 겪지 않는다. 기존의 "이전 SHA로 능동
                 # 재배포" 롤백보다 훨씬 단순하고 안전하다(무중단 배포 문서 4-3절).
                 echo "새 색($TARGET_COLOR, $DEPLOY_SHA)이 제한 시간 내 healthy 상태가 되지 않아 배포를 중단합니다. 활성 색(${ACTIVE_COLOR:-없음, 최초 배포})은 그대로입니다."
+                # 실패 직후 컨테이너를 바로 rm -f해버리면 왜 healthy가 안 됐는지 확인할 유일한
+                # 단서(앱 로그)까지 같이 사라진다 — 그동안 이 타임아웃이 반복돼도 원인을 추정만
+                # 해왔던 이유가 이것이다. 정리 전에 로그와 마지막 헬스 상태를 GitHub Actions
+                # 요약에 남겨, 다음 실패부터는 콜드 이미지 pull·리소스 경합·실제 앱 오류 중
+                # 무엇 때문인지 바로 알 수 있게 한다.
+                echo "::group::app-$TARGET_COLOR 컨테이너 로그(최근 200줄, 정리 전 마지막 캡처)"
+                docker compose logs --no-color --tail 200 "app-$TARGET_COLOR" 2>&1 \
+                  || echo "로그 조회 자체가 실패했습니다."
+                echo "::endgroup::"
+                echo "app-$TARGET_COLOR 마지막 헬스 상태: $(docker inspect -f '{{json .State.Health}}' "$(docker compose ps -q "app-$TARGET_COLOR")" 2>/dev/null || echo '조회 실패')"
                 docker compose stop "app-$TARGET_COLOR" 2>/dev/null || true
                 docker compose rm -f "app-$TARGET_COLOR" 2>/dev/null || true
                 exit 1
