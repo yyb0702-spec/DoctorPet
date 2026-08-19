@@ -54,6 +54,8 @@ function synthDetail(h: HospitalSummary): HospitalDetail {
     capabilities: partner ? ['DOG', 'CAT', 'XRAY'] : null,
     reservationResponseRate: partner ? 92 : null,
     averageApprovalMinutes: partner ? 24 : null,
+    averageRating: null,
+    reviewCount: 0,
   }
 }
 
@@ -95,6 +97,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     capabilities: ['DOG', 'CAT', 'XRAY', 'ULTRASOUND', 'DENTAL_CARE'],
     reservationResponseRate: 96,
     averageApprovalMinutes: 18,
+    averageRating: 4.5,
+    reviewCount: 2,
   },
   2: {
     hospitalId: 2,
@@ -121,6 +125,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     capabilities: ['DOG', 'CAT', 'BLOOD_TEST', 'CT', 'ONCOLOGY_CARE'],
     reservationResponseRate: 88,
     averageApprovalMinutes: 31,
+    averageRating: null,
+    reviewCount: 0,
   },
   3: {
     hospitalId: 3,
@@ -139,6 +145,8 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     capabilities: null,
     reservationResponseRate: null,
     averageApprovalMinutes: null,
+    averageRating: null,
+    reviewCount: 0,
   },
 }
 
@@ -170,6 +178,30 @@ let demoMethods: PaymentMethod[] = [
 let methodSeq = 2
 let reservationSeq = 6000
 
+// 병원 후기 in-memory 저장소 (dev:mock 오프라인 전용). hospitalDetails[1]의 집계값(4.5·2건)과 맞춘다.
+const demoReviews = [
+  {
+    reviewId: 1,
+    reservationId: 9001,
+    hospitalId: 1,
+    memberId: 2,
+    rating: 5,
+    content: '대기 없이 바로 봐주셨고 설명이 아주 자세했어요. 아이도 편안해 보였습니다.',
+    createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    updatedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+  },
+  {
+    reviewId: 2,
+    reservationId: 9002,
+    hospitalId: 1,
+    memberId: 3,
+    rating: 4,
+    content: '진료는 만족스러웠지만 주차가 조금 불편했어요.',
+    createdAt: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+    updatedAt: new Date(Date.now() - 9 * 86_400_000).toISOString(),
+  },
+]
+let reviewSeq = 3
 // 보호자(GET /payments/:id/receipt)와 스태프(GET /hospital/payments/:id/receipt)는 동일한 영수증
 // 데이터를 쓴다 — 조회 권한(엔드포인트)만 다르므로 같은 빌더를 두 경로에 등록한다(PR #180 리뷰).
 // 한쪽만 등록하면 dev:mock에서 스태프 영수증 버튼이 매칭 핸들러가 없어 네트워크 오류가 난다.
@@ -458,6 +490,84 @@ export const demoHandlers = [
       detail.reservationStatus = 'CANCELED'
       detail.progressStatus = 'RESERVATION_CANCELED'
     }
+    return ok(null)
+  }),
+
+  // --- 병원 후기 (dev:mock 오프라인 전용) ---
+  http.get(`${BASE}/hospitals/:hospitalId/reviews`, ({ params, request }) => {
+    const hospitalId = Number(params.hospitalId)
+    const url = new URL(request.url)
+    const page = Number(url.searchParams.get('page') ?? '1')
+    const size = Number(url.searchParams.get('size') ?? '20')
+    // 최신순(백엔드는 createdAt·id 내림차순).
+    const all = demoReviews
+      .filter((r) => r.hospitalId === hospitalId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    const totalPages = Math.ceil(all.length / size)
+    const content = all.slice((page - 1) * size, page * size).map((r) => ({
+      reviewId: r.reviewId,
+      rating: r.rating,
+      content: r.content,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }))
+    return ok({
+      content,
+      page,
+      size,
+      totalElements: all.length,
+      totalPages,
+      first: page <= 1,
+      last: page >= totalPages,
+    })
+  }),
+  http.post(`${BASE}/reservations/:reservationId/reviews`, async ({ params, request }) => {
+    const reservationId = Number(params.reservationId)
+    const body = (await request.json()) as { rating: number; content: string }
+    // 예약당 1회(백엔드 uk_reviews_reservation_id + reservations.reviewed_at).
+    if (demoReviews.some((r) => r.reservationId === reservationId)) {
+      return fail('REVIEW_004', '이미 리뷰 작성 기회를 사용한 예약입니다.', 409)
+    }
+    // 결제 완료 예약만 작성 가능(백엔드 REVIEW_003).
+    const paid = (mockPaymentByReservation[reservationId] ?? []).some(
+      (p) => p.status === 'PAID' || p.status === 'OFFLINE_PAID',
+    )
+    if (!paid) {
+      return fail('REVIEW_003', '결제가 완료된 예약만 리뷰를 작성할 수 있습니다.', 409)
+    }
+    const now = new Date().toISOString()
+    const created = {
+      reviewId: reviewSeq++,
+      reservationId,
+      hospitalId: mockReservationDetail[reservationId]?.hospital.hospitalId ?? 1,
+      memberId: demoMember.memberId,
+      rating: body.rating,
+      content: body.content,
+      createdAt: now,
+      updatedAt: now,
+    }
+    demoReviews.unshift(created)
+    return ok(created, 201)
+  }),
+  http.put(`${BASE}/reviews/:reviewId`, async ({ params, request }) => {
+    const target = demoReviews.find((r) => r.reviewId === Number(params.reviewId))
+    if (!target) {
+      return fail('REVIEW_005', '리뷰를 찾을 수 없습니다.', 404)
+    }
+    const body = (await request.json()) as { rating: number; content: string }
+    target.rating = body.rating
+    target.content = body.content
+    target.updatedAt = new Date().toISOString()
+    return ok(target)
+  }),
+  http.delete(`${BASE}/reviews/:reviewId`, ({ params }) => {
+    const index = demoReviews.findIndex(
+      (r) => r.reviewId === Number(params.reviewId),
+    )
+    if (index < 0) {
+      return fail('REVIEW_005', '리뷰를 찾을 수 없습니다.', 404)
+    }
+    demoReviews.splice(index, 1)
     return ok(null)
   }),
 ]

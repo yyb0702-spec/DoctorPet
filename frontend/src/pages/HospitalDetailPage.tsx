@@ -1,6 +1,6 @@
 // 병원 상세 (화면메모 A-6, 실연동) + 예약 요청 패널.
 import { useParams, Link } from 'react-router-dom'
-import { MapPin, Phone, Star, Clock } from 'lucide-react'
+import { MapPin, Phone, Clock } from 'lucide-react'
 import {
   todaySeoul,
   useHospitalDetail,
@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { HospitalMap } from '@/components/common/HospitalMap'
+import { HospitalReviewList } from '@/features/reviews/HospitalReviewList'
 import type { BusinessHour } from '@/features/hospitals/types'
 
 const DAY_LABEL: Record<string, string> = {
@@ -176,16 +177,12 @@ export function HospitalDetailPage() {
                 </CardContent>
               </Card>
             )}
-            {/* 보호자 후기 — 후기 API 미제공, 자리만 마련(준비 중). */}
-            <Card>
-              <CardHeader>
-                <CardTitle>보호자 후기</CardTitle>
-              </CardHeader>
-              <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Star className="h-4 w-4 text-amber-400" />
-                후기 기능은 준비 중입니다.
-              </CardContent>
-            </Card>
+            {/* 보호자 후기 (이슈 #114) — 결제 완료 예약의 보호자만 작성할 수 있고, 목록은 익명이다. */}
+            <HospitalReviewList
+              hospitalId={id}
+              averageRating={data.averageRating}
+              reviewCount={data.reviewCount}
+            />
           </>
         ) : (
           <Card>
