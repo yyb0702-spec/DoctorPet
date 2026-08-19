@@ -168,6 +168,34 @@ jobs:
               exit 0
             fi
 
+            # 서버 ~/DoctorPet에 추적 파일(예: docker-compose.yml)의 커밋되지 않은 로컬 수정이
+            # 남아 있으면 아래 git checkout --detach가 그 변경을 덮어쓰길 거부해 배포 전체가
+            # 실패한다 — 실제로 이 문제로 연속된 배포(#57~#60)가 매번 같은 이유로 막혔다.
+            # 이 파이프라인의 설계 원칙은 "서버의 추적 파일 상태는 항상 git이 결정한다"는 것
+            # (바로 아래 주석 참고) — .active_color 같은 gitignore 대상 상태 파일만 서버 로컬
+            # 상태를 갖고, 추적 파일에 남은 로컬 수정은 실수(SSH로 직접 테스트하며 임시로 고친
+            # 뒤 git에 반영하는 걸 깜빡한 경우 등)로 보고 배포가 매번 그 자리에서 영구히 막히지
+            # 않도록 자동으로 되돌린다. 완전히 조용히 버리면 같은 실수가 반복돼도 못 알아채므로,
+            # 무엇을 버리는지 로그에 남긴 뒤 버린다 — git reset --hard는 추적 파일만 되돌리고
+            # gitignore 대상(untracked) 파일은 건드리지 않는다.
+            #
+            # (리뷰 지적 P1 반영) 이 diff의 내용(라인 단위 원문)을 그대로 로그에 남기면 안 된다 —
+            # 운영자가 장애를 진단하며 docker-compose.yml 등 추적 파일에 JWT_SECRET, PortOne
+            # 인증정보, DB 접속정보 같은 값을 임시로 직접 써 넣었을 가능성이 있고, 이 파이프라인이
+            # 자동 복구하려는 대상이 정확히 그런 "서버 로컬 수동 수정" 상황이므로 실제 발생
+            # 가능성이 낮지 않다. 그런 값은 GitHub Secret이 아니라 서버에만 있던 값이라 Actions
+            # 로그 마스킹 대상도 아니고, 로그는 저장소 접근 권한이 있는 사람이면 누구나 볼 수 있어
+            # 그대로 노출하면 운영 자격증명 유출로 이어진다. 그래서 원문(git diff) 대신 무엇이
+            # 바뀌었는지만 알 수 있는 파일명·변경량(git status --short, git diff --stat)만
+            # 로그에 남긴다 — diff 원문이 필요하면 운영자가 서버에 직접 접속해 확인하면 된다.
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "::warning::~/DoctorPet에 커밋되지 않은 로컬 변경이 있어 배포 전에 되돌립니다. 실제로 필요한 변경이었다면 git으로 커밋해 반영해 주세요. 민감정보가 로그에 남지 않도록 diff 원문 대신 변경 파일명·변경량만 남깁니다 — 원문이 필요하면 서버에 직접 접속해 확인해 주세요."
+              git status --short
+              git diff --stat
+              git diff --cached --stat
+              git reset --hard HEAD
+            fi
+
             # 이미지와 Compose 설정을 같은 커밋으로 고정한다(리뷰 지적 P1) — git pull로 실행
             # 시점의 최신 develop을 쓰면, CI를 통과한 이미지(SHA A)와 그 사이 develop에 병합된
             # 최신 docker-compose.yml(SHA B)이 조합돼 환경변수·포트·서비스 구조가 어긋난 채로
