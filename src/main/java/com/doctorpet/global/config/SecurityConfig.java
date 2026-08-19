@@ -108,6 +108,18 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // CORS 프리플라이트(OPTIONS) — 이론상 .cors()가 등록하는 CorsFilter가
+                        // preflight를 인가 단계 전에 짧게 끊어줘야 하고(CorsSecurityIntegrationTest가
+                        // 슬라이스 테스트로 이를 검증한다), 실제로 그 메커니즘 자체는 정상 동작한다.
+                        // 다만 운영에서 OPTIONS /api/hospitals가 authenticated()까지 떨어져 401이
+                        // 나는 걸 관찰했다 — 조사 결과 원인은 이 authorizeHttpRequests 로직이
+                        // 아니라 실제로 트래픽을 받던 컨테이너가 최신 코드로 빌드된 이미지가 아니라
+                        // 오래된 :local 태그 이미지였을 가능성이 가장 크다(별도 배포 파이프라인
+                        // 이슈, fix/deploy-healthcheck-diagnostics 브랜치 참고). 그럼에도 preflight는
+                        // 자격증명이나 리소스 접근을 수반하지 않으므로, 인가 단계에서 명시적으로
+                        // permitAll해 CorsFilter의 short-circuit에만 의존하지 않게 방어선을 하나 더
+                        // 둔다.
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Swagger UI/OpenAPI 문서(이슈 #105) - local 프로파일에서만 springdoc이
                         // 실제로 등록되고(application.yaml), 그 외에는 springdoc.api-docs/
                         // swagger-ui.enabled=false라 경로 자체가 없어 여기서 permitAll을 열어둬도

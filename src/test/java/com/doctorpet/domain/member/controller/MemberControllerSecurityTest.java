@@ -3,7 +3,9 @@ package com.doctorpet.domain.member.controller;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -134,5 +136,32 @@ class MemberControllerSecurityTest {
         mockMvc.perform(delete("/api/members/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("COMMON_002"));
+    }
+
+    // PR #191 리뷰 P2 대응 — 기존 CorsSecurityIntegrationTest는 원래도 permitAll인
+    // /api/auth/login으로만 preflight를 검증해서, SecurityConfig에 새로 추가한 전역
+    // "OPTIONS /** permitAll" 규칙이 없어도 그대로 통과했다(그 규칙이 실제로 막아야 하는
+    // 건 인증이 필요한 경로의 OPTIONS다). 위 테스트들이 쓰는 /api/members/me(GET은
+    // anyRequest().authenticated()로 떨어짐, 명시적 permitAll 없음)로 preflight를 보내
+    // JWT 없이도 통과하는지 확인해야 새 규칙 자체를 검증한 게 된다.
+    @Test
+    @DisplayName("허용된 Origin의 CORS 프리플라이트는 인증이 필요한 경로에도 인증 없이 200과 Access-Control-Allow-Origin을 반환한다 — OPTIONS permitAll이 없으면 401이 난다")
+    void preflight_authenticatedPath_allowedOrigin_returnsOkWithAllowOriginHeader() throws Exception {
+        mockMvc.perform(options("/api/members/me")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+    }
+
+    // Origin 헤더가 없으면 Spring의 CorsFilter는 아예 개입하지 않는다(CorsUtils.isCorsRequest가
+    // false) — 그래서 위 테스트만으로는 CorsFilter의 short-circuit과 우리가 추가한
+    // authorizeHttpRequests의 OPTIONS permitAll 매처를 구분하지 못한다. Origin 없이 순수하게
+    // 인가 규칙만 태워 이 매처 자체가 동작하는지 별도로 확인한다.
+    @Test
+    @DisplayName("Origin 헤더 없는 일반 OPTIONS 요청도 인증 없이 401로 거부되지 않는다 — 전역 OPTIONS permitAll 매처 자체를 검증한다")
+    void options_withoutOriginHeader_isNotBlockedByAuthorization() throws Exception {
+        mockMvc.perform(options("/api/members/me"))
+                .andExpect(status().isOk());
     }
 }
