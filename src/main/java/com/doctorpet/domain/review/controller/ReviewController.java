@@ -2,6 +2,7 @@ package com.doctorpet.domain.review.controller;
 
 import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
+import com.doctorpet.domain.review.dto.response.MyReviewResponse;
 import com.doctorpet.domain.review.service.ReviewApplicationService;
 import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -24,6 +26,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReviewController {
 
     private final ReviewApplicationService reviewApplicationService;
+
+    @GetMapping("/reservations/{reservationId}/review")
+    public ResponseEntity<ApiResponse<MyReviewResponse>> getMyReview(
+            @AuthenticationPrincipal MemberPrincipal principal,
+            @PathVariable Long reservationId
+    ) {
+        MyReviewResponse response = reviewApplicationService.getMyReview(
+                principal.memberId(),
+                reservationId
+        );
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
 
     @PostMapping("/reservations/{reservationId}/reviews")
     public ResponseEntity<ApiResponse<ReviewResponse>> create(

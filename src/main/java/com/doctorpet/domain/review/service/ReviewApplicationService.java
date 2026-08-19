@@ -6,6 +6,7 @@ import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
 import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.HospitalReviewItemResponse;
+import com.doctorpet.domain.review.dto.response.MyReviewResponse;
 import com.doctorpet.domain.review.dto.response.ReviewPageResponse;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
 import com.doctorpet.domain.review.entity.Review;
@@ -17,6 +18,7 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -63,6 +65,22 @@ public class ReviewApplicationService {
                 reviewRepository.findByHospitalId(hospitalId, pageable)
                         .map(HospitalReviewItemResponse::from)
         );
+    }
+
+    @Transactional(readOnly = true)
+    public MyReviewResponse getMyReview(Long memberId, Long reservationId) {
+        validateReservationOwner(memberId, reservationId);
+
+        Optional<Review> review = reviewRepository.findByReservationId(reservationId);
+        if (review.isPresent()) {
+            return MyReviewResponse.reviewed(review.get());
+        }
+
+        boolean reviewable = !reservationService.isReviewed(reservationId)
+                && paymentQueryService.findActiveStatusByReservationId(reservationId)
+                .filter(ELIGIBLE_PAYMENT_STATUSES::contains)
+                .isPresent();
+        return MyReviewResponse.notReviewed(reviewable);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -145,6 +163,12 @@ public class ReviewApplicationService {
     }
 
     private Long validateAndGetHospitalId(Long memberId, Long reservationId) {
+        Long hospitalId = validateReservationOwner(memberId, reservationId);
+        validateReviewOpportunity(reservationId);
+        return hospitalId;
+    }
+
+    private Long validateReservationOwner(Long memberId, Long reservationId) {
         if (!reservationService.exists(reservationId)) {
             throw new ServiceException(ReviewErrorCode.RESERVATION_NOT_FOUND);
         }
@@ -152,7 +176,6 @@ public class ReviewApplicationService {
                 .findHospitalIdForOwner(reservationId, memberId)
                 .orElseThrow(() -> new ServiceException(
                         ReviewErrorCode.NOT_RESERVATION_OWNER));
-        validateReviewOpportunity(reservationId);
         return hospitalId;
     }
 

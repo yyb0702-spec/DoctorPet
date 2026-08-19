@@ -13,7 +13,10 @@ const PUBLIC_NAV = [
   { to: '/ai', label: 'AI 상담' },
 ]
 // 인증 필요 — 로그인 상태에서만 노출. (펫·결제수단은 마이페이지 허브에서 접근)
-const PRIVATE_NAV = [{ to: '/reservations', label: '내 예약' }]
+const PRIVATE_NAV = [
+  { to: '/reservations', label: '내 예약' },
+  { to: '/waitlists', label: '내 대기열' },
+]
 
 export function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)

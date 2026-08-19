@@ -26,20 +26,26 @@ import type { Notification } from './types'
 interface ResourceRoutes {
   reservationList: string
   reservationDetail: ((reservationId: number) => string) | null
+  // 대기열 승급 제안(RESERVATION_WAITLIST) 딥링크. 단건 상세 화면이 없어 목록으로 보낸다.
+  // 스태프는 대기열 화면이 없어 null(WAITLIST_OFFERED는 보호자에게만 발송된다).
+  waitlistList: string | null
 }
 
 const RESOURCE_ROUTES = {
   [MemberRole.GUARDIAN]: {
     reservationList: '/reservations',
     reservationDetail: (reservationId: number) => `/reservations/${reservationId}`,
+    waitlistList: '/waitlists',
   },
   [MemberRole.HOSPITAL_STAFF]: {
     reservationList: '/staff/reservations',
     reservationDetail: null,
+    waitlistList: null,
   },
 } satisfies Record<MemberRole, ResourceRoutes>
 
 // 알림이 가리키는 리소스로 가는 경로. PAYMENT는 paymentId→예약 매핑이 없어 예약 목록으로.
+// RESERVATION_WAITLIST는 resourceId가 대기열 id지만 단건 화면이 없어 내 대기열 목록으로 보낸다.
 function resourceLink(n: Notification, routes: ResourceRoutes): string | null {
   if (n.resourceType === 'RESERVATION' && n.resourceId != null) {
     return routes.reservationDetail
@@ -47,6 +53,7 @@ function resourceLink(n: Notification, routes: ResourceRoutes): string | null {
       : routes.reservationList
   }
   if (n.resourceType === 'PAYMENT') return routes.reservationList
+  if (n.resourceType === 'RESERVATION_WAITLIST') return routes.waitlistList
   return null
 }
 

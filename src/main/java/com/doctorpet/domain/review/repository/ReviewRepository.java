@@ -16,6 +16,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     boolean existsByReservationId(Long reservationId);
 
+    Optional<Review> findByReservationId(Long reservationId);
+
     void deleteByReservationId(Long reservationId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
