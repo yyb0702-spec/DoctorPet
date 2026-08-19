@@ -6,12 +6,18 @@ import { todaySeoul, useHospitalSlots } from '@/features/hospitals/hooks'
 import { usePets } from '@/features/pets/hooks'
 import { usePaymentMethods } from '@/features/payments/hooks'
 import { useCreateReservation } from './hooks'
+import {
+  useMyWaitlists,
+  useRegisterWaitlist,
+} from '@/features/waitlist/hooks'
+import { waitlistBlockReason } from '@/features/waitlist/slotBlock'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, PageLoader } from '@/components/common/States'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
 import { speciesLabel } from '@/lib/species'
+import { useAuthStore } from '@/lib/auth/authStore'
 
 // LocalDateTime("...THH:mm:ss")은 타임존이 없어 로컬 시각으로 파싱된다 → 시:분만 표시.
 function formatSlotTime(iso: string): string {
@@ -27,18 +33,60 @@ function parseDate(dateStr: string): Date {
 }
 const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토']
 
+// RESERVED는 별도 대기 신청 경로로 처리하므로 여기엔 마감(LEAD_TIME_CLOSED)만 둔다.
 const SLOT_STATUS_LABEL: Record<string, string> = {
-  RESERVED: '예약됨',
   LEAD_TIME_CLOSED: '마감',
+}
+
+// 만석 슬롯의 대기 신청 버튼 — 슬롯마다 독립된 mutation을 갖는다. 공유 mutation 하나를
+// 여러 슬롯이 쓰면 pending·성공·실패 상태가 마지막 요청 기준으로 섞여, A 신청 실패가 B 신청
+// 성공에 가려지거나 그 반대가 된다. 슬롯별로 분리하면 각 결과가 자기 버튼에만 반영된다.
+// 성공하면 onSuccess가 내 대기열 캐시를 무효화해 이 슬롯이 부모에서 "대기중"으로 바뀌므로
+// 별도 성공 메시지는 두지 않는다(PR #188 리뷰).
+function WaitlistRegisterButton({
+  slotId,
+  startAt,
+}: {
+  slotId: number
+  startAt: string
+}) {
+  const register = useRegisterWaitlist()
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        disabled={register.isPending}
+        onClick={() => register.mutate(slotId)}
+        className={cn(
+          'rounded-md border px-3 py-2 text-sm transition-colors',
+          register.isPending ? 'cursor-wait opacity-60' : 'hover:bg-accent',
+        )}
+      >
+        <span>{formatSlotTime(startAt)}</span>
+        <span className="ml-1 text-xs text-muted-foreground">
+          {register.isPending ? '신청 중…' : '대기 신청'}
+        </span>
+      </button>
+      {register.isError && (
+        <p className="text-xs text-destructive">
+          {register.error instanceof ApiError
+            ? register.error.message
+            : '대기 신청에 실패했습니다.'}
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) {
   const navigate = useNavigate()
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const [selectedDate, setSelectedDate] = useState<string>(todaySeoul())
   const slotsQuery = useHospitalSlots(hospitalId, selectedDate)
   const petsQuery = usePets()
   const methodsQuery = usePaymentMethods()
   const createReservation = useCreateReservation()
+  const myWaitlistsQuery = useMyWaitlists()
 
   const [slotId, setSlotId] = useState<number | null>(null)
   const [petId, setPetId] = useState<number | null>(null)
@@ -46,11 +94,13 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+  const myWaitlists = myWaitlistsQuery.data ?? []
 
   const dateAvailabilities = slotsQuery.data?.dateAvailabilities ?? []
   const slots = slotsQuery.data?.slots ?? []
 
-  // 날짜를 바꾸면 이전에 고른 슬롯은 무효 → 초기화.
+  // 날짜를 바꾸면 이전에 고른 슬롯은 무효 → 초기화. 대기 신청 상태는 슬롯별 버튼이 각자
+  // 들고 있어(WaitlistRegisterButton) 날짜를 바꾸면 슬롯이 언마운트되며 함께 정리된다.
   const handleSelectDate = (date: string) => {
     if (date === selectedDate) return
     setSelectedDate(date)
@@ -149,6 +199,58 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
             ) : (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {slots.map((s) => {
+                  // 만석(RESERVED) 슬롯은 예약 대신 대기 신청 경로를 얹는다.
+                  if (s.availabilityStatus === 'RESERVED') {
+                    // ACCEPTED 이력이 있으면 백엔드가 재활성화하지 않아(reactivateTerminalIfSlotReserved
+                    // 대상 아님) 재신청은 항상 WAITLIST_002(409)다 — WAITING·OFFERED("대기중")와
+                    // 구분해 버튼 자체를 숨긴다(PR #188 리뷰).
+                    const blockReason = waitlistBlockReason(myWaitlists, s.slotId)
+                    if (blockReason === 'ACCEPTED') {
+                      return (
+                        <div
+                          key={s.slotId}
+                          className="flex items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                        >
+                          <span>{formatSlotTime(s.startAt)}</span>
+                          <span className="ml-1 text-xs">예약완료</span>
+                        </div>
+                      )
+                    }
+                    if (blockReason === 'PENDING') {
+                      return (
+                        <div
+                          key={s.slotId}
+                          className="flex items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700"
+                        >
+                          <span>{formatSlotTime(s.startAt)}</span>
+                          <span className="ml-1 text-xs">대기중</span>
+                        </div>
+                      )
+                    }
+                    // 미인증이면 로그인으로 유도(예약 요청과 동일한 사전조건).
+                    if (!isAuthenticated) {
+                      return (
+                        <Link
+                          key={s.slotId}
+                          to="/login"
+                          className="flex items-center justify-center rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent"
+                        >
+                          <span>{formatSlotTime(s.startAt)}</span>
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            대기 신청
+                          </span>
+                        </Link>
+                      )
+                    }
+                    return (
+                      <WaitlistRegisterButton
+                        key={s.slotId}
+                        slotId={s.slotId}
+                        startAt={s.startAt}
+                      />
+                    )
+                  }
+                  // AVAILABLE만 선택 가능, LEAD_TIME_CLOSED는 마감.
                   const disabled = s.availabilityStatus !== 'AVAILABLE'
                   return (
                     <button

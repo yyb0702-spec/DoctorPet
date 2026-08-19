@@ -506,4 +506,14 @@ export const mockNotifications: Notification[] = [
     readAt: null,
     createdAt: new Date(Date.now() - 169_000_000).toISOString(),
   },
+  {
+    id: 3,
+    type: 'RESERVATION_WAITLIST_OFFERED',
+    content: '예약 대기열 승급 제안이 도착했습니다. 마감 전에 수락해 주세요.',
+    resourceType: 'RESERVATION_WAITLIST',
+    resourceId: 2,
+    isRead: false,
+    readAt: null,
+    createdAt: new Date(Date.now() - 120_000).toISOString(),
+  },
 ]
