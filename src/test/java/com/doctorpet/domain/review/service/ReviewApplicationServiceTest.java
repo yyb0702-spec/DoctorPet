@@ -14,6 +14,7 @@ import com.doctorpet.domain.payment.entity.PaymentStatus;
 import com.doctorpet.domain.payment.service.PaymentQueryService;
 import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
+import com.doctorpet.domain.review.dto.response.MyReviewResponse;
 import com.doctorpet.domain.review.dto.response.ReviewPageResponse;
 import com.doctorpet.domain.review.entity.Review;
 import com.doctorpet.domain.review.exception.ReviewErrorCode;
@@ -103,6 +104,75 @@ class ReviewApplicationServiceTest {
                 NOW
         );
         verify(reviewRepository).saveAndFlush(any(Review.class));
+    }
+
+    @Test
+    @DisplayName("작성한 리뷰가 있으면 내 리뷰와 작성 불가 상태를 반환한다")
+    void getMyReview_existingReview_returnsReview() {
+        Review review = Review.create(
+                RESERVATION_ID,
+                HOSPITAL_ID,
+                MEMBER_ID,
+                new BigDecimal("4.5"),
+                "친절했어요"
+        );
+        givenOwnedReservation();
+        given(reviewRepository.findByReservationId(RESERVATION_ID))
+                .willReturn(Optional.of(review));
+
+        MyReviewResponse response = service.getMyReview(MEMBER_ID, RESERVATION_ID);
+
+        assertThat(response.review()).isNotNull();
+        assertThat(response.review().content()).isEqualTo("친절했어요");
+        assertThat(response.reviewable()).isFalse();
+        verify(paymentQueryService, never()).findActiveStatusByReservationId(any());
+    }
+
+    @Test
+    @DisplayName("리뷰 이력이 없고 활성 결제가 완료됐으면 작성 가능 상태를 반환한다")
+    void getMyReview_paidAndNeverReviewed_returnsReviewable() {
+        givenOwnedReservation();
+        given(reviewRepository.findByReservationId(RESERVATION_ID))
+                .willReturn(Optional.empty());
+        given(reservationService.isReviewed(RESERVATION_ID)).willReturn(false);
+        given(paymentQueryService.findActiveStatusByReservationId(RESERVATION_ID))
+                .willReturn(Optional.of(PaymentStatus.PAID));
+
+        MyReviewResponse response = service.getMyReview(MEMBER_ID, RESERVATION_ID);
+
+        assertThat(response.review()).isNull();
+        assertThat(response.reviewable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("사용자가 리뷰를 삭제해 작성 이력이 남았으면 다시 작성할 수 없다")
+    void getMyReview_deletedByAuthor_returnsNotReviewable() {
+        givenOwnedReservation();
+        given(reviewRepository.findByReservationId(RESERVATION_ID))
+                .willReturn(Optional.empty());
+        given(reservationService.isReviewed(RESERVATION_ID)).willReturn(true);
+
+        MyReviewResponse response = service.getMyReview(MEMBER_ID, RESERVATION_ID);
+
+        assertThat(response.review()).isNull();
+        assertThat(response.reviewable()).isFalse();
+        verify(paymentQueryService, never()).findActiveStatusByReservationId(any());
+    }
+
+    @Test
+    @DisplayName("환불 상태이면 리뷰 이력이 초기화돼도 작성할 수 없다")
+    void getMyReview_refunded_returnsNotReviewable() {
+        givenOwnedReservation();
+        given(reviewRepository.findByReservationId(RESERVATION_ID))
+                .willReturn(Optional.empty());
+        given(reservationService.isReviewed(RESERVATION_ID)).willReturn(false);
+        given(paymentQueryService.findActiveStatusByReservationId(RESERVATION_ID))
+                .willReturn(Optional.of(PaymentStatus.REFUNDED));
+
+        MyReviewResponse response = service.getMyReview(MEMBER_ID, RESERVATION_ID);
+
+        assertThat(response.review()).isNull();
+        assertThat(response.reviewable()).isFalse();
     }
 
     @Test
@@ -365,6 +435,12 @@ class ReviewApplicationServiceTest {
                 MEMBER_ID,
                 NOW
         )).willReturn(1);
+    }
+
+    private void givenOwnedReservation() {
+        given(reservationService.exists(RESERVATION_ID)).willReturn(true);
+        given(reservationService.findHospitalIdForOwner(RESERVATION_ID, MEMBER_ID))
+                .willReturn(Optional.of(HOSPITAL_ID));
     }
 
     private ReviewRequest request() {

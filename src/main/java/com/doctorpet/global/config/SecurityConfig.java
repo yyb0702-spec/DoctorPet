@@ -163,6 +163,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasRole("GUARDIAN")
                         .requestMatchers(HttpMethod.POST, "/api/reservations/*/reviews")
                         .hasRole("GUARDIAN")
+                        .requestMatchers(HttpMethod.GET, "/api/reservations/*/review")
+                        .hasRole("GUARDIAN")
                         .requestMatchers(HttpMethod.PUT, "/api/reviews/*")
                         .hasRole("GUARDIAN")
                         .requestMatchers(HttpMethod.DELETE, "/api/reviews/*")

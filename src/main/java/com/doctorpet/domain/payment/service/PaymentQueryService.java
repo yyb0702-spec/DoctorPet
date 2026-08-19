@@ -37,6 +37,12 @@ public class PaymentQueryService {
                 .map(Payment::getStatus);
     }
 
+    @Transactional(readOnly = true)
+    public Optional<PaymentStatus> findActiveStatusByReservationId(Long reservationId) {
+        return paymentRepository.findActiveByReservationId(reservationId)
+                .map(Payment::getStatus);
+    }
+
     /** 예약 결제수단 재지정 전, 청구 선기록이 이미 생성됐는지 확인하는 도메인 간 조회 계약이다. */
     @Transactional(readOnly = true)
     public boolean existsByReservationId(Long reservationId) {
