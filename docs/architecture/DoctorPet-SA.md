@@ -767,11 +767,14 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 명칭 | Method | Path | 권한 |
 | --- | --- | --- | --- |
 | 리뷰 작성 | POST | /api/reservations/{reservationId}/reviews | 보호자(예약 본인) |
+| 내 리뷰 상태 조회 | GET | /api/reservations/{reservationId}/review | 보호자(예약 본인) |
 | 병원 리뷰 목록 | GET | /api/hospitals/{hospitalId}/reviews | 공개 |
 | 리뷰 수정 | PUT | /api/reviews/{reviewId} | 보호자(작성자 본인) |
 | 리뷰 삭제 | DELETE | /api/reviews/{reviewId} | 보호자(작성자 본인) |
 
 작성 요청은 `{ rating, content }`, 수정 요청도 `{ rating, content }`로 평점과 내용을 함께 받는다. `rating`은 1.0~5.0의 0.5 단위이고 `content`는 공백일 수 없다. 수정 기간 제한은 없으며 성공할 때마다 `updatedAt`을 갱신한다. 작성·수정·삭제의 회원 식별은 `@AuthenticationPrincipal`만 사용하고 요청의 `memberId`·`hospitalId`를 신뢰하지 않는다. 작성 대상 병원과 회원은 `{reservationId}`로 조회한 예약에서 결정한다.
+
+내 리뷰 상태 조회는 `{ review, reviewable }`을 반환한다. 현재 리뷰가 있으면 `review`에 작성 응답과 같은 필드를 제공하고 `reviewable=false`로 반환한다. 리뷰가 없으면 `review=null`이며, 현재 활성 결제가 `PAID` 또는 `OFFLINE_PAID`이고 `reviewed_at`이 비어 있을 때만 `reviewable=true`다. 따라서 사용자 직접 삭제 후에는 재작성할 수 없고, 환불 후에는 작성할 수 없으며, 정정 재청구가 완료되어 활성 결제가 다시 유효해지면 작성 가능 상태가 복구된다.
 
 병원 리뷰 목록은 `createdAt DESC, id DESC`로 안정 정렬하고 페이지네이션한다. 목록에서 리뷰 표시 정보를 모두 제공하므로 별도 상세 조회 API는 두지 않는다. 공개 목록 항목은 `reviewId`, `rating`, `content`, `createdAt`, `updatedAt`만 반환하고 내부 식별자인 `reservationId`, `hospitalId`, `memberId`는 노출하지 않는다. 병원 상세 응답에는 `averageRating`, `reviewCount`를 추가한다. 집계는 `reviews` 실데이터의 `AVG(rating)`·`COUNT(*)`를 조회 시 계산해 별도 누적 카운터와의 불일치를 만들지 않는다. 리뷰가 없으면 `averageRating=null`, `reviewCount=0`이고, 평균은 소수점 첫째 자리로 반환한다.
 

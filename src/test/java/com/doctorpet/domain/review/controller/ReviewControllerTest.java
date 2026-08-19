@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.doctorpet.domain.review.dto.request.ReviewRequest;
 import com.doctorpet.domain.review.dto.response.ReviewResponse;
+import com.doctorpet.domain.review.dto.response.MyReviewResponse;
 import com.doctorpet.domain.review.service.ReviewApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.AccessTokenBlacklistPort;
@@ -65,6 +67,40 @@ class ReviewControllerTest {
 
     @MockitoBean
     private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
+
+    @Test
+    @DisplayName("보호자는 본인 예약의 리뷰와 작성 가능 여부를 조회할 수 있다")
+    void getMyReview_guardian_returnsReviewStatus() throws Exception {
+        LocalDateTime now = LocalDateTime.of(2026, 8, 8, 12, 0);
+        ReviewResponse review = new ReviewResponse(
+                100L,
+                10L,
+                3L,
+                1L,
+                new BigDecimal("4.5"),
+                "친절하게 진료해 주셨어요.",
+                now,
+                now
+        );
+        given(reviewApplicationService.getMyReview(1L, 10L))
+                .willReturn(new MyReviewResponse(review, false));
+
+        mockMvc.perform(get("/api/reservations/{reservationId}/review", 10L)
+                        .with(authentication(memberAuthentication(1L, "GUARDIAN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.review.reviewId").value(100L))
+                .andExpect(jsonPath("$.data.reviewable").value(false));
+    }
+
+    @Test
+    @DisplayName("병원 스태프는 보호자용 내 리뷰 조회 API를 사용할 수 없다")
+    void getMyReview_hospitalStaff_returnsForbidden() throws Exception {
+        mockMvc.perform(get("/api/reservations/{reservationId}/review", 10L)
+                        .with(authentication(memberAuthentication(1L, "HOSPITAL_STAFF"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_003"));
+    }
 
     @Test
     @DisplayName("보호자는 결제 완료된 본인 예약에 리뷰를 작성할 수 있다")
