@@ -19,6 +19,7 @@ import { MyPage } from '@/pages/MyPage'
 import { PaymentMethodsPage } from '@/pages/PaymentMethodsPage'
 import { ReservationsPage } from '@/pages/ReservationsPage'
 import { ReservationDetailPage } from '@/pages/ReservationDetailPage'
+import { WaitlistsPage } from '@/pages/WaitlistsPage'
 import { StaffDashboardPage } from '@/pages/StaffDashboardPage'
 import { StaffReservationQueuePage } from '@/pages/StaffReservationQueuePage'
 import { StaffReservationDetailPage } from '@/pages/StaffReservationDetailPage'
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
             path: '/reservations/:reservationId',
             element: <ReservationDetailPage />,
           },
+          { path: '/waitlists', element: <WaitlistsPage /> },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

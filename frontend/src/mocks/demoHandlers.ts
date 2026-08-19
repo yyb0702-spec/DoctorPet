@@ -170,6 +170,41 @@ let demoMethods: PaymentMethod[] = [
 let methodSeq = 2
 let reservationSeq = 6000
 
+// 예약 대기열 in-memory 저장소 (dev:mock 오프라인 전용). WAITING·OFFERED·종료 상태를 한 건씩 시드.
+const demoWaitlists = [
+  {
+    waitlistId: 1,
+    slotId: 501,
+    status: 'WAITING' as string,
+    requestedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    offeredAt: null as string | null,
+    offerExpiresAt: null as string | null,
+    respondedAt: null as string | null,
+    canceledAt: null as string | null,
+  },
+  {
+    waitlistId: 2,
+    slotId: 502,
+    status: 'OFFERED' as string,
+    requestedAt: new Date(Date.now() - 7_200_000).toISOString(),
+    offeredAt: new Date(Date.now() - 60_000).toISOString(),
+    offerExpiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    respondedAt: null as string | null,
+    canceledAt: null as string | null,
+  },
+  {
+    waitlistId: 3,
+    slotId: 503,
+    status: 'EXPIRED' as string,
+    requestedAt: new Date(Date.now() - 172_800_000).toISOString(),
+    offeredAt: new Date(Date.now() - 86_400_000).toISOString(),
+    offerExpiresAt: new Date(Date.now() - 86_000_000).toISOString(),
+    respondedAt: null as string | null,
+    canceledAt: null as string | null,
+  },
+]
+let waitlistSeq = 4
+
 // 보호자(GET /payments/:id/receipt)와 스태프(GET /hospital/payments/:id/receipt)는 동일한 영수증
 // 데이터를 쓴다 — 조회 권한(엔드포인트)만 다르므로 같은 빌더를 두 경로에 등록한다(PR #180 리뷰).
 // 한쪽만 등록하면 dev:mock에서 스태프 영수증 버튼이 매칭 핸들러가 없어 네트워크 오류가 난다.
@@ -458,6 +493,105 @@ export const demoHandlers = [
       detail.reservationStatus = 'CANCELED'
       detail.progressStatus = 'RESERVATION_CANCELED'
     }
+    return ok(null)
+  }),
+
+  // --- 예약 대기열 (dev:mock 오프라인 전용) ---
+  http.get(`${BASE}/reservation-waitlists`, () => ok(demoWaitlists)),
+  http.get(`${BASE}/reservation-waitlists/:waitlistId`, ({ params }) => {
+    const target = demoWaitlists.find(
+      (w) => w.waitlistId === Number(params.waitlistId),
+    )
+    if (!target) {
+      return fail('WAITLIST_003', '예약 대기열을 찾을 수 없습니다.', 404)
+    }
+    return ok(target)
+  }),
+  http.post(`${BASE}/reservation-waitlists`, async ({ request }) => {
+    const body = (await request.json()) as { slotId: number }
+    if (demoWaitlists.some((w) => w.slotId === body.slotId && w.status === 'WAITING')) {
+      return fail('WAITLIST_002', '이미 해당 예약 슬롯의 대기열에 등록했습니다.', 409)
+    }
+    const created = {
+      waitlistId: waitlistSeq++,
+      slotId: body.slotId,
+      status: 'WAITING' as const,
+      requestedAt: new Date().toISOString(),
+      offeredAt: null,
+      offerExpiresAt: null,
+      respondedAt: null,
+      canceledAt: null,
+    }
+    demoWaitlists.unshift(created)
+    return ok(created, 201)
+  }),
+  http.delete(`${BASE}/reservation-waitlists/:waitlistId`, ({ params }) => {
+    const target = demoWaitlists.find(
+      (w) => w.waitlistId === Number(params.waitlistId),
+    )
+    if (!target) {
+      return fail('WAITLIST_003', '예약 대기열을 찾을 수 없습니다.', 404)
+    }
+    if (target.status !== 'WAITING') {
+      return fail('WAITLIST_006', 'WAITING 상태의 예약 대기열만 취소할 수 있습니다.', 409)
+    }
+    target.status = 'CANCELED'
+    target.canceledAt = new Date().toISOString()
+    return ok(null)
+  }),
+  http.post(
+    `${BASE}/reservation-waitlists/:waitlistId/accept`,
+    async ({ params, request }) => {
+      const target = demoWaitlists.find(
+        (w) => w.waitlistId === Number(params.waitlistId),
+      )
+      if (!target || target.status !== 'OFFERED') {
+        return fail('WAITLIST_004', '현재 응답할 수 있는 승급 제안이 없습니다.', 409)
+      }
+      const body = (await request.json()) as {
+        petId: number
+        paymentMethodId: number
+      }
+      const hospitalId = hospitalOfSlot(target.slotId)
+      const reservationId = reservationSeq++
+      const now = new Date().toISOString()
+      target.status = 'ACCEPTED'
+      target.respondedAt = now
+      // 실 백엔드처럼 예약을 생성한다 — 내 예약 목록·상세로 흐름이 이어지게 반영.
+      const pet = demoPets.find((p) => p.petId === body.petId)
+      mockReservations.unshift({
+        reservationId,
+        hospitalId,
+        hospitalName: hospitalDetails[hospitalId]?.name ?? '병원',
+        petId: body.petId,
+        petName: pet?.name ?? '반려동물',
+        reservedAt: new Date(Date.now() + 86_400_000).toISOString(),
+        reservationStatus: 'REQUESTED',
+        paymentStatus: null,
+        progressStatus: 'RESERVATION_REQUESTED',
+      })
+      return ok(
+        {
+          reservationId,
+          petId: body.petId,
+          hospitalId,
+          slotId: target.slotId,
+          status: 'REQUESTED',
+          requestedAt: now,
+        },
+        201,
+      )
+    },
+  ),
+  http.patch(`${BASE}/reservation-waitlists/:waitlistId/reject`, ({ params }) => {
+    const target = demoWaitlists.find(
+      (w) => w.waitlistId === Number(params.waitlistId),
+    )
+    if (!target || target.status !== 'OFFERED') {
+      return fail('WAITLIST_004', '현재 응답할 수 있는 승급 제안이 없습니다.', 409)
+    }
+    target.status = 'REJECTED'
+    target.respondedAt = new Date().toISOString()
     return ok(null)
   }),
 ]

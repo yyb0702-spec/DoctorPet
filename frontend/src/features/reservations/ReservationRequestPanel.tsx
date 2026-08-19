@@ -6,11 +6,17 @@ import { todaySeoul, useHospitalSlots } from '@/features/hospitals/hooks'
 import { usePets } from '@/features/pets/hooks'
 import { usePaymentMethods } from '@/features/payments/hooks'
 import { useCreateReservation } from './hooks'
+import {
+  useMyWaitlists,
+  useRegisterWaitlist,
+} from '@/features/waitlist/hooks'
+import { WaitlistStatus } from '@/features/waitlist/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState, PageLoader } from '@/components/common/States'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
+import { useAuthStore } from '@/lib/auth/authStore'
 
 // LocalDateTime("...THH:mm:ss")은 타임존이 없어 로컬 시각으로 파싱된다 → 시:분만 표시.
 function formatSlotTime(iso: string): string {
@@ -26,34 +32,58 @@ function parseDate(dateStr: string): Date {
 }
 const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토']
 
+// RESERVED는 별도 대기 신청 경로로 처리하므로 여기엔 마감(LEAD_TIME_CLOSED)만 둔다.
 const SLOT_STATUS_LABEL: Record<string, string> = {
-  RESERVED: '예약됨',
   LEAD_TIME_CLOSED: '마감',
 }
 
 export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) {
   const navigate = useNavigate()
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const [selectedDate, setSelectedDate] = useState<string>(todaySeoul())
   const slotsQuery = useHospitalSlots(hospitalId, selectedDate)
   const petsQuery = usePets()
   const methodsQuery = usePaymentMethods()
   const createReservation = useCreateReservation()
+  const myWaitlistsQuery = useMyWaitlists()
+  const registerWaitlist = useRegisterWaitlist()
 
   const [slotId, setSlotId] = useState<number | null>(null)
   const [petId, setPetId] = useState<number | null>(null)
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null)
+  // 대기 신청은 슬롯별 액션이라 어느 슬롯이 처리 중인지 추적한다(버튼 라벨용).
+  const [registeringSlotId, setRegisteringSlotId] = useState<number | null>(null)
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
 
+  // 활성(WAITING·OFFERED) 대기열이 걸린 슬롯 — 해당 슬롯은 "대기중"으로 표시해 중복 신청을 막는다.
+  const activeWaitlistSlotIds = new Set(
+    (myWaitlistsQuery.data ?? [])
+      .filter(
+        (w) =>
+          w.status === WaitlistStatus.WAITING ||
+          w.status === WaitlistStatus.OFFERED,
+      )
+      .map((w) => w.slotId),
+  )
+
+  const handleRegisterWaitlist = (targetSlotId: number) => {
+    setRegisteringSlotId(targetSlotId)
+    registerWaitlist.mutate(targetSlotId, {
+      onSettled: () => setRegisteringSlotId(null),
+    })
+  }
+
   const dateAvailabilities = slotsQuery.data?.dateAvailabilities ?? []
   const slots = slotsQuery.data?.slots ?? []
 
-  // 날짜를 바꾸면 이전에 고른 슬롯은 무효 → 초기화.
+  // 날짜를 바꾸면 이전에 고른 슬롯은 무효 → 초기화. 이전 날짜에서 남은 대기 신청 결과 메시지도 지운다.
   const handleSelectDate = (date: string) => {
     if (date === selectedDate) return
     setSelectedDate(date)
     setSlotId(null)
+    registerWaitlist.reset()
   }
 
   const canSubmit =
@@ -148,6 +178,57 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
             ) : (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {slots.map((s) => {
+                  // 만석(RESERVED) 슬롯은 예약 대신 대기 신청 경로를 얹는다.
+                  if (s.availabilityStatus === 'RESERVED') {
+                    const alreadyWaitlisted = activeWaitlistSlotIds.has(s.slotId)
+                    const pending = registeringSlotId === s.slotId
+                    if (alreadyWaitlisted) {
+                      return (
+                        <div
+                          key={s.slotId}
+                          className="flex items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700"
+                        >
+                          <span>{formatSlotTime(s.startAt)}</span>
+                          <span className="ml-1 text-xs">대기중</span>
+                        </div>
+                      )
+                    }
+                    // 미인증이면 로그인으로 유도(예약 요청과 동일한 사전조건).
+                    if (!isAuthenticated) {
+                      return (
+                        <Link
+                          key={s.slotId}
+                          to="/login"
+                          className="flex items-center justify-center rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent"
+                        >
+                          <span>{formatSlotTime(s.startAt)}</span>
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            대기 신청
+                          </span>
+                        </Link>
+                      )
+                    }
+                    return (
+                      <button
+                        key={s.slotId}
+                        type="button"
+                        disabled={pending}
+                        onClick={() => handleRegisterWaitlist(s.slotId)}
+                        className={cn(
+                          'rounded-md border px-3 py-2 text-sm transition-colors',
+                          pending
+                            ? 'cursor-wait opacity-60'
+                            : 'hover:bg-accent',
+                        )}
+                      >
+                        <span>{formatSlotTime(s.startAt)}</span>
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          {pending ? '신청 중…' : '대기 신청'}
+                        </span>
+                      </button>
+                    )
+                  }
+                  // AVAILABLE만 선택 가능, LEAD_TIME_CLOSED는 마감.
                   const disabled = s.availabilityStatus !== 'AVAILABLE'
                   return (
                     <button
@@ -173,6 +254,22 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   )
                 })}
               </div>
+            )}
+            {registerWaitlist.isError && (
+              <p className="text-sm text-destructive">
+                {registerWaitlist.error instanceof ApiError
+                  ? registerWaitlist.error.message
+                  : '대기 신청에 실패했습니다.'}
+              </p>
+            )}
+            {registerWaitlist.isSuccess && registeringSlotId === null && (
+              <p className="text-sm text-emerald-700">
+                대기 신청이 완료됐습니다.{' '}
+                <Link to="/waitlists" className="font-medium underline">
+                  내 대기열
+                </Link>
+                에서 확인하세요.
+              </p>
             )}
           </div>
         )}
