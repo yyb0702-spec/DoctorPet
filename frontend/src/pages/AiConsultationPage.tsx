@@ -115,7 +115,7 @@ export function AiConsultationPage() {
 
           <div className="space-y-1.5">
             <p className="text-sm font-medium">반려동물</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {SPECIES_ORDER.map((s) => (
                 <Button
                   key={s}
