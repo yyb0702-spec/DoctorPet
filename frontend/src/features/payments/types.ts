@@ -7,6 +7,8 @@ export interface PaymentMethod {
   cardBrand: string | null
   cardLast4: string | null
   status: string // ACTIVE / EXPIRED / DELETED
+  // 회원별 활성 기본 결제수단은 최대 1건이다(PR #152). 청구·예약 요청의 기본 선택값으로 쓴다.
+  isDefault: boolean
   createdAt: string
 }
 

@@ -5,7 +5,9 @@ import { MapPin, Phone } from 'lucide-react'
 import {
   useCancelReservation,
   useReservationDetail,
+  useUpdateReservationPaymentMethod,
 } from '@/features/reservations/hooks'
+import { canChangePaymentMethod } from '@/features/reservations/paymentMethodChange'
 import {
   usePaymentMethods,
   useRechargePayment,
@@ -256,6 +258,82 @@ function RechargePanel({ reservationId }: { reservationId: number }) {
   )
 }
 
+/*
+ * 진료 전 예약의 결제수단을 바꾸는 패널(SA §8-7, PR #152).
+ *
+ * 예약 상세 응답에는 지금 지정된 결제수단이 없어서(ReservationDetailResponse에 필드 부재) "현재 카드"를
+ * 보여줄 수 없다 — 바꿀 수단만 고르게 하고 결과만 알린다. 서버는 예약 행을 잠근 뒤 판정하므로,
+ * 청구가 먼저 커밋된 경우 RESERVATION_019로 거절되고 그때는 결제 내역을 다시 읽어 패널이 닫힌다.
+ */
+function PaymentMethodChangePanel({ reservationId }: { reservationId: number }) {
+  const methodsQuery = usePaymentMethods()
+  const changeMethod = useUpdateReservationPaymentMethod(reservationId)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [changed, setChanged] = useState(false)
+
+  // 서버가 ACTIVE만 받으므로 화면에서도 ACTIVE만 고를 수 있게 한다.
+  const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+  const labels = paymentMethodLabels(methods)
+
+  if (methodsQuery.isLoading || methods.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>결제수단</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <p className="text-muted-foreground">
+          진료비는 진료 완료 후 자동 결제돼요. 진료 시작 전까지 사용할 결제수단을 바꿀 수 있어요.
+        </p>
+        <div className="grid gap-1">
+          {methods.map((m) => (
+            <label
+              key={m.id}
+              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
+            >
+              <input
+                type="radio"
+                name={`change-method-${reservationId}`}
+                value={m.id}
+                checked={selectedId === m.id}
+                onChange={() => {
+                  setSelectedId(m.id)
+                  setChanged(false)
+                }}
+              />
+              <span>{labels.get(m.id)}</span>
+              {m.isDefault && <Badge variant="muted">기본</Badge>}
+            </label>
+          ))}
+        </div>
+        {changed && (
+          <p className="text-emerald-700">이 결제수단으로 변경했어요.</p>
+        )}
+        {changeMethod.isError && (
+          <p className="text-destructive">
+            {changeMethod.error instanceof ApiError
+              ? changeMethod.error.message
+              : '결제수단을 변경하지 못했어요.'}
+          </p>
+        )}
+        <Button
+          size="sm"
+          disabled={selectedId === null || changeMethod.isPending}
+          onClick={() => {
+            if (selectedId === null) return
+            changeMethod.mutate(selectedId, {
+              onSuccess: () => setChanged(true),
+            })
+          }}
+        >
+          {changeMethod.isPending ? '변경 중…' : '이 수단으로 변경'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function ReservationDetailPage() {
   const { reservationId } = useParams()
   const id = Number(reservationId)
@@ -339,6 +417,11 @@ export function ReservationDetailPage() {
           </dl>
         </CardContent>
       </Card>
+
+      {/* 진료 전 결제수단 재지정. 결제 선기록이 생기면(=청구 시작) 조건이 깨져 사라진다. */}
+      {canChangePaymentMethod(r.reservationStatus, paymentsQuery.data) && (
+        <PaymentMethodChangePanel reservationId={id} />
+      )}
 
       {/* 결제 내역 (진료 완료 이후 청구된 경우). 예약당 여러 건일 수 있다
           (빌링키 자동 청구 실패 → 오프라인 수납). 진료 전이면 빈 배열이라 표시하지 않는다. */}

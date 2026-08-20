@@ -96,6 +96,13 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
   const myWaitlists = myWaitlistsQuery.data ?? []
 
+  /*
+    기본 결제수단(PR #152)을 초기 선택값으로 쓴다. useEffect로 상태에 밀어넣지 않고 읽는 시점에
+    합성한다 — 목록이 늦게 도착해도 반영되고, 사용자가 직접 고른 값이 나중에 덮이지 않는다.
+  */
+  const effectivePaymentMethodId =
+    paymentMethodId ?? methods.find((m) => m.isDefault)?.id ?? null
+
   const dateAvailabilities = slotsQuery.data?.dateAvailabilities ?? []
   const slots = slotsQuery.data?.slots ?? []
 
@@ -108,12 +115,13 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
   }
 
   const canSubmit =
-    slotId != null && petId != null && paymentMethodId != null
+    slotId != null && petId != null && effectivePaymentMethodId != null
 
   const handleSubmit = () => {
-    if (petId == null || slotId == null || paymentMethodId == null) return
+    if (petId == null || slotId == null || effectivePaymentMethodId == null)
+      return
     createReservation.mutate(
-      { petId, slotId, paymentMethodId },
+      { petId, slotId, paymentMethodId: effectivePaymentMethodId },
       { onSuccess: () => navigate('/reservations') },
     )
   }
@@ -310,10 +318,13 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   key={m.id}
                   type="button"
                   size="sm"
-                  variant={paymentMethodId === m.id ? 'default' : 'outline'}
+                  variant={
+                    effectivePaymentMethodId === m.id ? 'default' : 'outline'
+                  }
                   onClick={() => setPaymentMethodId(m.id)}
                 >
                   {m.cardBrand ?? '카드'} ****{m.cardLast4 ?? '****'}
+                  {m.isDefault && ' · 기본'}
                 </Button>
               ))}
             </div>

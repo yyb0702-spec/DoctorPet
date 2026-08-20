@@ -38,6 +38,17 @@ export function useRemovePaymentMethod() {
   })
 }
 
+// 기본 결제수단 지정. 다른 수단의 기본 해제까지 서버가 한 트랜잭션에서 처리하므로 목록을 다시 불러온다.
+export function useSetDefaultPaymentMethod() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (paymentMethodId: number) =>
+      paymentApi.setDefaultMethod(paymentMethodId),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: paymentKeys.methods }),
+  })
+}
+
 export function useReservationPayments(reservationId: number) {
   return useQuery({
     queryKey: paymentKeys.reservationPayments(reservationId),

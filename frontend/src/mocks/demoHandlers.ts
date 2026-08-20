@@ -164,6 +164,8 @@ let demoMethods: PaymentMethod[] = [
     cardBrand: 'SHINHAN',
     cardLast4: '1234',
     status: 'ACTIVE',
+    // 회원별 활성 기본 결제수단은 최대 1건(PR #152). 첫 수단을 기본으로 시드한다.
+    isDefault: true,
     createdAt: new Date(Date.now() - 86_400_000).toISOString(),
   },
 ]
@@ -417,6 +419,8 @@ export const demoHandlers = [
       cardBrand: 'KB',
       cardLast4: String(1000 + Math.floor(methodSeq * 7)).slice(-4),
       status: 'ACTIVE',
+      // 실 백엔드도 등록만으로는 기본이 되지 않는다(첫 수단 자동 지정은 서비스 규칙 밖).
+      isDefault: false,
       createdAt: new Date().toISOString(),
     }
     demoMethods.push(method)
@@ -425,6 +429,25 @@ export const demoHandlers = [
   http.delete(`${BASE}/payment-methods/:id`, ({ params }) => {
     demoMethods = demoMethods.filter((m) => m.id !== Number(params.id))
     return new HttpResponse(null, { status: 204 })
+  }),
+  // 기본 결제수단 지정 — 기존 기본을 해제하고 대상만 지정한다(서버와 동일하게 항상 1건 유지).
+  http.patch(`${BASE}/payment-methods/:id/default`, ({ params }) => {
+    const id = Number(params.id)
+    const target = demoMethods.find((m) => m.id === id)
+    if (!target) {
+      return fail('PAYMENT_METHOD_003', '결제수단을 찾을 수 없습니다.', 404)
+    }
+    if (target.status !== 'ACTIVE') {
+      return fail(
+        'PAYMENT_METHOD_004',
+        '활성 상태의 결제수단만 지정할 수 있습니다.',
+        409,
+      )
+    }
+    demoMethods.forEach((m) => {
+      m.isDefault = m.id === id
+    })
+    return ok(target)
   }),
 
   // --- JSON 영수증 (dev:mock 오프라인 전용) — 보호자·스태프 공통 빌더(위 receiptResolver) ---
@@ -515,6 +538,47 @@ export const demoHandlers = [
     }
     return ok(null)
   }),
+
+  /*
+    예약 결제수단 재지정. 서버 거절 조건을 그대로 흉내낸다 — 진료 시작 후면 RESERVATION_018,
+    결제 선기록이 있으면 RESERVATION_019다. 재지정 결과는 응답 계약(Void)에 드러나지 않으므로
+    목에서도 상태를 따로 보관하지 않는다.
+  */
+  http.patch(
+    `${BASE}/reservations/:reservationId/payment-method`,
+    async ({ params, request }) => {
+      const id = Number(params.reservationId)
+      const body = (await request.json()) as { paymentMethodId?: number }
+      const method = demoMethods.find((m) => m.id === body.paymentMethodId)
+      if (!method) {
+        return fail('PAYMENT_METHOD_003', '결제수단을 찾을 수 없습니다.', 404)
+      }
+      if (method.status !== 'ACTIVE') {
+        return fail(
+          'PAYMENT_METHOD_004',
+          '활성 상태의 결제수단만 지정할 수 있습니다.',
+          409,
+        )
+      }
+      const detail = mockReservationDetail[id]
+      const status = detail?.reservationStatus
+      if (status && status !== 'REQUESTED' && status !== 'CONFIRMED') {
+        return fail(
+          'RESERVATION_018',
+          '현재 예약 상태에서는 결제수단을 변경할 수 없습니다.',
+          409,
+        )
+      }
+      if (mockPaymentByReservation[id]?.length) {
+        return fail(
+          'RESERVATION_019',
+          '결제가 시작된 예약은 결제수단을 변경할 수 없습니다.',
+          409,
+        )
+      }
+      return ok(null)
+    },
+  ),
 
   // --- 예약 대기열 (dev:mock 오프라인 전용) ---
   http.get(`${BASE}/reservation-waitlists`, () => ok(demoWaitlists)),
