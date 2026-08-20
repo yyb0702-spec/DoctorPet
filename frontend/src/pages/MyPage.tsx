@@ -1,10 +1,11 @@
 // 마이페이지 — 회원 정보(조회·닉네임 수정) + 반려동물·결제수단 요약 및 관리 진입 + 회원 탈퇴.
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, PawPrint, CreditCard } from 'lucide-react'
+import { ChevronRight, PawPrint, CreditCard, Heart } from 'lucide-react'
 import { useMe, useUpdateNickname, useWithdraw } from '@/features/members/hooks'
 import { usePets } from '@/features/pets/hooks'
 import { usePaymentMethods } from '@/features/payments/hooks'
+import { useFavoriteHospitals } from '@/features/hospitals/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -151,6 +152,8 @@ export function MyPage() {
   const me = useMe()
   const pets = usePets()
   const methods = usePaymentMethods()
+  // 요약 카드는 개수만 쓰므로 첫 페이지 1건만 받아 totalElements를 읽는다.
+  const favorites = useFavoriteHospitals(1, 1)
   const [editingNickname, setEditingNickname] = useState(false)
 
   return (
@@ -266,6 +269,29 @@ export function MyPage() {
             {methods.isLoading
               ? '불러오는 중…'
               : `등록된 결제수단 ${methods.data?.length ?? 0}개`}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 관심 병원 요약 */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="flex items-center gap-2">
+            <Heart className="h-5 w-5 text-primary" />
+            관심 병원
+          </CardTitle>
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/favorites">
+              관리 <ChevronRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {/* 개수만 보여준다 — 첫 페이지만 받아도 totalElements로 전체를 알 수 있다. */}
+          <p className="text-sm text-muted-foreground">
+            {favorites.isLoading
+              ? '불러오는 중…'
+              : `찜한 병원 ${favorites.data?.totalElements ?? 0}곳`}
           </p>
         </CardContent>
       </Card>

@@ -16,6 +16,7 @@ const PUBLIC_NAV = [
 const PRIVATE_NAV = [
   { to: '/reservations', label: '내 예약' },
   { to: '/waitlists', label: '내 대기열' },
+  { to: '/favorites', label: '관심 병원' },
 ]
 
 export function AppLayout() {

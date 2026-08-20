@@ -56,6 +56,7 @@ function synthDetail(h: HospitalSummary): HospitalDetail {
     averageApprovalMinutes: partner ? 24 : null,
     averageRating: null,
     reviewCount: 0,
+    favorite: false,
   }
 }
 
@@ -99,6 +100,7 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     averageApprovalMinutes: 18,
     averageRating: 4.5,
     reviewCount: 2,
+    favorite: false,
   },
   2: {
     hospitalId: 2,
@@ -127,6 +129,7 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     averageApprovalMinutes: 31,
     averageRating: null,
     reviewCount: 0,
+    favorite: false,
   },
   3: {
     hospitalId: 3,
@@ -147,6 +150,7 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     averageApprovalMinutes: null,
     averageRating: null,
     reviewCount: 0,
+    favorite: false,
   },
 }
 
@@ -241,6 +245,20 @@ function withReviewAggregate(detail: HospitalDetail): HospitalDetail {
     averageRating: Math.round((sum / ratings.length) * 10) / 10,
     reviewCount: ratings.length,
   }
+}
+
+/*
+  찜 in-memory 저장소 (dev:mock 오프라인 전용). 검색 목록은 공용 handlers.ts가 mockHospitals를
+  그대로 내려주므로, 토글 때 그 배열의 favorite도 함께 갈아끼워 검색·상세·찜목록 세 화면의
+  하트가 어긋나지 않게 한다.
+*/
+const demoFavorites = new Set<number>([2])
+mockHospitals.forEach((h) => {
+  h.favorite = demoFavorites.has(h.hospitalId)
+})
+
+function withFavorite(detail: HospitalDetail): HospitalDetail {
+  return { ...detail, favorite: demoFavorites.has(detail.hospitalId) }
 }
 
 // 예약 대기열 in-memory 저장소 (dev:mock 오프라인 전용). WAITING·OFFERED·종료 상태를 한 건씩 시드.
@@ -476,10 +494,62 @@ export const demoHandlers = [
   http.get(`${BASE}/hospitals/:hospitalId`, ({ params }) => {
     const id = Number(params.hospitalId)
     const detail = hospitalDetails[id]
-    if (detail) return ok(withReviewAggregate(detail))
+    if (detail) return ok(withFavorite(withReviewAggregate(detail)))
     const summary = mockHospitals.find((h) => h.hospitalId === id)
-    if (summary) return ok(withReviewAggregate(synthDetail(summary)))
+    if (summary) return ok(withFavorite(withReviewAggregate(synthDetail(summary))))
     return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
+  }),
+
+  // --- 찜(관심 병원) ---
+  // 추가는 멱등이다(이미 찜한 병원에 다시 PUT해도 200).
+  http.put(`${BASE}/hospitals/:hospitalId/favorite`, ({ params }) => {
+    const id = Number(params.hospitalId)
+    const known =
+      hospitalDetails[id] || mockHospitals.some((h) => h.hospitalId === id)
+    if (!known) return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
+    demoFavorites.add(id)
+    const summary = mockHospitals.find((h) => h.hospitalId === id)
+    if (summary) summary.favorite = true
+    return ok(null)
+  }),
+  // 해제는 204 + 본문 없음(백엔드와 동일).
+  http.delete(`${BASE}/hospitals/:hospitalId/favorite`, ({ params }) => {
+    const id = Number(params.hospitalId)
+    demoFavorites.delete(id)
+    const summary = mockHospitals.find((h) => h.hospitalId === id)
+    if (summary) summary.favorite = false
+    return new HttpResponse(null, { status: 204 })
+  }),
+  // 내 찜 목록 — page는 1-base(검색과 같은 규약).
+  http.get(`${BASE}/members/me/favorite-hospitals`, ({ request }) => {
+    const url = new URL(request.url)
+    const page = Number(url.searchParams.get('page') ?? '1')
+    const size = Number(url.searchParams.get('size') ?? '20')
+    const all = [...demoFavorites].map((id) => {
+      const detail = hospitalDetails[id]
+      const summary = mockHospitals.find((h) => h.hospitalId === id)
+      return {
+        hospitalId: id,
+        name: detail?.name ?? summary?.name ?? `병원 ${id}`,
+        address: detail?.address ?? summary?.address ?? '주소 미확인',
+        businessStatus: detail?.businessStatus ?? summary?.businessStatus ?? 'OPEN',
+        partnershipStatus:
+          detail?.partnershipStatus ?? summary?.partnershipStatus ?? 'NON_PARTNER',
+        favorite: true,
+        favoritedAt: new Date().toISOString(),
+      }
+    })
+    const totalElements = all.length
+    const totalPages = Math.max(1, Math.ceil(totalElements / size))
+    return ok({
+      content: all.slice((page - 1) * size, page * size),
+      page,
+      size,
+      totalElements,
+      totalPages,
+      first: page === 1,
+      last: page >= totalPages,
+    })
   }),
 
   // --- 결제수단 ---

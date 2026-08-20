@@ -2,6 +2,7 @@
 import { http } from '@/lib/api/client'
 import type { PageResponse } from '@/types/api'
 import type {
+  FavoriteHospital,
   HospitalDetail,
   HospitalSearchParams,
   HospitalSlotLookup,
@@ -45,4 +46,15 @@ export const hospitalApi = {
   // 실연동. date(yyyy-MM-dd) 필수. selectedDate 슬롯 + 14일치 날짜 가용성.
   getSlots: (hospitalId: number, date: string) =>
     http.get<HospitalSlotLookup>(`/hospitals/${hospitalId}/slots?date=${date}`),
+
+  // 찜 — 실연동. 추가는 PUT(멱등, 200 Void), 해제는 DELETE(204 본문 없음).
+  addFavorite: (hospitalId: number) =>
+    http.put<void>(`/hospitals/${hospitalId}/favorite`),
+  removeFavorite: (hospitalId: number) =>
+    http.delete<void>(`/hospitals/${hospitalId}/favorite`),
+  // 내 찜 목록. page는 1-base다(검색과 같고, 알림 목록의 0-base와 다르다).
+  listFavorites: (page = 1, size = 20) =>
+    http.get<PageResponse<FavoriteHospital>>(
+      `/members/me/favorite-hospitals?page=${page}&size=${size}`,
+    ),
 }

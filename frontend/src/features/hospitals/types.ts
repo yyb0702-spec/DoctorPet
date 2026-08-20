@@ -47,6 +47,8 @@ export interface HospitalDetail {
   // 후기 평점 집계(이슈 #114). 후기가 없으면 averageRating은 null, reviewCount는 0이다.
   averageRating: number | null // 1.0~5.0
   reviewCount: number
+  // 로그인 회원의 찜 여부. 비로그인 조회면 서버가 항상 false로 준다.
+  favorite: boolean
 }
 
 // GET /api/hospitals (검색, 실연동). HospitalSearchResponse 실제 필드 기준.
@@ -61,6 +63,20 @@ export interface HospitalSummary {
   reservationAvailable: boolean // 제휴 + 영업중일 때만 true
   partnershipBadge: string | null // "제휴 전 병원" | null
   openNow: boolean | null // 제휴 병원만, 그 외 null
+  // 로그인 회원의 찜 여부. 비로그인 검색이면 서버가 항상 false로 준다.
+  favorite: boolean
+}
+
+// GET /api/members/me/favorite-hospitals (페이지 응답, page는 1-base — 검색과 같은 규약).
+// FavoriteHospitalResponse 실제 필드 기준. 검색 요약과 달리 거리·예약가능 여부는 없다.
+export interface FavoriteHospital {
+  hospitalId: number
+  name: string
+  address: string
+  businessStatus: BusinessStatus
+  partnershipStatus: PartnershipStatus
+  favorite: boolean // 목록 자체가 찜 목록이라 항상 true다
+  favoritedAt: string
 }
 
 // 검색 쿼리 파라미터 (HospitalController.searchHospitals 기준).
