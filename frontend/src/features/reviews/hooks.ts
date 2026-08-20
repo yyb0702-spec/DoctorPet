@@ -6,8 +6,10 @@ import { hospitalKeys } from '@/features/hospitals/hooks'
 
 export const reviewKeys = {
   all: ['reviews'] as const,
-  hospital: (hospitalId: number, page: number) =>
-    ['reviews', 'hospital', hospitalId, page] as const,
+  // 조회 파라미터를 모두 키에 넣는다 — size가 빠지면 같은 병원·페이지를 다른 크기로 부르는
+  // 호출이 생겼을 때 이전 크기의 응답을 그대로 재사용한다(PR #189 리뷰 P2).
+  hospital: (hospitalId: number, page: number, size: number) =>
+    ['reviews', 'hospital', hospitalId, page, size] as const,
   mine: (reservationId: number) => ['reviews', 'mine', reservationId] as const,
 }
 
@@ -17,7 +19,7 @@ export function useHospitalReviews(
   size = 5,
 ) {
   return useQuery({
-    queryKey: reviewKeys.hospital(hospitalId, page),
+    queryKey: reviewKeys.hospital(hospitalId, page, size),
     queryFn: () => reviewApi.listByHospital(hospitalId, page, size),
     enabled: Number.isFinite(hospitalId),
   })
