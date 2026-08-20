@@ -21,3 +21,13 @@ export interface Notification {
 export interface SubscribeTicketResponse {
   ticket: string
 }
+
+// GET /notifications/unread-count 응답(고도화 3.8). 배지 숫자만 필요할 때 목록을 폴링하지 않는다.
+export interface NotificationUnreadCount {
+  unreadCount: number
+}
+
+// PATCH /notifications/read-all 응답. 이번 요청에서 미읽음→읽음으로 바뀐 건수(멱등이라 0일 수 있다).
+export interface NotificationReadAllResult {
+  updatedCount: number
+}

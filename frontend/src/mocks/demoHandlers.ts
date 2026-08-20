@@ -56,6 +56,7 @@ function synthDetail(h: HospitalSummary): HospitalDetail {
     averageApprovalMinutes: partner ? 24 : null,
     averageRating: null,
     reviewCount: 0,
+    favorite: false,
   }
 }
 
@@ -99,6 +100,7 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     averageApprovalMinutes: 18,
     averageRating: 4.5,
     reviewCount: 2,
+    favorite: false,
   },
   2: {
     hospitalId: 2,
@@ -127,6 +129,7 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     averageApprovalMinutes: 31,
     averageRating: null,
     reviewCount: 0,
+    favorite: false,
   },
   3: {
     hospitalId: 3,
@@ -147,6 +150,7 @@ const hospitalDetails: Record<number, HospitalDetail> = {
     averageApprovalMinutes: null,
     averageRating: null,
     reviewCount: 0,
+    favorite: false,
   },
 }
 
@@ -161,8 +165,24 @@ let demoMember = {
 
 // 펫 in-memory 저장소 (dev:mock 오프라인 전용).
 const demoPets: Pet[] = [
-  { petId: 1, name: '초코', species: 'DOG', age: 3, weight: 5.2, neutered: true },
-  { petId: 2, name: '나비', species: 'CAT', age: 2, weight: 3.8, neutered: false },
+  {
+    petId: 1,
+    name: '초코',
+    species: 'DOG',
+    age: 3,
+    weight: 5.2,
+    neutered: true,
+    imageUrl: null,
+  },
+  {
+    petId: 2,
+    name: '나비',
+    species: 'CAT',
+    age: 2,
+    weight: 3.8,
+    neutered: false,
+    imageUrl: null,
+  },
 ]
 
 // 결제수단 in-memory 저장소.
@@ -172,6 +192,8 @@ let demoMethods: PaymentMethod[] = [
     cardBrand: 'SHINHAN',
     cardLast4: '1234',
     status: 'ACTIVE',
+    // 회원별 활성 기본 결제수단은 최대 1건(PR #152). 첫 수단을 기본으로 시드한다.
+    isDefault: true,
     createdAt: new Date(Date.now() - 86_400_000).toISOString(),
   },
 ]
@@ -223,6 +245,20 @@ function withReviewAggregate(detail: HospitalDetail): HospitalDetail {
     averageRating: Math.round((sum / ratings.length) * 10) / 10,
     reviewCount: ratings.length,
   }
+}
+
+/*
+  찜 in-memory 저장소 (dev:mock 오프라인 전용). 검색 목록은 공용 handlers.ts가 mockHospitals를
+  그대로 내려주므로, 토글 때 그 배열의 favorite도 함께 갈아끼워 검색·상세·찜목록 세 화면의
+  하트가 어긋나지 않게 한다.
+*/
+const demoFavorites = new Set<number>([2])
+mockHospitals.forEach((h) => {
+  h.favorite = demoFavorites.has(h.hospitalId)
+})
+
+function withFavorite(detail: HospitalDetail): HospitalDetail {
+  return { ...detail, favorite: demoFavorites.has(detail.hospitalId) }
 }
 
 // 예약 대기열 in-memory 저장소 (dev:mock 오프라인 전용). WAITING·OFFERED·종료 상태를 한 건씩 시드.
@@ -417,6 +453,20 @@ export const demoHandlers = [
       last: page >= totalPages - 1,
     })
   }),
+  // 미읽음 개수 — 목록 페이지 크기와 무관하게 전체 기준으로 센다(실 백엔드 count 쿼리와 같은 의미).
+  http.get(`${BASE}/notifications/unread-count`, () =>
+    ok({ unreadCount: mockNotifications.filter((n) => !n.isRead).length }),
+  ),
+  // 모두 읽음 — 미읽음만 갱신하고 갱신 건수를 돌려준다(멱등: 두 번째 호출은 0건).
+  http.patch(`${BASE}/notifications/read-all`, () => {
+    const unread = mockNotifications.filter((n) => !n.isRead)
+    const readAt = new Date().toISOString()
+    unread.forEach((n) => {
+      n.isRead = true
+      n.readAt = readAt
+    })
+    return ok({ updatedCount: unread.length })
+  }),
   http.patch(`${BASE}/notifications/:notificationId/read`, ({ params }) => {
     const target = mockNotifications.find(
       (n) => n.id === Number(params.notificationId),
@@ -444,20 +494,77 @@ export const demoHandlers = [
   http.get(`${BASE}/hospitals/:hospitalId`, ({ params }) => {
     const id = Number(params.hospitalId)
     const detail = hospitalDetails[id]
-    if (detail) return ok(withReviewAggregate(detail))
+    if (detail) return ok(withFavorite(withReviewAggregate(detail)))
     const summary = mockHospitals.find((h) => h.hospitalId === id)
-    if (summary) return ok(withReviewAggregate(synthDetail(summary)))
+    if (summary) return ok(withFavorite(withReviewAggregate(synthDetail(summary))))
     return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
+  }),
+
+  // --- 찜(관심 병원) ---
+  // 추가는 멱등이다(이미 찜한 병원에 다시 PUT해도 200).
+  http.put(`${BASE}/hospitals/:hospitalId/favorite`, ({ params }) => {
+    const id = Number(params.hospitalId)
+    const known =
+      hospitalDetails[id] || mockHospitals.some((h) => h.hospitalId === id)
+    if (!known) return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
+    demoFavorites.add(id)
+    const summary = mockHospitals.find((h) => h.hospitalId === id)
+    if (summary) summary.favorite = true
+    return ok(null)
+  }),
+  // 해제는 204 + 본문 없음(백엔드와 동일).
+  http.delete(`${BASE}/hospitals/:hospitalId/favorite`, ({ params }) => {
+    const id = Number(params.hospitalId)
+    demoFavorites.delete(id)
+    const summary = mockHospitals.find((h) => h.hospitalId === id)
+    if (summary) summary.favorite = false
+    return new HttpResponse(null, { status: 204 })
+  }),
+  // 내 찜 목록 — page는 1-base(검색과 같은 규약).
+  http.get(`${BASE}/members/me/favorite-hospitals`, ({ request }) => {
+    const url = new URL(request.url)
+    const page = Number(url.searchParams.get('page') ?? '1')
+    const size = Number(url.searchParams.get('size') ?? '20')
+    const all = [...demoFavorites].map((id) => {
+      const detail = hospitalDetails[id]
+      const summary = mockHospitals.find((h) => h.hospitalId === id)
+      return {
+        hospitalId: id,
+        name: detail?.name ?? summary?.name ?? `병원 ${id}`,
+        address: detail?.address ?? summary?.address ?? '주소 미확인',
+        businessStatus: detail?.businessStatus ?? summary?.businessStatus ?? 'OPEN',
+        partnershipStatus:
+          detail?.partnershipStatus ?? summary?.partnershipStatus ?? 'NON_PARTNER',
+        favorite: true,
+        // 백엔드는 오프셋 없는 LocalDateTime을 준다 — 목도 같은 모양으로 맞춘다(Z 붙은 ISO 아님).
+        favoritedAt: new Date().toISOString().slice(0, 19),
+      }
+    })
+    const totalElements = all.length
+    const totalPages = Math.max(1, Math.ceil(totalElements / size))
+    return ok({
+      content: all.slice((page - 1) * size, page * size),
+      page,
+      size,
+      totalElements,
+      totalPages,
+      first: page === 1,
+      last: page >= totalPages,
+    })
   }),
 
   // --- 결제수단 ---
   http.get(`${BASE}/payment-methods`, () => ok(demoMethods)),
   http.post(`${BASE}/payment-methods`, () => {
+    // 실 백엔드(saveAsFirstDefaultOrNonDefault)는 활성 수단이 하나도 없을 때만 신규 카드를
+    // 기본값으로 만든다 — "기본값 없음"이 곧 첫 등록은 아니므로 기준은 활성 수단의 존재다.
+    const hasActive = demoMethods.some((m) => m.status === 'ACTIVE')
     const method: PaymentMethod = {
       id: methodSeq++,
       cardBrand: 'KB',
       cardLast4: String(1000 + Math.floor(methodSeq * 7)).slice(-4),
       status: 'ACTIVE',
+      isDefault: !hasActive,
       createdAt: new Date().toISOString(),
     }
     demoMethods.push(method)
@@ -466,6 +573,25 @@ export const demoHandlers = [
   http.delete(`${BASE}/payment-methods/:id`, ({ params }) => {
     demoMethods = demoMethods.filter((m) => m.id !== Number(params.id))
     return new HttpResponse(null, { status: 204 })
+  }),
+  // 기본 결제수단 지정 — 기존 기본을 해제하고 대상만 지정한다(서버와 동일하게 항상 1건 유지).
+  http.patch(`${BASE}/payment-methods/:id/default`, ({ params }) => {
+    const id = Number(params.id)
+    const target = demoMethods.find((m) => m.id === id)
+    if (!target) {
+      return fail('PAYMENT_METHOD_003', '결제수단을 찾을 수 없습니다.', 404)
+    }
+    if (target.status !== 'ACTIVE') {
+      return fail(
+        'PAYMENT_METHOD_004',
+        '활성 상태의 결제수단만 지정할 수 있습니다.',
+        409,
+      )
+    }
+    demoMethods.forEach((m) => {
+      m.isDefault = m.id === id
+    })
+    return ok(target)
   }),
 
   // --- JSON 영수증 (dev:mock 오프라인 전용) — 보호자·스태프 공통 빌더(위 receiptResolver) ---
@@ -489,6 +615,7 @@ export const demoHandlers = [
       age: Number(b.age ?? 0),
       weight: Number(b.weight ?? 0),
       neutered: Boolean(b.neutered),
+      imageUrl: null,
     }
     demoPets.push(pet)
     return ok(pet, 201)
@@ -496,9 +623,47 @@ export const demoHandlers = [
   http.patch(`${BASE}/pets/:petId`, async ({ params, request }) => {
     const pet = demoPets.find((p) => p.petId === Number(params.petId))
     if (!pet) return fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
-    Object.assign(pet, await request.json())
+    const body = (await request.json()) as Record<string, unknown>
+    /*
+      서버는 imageUrl이 그 펫에게 발급한 key 접두사와 맞는지 확인하고 아니면 PET_002로 거절한다
+      (PetService.update → isManagedFileUrl). 목이 무검증으로 받으면 그 거부 UX를 오프라인에서
+      볼 수 없어 같은 조건을 흉내낸다.
+    */
+    if (
+      typeof body.imageUrl === 'string' &&
+      !body.imageUrl.startsWith(`/__mock-upload/pets/${pet.petId}/`)
+    ) {
+      return fail(
+        'PET_002',
+        '허용되지 않은 이미지 URL입니다. 발급받은 업로드 URL로 업로드한 이미지만 저장할 수 있습니다.',
+        400,
+      )
+    }
+    Object.assign(pet, body)
     return ok(pet)
   }),
+  /*
+    프로필 이미지 업로드 URL 발급 + 그 URL로의 PUT까지 목으로 받는다. 발급 응답의 uploadUrl은
+    같은 오리진(/__mock-upload/…)으로 만들어 MSW가 가로챌 수 있게 한다 — 실 백엔드(fake 스토리지)는
+    localhost:9000을 주고 실제 업로드는 되지 않으므로, 3단계 흐름 자체는 dev:mock에서만 끝까지 돈다.
+  */
+  http.post(`${BASE}/pets/:petId/image/upload-url`, async ({ params, request }) => {
+    const pet = demoPets.find((p) => p.petId === Number(params.petId))
+    if (!pet) return fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
+    const body = (await request.json()) as { contentType?: string }
+    const allowed = ['image/jpeg', 'image/png', 'image/webp']
+    if (!body.contentType || !allowed.includes(body.contentType)) {
+      return fail('COMMON_001', '입력값이 올바르지 않습니다.', 400)
+    }
+    const extension = body.contentType.split('/')[1]
+    const key = `pets/${pet.petId}/${Date.now()}.${extension}`
+    return ok({
+      uploadUrl: `/__mock-upload/${key}`,
+      imageUrl: `/__mock-upload/${key}`,
+      expiresInSeconds: 300,
+    })
+  }),
+  http.put('/__mock-upload/*', () => new HttpResponse(null, { status: 200 })),
   http.delete(`${BASE}/pets/:petId`, ({ params }) => {
     const i = demoPets.findIndex((p) => p.petId === Number(params.petId))
     if (i >= 0) demoPets.splice(i, 1)
@@ -557,6 +722,46 @@ export const demoHandlers = [
     return ok(null)
   }),
 
+  /*
+    예약 결제수단 재지정. 서버 거절 조건을 그대로 흉내낸다 — 진료 시작 후면 RESERVATION_018,
+    결제 선기록이 있으면 RESERVATION_019다. 재지정 결과는 응답 계약(Void)에 드러나지 않으므로
+    목에서도 상태를 따로 보관하지 않는다.
+  */
+  http.patch(
+    `${BASE}/reservations/:reservationId/payment-method`,
+    async ({ params, request }) => {
+      const id = Number(params.reservationId)
+      const body = (await request.json()) as { paymentMethodId?: number }
+      const method = demoMethods.find((m) => m.id === body.paymentMethodId)
+      if (!method) {
+        return fail('PAYMENT_METHOD_003', '결제수단을 찾을 수 없습니다.', 404)
+      }
+      if (method.status !== 'ACTIVE') {
+        return fail(
+          'PAYMENT_METHOD_004',
+          '활성 상태의 결제수단만 지정할 수 있습니다.',
+          409,
+        )
+      }
+      const detail = mockReservationDetail[id]
+      const status = detail?.reservationStatus
+      if (status && status !== 'REQUESTED' && status !== 'CONFIRMED') {
+        return fail(
+          'RESERVATION_018',
+          '현재 예약 상태에서는 결제수단을 변경할 수 없습니다.',
+          409,
+        )
+      }
+      if (mockPaymentByReservation[id]?.length) {
+        return fail(
+          'RESERVATION_019',
+          '결제가 시작된 예약은 결제수단을 변경할 수 없습니다.',
+          409,
+        )
+      }
+      return ok(null)
+    },
+  ),
   // --- 병원 후기 (dev:mock 오프라인 전용) ---
   http.get(`${BASE}/hospitals/:hospitalId/reviews`, ({ params, request }) => {
     const hospitalId = Number(params.hospitalId)

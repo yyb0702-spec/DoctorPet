@@ -61,7 +61,14 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const me = useMe()
-  const { notifications, unreadCount, markRead } = useNotifications()
+  const {
+    notifications,
+    unreadCount,
+    markRead,
+    markAllRead,
+    isMarkingAllRead,
+    refetch,
+  } = useNotifications()
 
   /*
     역할을 아직 모르는 동안(내 정보 조회 로딩 중이거나 실패)에는 어느 쪽 경로도 고르지 않는다. 보호자를
@@ -89,20 +96,39 @@ export function NotificationBell() {
         variant="ghost"
         size="icon"
         aria-label="알림"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // 목록은 주기 폴링을 하지 않으므로(useNotifications 주석) 열 때 한 번 최신을 받는다.
+          if (!open) refetch()
+          setOpen((v) => !v)
+        }}
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </Button>
       {open && (
         <div className="absolute right-0 mt-2 w-80 rounded-lg border bg-popover p-2 shadow-lg">
-          <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">
-            알림
-          </p>
+          <div className="flex items-center justify-between px-2 py-1">
+            <p className="text-xs font-semibold text-muted-foreground">알림</p>
+            {/*
+              배지 개수는 서버 집계라 드롭다운에 보이는 20건보다 많을 수 있다. 그래서 "모두 읽음"은
+              보이는 항목을 순회하지 않고 서버의 bulk UPDATE 한 번(PATCH /notifications/read-all)에 맡긴다.
+            */}
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={isMarkingAllRead}
+                onClick={() => markAllRead()}
+              >
+                {isMarkingAllRead ? '처리 중…' : '모두 읽음'}
+              </Button>
+            )}
+          </div>
           {notifications.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-muted-foreground">
               새 알림이 없습니다.

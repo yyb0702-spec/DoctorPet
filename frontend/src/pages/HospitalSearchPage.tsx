@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { MapPin, Search, ChevronDown } from 'lucide-react'
 import { useHospitalSearch } from '@/features/hospitals/hooks'
+import { FavoriteButton } from '@/features/hospitals/FavoriteButton'
 import type { HospitalSearchParams } from '@/features/hospitals/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -200,9 +201,15 @@ export function HospitalSearchPage() {
                     />
                   </span>
                 </button>
-                <Button asChild size="sm" variant="outline">
-                  <Link to={`/hospitals/${h.hospitalId}`}>상세</Link>
-                </Button>
+                <div className="flex items-center gap-1">
+                  <FavoriteButton
+                    hospitalId={h.hospitalId}
+                    favorite={h.favorite}
+                  />
+                  <Button asChild size="sm" variant="outline">
+                    <Link to={`/hospitals/${h.hospitalId}`}>상세</Link>
+                  </Button>
+                </div>
               </div>
               {open && (
                 <CardContent className="pb-5 pt-0">

@@ -44,7 +44,9 @@ interface BackendCode {
 
 // enum 상수는 한 줄이거나 여러 줄로 줄바꿈돼 있다. 둘 다 받는다.
 // 예: PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_005", "결제 정보를 찾을 수 없습니다."),
-const BACKEND_ENTRY = /HttpStatus\.([A-Z_]+),\s*"([A-Z]+_\d{3})",\s*"([^"]*)"/g
+// 도메인 접두사에 밑줄이 여러 개인 코드(PAYMENT_METHOD_003)도 받는다 — [A-Z]+만 쓰면 그 계열이
+// 통째로 map에서 빠져, 목이 그 코드를 써도 "백엔드에 없는 코드"로 오판한다.
+const BACKEND_ENTRY = /HttpStatus\.([A-Z_]+),\s*"([A-Z][A-Z_]*_\d{3})",\s*"([^"]*)"/g
 
 function loadBackendCodes(): Map<string, BackendCode> {
   const codes = new Map<string, BackendCode>()

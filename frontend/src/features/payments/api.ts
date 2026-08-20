@@ -11,6 +11,10 @@ export const paymentApi = {
     http.post<PaymentMethod>('/payment-methods', { billingKey }),
   removeMethod: (paymentMethodId: number) =>
     http.delete<void>(`/payment-methods/${paymentMethodId}`),
+  // 기본 결제수단 지정 — 실연동 (SA §8-7, PR #152). ACTIVE·본인 소유만 지정할 수 있고,
+  // 서버가 기존 기본값을 같은 트랜잭션에서 해제하므로 회원당 기본은 항상 1건이다.
+  setDefaultMethod: (paymentMethodId: number) =>
+    http.patch<PaymentMethod>(`/payment-methods/${paymentMethodId}/default`),
 
   // 결제 내역 — 실연동 (SA §8-7, #47). 예약당 여러 건 가능(배열).
   getReservationPayments: (reservationId: number) =>

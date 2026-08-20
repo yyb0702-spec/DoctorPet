@@ -4,6 +4,8 @@ import { PawPrint } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/lib/auth/authStore'
+import { useMe } from '@/features/members/hooks'
+import { MemberRole } from '@/types/enums'
 import { NotificationBell } from '@/features/notifications/NotificationBell'
 import { UserMenu } from '@/components/common/UserMenu'
 
@@ -17,10 +19,16 @@ const PRIVATE_NAV = [
   { to: '/reservations', label: '내 예약' },
   { to: '/waitlists', label: '내 대기열' },
 ]
+// 보호자 전용 — 찜 API가 hasRole("GUARDIAN")이라 스태프에게 보여주면 누르는 순간 403이다.
+// 스태프로 확인됐을 때만 감춘다 — 역할을 모르는 동안(조회 실패·재시도) 메뉴를 지우면 정상
+// 보호자가 진입 경로를 잃는다(자기검토). 라우트·버튼도 같은 기준을 쓴다.
+const GUARDIAN_NAV = [{ to: '/favorites', label: '관심 병원' }]
 
 export function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const navigate = useNavigate()
+  const me = useMe()
+  const knownNonGuardian = me.data != null && me.data.role !== MemberRole.GUARDIAN
 
   return (
     <div className="min-h-svh bg-background">
@@ -31,7 +39,11 @@ export function AppLayout() {
             DoctorPet
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
-            {[...PUBLIC_NAV, ...(isAuthenticated ? PRIVATE_NAV : [])].map(
+            {[
+              ...PUBLIC_NAV,
+              ...(isAuthenticated ? PRIVATE_NAV : []),
+              ...(isAuthenticated && !knownNonGuardian ? GUARDIAN_NAV : []),
+            ].map(
               (item) => (
                 <NavLink
                   key={item.to}

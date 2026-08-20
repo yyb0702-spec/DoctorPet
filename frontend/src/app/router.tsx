@@ -20,6 +20,8 @@ import { PaymentMethodsPage } from '@/pages/PaymentMethodsPage'
 import { ReservationsPage } from '@/pages/ReservationsPage'
 import { ReservationDetailPage } from '@/pages/ReservationDetailPage'
 import { WaitlistsPage } from '@/pages/WaitlistsPage'
+import { FavoriteHospitalsPage } from '@/pages/FavoriteHospitalsPage'
+import { GuardianRoute } from '@/app/GuardianRoute'
 import { StaffDashboardPage } from '@/pages/StaffDashboardPage'
 import { StaffReservationQueuePage } from '@/pages/StaffReservationQueuePage'
 import { StaffReservationDetailPage } from '@/pages/StaffReservationDetailPage'
@@ -60,6 +62,13 @@ export const router = createBrowserRouter([
             element: <ReservationDetailPage />,
           },
           { path: '/waitlists', element: <WaitlistsPage /> },
+          // 찜은 보호자 전용 API라 역할 가드를 한 겹 더 둔다(스태프가 URL로 들어와도 403을 보지 않게).
+          {
+            element: <GuardianRoute />,
+            children: [
+              { path: '/favorites', element: <FavoriteHospitalsPage /> },
+            ],
+          },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

@@ -1,10 +1,11 @@
 // 펫 한 마리 — 보기 / 인라인 수정 / 삭제.
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Pencil, Trash2 } from 'lucide-react'
+import { ImagePlus, PawPrint, Pencil, Trash2 } from 'lucide-react'
 import { petSchema, type PetInput } from './schema'
-import { useDeletePet, useUpdatePet } from './hooks'
+import { useDeletePet, useUpdatePet, useUploadPetImage } from './hooks'
+import { validatePetImageFile, PET_IMAGE_CONTENT_TYPES } from './petImage'
 import type { Pet } from './api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +19,21 @@ export function PetRow({ pet }: { pet: Pet }) {
   const [editing, setEditing] = useState(false)
   const deletePet = useDeletePet()
   const updatePet = useUpdatePet(pet.petId)
+  const uploadImage = useUploadPetImage(pet.petId)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // 파일 형식·용량처럼 서버에 보내기 전에 걸러낸 이유. 업로드 실패(3단계 중 어디든)는 mutation 에러로 본다.
+  const [imageError, setImageError] = useState<string | null>(null)
+
+  const handlePickImage = (file: File | undefined) => {
+    if (!file) return
+    const reason = validatePetImageFile(file)
+    if (reason) {
+      setImageError(reason)
+      return
+    }
+    setImageError(null)
+    uploadImage.mutate(file)
+  }
 
   const {
     register,
@@ -121,18 +137,72 @@ export function PetRow({ pet }: { pet: Pet }) {
   return (
     <Card>
       <CardContent className="flex items-center justify-between p-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">{pet.name}</span>
-            <Badge variant="secondary">
-              {speciesLabel(pet.species)}
-            </Badge>
+        <div className="flex items-center gap-3">
+          {/* 프로필 사진. 없으면 발자국 아이콘으로 자리를 지킨다(레이아웃이 흔들리지 않게). */}
+          {pet.imageUrl ? (
+            <img
+              src={pet.imageUrl}
+              alt={`${pet.name} 프로필 사진`}
+              className="h-12 w-12 rounded-full object-cover"
+            />
+          ) : (
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <PawPrint className="h-5 w-5 text-muted-foreground" />
+            </span>
+          )}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold">{pet.name}</span>
+              <Badge variant="secondary">
+                {speciesLabel(pet.species)}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {pet.age}살 · {pet.weight}kg · {pet.neutered ? '중성화 O' : '중성화 X'}
+            </p>
+            {(imageError || uploadImage.isError) && (
+              <p className="text-xs text-destructive">
+                {imageError ??
+                  (uploadImage.error instanceof Error
+                    ? uploadImage.error.message
+                    : '사진을 올리지 못했어요.')}
+              </p>
+            )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {pet.age}살 · {pet.weight}kg · {pet.neutered ? '중성화 O' : '중성화 X'}
-          </p>
         </div>
         <div className="flex items-center gap-1">
+          {/*
+            발급 → presigned PUT → PATCH 확정의 3단계를 이 버튼 하나가 잇는다. 파일 선택창은
+            숨긴 input으로 열고, 같은 파일을 다시 골라도 change가 뜨도록 값을 비운다.
+          */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={PET_IMAGE_CONTENT_TYPES.join(',')}
+            className="hidden"
+            onChange={(e) => {
+              handlePickImage(e.target.files?.[0])
+              e.target.value = ''
+            }}
+          />
+          {/*
+            발급→PUT→확정 3단계라 수 초 걸릴 수 있다. 아이콘만 비활성으로 두면 눌렸는지 알 수 없어
+            같은 카드의 저장 버튼처럼 진행 상태를 글자로도 알린다(자기검토).
+          */}
+          {uploadImage.isPending ? (
+            <span className="px-2 text-xs text-muted-foreground" aria-live="polite">
+              올리는 중…
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="사진 변경"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" aria-label="수정" onClick={startEdit}>
             <Pencil className="h-4 w-4" />
           </Button>
