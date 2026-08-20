@@ -34,6 +34,7 @@ import { PaymentChannel, PaymentStatus, ReservationStatus } from '@/types/enums'
 import type { PaymentStatus as PaymentStatusType } from '@/types/enums'
 import { ApiError } from '@/lib/api/error'
 import { ChatPanel } from '@/features/chat/ChatPanel'
+import { ReservationReviewCard } from '@/features/reviews/ReservationReviewCard'
 
 // 취소 가능한 예약 상태 (SA §5-1: REQUESTED·CONFIRMED, 서버가 리드타임 최종 검증).
 const CANCELABLE: ReservationStatus[] = [
@@ -274,6 +275,12 @@ export function ReservationDetailPage() {
   const activeId = activePaymentId(payments)
   const rechargeableId = rechargeablePaymentId(payments)
   const cancelable = CANCELABLE.includes(r.reservationStatus)
+  // 결제 완료 판정은 활성 결제 상태로 한다 — 대체된 과거 결제가 PAID로 남아 있어도
+  // 지금 수납된 상태가 아니면 후기 자격이 아니다(SA §5-2 활성 결제).
+  const activePayment = payments.find((p) => p.paymentId === activeId)
+  const reviewable =
+    activePayment?.status === PaymentStatus.PAID ||
+    activePayment?.status === PaymentStatus.OFFLINE_PAID
   const info = banner(r.reservationStatus, r.paymentStatus)
   const showProgress =
     r.reservationStatus === ReservationStatus.CONFIRMED ||
@@ -412,6 +419,11 @@ export function ReservationDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* 후기 — 결제가 완료된 진료만 작성할 수 있다(백엔드 REVIEW_003과 같은 조건).
+          환불(REFUNDED)은 자격이 아니라, 백엔드가 후기를 지우고 작성 기회를 되돌린다.
+          여기서는 카드를 띄울지만 거른다 — 내 후기와 실제 작성 자격은 카드가 서버에 묻는다. */}
+      {reviewable && <ReservationReviewCard reservationId={r.reservationId} />}
 
       <ChatPanel
         reservationId={r.reservationId}

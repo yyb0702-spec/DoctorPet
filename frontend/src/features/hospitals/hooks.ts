@@ -4,6 +4,8 @@ import { hospitalApi } from './api'
 import type { HospitalSearchParams } from './types'
 
 export const hospitalKeys = {
+  // 접두사 무효화용(후기가 바뀌면 상세의 평점 집계가 달라진다).
+  all: ['hospitals'] as const,
   detail: (id: number) => ['hospitals', id] as const,
   search: (params: HospitalSearchParams) =>
     ['hospitals', 'search', params] as const,
