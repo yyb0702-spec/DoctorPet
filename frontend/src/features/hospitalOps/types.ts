@@ -1,0 +1,66 @@
+// 병원 스태프 운영 계약(진료시간·진료역량·임시휴진). SA §8-8, /api/hospital/**.
+import type { CapabilityValue } from '@/types/enums'
+
+// 백엔드 java.time.DayOfWeek 이름을 그대로 쓴다.
+export const DayOfWeek = {
+  MONDAY: 'MONDAY',
+  TUESDAY: 'TUESDAY',
+  WEDNESDAY: 'WEDNESDAY',
+  THURSDAY: 'THURSDAY',
+  FRIDAY: 'FRIDAY',
+  SATURDAY: 'SATURDAY',
+  SUNDAY: 'SUNDAY',
+} as const
+export type DayOfWeek = (typeof DayOfWeek)[keyof typeof DayOfWeek]
+
+// 요청 days는 7개 전부 보내야 한다(@Size(min=7,max=7) + 요일 중복·누락 검사).
+export const DAY_ORDER: DayOfWeek[] = [
+  DayOfWeek.MONDAY,
+  DayOfWeek.TUESDAY,
+  DayOfWeek.WEDNESDAY,
+  DayOfWeek.THURSDAY,
+  DayOfWeek.FRIDAY,
+  DayOfWeek.SATURDAY,
+  DayOfWeek.SUNDAY,
+]
+
+export const DAY_LABEL: Record<DayOfWeek, string> = {
+  MONDAY: '월요일',
+  TUESDAY: '화요일',
+  WEDNESDAY: '수요일',
+  THURSDAY: '목요일',
+  FRIDAY: '금요일',
+  SATURDAY: '토요일',
+  SUNDAY: '일요일',
+}
+
+// 시각은 "HH:mm"(백엔드 LocalTime). 초까지 오는 경우가 있어 화면에서는 앞 5자만 쓴다.
+export interface OperatingPeriod {
+  startTime: string
+  endTime: string
+}
+
+export interface DailyOperatingHours {
+  dayOfWeek: DayOfWeek
+  // 빈 배열이면 그 요일은 휴무다.
+  periods: OperatingPeriod[]
+}
+
+export interface OperatingHours {
+  effectiveFrom: string
+  days: DailyOperatingHours[]
+}
+
+// 요청한 발효일과 서버가 확정한 발효일은 다를 수 있다(발행창 안에 예약이 있으면 뒤로 밀린다).
+export interface OperatingHoursUpdateRequest {
+  desiredEffectiveFrom: string
+  days: DailyOperatingHours[]
+}
+
+export interface HospitalCapabilities {
+  capabilities: CapabilityValue[]
+}
+
+export interface TemporaryClosure {
+  businessDate: string
+}

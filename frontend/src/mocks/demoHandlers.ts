@@ -16,6 +16,7 @@ import type {
 } from '@/features/hospitals/types'
 import type { PaymentMethod, Receipt } from '@/features/payments/types'
 import type { Pet } from '@/features/pets/api'
+import { shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
 
 const BASE = '/api'
 const SIGNUP_PHONE_PATTERN = /^01(?:0|1|[6-9])(?:-\d{3,4}-\d{4}|\d{3,4}\d{4})$/
@@ -261,6 +262,40 @@ mockHospitals.forEach((h) => {
 function withFavorite(detail: HospitalDetail): HospitalDetail {
   return { ...detail, favorite: demoFavorites.has(detail.hospitalId) }
 }
+
+// --- 병원 스태프 운영(진료시간·진료역량·임시휴진) in-memory 저장소 ---
+// 백엔드 규칙과 같은 날짜 경계를 쓴다: 발효일·휴진일은 모두 "오늘 다음 날부터"만 허용한다.
+// 날짜 경계는 백엔드와 같은 Asia/Seoul 기준이어야 한다 — toISOString(UTC)으로 자르면 하루가
+// 밀려 "오늘은 등록 불가" 같은 판정이 목에서만 다르게 나온다.
+function mockDateKey(offsetDays: number): string {
+  return shiftDateKey(todaySeoulKey(), offsetDays)
+}
+
+let demoOperatingHours = {
+  effectiveFrom: mockDateKey(-30),
+  days: [
+    { dayOfWeek: 'MONDAY', periods: [{ startTime: '09:00', endTime: '18:00' }] },
+    { dayOfWeek: 'TUESDAY', periods: [{ startTime: '09:00', endTime: '18:00' }] },
+    {
+      dayOfWeek: 'WEDNESDAY',
+      periods: [
+        { startTime: '09:00', endTime: '13:00' },
+        { startTime: '14:00', endTime: '18:00' },
+      ],
+    },
+    { dayOfWeek: 'THURSDAY', periods: [{ startTime: '09:00', endTime: '18:00' }] },
+    { dayOfWeek: 'FRIDAY', periods: [{ startTime: '09:00', endTime: '18:00' }] },
+    { dayOfWeek: 'SATURDAY', periods: [{ startTime: '10:00', endTime: '14:00' }] },
+    { dayOfWeek: 'SUNDAY', periods: [] },
+  ] as { dayOfWeek: string; periods: { startTime: string; endTime: string }[] }[],
+}
+
+let demoCapabilities: string[] = ['DOG', 'CAT', 'XRAY']
+
+// 등록된 임시휴진 날짜. 목록 조회 API가 없으므로 목도 조회 경로를 두지 않는다.
+const demoClosures = new Set<string>()
+// 예약이 있어 휴진 등록이 거부되는 날짜(HOSPITAL_008 흐름 확인용).
+const demoReservedClosureDate = mockDateKey(3)
 
 // 예약 대기열 in-memory 저장소 (dev:mock 오프라인 전용). WAITING·OFFERED·종료 상태를 한 건씩 시드.
 // slotId(501~503)는 표시용 가짜 값이라 hospitalOfSlot() 인코딩 규칙(hospitalId*1_000_000+…)을
@@ -562,6 +597,99 @@ export const demoHandlers = [
       first: page === 1,
       last: page >= totalPages,
     })
+  }),
+
+  // --- 병원 스태프 운영: 진료시간 (GET/PUT /hospital/operating-hours) ---
+  http.get(`${BASE}/hospital/operating-hours`, () => ok(demoOperatingHours)),
+  http.put(`${BASE}/hospital/operating-hours`, async ({ request }) => {
+    const body = (await request.json()) as {
+      desiredEffectiveFrom: string
+      days: { dayOfWeek: string; periods: { startTime: string; endTime: string }[] }[]
+    }
+    if (body.desiredEffectiveFrom <= mockDateKey(0)) {
+      return fail(
+        'HOSPITAL_005',
+        '진료시간은 요청일 다음 날부터 적용할 수 있습니다.',
+        400,
+      )
+    }
+    if (body.days?.length !== 7) {
+      return fail('HOSPITAL_006', '요일별 진료시간이 올바르지 않습니다.', 400)
+    }
+    // 시작·종료가 같은 구간만 목에서 거른다(겹침 검사는 화면이 먼저 막는다).
+    const invalid = body.days.some((day) =>
+      day.periods.some((period) => period.startTime === period.endTime),
+    )
+    if (invalid) {
+      return fail('HOSPITAL_006', '요일별 진료시간이 올바르지 않습니다.', 400)
+    }
+    // 발효일이 발행창(오늘+13일) 안이면 서버가 예약을 보고 뒤로 미룰 수 있다 —
+    // 목은 예약 있는 날(demoReservedClosureDate) 다음 날로 미루는 경우를 재현한다.
+    const pushedTo = mockDateKey(4)
+    const effectiveFrom =
+      body.desiredEffectiveFrom <= demoReservedClosureDate
+        ? pushedTo
+        : body.desiredEffectiveFrom
+    demoOperatingHours = { effectiveFrom, days: body.days }
+    return ok(demoOperatingHours)
+  }),
+
+  // --- 병원 스태프 운영: 진료역량 (GET/PUT /hospital/capabilities) ---
+  http.get(`${BASE}/hospital/capabilities`, () =>
+    ok({ capabilities: [...demoCapabilities].sort() }),
+  ),
+  http.put(`${BASE}/hospital/capabilities`, async ({ request }) => {
+    const body = (await request.json()) as { capabilities: string[] }
+    const requested = body.capabilities ?? []
+    if (new Set(requested).size !== requested.length) {
+      return fail('HOSPITAL_012', '진료 역량을 중복해서 입력할 수 없습니다.', 400)
+    }
+    demoCapabilities = [...requested]
+    // 저장 결과가 보호자 병원 상세 태그로 이어지는지 목에서도 확인할 수 있게 상세에 반영한다.
+    const detail = hospitalDetails[demoMember.hospitalId ?? 1]
+    if (detail) detail.capabilities = [...requested] as typeof detail.capabilities
+    return ok({ capabilities: [...demoCapabilities].sort() })
+  }),
+
+  // --- 병원 스태프 운영: 임시휴진 (POST/DELETE /hospital/temporary-closures) ---
+  http.post(`${BASE}/hospital/temporary-closures`, async ({ request }) => {
+    const body = (await request.json()) as { businessDate: string }
+    const businessDate = body.businessDate
+    if (businessDate <= mockDateKey(0)) {
+      return fail(
+        'HOSPITAL_007',
+        '임시 휴무는 요청일 다음 날부터 등록할 수 있습니다.',
+        400,
+      )
+    }
+    if (demoClosures.has(businessDate)) {
+      return fail('HOSPITAL_009', '이미 임시 휴무로 등록된 영업일입니다.', 409)
+    }
+    if (businessDate === demoReservedClosureDate) {
+      return fail(
+        'HOSPITAL_008',
+        '예약이 있는 영업일은 임시 휴무로 등록할 수 없습니다.',
+        409,
+      )
+    }
+    demoClosures.add(businessDate)
+    return ok({ businessDate }, 201)
+  }),
+  // 취소는 204 + 본문 없음(백엔드와 동일). 마감 검사가 존재 검사보다 먼저다.
+  http.delete(`${BASE}/hospital/temporary-closures/:businessDate`, ({ params }) => {
+    const businessDate = String(params.businessDate)
+    if (businessDate <= mockDateKey(0)) {
+      return fail(
+        'HOSPITAL_011',
+        '임시 휴무는 휴무 영업일 전날까지만 취소할 수 있습니다.',
+        400,
+      )
+    }
+    if (!demoClosures.has(businessDate)) {
+      return fail('HOSPITAL_010', '임시 휴무 정보를 찾을 수 없습니다.', 404)
+    }
+    demoClosures.delete(businessDate)
+    return new HttpResponse(null, { status: 204 })
   }),
 
   // --- 결제수단 ---
