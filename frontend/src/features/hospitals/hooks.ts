@@ -10,6 +10,8 @@ import { hospitalApi } from './api'
 import { withFavoriteFlag } from './favoriteCache'
 import type { HospitalSearchParams } from './types'
 import { useAuthStore } from '@/lib/auth/authStore'
+import { useMe } from '@/features/members/hooks'
+import { MemberRole } from '@/types/enums'
 
 export const hospitalKeys = {
   // 접두사 무효화용(후기가 바뀌면 상세의 평점 집계가 달라진다).
@@ -72,12 +74,19 @@ function patchFavoriteInCaches(
   })
 }
 
+/*
+  찜 목록은 백엔드가 보호자 전용으로 제한한다(SecurityConfig: `/api/members/me/favorite-hospitals`
+  → hasRole("GUARDIAN")). 그래서 역할을 확인하기 전에는 호출하지 않는다 — 병원 스태프 계정으로
+  이 훅을 쓰는 화면에 들어가면 403이 쌓이기 때문이다(PR #193 리뷰 P2).
+*/
 export function useFavoriteHospitals(page = 1, size = 20) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const me = useMe()
+  const isGuardian = me.data?.role === MemberRole.GUARDIAN
   return useQuery({
     queryKey: hospitalKeys.favorites(page, size),
     queryFn: () => hospitalApi.listFavorites(page, size),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && isGuardian,
     placeholderData: keepPreviousData,
   })
 }
@@ -88,6 +97,11 @@ export function useFavoriteHospitals(page = 1, size = 20) {
   같은 병원이 검색 목록·상세·찜 목록 세 곳에 동시에 떠 있을 수 있어 세 캐시를 모두 손본다.
   검색·상세는 응답 안의 favorite 플래그를 직접 갈아끼우고(재조회 없이 즉시 반영), 찜 목록은
   항목이 늘거나 빠지는 구조 변화라 낙관적 편집 대신 무효화로 다시 읽는다.
+
+  롤백은 **실패한 병원의 플래그만** 되돌린다. 스냅샷 전체를 복원하면, 검색 결과에서 A·B를 연달아
+  누른 뒤 A가 실패할 때 그 사이 성공한 B의 토글까지 함께 되돌아간다(리뷰 P2). 실패한 뒤에는
+  서버 진실과 어긋났을 수 있으니 병원 쿼리도 무효화해 다시 읽는다 — 성공 경로에서는 낙관적
+  편집이 이미 정답이라 재조회하지 않는다.
 */
 export function useToggleHospitalFavorite() {
   const queryClient = useQueryClient()
@@ -104,15 +118,18 @@ export function useToggleHospitalFavorite() {
         : hospitalApi.removeFavorite(hospitalId),
     onMutate: async ({ hospitalId, favorite }) => {
       await queryClient.cancelQueries({ queryKey: hospitalKeys.all })
-      const snapshot = queryClient.getQueriesData({ queryKey: hospitalKeys.all })
       patchFavoriteInCaches(queryClient, hospitalId, favorite)
-      return { snapshot }
+      // 되돌릴 값은 이 병원의 직전 플래그뿐이다(토글이므로 !favorite).
+      return { hospitalId, previousFavorite: !favorite }
     },
     onError: (_error, _variables, context) => {
-      // 실패하면 낙관적 편집 전 상태로 통째로 되돌린다(부분 복구는 캐시마다 어긋날 수 있다).
-      context?.snapshot.forEach(([key, data]) => {
-        queryClient.setQueryData(key, data)
-      })
+      if (!context) return
+      patchFavoriteInCaches(
+        queryClient,
+        context.hospitalId,
+        context.previousFavorite,
+      )
+      queryClient.invalidateQueries({ queryKey: hospitalKeys.all })
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['favorite-hospitals'] })

@@ -6,6 +6,7 @@ import { useMe, useUpdateNickname, useWithdraw } from '@/features/members/hooks'
 import { usePets } from '@/features/pets/hooks'
 import { usePaymentMethods } from '@/features/payments/hooks'
 import { useFavoriteHospitals } from '@/features/hospitals/hooks'
+import { MemberRole } from '@/types/enums'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -153,7 +154,9 @@ export function MyPage() {
   const pets = usePets()
   const methods = usePaymentMethods()
   // 요약 카드는 개수만 쓰므로 첫 페이지 1건만 받아 totalElements를 읽는다.
+  // 훅이 역할을 보고 호출 여부를 정하므로(보호자 전용 API) 스태프 계정에서는 요청이 나가지 않는다.
   const favorites = useFavoriteHospitals(1, 1)
+  const isGuardian = me.data?.role === MemberRole.GUARDIAN
   const [editingNickname, setEditingNickname] = useState(false)
 
   return (
@@ -273,7 +276,8 @@ export function MyPage() {
         </CardContent>
       </Card>
 
-      {/* 관심 병원 요약 */}
+      {/* 관심 병원 요약 — 찜 API가 보호자 전용이라 스태프에게는 카드 자체를 두지 않는다. */}
+      {isGuardian && (
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="flex items-center gap-2">
@@ -295,6 +299,8 @@ export function MyPage() {
           </p>
         </CardContent>
       </Card>
+
+      )}
 
       {/* 회원 탈퇴 */}
       <WithdrawSection />

@@ -4,6 +4,8 @@ import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/lib/auth/authStore'
+import { useMe } from '@/features/members/hooks'
+import { MemberRole } from '@/types/enums'
 import { useToggleHospitalFavorite } from './hooks'
 
 interface FavoriteButtonProps {
@@ -23,7 +25,15 @@ export function FavoriteButton({
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const navigate = useNavigate()
   const location = useLocation()
+  const me = useMe()
   const toggle = useToggleHospitalFavorite()
+
+  /*
+    찜은 백엔드가 보호자 전용으로 제한한다(SecurityConfig → hasRole("GUARDIAN")). 병원 스태프에게
+    하트를 보여주면 누르는 순간 403이라, 역할이 보호자로 확인될 때만 렌더한다(리뷰 P2).
+    비로그인은 예외다 — 역할을 알 수 없지만 누르면 로그인으로 안내하므로 그대로 보여준다.
+  */
+  if (isAuthenticated && me.data?.role !== MemberRole.GUARDIAN) return null
 
   /*
     비로그인 상태에서는 서버가 favorite=false로 주므로 하트는 늘 비어 보인다. 눌러도 401이 날 뿐이라
@@ -31,7 +41,11 @@ export function FavoriteButton({
   */
   const handleClick = () => {
     if (!isAuthenticated) {
-      navigate('/login', { state: { from: location.pathname } })
+      /*
+        LoginPage는 `state.from.pathname`을 읽는다(ProtectedRoute·StaffRoute와 같은 계약).
+        문자열을 넘기면 로그인 후 항상 '/'로 떨어져 원래 병원 화면으로 돌아오지 못한다(리뷰 P2).
+      */
+      navigate('/login', { state: { from: location } })
       return
     }
     toggle.mutate({ hospitalId, favorite: !favorite })

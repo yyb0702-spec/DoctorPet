@@ -19,11 +19,27 @@ const BUSINESS_LABEL: Record<string, string> = {
 
 export function FavoriteHospitalsPage() {
   // 백엔드 페이지 파라미터는 1-base다(검색과 같은 규약).
-  const [page, setPage] = useState(1)
+  const [requestedPage, setRequestedPage] = useState(1)
   const { data, isLoading, isError, refetch, isFetching } = useFavoriteHospitals(
-    page,
+    requestedPage,
     PAGE_SIZE,
   )
+
+  /*
+    마지막 페이지의 유일한 항목을 해제하면 서버의 totalPages가 줄어 요청한 page가 범위를 벗어난다.
+    그대로 두면 빈 목록이 "찜한 병원이 없습니다"로 보이고 totalPages가 1이 되어 페이지 이동 버튼까지
+    사라져 1페이지로 돌아갈 길이 없다(리뷰 P2).
+
+    그래서 응답이 범위를 벗어났으면 렌더 중에 페이지를 접는다 — React가 권장하는 "받은 값에 맞춰
+    상태를 조정하는" 패턴이다. effect 안에서 setState하면 연쇄 렌더가 되고(ESLint
+    react-hooks 경고), 별도 쿼리를 하나 더 두면 같은 목록을 두 번 불러오게 된다.
+    비어 있을 때 totalPages는 0이므로 최소 1로 맞춘다.
+  */
+  const maxPage = Math.max(1, data?.totalPages ?? 1)
+  if (data && requestedPage > maxPage) {
+    setRequestedPage(maxPage)
+  }
+  const page = data && requestedPage > maxPage ? maxPage : requestedPage
 
   if (isLoading) return <PageLoader />
   if (isError) return <ErrorState onRetry={() => refetch()} />
@@ -82,7 +98,7 @@ export function FavoriteHospitalsPage() {
             variant="outline"
             size="sm"
             disabled={data.first || isFetching}
-            onClick={() => setPage(page - 1)}
+            onClick={() => setRequestedPage(page - 1)}
           >
             이전
           </Button>
@@ -93,7 +109,7 @@ export function FavoriteHospitalsPage() {
             variant="outline"
             size="sm"
             disabled={data.last || isFetching}
-            onClick={() => setPage(page + 1)}
+            onClick={() => setRequestedPage(page + 1)}
           >
             다음
           </Button>

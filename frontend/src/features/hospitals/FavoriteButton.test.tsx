@@ -9,6 +9,7 @@ import { FavoriteButton } from './FavoriteButton'
 import { hospitalApi } from './api'
 import { hospitalKeys } from './hooks'
 import { useAuthStore } from '@/lib/auth/authStore'
+import { MemberRole } from '@/types/enums'
 
 vi.mock('./api', () => ({
   hospitalApi: {
@@ -18,10 +19,25 @@ vi.mock('./api', () => ({
   },
 }))
 
+// 찜은 보호자 전용 API라 버튼이 역할을 본다.
+const useMeMock = vi.fn()
+vi.mock('@/features/members/hooks', () => ({
+  useMe: () => useMeMock(),
+  memberKeys: { me: ['members', 'me'] },
+}))
+
 const DETAIL = { hospitalId: 7, name: '행복동물병원', favorite: false }
 
 function CurrentPath() {
-  return <span data-testid="path">{useLocation().pathname}</span>
+  const location = useLocation()
+  const from = (location.state as { from?: { pathname?: string } } | null)?.from
+  return (
+    <>
+      <span data-testid="path">{location.pathname}</span>
+      {/* LoginPage가 읽는 것과 같은 경로(state.from.pathname)로 확인한다. */}
+      <span data-testid="from-pathname">{from?.pathname ?? ''}</span>
+    </>
+  )
 }
 
 function renderButton(favorite = false) {
@@ -54,6 +70,7 @@ describe('FavoriteButton', () => {
   beforeEach(() => {
     vi.mocked(hospitalApi.addFavorite).mockReset()
     vi.mocked(hospitalApi.removeFavorite).mockReset()
+    useMeMock.mockReturnValue({ data: { role: MemberRole.GUARDIAN } })
     useAuthStore.setState({ isAuthenticated: true })
   })
 
@@ -98,5 +115,92 @@ describe('FavoriteButton', () => {
 
     expect(hospitalApi.addFavorite).not.toHaveBeenCalled()
     expect(screen.getByTestId('path')).toHaveTextContent('/login')
+  })
+
+  /*
+    LoginPage는 state.from을 Location 객체로 읽는다(`state.from.pathname`). 문자열을 넘기면
+    로그인 후 항상 '/'로 떨어져 원래 병원 화면으로 돌아오지 못한다(리뷰 P2).
+  */
+  it('로그인으로 보낼 때 복귀 위치를 Location 객체로 넘긴다', async () => {
+    useAuthStore.setState({ isAuthenticated: false })
+    renderButton(false)
+
+    await userEvent.click(screen.getByRole('button', { name: '찜하기' }))
+
+    expect(screen.getByTestId('from-pathname')).toHaveTextContent('/hospitals/7')
+  })
+
+  // 백엔드가 찜 API를 hasRole("GUARDIAN")으로 제한하므로, 스태프에게 하트를 보여주면 403만 난다.
+  it('병원 스태프에게는 하트를 노출하지 않는다', () => {
+    useMeMock.mockReturnValue({ data: { role: MemberRole.HOSPITAL_STAFF } })
+    renderButton(false)
+
+    expect(screen.queryByRole('button', { name: '찜하기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '찜 해제' })).not.toBeInTheDocument()
+  })
+})
+
+/*
+  검색 목록에서 서로 다른 병원의 하트를 연달아 누르면 두 mutation이 동시에 살아 있다.
+  이때 먼저 시작한 쪽이 실패했다고 캐시 전체를 스냅샷으로 되돌리면, 그 사이 성공한 다른 병원의
+  토글까지 함께 되돌아간다(리뷰 P2). 실패한 병원의 플래그만 복원해야 한다.
+*/
+describe('동시 토글', () => {
+  beforeEach(() => {
+    vi.mocked(hospitalApi.addFavorite).mockReset()
+    useMeMock.mockReturnValue({ data: { role: MemberRole.GUARDIAN } })
+    useAuthStore.setState({ isAuthenticated: true })
+  })
+
+  it('한 병원의 실패가 다른 병원의 성공을 되돌리지 않는다', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    // 검색 결과 한 페이지에 두 병원이 함께 떠 있는 상황.
+    const searchKey = hospitalKeys.search({})
+    queryClient.setQueryData(searchKey, {
+      content: [
+        { hospitalId: 7, favorite: false },
+        { hospitalId: 8, favorite: false },
+      ],
+      page: 1,
+      totalPages: 1,
+    })
+
+    let rejectSeven: ((reason: Error) => void) | undefined
+    vi.mocked(hospitalApi.addFavorite).mockImplementation((hospitalId: number) =>
+      hospitalId === 7
+        ? new Promise<void>((_resolve, reject) => {
+            rejectSeven = reject
+          })
+        : Promise.resolve(undefined),
+    )
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <FavoriteButton hospitalId={7} favorite={false} />
+          <FavoriteButton hospitalId={8} favorite={false} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const [seven, eight] = screen.getAllByRole('button', { name: '찜하기' })
+    await userEvent.click(seven)
+    await userEvent.click(eight)
+
+    // 8은 성공해 캐시가 true, 7은 아직 미결이라 낙관적으로 true.
+    const favoriteOf = (hospitalId: number) =>
+      queryClient
+        .getQueryData<{ content: { hospitalId: number; favorite: boolean }[] }>(searchKey)
+        ?.content.find((h) => h.hospitalId === hospitalId)?.favorite
+
+    await waitFor(() => expect(favoriteOf(8)).toBe(true))
+
+    rejectSeven?.(new Error('boom'))
+
+    // 7만 false로 돌아가고 8의 성공은 유지된다.
+    await waitFor(() => expect(favoriteOf(7)).toBe(false))
+    expect(favoriteOf(8)).toBe(true)
   })
 })
