@@ -3,39 +3,45 @@ import { describe, expect, it } from 'vitest'
 import {
   naiveDateTimeLabel,
   naiveTimeLabel,
-  nowSeoul,
+  parseSeoulDateTime,
   shiftDateKey,
   todaySeoulKey,
 } from './seoulTime'
 
-describe('nowSeoul', () => {
-  it('백엔드 LocalDateTime과 같은 모양("yyyy-MM-ddTHH:mm:ss")을 준다', () => {
-    // 같은 형식이어야 문자열 비교가 시간 비교와 같아진다(isOverdue가 이 성질에 의존한다).
-    expect(nowSeoul()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)
-  })
-
-  it('todaySeoulKey는 그 값의 날짜 부분이다', () => {
-    expect(todaySeoulKey()).toBe(nowSeoul().slice(0, 10))
-  })
-
+describe('parseSeoulDateTime', () => {
   /*
-    프로세스 타임존(TZ)이 무엇이든 서울 기준 시각을 준다. UTC 환경에서 로컬 시각을 쓰면 한국보다
-    9시간 이르므로, 두 값을 비교해 서울 값이 로컬 값보다 앞서지 않는지로 확인한다.
+    오프셋 없는 값은 서울(UTC+9)로 해석해야 한다. `new Date(...)`에 그냥 넣으면 브라우저 로컬로
+    해석되므로, TZ가 무엇이든 같은 순간이 나오는지 절대 기준(Date.UTC)과 비교해 고정한다.
   */
-  it('로컬 타임존이 아니라 Asia/Seoul 기준이다', () => {
-    const local = new Date()
-      .toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' })
-      .replace(' ', 'T')
-    expect(nowSeoul()).toBe(local)
+  it('오프셋이 없으면 +09:00으로 해석한다', () => {
+    // 서울 09:00 = 같은 날 00:00 UTC.
+    expect(parseSeoulDateTime('2026-08-20T09:00:00')).toBe(
+      Date.UTC(2026, 7, 20, 0, 0, 0),
+    )
+  })
+
+  it('이미 오프셋·Z가 있으면 그대로 신뢰한다', () => {
+    expect(parseSeoulDateTime('2026-08-20T00:00:00Z')).toBe(
+      Date.UTC(2026, 7, 20, 0, 0, 0),
+    )
+    expect(parseSeoulDateTime('2026-08-20T09:00:00+09:00')).toBe(
+      Date.UTC(2026, 7, 20, 0, 0, 0),
+    )
+  })
+})
+
+describe('todaySeoulKey', () => {
+  it('yyyy-MM-dd 형식의 서울 날짜를 준다', () => {
+    expect(todaySeoulKey()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(todaySeoulKey()).toBe(
+      new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }),
+    )
   })
 })
 
 describe('shiftDateKey', () => {
-  it('하루를 더한다', () => {
+  it('하루를 더하고 월·연 경계를 넘긴다', () => {
     expect(shiftDateKey('2026-08-20', 1)).toBe('2026-08-21')
-  })
-
-  it('월·연 경계를 넘긴다', () => {
     expect(shiftDateKey('2026-08-31', 1)).toBe('2026-09-01')
     expect(shiftDateKey('2026-12-31', 1)).toBe('2027-01-01')
     expect(shiftDateKey('2026-03-01', -1)).toBe('2026-02-28')
@@ -48,8 +54,17 @@ describe('naive 라벨', () => {
     expect(naiveDateTimeLabel('2026-08-20T09:05:00')).toBe('2026년 8월 20일 09:05')
   })
 
-  // 소수점 초가 붙어 와도(LocalDateTime 직렬화 편차) 표시가 깨지지 않는다.
   it('소수점 초가 있어도 같은 라벨을 만든다', () => {
     expect(naiveTimeLabel('2026-08-20T09:05:00.123')).toBe('09:05')
+  })
+
+  /*
+    형식이 다르면 슬라이스가 엉뚱한 값(빈 문자열 등)을 만들어 시각이 조용히 사라진다.
+    그럴 때는 원문을 그대로 보여주는 편이 낫다 — 최소한 값이 이상하다는 게 화면에 드러난다.
+  */
+  it('형식이 다르면 원문을 그대로 돌려준다', () => {
+    expect(naiveTimeLabel('2026-08-20')).toBe('2026-08-20')
+    expect(naiveTimeLabel('')).toBe('')
+    expect(naiveDateTimeLabel('nonsense')).toBe('nonsense')
   })
 })

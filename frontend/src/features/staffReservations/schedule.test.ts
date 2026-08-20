@@ -51,30 +51,31 @@ describe('groupByDate', () => {
 })
 
 describe('isOverdue', () => {
-  const nowSeoul = '2026-08-19T12:00:00'
+  // 기준 시각을 ms로 주입한다 — 서울 12:00은 UTC 03:00이다.
+  const noonSeoul = Date.parse('2026-08-19T12:00:00+09:00')
 
   it('예약 시각이 지난 CONFIRMED는 지연으로 본다', () => {
     expect(
-      isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.CONFIRMED), nowSeoul),
+      isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.CONFIRMED), noonSeoul),
     ).toBe(true)
     expect(
-      isOverdue(item(2, '2026-08-19T14:00:00', ReservationStatus.CONFIRMED), nowSeoul),
+      isOverdue(item(2, '2026-08-19T14:00:00', ReservationStatus.CONFIRMED), noonSeoul),
     ).toBe(false)
   })
 
   it('내원 대기가 아닌 상태(REQUESTED·CHECKED_IN)는 지연으로 보지 않는다', () => {
     expect(
-      isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.REQUESTED), nowSeoul),
+      isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.REQUESTED), noonSeoul),
     ).toBe(false)
     expect(
-      isOverdue(item(2, '2026-08-19T10:00:00', ReservationStatus.CHECKED_IN), nowSeoul),
+      isOverdue(item(2, '2026-08-19T10:00:00', ReservationStatus.CHECKED_IN), noonSeoul),
     ).toBe(false)
   })
 
   it('기준 시각을 주면 그 값과만 비교한다', () => {
     const item9am = item(1, '2026-08-20T09:00:00', ReservationStatus.CONFIRMED)
-    expect(isOverdue(item9am, '2026-08-20T08:30:00')).toBe(false)
-    expect(isOverdue(item9am, '2026-08-20T09:30:00')).toBe(true)
+    expect(isOverdue(item9am, Date.parse('2026-08-20T08:30:00+09:00'))).toBe(false)
+    expect(isOverdue(item9am, Date.parse('2026-08-20T09:30:00+09:00'))).toBe(true)
   })
 
   /*
@@ -112,8 +113,16 @@ describe('dateLabel', () => {
     expect(dateLabel('2026-09-01', '2026-08-31')).toBe('내일')
   })
 
-  it('그 밖의 날짜는 월·일·요일로 표시한다', () => {
-    expect(dateLabel('2026-08-25', '2026-08-20')).toBe('8월 25일 (화)')
+  /*
+    그 밖의 날짜는 로케일 포맷을 그대로 쓴다. 정확한 표기는 ICU 버전에 따라 달라질 수 있어
+    문자열 전체를 단언하지 않고, 날짜 정보가 들어 있고 오늘·내일로 오분류되지 않는지만 본다.
+  */
+  it('그 밖의 날짜는 월·일이 담긴 라벨로 표시한다', () => {
+    const label = dateLabel('2026-08-25', '2026-08-20')
+    expect(label).toContain('8월')
+    expect(label).toContain('25')
+    expect(label).not.toBe('오늘')
+    expect(label).not.toBe('내일')
   })
 })
 

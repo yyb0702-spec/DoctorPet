@@ -1,4 +1,7 @@
 // 검색 필터용 드롭다운 — 버튼을 누르면 패널이 펼쳐지고, 바깥을 클릭하거나 Esc를 누르면 닫힌다.
+// 접근성 속성은 같은 저장소의 UserMenu와 맞춘다(aria-haspopup·aria-expanded + 패널 라벨링).
+// 패널에 role="menu"를 쓰지 않는 이유: 진료 특성 패널은 체크박스 묶음이라 menu 역할과 맞지 않는다.
+// 그래서 그룹으로 라벨링하고, 단일 선택 항목만 눌린 상태(aria-pressed)를 노출한다.
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,6 +44,8 @@ export function FilterDropdown({
         type="button"
         size="sm"
         variant={active ? 'default' : 'outline'}
+        aria-haspopup="true"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
         {label}
@@ -49,7 +54,11 @@ export function FilterDropdown({
         />
       </Button>
       {open && (
-        <div className="absolute left-0 top-full z-10 mt-1 min-w-40 rounded-md border bg-background p-1 shadow-md">
+        <div
+          role="group"
+          aria-label={`${label} 필터`}
+          className="absolute left-0 top-full z-10 mt-1 min-w-40 rounded-md border bg-background p-1 shadow-md"
+        >
           {children}
         </div>
       )}
@@ -70,6 +79,7 @@ export function FilterOption({
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={onClick}
       className={cn(
         'block w-full rounded-sm px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent',
