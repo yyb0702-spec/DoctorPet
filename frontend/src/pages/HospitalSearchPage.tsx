@@ -11,6 +11,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { HospitalMap } from '@/components/common/HospitalMap'
+import {
+  FilterCheckbox,
+  FilterDropdown,
+  FilterOption,
+} from '@/components/common/FilterDropdown'
 import { cn } from '@/lib/utils'
 import { PetSpecies } from '@/types/enums'
 import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
@@ -49,8 +54,16 @@ export function HospitalSearchPage() {
       page: 1,
     }))
 
-  const toggleFlag = (key: 'nightCare' | 'emergency' | 'surgery') =>
-    setParams((p) => ({ ...p, [key]: p[key] ? undefined : true, page: 1 }))
+  const toggleFlag = (
+    key: 'nightCare' | 'emergency' | 'surgery' | 'hospitalization',
+  ) => setParams((p) => ({ ...p, [key]: p[key] ? undefined : true, page: 1 }))
+
+  const activeCareCount = [
+    params.nightCare,
+    params.emergency,
+    params.surgery,
+    params.hospitalization,
+  ].filter(Boolean).length
 
   const goToPage = (next: number) =>
     setParams((p) => ({ ...p, page: next }))
@@ -84,52 +97,61 @@ export function HospitalSearchPage() {
         </Button>
       </div>
 
-      {/* 필터 칩 */}
+      {/* 필터 드롭다운 */}
       <div className="flex flex-wrap gap-2">
-        {SPECIES_ORDER.map((s) => (
-          <Button
-            key={s}
-            size="sm"
-            variant={species === s ? 'default' : 'outline'}
-            onClick={() => toggleSpecies(s)}
+        <FilterDropdown label={species ? SPECIES_LABEL[species] : '반려동물'} active={!!species}>
+          <FilterOption selected={!species} onClick={() => species && toggleSpecies(species)}>
+            전체
+          </FilterOption>
+          {SPECIES_ORDER.map((s) => (
+            <FilterOption key={s} selected={species === s} onClick={() => toggleSpecies(s)}>
+              {SPECIES_LABEL[s]}
+            </FilterOption>
+          ))}
+        </FilterDropdown>
+
+        <FilterDropdown
+          label={activeCareCount > 0 ? `진료 특성 (${activeCareCount})` : '진료 특성'}
+          active={activeCareCount > 0}
+        >
+          <FilterCheckbox checked={!!params.nightCare} onChange={() => toggleFlag('nightCare')}>
+            야간진료
+          </FilterCheckbox>
+          <FilterCheckbox checked={!!params.emergency} onChange={() => toggleFlag('emergency')}>
+            응급
+          </FilterCheckbox>
+          <FilterCheckbox checked={!!params.surgery} onChange={() => toggleFlag('surgery')}>
+            수술
+          </FilterCheckbox>
+          <FilterCheckbox
+            checked={!!params.hospitalization}
+            onChange={() => toggleFlag('hospitalization')}
           >
-            {SPECIES_LABEL[s]}
-          </Button>
-        ))}
-        <Button
-          size="sm"
-          variant={params.nightCare ? 'default' : 'outline'}
-          onClick={() => toggleFlag('nightCare')}
+            입원
+          </FilterCheckbox>
+        </FilterDropdown>
+
+        <FilterDropdown
+          label={params.partnerOnly ? '제휴 병원만' : '제휴 여부'}
+          active={!!params.partnerOnly}
         >
-          야간진료
-        </Button>
-        <Button
-          size="sm"
-          variant={params.emergency ? 'default' : 'outline'}
-          onClick={() => toggleFlag('emergency')}
-        >
-          응급
-        </Button>
-        <Button
-          size="sm"
-          variant={params.surgery ? 'default' : 'outline'}
-          onClick={() => toggleFlag('surgery')}
-        >
-          수술
-        </Button>
-        <Button
-          size="sm"
-          variant={params.partnerOnly ? 'default' : 'outline'}
-          onClick={() =>
-            setParams((p) => ({
-              ...p,
-              partnerOnly: p.partnerOnly ? undefined : true,
-              page: 1,
-            }))
-          }
-        >
-          제휴 병원만
-        </Button>
+          <FilterOption
+            selected={!params.partnerOnly}
+            onClick={() =>
+              setParams((p) => ({ ...p, partnerOnly: undefined, page: 1 }))
+            }
+          >
+            전체
+          </FilterOption>
+          <FilterOption
+            selected={!!params.partnerOnly}
+            onClick={() =>
+              setParams((p) => ({ ...p, partnerOnly: true, page: 1 }))
+            }
+          >
+            제휴 병원만
+          </FilterOption>
+        </FilterDropdown>
       </div>
 
       {/* 결과 리스트 — 카드를 누르면 그 자리에서 지도가 펼쳐진다(이동 X). "상세"만 이동. */}
