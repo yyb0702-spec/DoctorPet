@@ -56,11 +56,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
             "enum('AUTO_NO_SHOW','AUTO_NO_SHOW_PENDING','CHECKED_IN','HOSPITAL_CANCELED',"
                     + "'MANUAL_NO_SHOW','NO_SHOW_CORRECTED','TIMEOUT_REJECTED')";
 
-    private static final String LEGACY_NOTIFICATION_ENUM = "enum('NO_SHOW','PAYMENT_PENDING',"
-            + "'PAYMENT_RESULT','RESERVATION_CONFIRMED',"
-            + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
-            + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED')";
-
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -70,8 +65,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     @Autowired
     private ReservationSlotRepository slotRepository;
 
-    private Long legacyNotificationId;
-    private Long paymentPendingNotificationId;
     private Long reservationId;
     private Long slotId;
     private List<Long> hospitalCanceledReservationIds = List.of();
@@ -80,10 +73,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     @BeforeEach
     void prepareLegacySchema() {
         deleteMigrationMarker();
-        jdbcTemplate.execute(
-                "alter table notifications modify column type "
-                        + LEGACY_NOTIFICATION_ENUM + " not null"
-        );
         jdbcTemplate.execute(
                 "alter table reservations modify column status "
                         + LEGACY_STATUS_ENUM + " not null"
@@ -96,12 +85,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
 
     @AfterEach
     void restoreSchema() {
-        if (legacyNotificationId != null) {
-            jdbcTemplate.update("delete from notifications where id = ?", legacyNotificationId);
-        }
-        if (paymentPendingNotificationId != null) {
-            jdbcTemplate.update("delete from notifications where id = ?", paymentPendingNotificationId);
-        }
         if (reservationId != null) {
             jdbcTemplate.update("delete from reservation_events where reservation_id = ?", reservationId);
             jdbcTemplate.update("delete from reservations where id = ?", reservationId);
@@ -117,10 +100,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                 update reservation_events set event_type = 'HOSPITAL_CANCELED'
                  where event_type = 'HOSPITAL_CANCELLED'
                 """);
-        jdbcTemplate.update("""
-                update notifications set type = 'RESERVATION_HOSPITAL_CANCELED'
-                 where type = 'RESERVATION_HOSPITAL_CANCELLED'
-                """);
         jdbcTemplate.execute(
                 "alter table reservations modify column status "
                         + FINAL_STATUS_ENUM + " not null"
@@ -129,23 +108,16 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                 "alter table reservation_events modify column event_type "
                         + FINAL_EVENT_ENUM + " not null"
         );
-        jdbcTemplate.execute(
-                "alter table notifications modify column type "
-                        + "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT',"
-                        + "'RESERVATION_CONFIRMED','RESERVATION_HOSPITAL_CANCELED',"
-                        + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED') not null"
-        );
         restoreTemporarilyRewrittenHospitalCanceledRows();
         restoreHospitalCancelColumnsForJpa();
         deleteMigrationMarker();
     }
 
     @Test
-    @DisplayName("기존 MySQL 스키마에서 병원 취소 이력은 정규화하고 PAYMENT_PENDING 행과 취소 컬럼을 보존한다")
-    void preJpaMigration_preservesLegacyHistoryAndPaymentPending() {
+    @DisplayName("기존 MySQL 스키마에서 병원 취소 이력을 정규화하고 취소 컬럼을 보존한다")
+    void preJpaMigration_preservesLegacyHistoryAndHospitalCancelColumns() {
+        // notifications.type 정리는 이 러너의 범위가 아니다(이슈 #176에서 VARCHAR 전환과 함께 알림 도메인 러너로 이관).
         insertLegacyHospitalCanceledReservationAndEvent();
-        insertLegacyHospitalCanceledNotification();
-        insertPaymentPendingNotification();
         dropHospitalCancelColumns();
 
         ReservationHospitalCanceledStatusMigrationRunner runner =
@@ -154,11 +126,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
 
         assertThat(reservationStatus()).isEqualTo("HOSPITAL_CANCELED");
         assertThat(eventType()).isEqualTo("HOSPITAL_CANCELED");
-        assertThat(notificationType()).isEqualTo("RESERVATION_HOSPITAL_CANCELED");
-        assertThat(paymentPendingNotificationType()).isEqualTo("PAYMENT_PENDING");
-        assertThat(notificationEnum()).contains("PAYMENT_PENDING");
-        assertThat(notificationEnum()).contains("RESERVATION_HOSPITAL_CANCELED");
-        assertThat(notificationEnum()).doesNotContain("RESERVATION_HOSPITAL_CANCELLED");
         assertThat(columnExists("hospital_cancel_reason")).isTrue();
         assertThat(columnExists("hospital_canceled_at")).isTrue();
         assertThat(migrationMarkerExists()).isTrue();
@@ -168,8 +135,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
     @DisplayName("마이그레이션을 재실행해도 데이터와 스키마가 중복 변경되지 않는다")
     void rerun_isIdempotent() {
         insertLegacyHospitalCanceledReservationAndEvent();
-        insertLegacyHospitalCanceledNotification();
-        insertPaymentPendingNotification();
         dropHospitalCancelColumns();
         ReservationHospitalCanceledStatusMigrationRunner runner =
                 new ReservationHospitalCanceledStatusMigrationRunner(jdbcTemplate);
@@ -179,9 +144,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
 
         assertThat(reservationStatus()).isEqualTo("HOSPITAL_CANCELED");
         assertThat(eventType()).isEqualTo("HOSPITAL_CANCELED");
-        assertThat(notificationType()).isEqualTo("RESERVATION_HOSPITAL_CANCELED");
-        assertThat(paymentPendingNotificationType()).isEqualTo("PAYMENT_PENDING");
-        assertThat(notificationEnum()).doesNotContain("RESERVATION_HOSPITAL_CANCELLED");
         assertThat(columnExists("hospital_cancel_reason")).isTrue();
         assertThat(columnExists("hospital_canceled_at")).isTrue();
         assertThat(migrationMarkerExists()).isTrue();
@@ -230,38 +192,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
         for (Long id : hospitalCanceledEventIds) {
             jdbcTemplate.update("update reservation_events set event_type = 'HOSPITAL_CANCELED' where id = ?", id);
         }
-    }
-
-    private void insertLegacyHospitalCanceledNotification() {
-        long memberId = Math.abs(System.nanoTime());
-        jdbcTemplate.update("""
-                insert into notifications
-                       (member_id, recipient_type, recipient_id, type, content,
-                        resource_type, resource_id, created_at, updated_at)
-                values (?, 'MEMBER', ?, 'RESERVATION_HOSPITAL_CANCELLED',
-                        '병원 사정으로 예약이 취소되었습니다.', 'RESERVATION', 991, now(6), now(6))
-                """, memberId, memberId);
-        legacyNotificationId = jdbcTemplate.queryForObject(
-                "select id from notifications where member_id = ? order by id desc limit 1",
-                Long.class,
-                memberId
-        );
-    }
-
-    private void insertPaymentPendingNotification() {
-        long memberId = Math.abs(System.nanoTime());
-        jdbcTemplate.update("""
-                insert into notifications
-                       (member_id, recipient_type, recipient_id, type, content,
-                        resource_type, resource_id, created_at, updated_at)
-                values (?, 'MEMBER', ?, 'PAYMENT_PENDING',
-                        '결제 확인 중입니다.', 'PAYMENT', 992, now(6), now(6))
-                """, memberId, memberId);
-        paymentPendingNotificationId = jdbcTemplate.queryForObject(
-                "select id from notifications where member_id = ? order by id desc limit 1",
-                Long.class,
-                memberId
-        );
     }
 
     private void dropHospitalCancelColumns() {
@@ -333,32 +263,6 @@ class ReservationHospitalCanceledStatusMigrationIntegrationTest {
                 String.class,
                 reservationId
         );
-    }
-
-    private String notificationType() {
-        return jdbcTemplate.queryForObject(
-                "select type from notifications where id = ?",
-                String.class,
-                legacyNotificationId
-        );
-    }
-
-    private String paymentPendingNotificationType() {
-        return jdbcTemplate.queryForObject(
-                "select type from notifications where id = ?",
-                String.class,
-                paymentPendingNotificationId
-        );
-    }
-
-    private String notificationEnum() {
-        return jdbcTemplate.queryForObject("""
-                select column_type
-                  from information_schema.columns
-                 where table_schema = database()
-                   and table_name = 'notifications'
-                   and column_name = 'type'
-                """, String.class);
     }
 
     private String reservationStatusEnum() {
