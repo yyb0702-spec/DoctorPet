@@ -260,6 +260,17 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `created_at` | DATETIME | 생성 시각 |
 
 `type`·`resource_type`은 MySQL native ENUM이 아니라 VARCHAR(40)이다(이슈 #176) — 엔티티에 `@JdbcTypeCode(SqlTypes.VARCHAR)`를 못박고 기존 DB는 `notification_type_varchar_v1` 마커로 전환했다. 유형 값 추가에 DDL이 필요하지 않고, 값 유효성은 애플리케이션 enum 파싱이 전담한다.
+### `notification_preferences`
+| 필드 | 타입 | 제약·설명 |
+| --- | --- | --- |
+| `id` | BIGINT | PK |
+| `member_id` | BIGINT | 회원 논리 참조 |
+| `notification_type` | VARCHAR(40) | 대상 알림 유형 |
+| `channel` | VARCHAR(20) | `REALTIME`, `EMAIL` |
+| `enabled` | BOOLEAN | 수신 여부 |
+| `created_at` | DATETIME | 생성 시각 |
+| `updated_at` | DATETIME | 수정 시각 |
+제약: `UNIQUE(member_id, notification_type, channel)`. 행이 없으면 수신이 기본이라 소급 생성이 필요 없다. 인앱 저장은 설정 대상이 아니다(저장이 원본). 새 테이블이라 마이그레이션 러너 없이 `ddl-auto=update`가 만든다. enum 컬럼은 VARCHAR로 못박는다(이슈 #176).
 ### `chat_messages`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |

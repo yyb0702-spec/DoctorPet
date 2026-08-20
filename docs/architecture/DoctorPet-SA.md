@@ -469,6 +469,22 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 읽음 상태는 `read_at`을 정본으로 저장하고 응답의 `isRead`는 파생값이다(언제 읽었는지까지 보존하기 위함, #39 확정). 읽음 처리는 `read_at`이 NULL일 때만 기록해 반복 요청이 멱등하다. 연결 리소스는 유형별 컬럼 대신 `resource_type`+`resource_id` generic 참조로 두어 유형이 늘어도 스키마 변경이 없게 한다. 알림은 독립 스냅샷이므로 목록 조회 시 서버가 연결 리소스를 조인·확장하지 않는다 — 리소스가 삭제·접근 불가여도 목록 조회는 실패하지 않고 저장된 type·id·content를 그대로 반환한다(요청값 신뢰 금지). #39는 알림 저장 메커니즘(엔티티·조회·읽음 처리)과 결제 결과(`PAYMENT_RESULT`) 발행을 제공한다. 예약(`RESERVATION_CONFIRMED`/`RESERVATION_REJECTED`)·노쇼(`NO_SHOW`) 이벤트도 저장 후 `NotificationPusher`를 통해 단방향 SSE로 전달한다. 결제 고도화 3.6에서 `PAYMENT_PENDING`을 추가했다 — 정산이 오래 미확정으로 `RECONCILE_STUCK`에 도달했을 때만 "결제 확인 중" 안내를 결제당 1회 발행하는 유형이다(상태는 바꾸지 않는다). 최초/일시적 PENDING(`RECONCILE_UNCONFIRMED` 등)에는 발행하지 않는다. 발행 결정과 저장은 결제 행 락(`findByIdForUpdate`) 아래 한 트랜잭션에서 처리해 "현재도 PENDING인지 확인"과 "안내 저장" 사이의 경합을 없앤다 — 그 사이 다른 경로가 PAID/OFFLINE로 확정했다면 락을 잡고 다시 읽었을 때 PENDING이 아니므로 발행하지 않고, 확정을 원자화하는 조건부 UPDATE(`WHERE id=…`)가 같은 행 락에 직렬화되어 완료 알림 뒤에 뒤늦은 안내가 저장되지 않는다. 결제당 1회는 `dedup_key` UNIQUE 제약(`uk_notifications_dedup_key`)으로도 보장한다 — 정산 배치와 락 밖 웹훅 경로가 같은 결제를 동시에 처리해도 존재조회→저장 경합에서 1건만 저장되고, 진 트랜잭션의 그 제약 위반만 골라 이미 발행된 것으로 흡수한다(JPA는 유니크 위반도 `DataIntegrityViolationException`으로 번역하므로 제약 이름으로 판별한다 — 다른 무결성 오류는 전파). 멱등 발행에만 키를 채우므로 `PAYMENT_RESULT`의 정정 발행 중복은 막지 않는다. 수신자는 `recipient_type`(MEMBER|HOSPITAL)+`recipient_id`가 정본이다(고도화 3.10). 병원 수신은 **병원 단위 공유** — 스태프 누구나 열람하고 읽음은 알림 1건당 공유(스태프 개인별 복제·개인 읽음 없음)라, 병원 스태프 계정 관리가 범위 밖인 것과 정합한다. 조회·읽음·미읽음 수·모두 읽음은 모두 호출자 recipient(회원 principal→MEMBER, 병원 스태프 principal→소속 HOSPITAL) 기준으로 필터하며, 회원은 자기 MEMBER 알림만·스태프는 자병원 HOSPITAL 알림만 접근한다(회원↔병원 격리). `member_id`는 기존 행 백필과 하위호환용으로 nullable로 남기며, 멱등 발행(dedup_key)은 회원 수신이라 member_id로 스코프한다. SSE 전송은 커밋 이후 수행하며 티켓 인증과 회원당 연결 상한을 적용한다. 인덱스는 두 개를 두되 수신자 축으로 맞춘다 — 목록 페이징 정렬용 `idx_notifications_recipient_created(recipient_type, recipient_id, created_at)`와, 미읽음 개수·모두 읽음이 매 요청 사용하는 `(recipient_type, recipient_id) = ? AND read_at IS NULL` 조회·갱신용 `idx_notifications_recipient_read(recipient_type, recipient_id, read_at)`. 병원향 SSE 실시간 fan-out(접속 스태프 세션 전달)은 후속으로 분리했고, 저장·조회·인가와 HOSPITAL SSE 오배달 방지(push no-op)가 그 단계의 범위였다. 이후 전달 경로(#162)와 **병원향 발행 지점(#166)**까지 구현했다 — 병원 수신 유형은 `RESERVATION_REQUESTED` 하나이며, 보호자가 새 예약을 요청할 때(일반 요청·대기열 승급 수락 두 경로 모두) `REQUESTED` 생성과 같은 트랜잭션에서 해당 병원에 발행한다(전이가 롤백되면 알림도 남지 않는다). 전송은 커밋 후 AFTER_COMMIT 리스너가 발송 시점의 현재 소속 스태프에게 fan-out하며, 그 대상 조회(`members.hospital_id = ? AND role = ?`)는 §4 members의 `idx_members_hospital_role`을 쓴다. `type`·`resource_type`의 물리 타입은 **VARCHAR(40)**이다(이슈 #176). 이전에는 MySQL native ENUM이었고 그것은 마이그레이션의 선택이 아니라 Hibernate 기본 동작이었다 — `@Enumerated(EnumType.STRING)` 자바 enum을 native ENUM으로 만들고 `@Column(length)`를 무시하는데, `ddl-auto=update`는 기존 ENUM 정의를 넓혀주지 않아 enum에 값만 추가하면 **기존 DB에서 그 값의 INSERT만 실패**했다(MySQL 1265). 그래서 값마다 확장 러너가 필요했고, 그 러너들은 목표 목록을 하드코딩해 컬럼 정의를 통째로 교체하므로 상위집합·실행 순서 관례를 지키지 않으면 남의 값이 조용히 사라졌다. 엔티티에 `@JdbcTypeCode(SqlTypes.VARCHAR)`를 못박아 신규 DB도 varchar로 생성되게 하고, 기존 DB는 `notification_type_varchar_v1` 마커 러너가 한 번 전환한다(§4 schema_migrations). 전환 후에는 **유형 값 추가에 DDL이 필요하지 않다** — 값마다 필요했던 확장 러너 두 개(대기열 승급 유형·병원 수신 유형)는 제거했고, 이미 적용된 DB의 옛 마커는 지우지 않고 남긴다(마커는 실행 이력이며 참조되지 않는다). 대신 **DB가 값을 검증하지 않으므로 유효성은 애플리케이션 enum 파싱이 전담**한다 — 저장 경로는 모두 `NotificationService.create()`를 지나 자바 enum을 받으므로 잘못된 문자열이 들어오는 코드 경로는 없고, 남는 위험은 수동 DB 편집과 구버전·신버전 혼재뿐이다. 과거 오타 값(`RESERVATION_HOSPITAL_CANCELLED`) 정정은 제거한 러너 대신 이 전환 러너가 같은 잠금 안에서 승계하고, enum이 모르는 그 밖의 값은 부팅을 막지 않고 경고로 드러낸다(구버전 롤백 직후를 부팅 실패로 만들지 않기 위함).
 
+### notification_preferences
+
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| member_id | BIGINT | 회원 논리 참조. 병원 수신 알림은 병원 단위 공유라 개인 설정 대상이 아니다 |
+| notification_type | VARCHAR(40) | 대상 알림 유형(`notifications.type`과 같은 값 집합) |
+| channel | VARCHAR(20) | 전달 채널 — REALTIME / EMAIL (§9-8) |
+| enabled | BOOLEAN | 수신 여부 |
+| created_at | DATETIME | |
+| updated_at | DATETIME | |
+
+제약: `UNIQUE(member_id, notification_type, channel)`(`uk_notification_preferences_member_type_channel`) — (회원 · 유형 · 채널)당 1행이다. 설정 API가 생기면 이 제약이 upsert의 기준이 되고, 같은 조합이 둘로 갈려 어느 쪽이 이기는지 모호해지는 상황을 DB가 막는다.
+
+회원별 알림 수신 on/off 설정이다(고도화 3.9). **행이 없으면 "수신"이 기본**이므로 설정을 소급 생성하지 않아도 기존 회원의 동작이 바뀌지 않는다 — 스키마를 먼저 두는 이유가 이것이다(나중에 도입하면 기존 회원에게 어떤 기본값을 소급할지 근거가 없다). 채널은 REALTIME·EMAIL만이고 **인앱 저장은 설정 대상이 아니다**(저장이 알림의 원본이라 끄면 알림 자체가 사라진다). 현재 이 설정을 읽는 곳은 이메일 채널 하나이며, 설정을 바꾸는 API·화면은 아직 없다. 새 테이블이라 전용 마이그레이션 러너가 없다 — `ddl-auto=update`가 테이블과 UNIQUE를 함께 만든다(신규·기존 DB 모두 실측 확인). 두 enum 컬럼은 `@JdbcTypeCode(SqlTypes.VARCHAR)`로 VARCHAR를 못박는다(이슈 #176) — 안 하면 Hibernate가 native ENUM으로 만들어 유형·채널을 추가할 때마다 확장 마이그레이션이 필요해진다.
+
 ### payment_webhooks (확장)
 
 | 컬럼 | 타입 | 설명 |
@@ -1117,6 +1133,12 @@ OpenAI Responses API 요청은 `store=false`로 전송한다. Tool 결과를 이
 병원 승인형 예약은 상태가 병원 액션에 따라 비동기로 바뀌므로 폴링 없이 즉시 받는 실시간 채널이 자연스럽다. 대상 이벤트는 예약 `CONFIRMED`/`REJECTED`, 결제 `PAID`/`OFFLINE_REQUIRED`, 노쇼 판정. 상태 전이 시 `notifications`에 저장한다.
 
 실시간 push는 MVP2에서 단방향 SSE로 확정한다. `NotificationPusher` 추상화 뒤에 SSE 구현을 두고, `EventSource`의 헤더 제약을 보완하기 위해 구독 티켓을 인증한다. 알림 저장 트랜잭션이 커밋된 뒤 push를 전송하며 회원당 연결 상한을 적용한다. 실시간 채널 장애는 예약·결제 트랜잭션에 영향을 주지 않는다 — 알림 저장이 원본이고 SSE는 부가 전달이다.
+
+전달 채널은 `NotificationChannel` 추상화 뒤에 둔다(고도화 3.9). 저장(인앱)은 채널이 아니라 알림의 원본이고, 채널은 저장 커밋 이후 추가로 나가는 전달 수단만 열거한다 — **REALTIME**(기존 SSE 구현을 `NotificationPusher`에 그대로 위임하는 어댑터)과 **EMAIL**이다. 커밋 후 리스너가 등록된 모든 채널에 넘기고 대상이 아닌 알림은 각 채널이 조용히 no-op하며, 전달 실패는 **채널 단위로 격리**해 삼킨다 — 이메일 발송 장애가 SSE 전달을 막거나 그 반대가 되면 저장은 됐는데 도달 가능한 채널까지 함께 잃기 때문이다.
+
+이메일 채널은 **예약 승인(`RESERVATION_CONFIRMED`)·결제 결과(`PAYMENT_RESULT`) 두 유형만** 보낸다 — SSE는 앱이 연결돼 있을 때만 도달하므로 사용자가 놓치면 곤란한 결과성 알림만 이메일이 메운다. 중간 안내인 "결제 확인 중"(`PAYMENT_PENDING`)은 제외하고, 유형을 넓히는 것은 정책 변경으로 다룬다. 수신자는 **회원(MEMBER)만**이다 — 병원 수신은 병원 단위 공유 알림이라 대표 메일·스태프 개인 메일 중 무엇으로 보낼지가 정해지지 않았다(범위 밖). 주소는 **인증된(`email_verified`) 활성 회원의 이메일만** 쓴다(미인증 주소로 보내면 그 주소의 실제 소유자에게 진료·결제 정보가 새어 나간다). 본문은 저장된 `notifications.content` 스냅샷을 그대로 쓴다 — 문구의 "동적 PII 미포함" 원칙을 채널이 새 문구를 조립해 깨지 않게 하기 위함이다. 발송 여부는 `notification.email.enabled`(기본 true)로 끌 수 있고, 끄면 채널 빈 자체가 등록되지 않아 인앱 저장·SSE는 그대로 동작한다.
+
+이메일의 **중복 방지는 채널이 아니라 저장의 멱등을 승계한다** — 채널은 저장된 알림 1행당 1회 호출되므로, 멱등 발행(`dedup_key` UNIQUE)은 행이 1건이라 메일도 1통이고, 일반 발행에서 행이 2건이면 서로 다른 사건이라(예: 결제 완료 뒤 환불된 `PAYMENT_RESULT`) 2통이 맞다. 그래서 채널에 별도 중복 방지 장치를 두지 않는다. 반대로 커밋 직후 프로세스가 죽으면 그 1통은 재시도 없이 유실된다 — 인앱 저장은 남아 사용자가 목록에서 확인할 수 있고, 전달 보장은 아웃박스(고도화 3.11)의 범위다.
 
 예약·결제 알림의 전송 계층은 SSE로 유지하며 WebSocket으로 이전하지 않는다. WebSocket은 §9-12의 병원↔회원 예약 채팅 전용으로 분리한다. 따라서 알림 저장과 SSE 전송의 AFTER_COMMIT 구조는 변경하지 않고, 채팅도 별도의 메시지 저장 커밋 뒤에만 전송한다.
 
