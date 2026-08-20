@@ -2,8 +2,8 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 버전 | v1.3 |
-| 작성 기준일 | 2026-08-18 |
+| 문서 버전 | v1.4 |
+| 작성 기준일 | 2026-08-20 |
 | 상태 | 설계 확정, 구현 진행 중 |
 | 전제(동결 baseline) | `docker-compose.yml`, `.github/workflows/deploy.yml` (2026-08-10 시점 — blue/green 컷오버 로직 자체의 동결 기준이며, 이후 RDS 이전(이슈 #163)이 MySQL 부분을, ElastiCache 이전이 Redis 부분을 변경했다. 4-3절 참고) |
 | 관련 문서 | `docs/architecture/DoctorPet-SA.md`(제품 도메인 설계, 이 문서와 별개 — 배포 인프라는 SA 범위 밖) |
@@ -85,6 +85,14 @@ docker compose exec nginx nginx -s reload
 1. **Elastic IP 할당·연결** — EC2 퍼블릭 IP가 재부팅 시 바뀌면 Route 53 A 레코드가 옛 IP를 계속 가리켜 도메인이 조용히 끊긴다. Elastic IP를 이 인스턴스에 연결해 고정한다.
 2. **보안 그룹 인바운드 80·443 상시 허용** — 배포 파이프라인이 SSH(22)만 배포 구간 한정으로 임시 허용하는 것과 달리(`deploy.yml`), 80·443은 실제 사용자 트래픽이 항상 들어와야 하므로 상시 열어둔다.
 3. **Route 53 A 레코드** — `doctorpet.click`(apex, 레코드 이름 비워둠)이 위 Elastic IP를 가리키도록 호스팅 영역에 A 레코드를 추가·확인한다(Route 53에서 도메인을 등록하면 호스팅 영역은 보통 자동 생성된다). **`www.doctorpet.click`은 지금 범위에 없다**(리뷰 지적 — 아래 참고) — A 레코드만 추가한다고 되는 게 아니라, `nginx.conf`의 `server_name`과 위 certonly 명령의 `-d`에도 `www.doctorpet.click`을 같이 넣어 인증서 SAN에 포함시켜야 브라우저 경고 없이 동작한다. www도 쓰고 싶어지면 코드·발급 명령을 함께 바꿔야 한다.
+
+### 3-1-1. Vercel 프론트엔드와 API·채팅 연결 (2026-08-20)
+
+화면은 `https://doctorpet.vercel.app`에서, API·SSE·채팅 WebSocket은 `https://doctorpet.click`에서 제공한다. Vercel의 프로덕션 환경변수는 `VITE_API_BASE_URL=https://doctorpet.click/api`, `VITE_CHAT_WS_URL=wss://doctorpet.click/ws/chat`으로 설정한다. 두 값은 빌드 시 번들에 반영되므로 변경 뒤에는 재배포가 필요하다.
+
+브라우저 채팅 핸드셰이크는 일반 HTTP CORS 필터를 거치지 않는 별도 Origin 검증 경로다. 따라서 백엔드는 `cors.allowed-origins`(`CORS_ALLOWED_ORIGINS`) 하나를 HTTP CORS와 `/ws/chat`에 함께 적용한다. 운영 환경에는 `https://doctorpet.vercel.app`을 이 목록에 넣는다. 목록이 비어 있으면 Origin을 보낸 교차 오리진 요청은 둘 다 거부한다(fail-closed). Origin 헤더가 없는 네이티브 클라이언트의 동작은 Spring의 same-origin 판정에 맡기며, 앱이 Origin 헤더를 보낼 경우 실제 헤더를 확인한 뒤 목록을 추가한다.
+
+Vercel Preview는 매번 URL이 달라 운영 API의 허용 목록에 넣지 않는다. Preview에서 실데이터를 연결해야 한다면 `setAllowedOriginPatterns` 전환의 보안·운영 영향을 별도 결정으로 검토한다.
 
 ### 3-2. MySQL/Redis — 이번 범위에서 제외
 
