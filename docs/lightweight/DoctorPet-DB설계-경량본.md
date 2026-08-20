@@ -252,12 +252,14 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | --- | --- | --- |
 | `id` | BIGINT | PK |
 | `member_id` | BIGINT | 회원 FK |
-| `type` | VARCHAR | `RESERVATION_REQUESTED`(병원 수신), `RESERVATION_CONFIRMED`, `RESERVATION_REJECTED`, `RESERVATION_HOSPITAL_CANCELED`, `RESERVATION_WAITLIST_OFFERED`, `PAYMENT_RESULT`, `PAYMENT_PENDING`, `NO_SHOW` |
+| `type` | VARCHAR(40) | `RESERVATION_REQUESTED`(병원 수신), `RESERVATION_CONFIRMED`, `RESERVATION_REJECTED`, `RESERVATION_HOSPITAL_CANCELED`, `RESERVATION_WAITLIST_OFFERED`, `PAYMENT_RESULT`, `PAYMENT_PENDING`, `NO_SHOW` |
 | `content` | VARCHAR | 알림 내용 |
-| `resource_type` | VARCHAR NULL | 연결 리소스 종류(RESERVATION / PAYMENT) — generic 참조 |
+| `resource_type` | VARCHAR(40) NULL | 연결 리소스 종류(RESERVATION / RESERVATION_WAITLIST / PAYMENT) — generic 참조 |
 | `resource_id` | BIGINT NULL | 연결 리소스 id(논리 참조) |
 | `read_at` | DATETIME NULL | 읽은 시각(NULL=미읽음). `isRead`는 `read_at IS NOT NULL` 파생 |
 | `created_at` | DATETIME | 생성 시각 |
+
+`type`·`resource_type`은 MySQL native ENUM이 아니라 VARCHAR(40)이다(이슈 #176) — 엔티티에 `@JdbcTypeCode(SqlTypes.VARCHAR)`를 못박고 기존 DB는 `notification_type_varchar_v1` 마커로 전환했다. 유형 값 추가에 DDL이 필요하지 않고, 값 유효성은 애플리케이션 enum 파싱이 전담한다.
 ### `chat_messages`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |
