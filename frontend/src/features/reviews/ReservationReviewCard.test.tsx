@@ -115,7 +115,37 @@ describe('ReservationReviewCard', () => {
     expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument()
   })
 
-  it('삭제하면 서버 판정을 다시 받아 작성 폼 대신 안내로 바뀐다', async () => {
+  // 삭제는 후기 행뿐 아니라 이 진료의 작성 기회까지 태운다 — 오클릭으로 지워지면 복구가 없다.
+  it('삭제를 눌러도 바로 요청하지 않고 확인부터 받는다', async () => {
+    getMine.mockResolvedValue({ review: review(), reviewable: false })
+
+    renderCard(100)
+    await screen.findByText('내가 남긴 후기')
+
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(removeReview).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/삭제하면 복구할 수 없으며, 이 진료에 다시 작성할 수 없습니다/),
+    ).toBeInTheDocument()
+  })
+
+  it('확인에서 취소하면 삭제 요청을 보내지 않는다', async () => {
+    getMine.mockResolvedValue({ review: review(), reviewable: false })
+
+    renderCard(100)
+    await screen.findByText('내가 남긴 후기')
+
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '취소' }))
+
+    expect(removeReview).not.toHaveBeenCalled()
+    // 취소하면 원래 화면으로 돌아온다.
+    expect(screen.getByRole('button', { name: '수정' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '삭제' })).toBeInTheDocument()
+  })
+
+  it('삭제를 확정하면 서버 판정을 다시 받아 작성 폼 대신 안내로 바뀐다', async () => {
     getMine
       .mockResolvedValueOnce({ review: review(), reviewable: false })
       .mockResolvedValue({ review: null, reviewable: false })
@@ -125,6 +155,7 @@ describe('ReservationReviewCard', () => {
     await screen.findByText('내가 남긴 후기')
 
     await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '삭제 확정' }))
 
     expect(removeReview).toHaveBeenCalledWith(10)
     expect(

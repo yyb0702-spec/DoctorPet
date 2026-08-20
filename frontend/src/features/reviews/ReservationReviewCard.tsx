@@ -124,6 +124,9 @@ export function ReservationReviewCard({
 
 function ReviewCardBody({ reservationId }: { reservationId: number }) {
   const [editing, setEditing] = useState(false)
+  // 삭제는 후기 행만 지우는 게 아니라 이 진료의 작성 기회(reviewed_at)까지 태운다 — 되돌릴 수
+  // 없으므로 한 번 더 확인받는다(PR #189 리뷰 P2). 확인 전에는 요청을 보내지 않는다.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const myReviewQuery = useMyReview(reservationId)
   const create = useCreateReview(reservationId)
@@ -179,28 +182,59 @@ function ReviewCardBody({ reservationId }: { reservationId: number }) {
               {errorMessage(remove.error, '후기 삭제에 실패했습니다.')}
             </p>
           )}
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={remove.isPending}
-              onClick={() => setEditing(true)}
-            >
-              수정
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate(myReview.reviewId)}
-            >
-              {remove.isPending ? '삭제 중…' : '삭제'}
-            </Button>
-          </div>
-          {/* 삭제하면 예약의 작성 기회(reviewed_at)가 복구되지 않아 다시 쓸 수 없다 — 미리 알린다. */}
-          <p className="text-xs text-muted-foreground">
-            삭제한 후기는 되돌릴 수 없고, 이 진료에 후기를 다시 쓸 수 없습니다.
-          </p>
+          {confirmingDelete ? (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <p className="text-sm">
+                후기를 삭제하면 복구할 수 없으며, 이 진료에 다시 작성할 수
+                없습니다. 삭제하시겠습니까?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(myReview.reviewId)}
+                >
+                  {remove.isPending ? '삭제 중…' : '삭제 확정'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    remove.reset()
+                    setConfirmingDelete(false)
+                  }}
+                >
+                  취소
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditing(true)}
+                >
+                  수정
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setConfirmingDelete(true)}
+                >
+                  삭제
+                </Button>
+              </div>
+              {/* 삭제하면 예약의 작성 기회(reviewed_at)가 복구되지 않아 다시 쓸 수 없다 — 미리 알린다. */}
+              <p className="text-xs text-muted-foreground">
+                삭제한 후기는 되돌릴 수 없고, 이 진료에 후기를 다시 쓸 수
+                없습니다.
+              </p>
+            </>
+          )}
         </CardContent>
       </Card>
     )
