@@ -26,6 +26,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
+import { naiveDateTimeLabel } from '@/lib/seoulTime'
 import { ReservationStatus } from '@/types/enums'
 
 // 새 요청·자동 노쇼가 스태프 조작 없이도 바뀌므로 주기적으로 갱신한다(30초).
@@ -55,8 +56,12 @@ const TAB_LABEL: Record<ReservationStatus, string> = {
   CANCELED: '취소',
 }
 
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('ko-KR')
+/*
+  예약 시각은 오프셋 없는 LocalDateTime이라 Date로 파싱하면 브라우저 로컬로 해석된다 —
+  UTC 환경에서 9시간 어긋난 시각이 표시된다(리뷰 P2). 문자열에서 그대로 읽어 쓴다.
+*/
+function fmt(reservedAt: string): string {
+  return naiveDateTimeLabel(reservedAt)
 }
 
 function errorMessage(error: unknown): string {
@@ -255,7 +260,12 @@ export function StaffReservationQueuePage() {
     setPage(0)
   }
 
-  // 불러온 페이지를 예약 시각으로 날짜별 그룹핑한다(예정 상태는 이른 시간부터, 이력은 최근부터).
+  /*
+    불러온 페이지를 예약 시각으로 날짜별 그룹핑한다(예정 상태는 이른 시간부터, 이력은 최근부터).
+    서버는 requestedAt DESC로 페이지를 자르므로 이 정렬은 **현재 페이지 범위 안에서만** 유효하다 —
+    임박한 예약이 다음 페이지에 남을 수 있어 화면에 그 사실을 밝힌다(리뷰 P2). 전체 기준 정렬은
+    서버가 reservedAt으로 정렬·페이징하는 계약이 생긴 뒤에 가능하다.
+  */
   const groups = query.data
     ? groupByDate(query.data.content, isUpcomingStatus(status))
     : []
@@ -263,6 +273,10 @@ export function StaffReservationQueuePage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">예약 관리</h1>
+      <p className="text-xs text-muted-foreground">
+        각 페이지를 예약 시각순으로 정리해 보여줘요. 페이지는 요청 시각 기준으로 나뉘므로, 전체 큐
+        기준 시간순은 아니에요 — 임박한 예약을 놓치지 않으려면 다음 페이지도 확인해 주세요.
+      </p>
       <div className="flex flex-wrap gap-1 border-b pb-2">
         {TABS.map((t) => {
           const count = counts[t]

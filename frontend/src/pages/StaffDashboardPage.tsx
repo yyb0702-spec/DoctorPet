@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { useStaffReservations } from '@/features/staffReservations/hooks'
 import { groupByDate } from '@/features/staffReservations/schedule'
 import { useHospitalPayments } from '@/features/staffPayments/hooks'
+import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
+import { naiveTimeLabel } from '@/lib/seoulTime'
 import { ReservationStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,14 +15,15 @@ import { PaymentStatus, ReservationStatus } from '@/types/enums'
 // 새 요청·자동 노쇼가 스태프 조작 없이도 바뀌므로 주기적으로 갱신한다(30초).
 const POLL_MS = 30_000
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+/*
+  미수금(자동 결제 실패 → 현장 수납 필요) 요약. 불러온 페이지 안에서 센다.
 
-// 미수금(자동 결제 실패 → 현장 수납 필요) 요약. 불러온 페이지 안에서 센다.
+  이 카드는 `GET /api/hospital/payments`에 의존하는데 그 목록 API가 아직 develop에 없다 —
+  그래서 저장소가 `HOSPITAL_OPS_BACKEND_READY=false`로 `/staff/payments` 라우트·메뉴를 막고 있다.
+  플래그를 무시하고 호출하면 실 환경에서 매번 404가 나고, 오류를 숨긴 탓에 카드가 조용히 사라지며
+  CTA는 등록되지 않은 경로를 가리킨다(PR #194 리뷰 P1). 그래서 호출부터 같은 플래그로 막고,
+  API·라우트가 준비되면 플래그 한 곳만 켜서 함께 살아나게 한다.
+*/
 function OutstandingCard() {
   const query = useHospitalPayments(0, 100)
   const outstanding =
@@ -62,11 +65,16 @@ export function StaffDashboardPage() {
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">운영 대시보드</h1>
 
-      <OutstandingCard />
+      {/* 결제 목록 API·라우트가 준비될 때까지 호출 자체를 하지 않는다(위 주석 참고). */}
+      {HOSPITAL_OPS_BACKEND_READY && <OutstandingCard />}
 
       <Card>
         <CardHeader>
           <CardTitle>승인 대기</CardTitle>
+          {/* 목록 API가 requestedAt DESC로 페이지를 자르므로 이 정렬은 현재 페이지 안에서만 유효하다. */}
+          <p className="text-xs text-muted-foreground">
+            최근 요청 20건을 예약 시각순으로 정리했어요. 전체 큐 기준 순서는 아니에요.
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           {pending.isLoading && <PageLoader />}
@@ -99,7 +107,7 @@ export function StaffDashboardPage() {
                           <div>
                             <span className="font-medium">{item.petName}</span>
                             <span className="ml-2 text-muted-foreground">
-                              {fmtTime(item.reservedAt)}
+                              {naiveTimeLabel(item.reservedAt)}
                             </span>
                           </div>
                           <ReservationStatusBadge

@@ -1,6 +1,8 @@
 // groupByDate 정렬·그룹핑과 isOverdue 판정 검증.
-import { describe, expect, it, vi, afterEach } from 'vitest'
-import { groupByDate, isOverdue, isUpcomingStatus } from './schedule'
+// 시각 비교는 Asia/Seoul 기준 문자열로 하므로, 기준 시각을 인자로 주입해 테스트가 실행 환경의
+// 타임존에 흔들리지 않게 한다(리뷰 P2 — 예전엔 로컬 Date 파싱이라 UTC CI에서 결과가 달라졌다).
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { dateLabel, groupByDate, isOverdue, isUpcomingStatus } from './schedule'
 import type { StaffReservationListItem } from './types'
 import { ReservationStatus } from '@/types/enums'
 
@@ -26,8 +28,6 @@ function item(
   }
 }
 
-afterEach(() => vi.useRealTimers())
-
 describe('groupByDate', () => {
   it('날짜별로 묶고 그룹 안을 이른 시간부터 정렬한다(ascending)', () => {
     const items = [
@@ -51,18 +51,69 @@ describe('groupByDate', () => {
 })
 
 describe('isOverdue', () => {
+  const nowSeoul = '2026-08-19T12:00:00'
+
   it('예약 시각이 지난 CONFIRMED는 지연으로 본다', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-08-19T12:00:00'))
-    expect(isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.CONFIRMED))).toBe(true)
-    expect(isOverdue(item(2, '2026-08-19T14:00:00', ReservationStatus.CONFIRMED))).toBe(false)
+    expect(
+      isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.CONFIRMED), nowSeoul),
+    ).toBe(true)
+    expect(
+      isOverdue(item(2, '2026-08-19T14:00:00', ReservationStatus.CONFIRMED), nowSeoul),
+    ).toBe(false)
   })
 
   it('내원 대기가 아닌 상태(REQUESTED·CHECKED_IN)는 지연으로 보지 않는다', () => {
+    expect(
+      isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.REQUESTED), nowSeoul),
+    ).toBe(false)
+    expect(
+      isOverdue(item(2, '2026-08-19T10:00:00', ReservationStatus.CHECKED_IN), nowSeoul),
+    ).toBe(false)
+  })
+
+  it('기준 시각을 주면 그 값과만 비교한다', () => {
+    const item9am = item(1, '2026-08-20T09:00:00', ReservationStatus.CONFIRMED)
+    expect(isOverdue(item9am, '2026-08-20T08:30:00')).toBe(false)
+    expect(isOverdue(item9am, '2026-08-20T09:30:00')).toBe(true)
+  })
+
+  /*
+    기준 시각을 주지 않으면 "지금"을 Asia/Seoul로 읽는다. 예전 구현은 예약 시각을 브라우저 로컬로
+    파싱해 실제 순간(Date.now())과 비교했기 때문에, 실행 환경이 KST가 아니면 판정이 최대 9시간
+    어긋났다. 실제 클럭을 UTC 순간으로 고정해 그 회귀를 잡는다 — 이 테스트는 프로세스 타임존이
+    무엇이든 같은 결과여야 한다.
+  */
+  it('기준 시각을 주지 않으면 실행 환경 타임존과 무관하게 서울 기준으로 판정한다', () => {
+    // 2026-08-20T00:30:00Z = 서울 09:30. 서울 09:00 예약은 지났고, 10:00 예약은 아직이다.
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-08-19T12:00:00'))
-    expect(isOverdue(item(1, '2026-08-19T10:00:00', ReservationStatus.REQUESTED))).toBe(false)
-    expect(isOverdue(item(2, '2026-08-19T10:00:00', ReservationStatus.CHECKED_IN))).toBe(false)
+    vi.setSystemTime(new Date('2026-08-20T00:30:00Z'))
+
+    expect(
+      isOverdue(item(1, '2026-08-20T09:00:00', ReservationStatus.CONFIRMED)),
+    ).toBe(true)
+    expect(
+      isOverdue(item(2, '2026-08-20T10:00:00', ReservationStatus.CONFIRMED)),
+    ).toBe(false)
+  })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+describe('dateLabel', () => {
+  // 기준 날짜(Asia/Seoul)를 주입해 "오늘"·"내일"이 실행 환경 날짜에 흔들리지 않게 한다.
+  it('기준 날짜와 같으면 오늘, 하루 뒤면 내일', () => {
+    expect(dateLabel('2026-08-20', '2026-08-20')).toBe('오늘')
+    expect(dateLabel('2026-08-21', '2026-08-20')).toBe('내일')
+  })
+
+  it('월말을 넘겨도 내일을 맞게 계산한다', () => {
+    expect(dateLabel('2026-09-01', '2026-08-31')).toBe('내일')
+  })
+
+  it('그 밖의 날짜는 월·일·요일로 표시한다', () => {
+    expect(dateLabel('2026-08-25', '2026-08-20')).toBe('8월 25일 (화)')
   })
 })
 
