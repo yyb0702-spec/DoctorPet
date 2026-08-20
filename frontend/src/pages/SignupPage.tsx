@@ -41,6 +41,15 @@ export function SignupPage() {
             <Field label="이름" htmlFor="nickname" error={errors.nickname?.message}>
               <Input id="nickname" placeholder="김보호" {...register('nickname')} />
             </Field>
+            <Field label="전화번호" htmlFor="phone" error={errors.phone?.message}>
+              <Input
+                id="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="010-1234-5678"
+                {...register('phone')}
+              />
+            </Field>
             <Field label="이메일" htmlFor="email" error={errors.email?.message}>
               <Input id="email" type="email" autoComplete="email" {...register('email')} />
             </Field>

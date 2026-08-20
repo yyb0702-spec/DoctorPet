@@ -18,6 +18,7 @@ import type { PaymentMethod, Receipt } from '@/features/payments/types'
 import type { Pet } from '@/features/pets/api'
 
 const BASE = '/api'
+const SIGNUP_PHONE_PATTERN = /^01(?:0|1|[6-9])(?:-\d{3,4}-\d{4}|\d{3,4}\d{4})$/
 
 // 영수증을 제공하는 결제 상태(백엔드와 동일, PR #158).
 const RECEIPT_STATUSES = new Set(['PAID', 'OFFLINE_PAID', 'REFUNDED'])
@@ -352,7 +353,17 @@ const receiptResolver: HttpResponseResolver<{ paymentId: string }> = ({ params }
 
 export const demoHandlers = [
   // --- 인증 ---
-  http.post(`${BASE}/auth/signup`, () => ok({ memberId: 1 }, 201)),
+  http.post(`${BASE}/auth/signup`, async ({ request }) => {
+    const body = (await request.json()) as { phone?: unknown }
+    const phone = body.phone
+    if (typeof phone !== 'string' || phone.trim().length === 0) {
+      return fail('COMMON_001', '입력값이 올바르지 않습니다.', 400)
+    }
+    if (!SIGNUP_PHONE_PATTERN.test(phone)) {
+      return fail('COMMON_001', '입력값이 올바르지 않습니다.', 400)
+    }
+    return ok({ memberId: 1 }, 201)
+  }),
   http.post(`${BASE}/auth/login`, async ({ request }) => {
     const body = (await request.json()) as { email?: string }
     // 데모: 이 이메일은 미인증 계정으로 403(EMAIL_NOT_VERIFIED) UX를 재현한다.

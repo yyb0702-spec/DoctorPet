@@ -29,6 +29,13 @@ export const signupSchema = z.object({
     .string()
     .min(1, '닉네임을 입력해 주세요.')
     .max(50, '닉네임은 50자 이하여야 합니다.'),
+  phone: z
+    .string()
+    .min(1, '전화번호를 입력해 주세요.')
+    .regex(
+      /^01(?:0|1|[6-9])(?:-\d{3,4}-\d{4}|\d{3,4}\d{4})$/,
+      '전화번호 형식이 올바르지 않습니다. (예: 010-1234-5678)',
+    ),
 })
 export type SignupInput = z.infer<typeof signupSchema>
 
