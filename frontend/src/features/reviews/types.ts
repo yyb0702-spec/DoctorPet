@@ -39,6 +39,16 @@ export interface Review {
   updatedAt: string
 }
 
+// GET /api/reservations/{reservationId}/review 응답 (SA §8-3).
+// review가 있으면 내가 쓴 후기라 수정·삭제할 수 있고, 없으면 null이며 reviewable이 작성 가능
+// 여부를 알려준다. 직접 삭제한 뒤에는 review=null·reviewable=false다 — 예약의 작성 기회
+// (reservations.reviewed_at)는 복구되지 않는다. 환불 뒤 정정 재청구로 활성 결제가 다시 유효해지면
+// 서버가 작성 기회를 되돌려 reviewable이 true로 돌아온다.
+export interface MyReview {
+  review: Review | null
+  reviewable: boolean
+}
+
 // 평점 선택지 — 백엔드가 0.5 단위만 허용하므로(@AssertTrue) 화면에서도 그 값만 고르게 한다.
 export const RATING_OPTIONS = [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1] as const
 

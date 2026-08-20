@@ -178,7 +178,9 @@ let demoMethods: PaymentMethod[] = [
 let methodSeq = 2
 let reservationSeq = 6000
 
-// 병원 후기 in-memory 저장소 (dev:mock 오프라인 전용). hospitalDetails[1]의 집계값(4.5·2건)과 맞춘다.
+// 병원 후기 in-memory 저장소 (dev:mock 오프라인 전용). 병원 상세의 평균 평점·후기 수는
+// 이 데이터에서 계산한다(withReviewAggregate) — 고정값을 두면 작성·삭제 뒤 목록과 상단 집계가
+// 어긋나 평점 무효화 흐름을 mock으로 확인할 수 없다(PR #189 리뷰 P2).
 const demoReviews = [
   {
     reviewId: 1,
@@ -202,6 +204,26 @@ const demoReviews = [
   },
 ]
 let reviewSeq = 3
+// 예약의 후기 작성 기회(reservations.reviewed_at)를 흉내 낸다. 후기를 지워도 여기서는 빠지지
+// 않는다 — 작성 기회는 복구되지 않아 재작성이 항상 409다(SA §8-3).
+const demoReviewedReservations = new Set<number>([9001, 9002])
+
+// 병원 상세 응답의 후기 집계. 백엔드는 avg(rating)을 소수 1자리 HALF_UP으로 반올림하고,
+// 후기가 없으면 averageRating이 null이다(ReviewQueryService).
+function withReviewAggregate(detail: HospitalDetail): HospitalDetail {
+  const ratings = demoReviews
+    .filter((r) => r.hospitalId === detail.hospitalId)
+    .map((r) => r.rating)
+  if (ratings.length === 0) {
+    return { ...detail, averageRating: null, reviewCount: 0 }
+  }
+  const sum = ratings.reduce((acc, rating) => acc + rating, 0)
+  return {
+    ...detail,
+    averageRating: Math.round((sum / ratings.length) * 10) / 10,
+    reviewCount: ratings.length,
+  }
+}
 
 // 예약 대기열 in-memory 저장소 (dev:mock 오프라인 전용). WAITING·OFFERED·종료 상태를 한 건씩 시드.
 // slotId(501~503)는 표시용 가짜 값이라 hospitalOfSlot() 인코딩 규칙(hospitalId*1_000_000+…)을
@@ -422,9 +444,9 @@ export const demoHandlers = [
   http.get(`${BASE}/hospitals/:hospitalId`, ({ params }) => {
     const id = Number(params.hospitalId)
     const detail = hospitalDetails[id]
-    if (detail) return ok(detail)
+    if (detail) return ok(withReviewAggregate(detail))
     const summary = mockHospitals.find((h) => h.hospitalId === id)
-    if (summary) return ok(synthDetail(summary))
+    if (summary) return ok(withReviewAggregate(synthDetail(summary)))
     return fail('HOSPITAL_001', '병원 정보를 찾을 수 없습니다.', 404)
   }),
 
@@ -563,11 +585,24 @@ export const demoHandlers = [
       last: page >= totalPages,
     })
   }),
+  // 내 후기 상태 조회 — 후기와 현재 작성 가능 여부를 함께 준다(SA §8-3).
+  http.get(`${BASE}/reservations/:reservationId/review`, ({ params }) => {
+    const reservationId = Number(params.reservationId)
+    const review = demoReviews.find((r) => r.reservationId === reservationId)
+    if (review) return ok({ review, reviewable: false })
+    const paid = (mockPaymentByReservation[reservationId] ?? []).some(
+      (p) => p.status === 'PAID' || p.status === 'OFFLINE_PAID',
+    )
+    return ok({
+      review: null,
+      reviewable: !demoReviewedReservations.has(reservationId) && paid,
+    })
+  }),
   http.post(`${BASE}/reservations/:reservationId/reviews`, async ({ params, request }) => {
     const reservationId = Number(params.reservationId)
     const body = (await request.json()) as { rating: number; content: string }
     // 예약당 1회(백엔드 uk_reviews_reservation_id + reservations.reviewed_at).
-    if (demoReviews.some((r) => r.reservationId === reservationId)) {
+    if (demoReviewedReservations.has(reservationId)) {
       return fail('REVIEW_004', '이미 리뷰 작성 기회를 사용한 예약입니다.', 409)
     }
     // 결제 완료 예약만 작성 가능(백엔드 REVIEW_003).
@@ -589,6 +624,7 @@ export const demoHandlers = [
       updatedAt: now,
     }
     demoReviews.unshift(created)
+    demoReviewedReservations.add(reservationId)
     return ok(created, 201)
   }),
   http.put(`${BASE}/reviews/:reviewId`, async ({ params, request }) => {
@@ -609,6 +645,7 @@ export const demoHandlers = [
     if (index < 0) {
       return fail('REVIEW_005', '리뷰를 찾을 수 없습니다.', 404)
     }
+    // 후기만 지우고 작성 기회는 소진된 채로 남긴다(백엔드도 reviewed_at을 되돌리지 않는다).
     demoReviews.splice(index, 1)
     return ok(null)
   }),

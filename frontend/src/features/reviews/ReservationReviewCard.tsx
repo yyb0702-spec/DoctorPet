@@ -1,13 +1,19 @@
 // 예약 상세의 후기 카드 — 결제 완료된 진료에 후기를 쓰고, 쓴 후기를 수정·삭제한다.
-// 노출 조건은 호출부(ReservationDetailPage)가 결제 상태로 판단한다.
+// 카드를 띄울지는 호출부(ReservationDetailPage)가 결제 상태로 거르고, 실제 작성 자격과 내 후기는
+// 서버(GET /api/reservations/{id}/review, SA §8-3)가 정본이다 — 브라우저에 상태를 캐시하지 않는다.
 import { useState } from 'react'
-import { useCreateReview, useDeleteReview, useUpdateReview } from './hooks'
-import { getMyReview, isReviewOpportunityUsed } from './myReviewCache'
+import {
+  useCreateReview,
+  useDeleteReview,
+  useMyReview,
+  useUpdateReview,
+} from './hooks'
 import { RATING_OPTIONS, REVIEW_CONTENT_MAX } from './types'
 import { RatingStars } from './HospitalReviewList'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
+import { ErrorState, PageLoader } from '@/components/common/States'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
 
@@ -105,35 +111,52 @@ function ReviewForm({
   )
 }
 
+// 예약이 바뀌면 편집·요청 상태를 남기지 않고 통째로 다시 만든다. 같은 인스턴스가 재사용되면
+// 이전 예약의 후기와 수정·삭제 버튼이 남아, 서버는 같은 작성자의 후기라 요청을 받아들이므로
+// 다른 예약의 후기를 실제로 고치거나 지울 수 있다(PR #189 리뷰 P1).
 export function ReservationReviewCard({
   reservationId,
 }: {
   reservationId: number
 }) {
-  // 내 후기는 서버에서 되찾을 수 없어 캐시로 판단한다(myReviewCache 주석 참고).
-  // 캐시가 낡으면 mutation 에러 처리에서 정리되므로, 그 변화를 반영하려고 상태로 들고 있는다.
-  const [myReview, setMyReview] = useState(() => getMyReview(reservationId))
-  const [deletedByMe, setDeletedByMe] = useState(() =>
-    isReviewOpportunityUsed(reservationId),
-  )
+  return <ReviewCardBody key={reservationId} reservationId={reservationId} />
+}
+
+function ReviewCardBody({ reservationId }: { reservationId: number }) {
   const [editing, setEditing] = useState(false)
 
+  const myReviewQuery = useMyReview(reservationId)
   const create = useCreateReview(reservationId)
-  const update = useUpdateReview(reservationId)
-  const remove = useDeleteReview(reservationId)
+  const update = useUpdateReview()
+  const remove = useDeleteReview()
 
-  // 캐시를 갱신·정리한 뒤 화면 상태를 다시 읽어 맞춘다.
-  const syncFromCache = () => {
-    setMyReview(getMyReview(reservationId))
-    setDeletedByMe(isReviewOpportunityUsed(reservationId))
+  if (myReviewQuery.isPending) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>후기</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PageLoader label="후기 불러오는 중…" />
+        </CardContent>
+      </Card>
+    )
   }
 
-  // 이미 작성한 예약인데 캐시가 없는 기기에서 작성하면 서버가 409로 막는다 — 이 경우
-  // "작성 기회를 이미 썼다"는 사실만 알려주고 폼을 닫는다(수정할 후기를 특정할 수 없다).
-  // 내가 이 브라우저에서 지웠다면 서버에 물어볼 필요 없이 같은 안내를 바로 보여준다.
-  const alreadyReviewed =
-    deletedByMe ||
-    (create.error instanceof ApiError && create.error.code === 'REVIEW_004')
+  if (myReviewQuery.isError || !myReviewQuery.data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>후기</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorState onRetry={() => myReviewQuery.refetch()} />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const { review: myReview, reviewable } = myReviewQuery.data
 
   if (myReview && !editing) {
     return (
@@ -169,9 +192,7 @@ export function ReservationReviewCard({
               size="sm"
               variant="destructive"
               disabled={remove.isPending}
-              onClick={() =>
-                remove.mutate(myReview.reviewId, { onSettled: syncFromCache })
-              }
+              onClick={() => remove.mutate(myReview.reviewId)}
             >
               {remove.isPending ? '삭제 중…' : '삭제'}
             </Button>
@@ -209,10 +230,7 @@ export function ReservationReviewCard({
             onSubmit={(rating, content) =>
               update.mutate(
                 { reviewId: myReview.reviewId, input: { rating, content } },
-                {
-                  onSuccess: () => setEditing(false),
-                  onSettled: syncFromCache,
-                },
+                { onSuccess: () => setEditing(false) },
               )
             }
           />
@@ -227,12 +245,7 @@ export function ReservationReviewCard({
         <CardTitle>후기 작성</CardTitle>
       </CardHeader>
       <CardContent>
-        {alreadyReviewed ? (
-          <p className="text-sm text-muted-foreground">
-            이 진료의 후기는 이미 작성했습니다. 후기를 쓴 기기에서 수정·삭제할 수
-            있습니다.
-          </p>
-        ) : (
+        {reviewable ? (
           <ReviewForm
             initialRating={5}
             initialContent=""
@@ -243,10 +256,15 @@ export function ReservationReviewCard({
                 ? errorMessage(create.error, '후기 등록에 실패했습니다.')
                 : null
             }
-            onSubmit={(rating, content) =>
-              create.mutate({ rating, content }, { onSettled: syncFromCache })
-            }
+            onSubmit={(rating, content) => create.mutate({ rating, content })}
           />
+        ) : (
+          /* 후기가 없는데 작성도 불가하면 작성 기회를 이미 썼다는 뜻이다(쓴 뒤 지운 경우).
+             환불 뒤 정정 재청구로 자격이 돌아오면 서버가 reviewable을 다시 true로 준다. */
+          <p className="text-sm text-muted-foreground">
+            이 진료의 후기 작성 기회는 이미 사용했습니다. 삭제한 후기는 다시 쓸
+            수 없습니다.
+          </p>
         )}
       </CardContent>
     </Card>

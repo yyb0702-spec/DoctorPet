@@ -421,7 +421,8 @@ export function ReservationDetailPage() {
       )}
 
       {/* 후기 — 결제가 완료된 진료만 작성할 수 있다(백엔드 REVIEW_003과 같은 조건).
-          환불(REFUNDED)은 자격이 아니라, 백엔드가 후기를 지우고 작성 기회를 되돌린다. */}
+          환불(REFUNDED)은 자격이 아니라, 백엔드가 후기를 지우고 작성 기회를 되돌린다.
+          여기서는 카드를 띄울지만 거른다 — 내 후기와 실제 작성 자격은 카드가 서버에 묻는다. */}
       {reviewable && <ReservationReviewCard reservationId={r.reservationId} />}
 
       <ChatPanel

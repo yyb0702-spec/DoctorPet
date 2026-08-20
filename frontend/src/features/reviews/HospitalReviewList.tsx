@@ -50,16 +50,25 @@ function reviewDateLabel(iso: string): string {
   })
 }
 
-export function HospitalReviewList({
-  hospitalId,
-  averageRating,
-  reviewCount,
-}: {
+interface HospitalReviewListProps {
   hospitalId: number
   // 병원 상세 응답의 집계값. 후기가 없으면 averageRating은 null이다.
   averageRating: number | null
   reviewCount: number
-}) {
+}
+
+// 병원이 바뀌면 페이지 상태를 남기지 않고 통째로 다시 만든다. /hospitals/:hospitalId 사이를
+// 이동하면 같은 인스턴스가 재사용되어, 이전 병원에서 보던 3페이지를 새 병원에 그대로 요청해
+// 후기가 있는데도 빈 목록으로 보일 수 있다(PR #189 리뷰 P2).
+export function HospitalReviewList(props: HospitalReviewListProps) {
+  return <ReviewListBody key={props.hospitalId} {...props} />
+}
+
+function ReviewListBody({
+  hospitalId,
+  averageRating,
+  reviewCount,
+}: HospitalReviewListProps) {
   const [page, setPage] = useState(1)
   const { data, isLoading, isError, refetch, isFetching } = useHospitalReviews(
     hospitalId,
