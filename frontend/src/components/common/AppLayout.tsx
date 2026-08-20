@@ -20,14 +20,15 @@ const PRIVATE_NAV = [
   { to: '/waitlists', label: '내 대기열' },
 ]
 // 보호자 전용 — 찜 API가 hasRole("GUARDIAN")이라 스태프에게 보여주면 누르는 순간 403이다.
-// 역할이 확인되기 전에는 감춘다(잠깐 보였다 사라지는 것보다 안 보이는 편이 낫다).
+// 스태프로 확인됐을 때만 감춘다 — 역할을 모르는 동안(조회 실패·재시도) 메뉴를 지우면 정상
+// 보호자가 진입 경로를 잃는다(자기검토). 라우트·버튼도 같은 기준을 쓴다.
 const GUARDIAN_NAV = [{ to: '/favorites', label: '관심 병원' }]
 
 export function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const navigate = useNavigate()
   const me = useMe()
-  const isGuardian = me.data?.role === MemberRole.GUARDIAN
+  const knownNonGuardian = me.data != null && me.data.role !== MemberRole.GUARDIAN
 
   return (
     <div className="min-h-svh bg-background">
@@ -41,7 +42,7 @@ export function AppLayout() {
             {[
               ...PUBLIC_NAV,
               ...(isAuthenticated ? PRIVATE_NAV : []),
-              ...(isAuthenticated && isGuardian ? GUARDIAN_NAV : []),
+              ...(isAuthenticated && !knownNonGuardian ? GUARDIAN_NAV : []),
             ].map(
               (item) => (
                 <NavLink

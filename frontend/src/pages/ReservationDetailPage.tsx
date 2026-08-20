@@ -276,7 +276,30 @@ function PaymentMethodChangePanel({ reservationId }: { reservationId: number }) 
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
   const labels = paymentMethodLabels(methods)
 
-  if (methodsQuery.isLoading || methods.length === 0) return null
+  if (methodsQuery.isLoading) return null
+
+  /*
+    등록된 ACTIVE 결제수단이 없으면 바꿀 대상이 없다. 조용히 사라지게 두지 않고 등록 경로를
+    안내한다(자기검토) — 카드를 삭제한 보호자가 진료 전 예약에서 실제로 도달하는 화면이고,
+    같은 페이지의 재청구 패널도 같은 안내를 한다.
+  */
+  if (methods.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>결제수단</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="text-muted-foreground">
+            등록된 결제수단이 없어요. 진료비 자동 결제를 위해 결제수단을 등록해 주세요.
+          </p>
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/payment-methods">결제수단 등록하러 가기</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>

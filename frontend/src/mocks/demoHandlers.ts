@@ -536,7 +536,8 @@ export const demoHandlers = [
         partnershipStatus:
           detail?.partnershipStatus ?? summary?.partnershipStatus ?? 'NON_PARTNER',
         favorite: true,
-        favoritedAt: new Date().toISOString(),
+        // 백엔드는 오프셋 없는 LocalDateTime을 준다 — 목도 같은 모양으로 맞춘다(Z 붙은 ISO 아님).
+        favoritedAt: new Date().toISOString().slice(0, 19),
       }
     })
     const totalElements = all.length
@@ -622,7 +623,23 @@ export const demoHandlers = [
   http.patch(`${BASE}/pets/:petId`, async ({ params, request }) => {
     const pet = demoPets.find((p) => p.petId === Number(params.petId))
     if (!pet) return fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
-    Object.assign(pet, await request.json())
+    const body = (await request.json()) as Record<string, unknown>
+    /*
+      서버는 imageUrl이 그 펫에게 발급한 key 접두사와 맞는지 확인하고 아니면 PET_002로 거절한다
+      (PetService.update → isManagedFileUrl). 목이 무검증으로 받으면 그 거부 UX를 오프라인에서
+      볼 수 없어 같은 조건을 흉내낸다.
+    */
+    if (
+      typeof body.imageUrl === 'string' &&
+      !body.imageUrl.startsWith(`/__mock-upload/pets/${pet.petId}/`)
+    ) {
+      return fail(
+        'PET_002',
+        '허용되지 않은 이미지 URL입니다. 발급받은 업로드 URL로 업로드한 이미지만 저장할 수 있습니다.',
+        400,
+      )
+    }
+    Object.assign(pet, body)
     return ok(pet)
   }),
   /*

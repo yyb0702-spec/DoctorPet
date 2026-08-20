@@ -18,7 +18,12 @@ export function GuardianRoute() {
   if (me.isLoading) {
     return <PageLoader />
   }
-  if (me.data?.role !== MemberRole.GUARDIAN) {
+  /*
+    스태프로 확인됐을 때만 돌려보낸다(자기검토). 내 정보 조회가 실패해 역할을 모르는 동안
+    홈으로 튕기면 정상 보호자가 화면에 들어갈 수 없다 — 인가는 서버가 강제하므로(찜 API는
+    hasRole("GUARDIAN")) 모르면 통과시키고 화면이 오류를 드러내게 한다.
+  */
+  if (me.data != null && me.data.role !== MemberRole.GUARDIAN) {
     return <Navigate to="/" replace />
   }
   return <Outlet />

@@ -138,6 +138,18 @@ describe('FavoriteButton', () => {
     expect(screen.queryByRole('button', { name: '찜하기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '찜 해제' })).not.toBeInTheDocument()
   })
+
+  /*
+    내 정보 조회가 실패하면 역할을 모른다. 그때 하트를 감추면 정상 보호자가 기능을 잃는다 —
+    useMe는 재시도하는 동안 계속 undefined라 그 창이 짧지도 않다. 모르면 보여주고 인가는
+    서버에 맡긴다(자기검토).
+  */
+  it('역할을 모르는 동안에는 하트를 감추지 않는다', () => {
+    useMeMock.mockReturnValue({ data: undefined, isError: true })
+    renderButton(false)
+
+    expect(screen.getByRole('button', { name: '찜하기' })).toBeInTheDocument()
+  })
 })
 
 /*
@@ -202,5 +214,52 @@ describe('동시 토글', () => {
     // 7만 false로 돌아가고 8의 성공은 유지된다.
     await waitFor(() => expect(favoriteOf(7)).toBe(false))
     expect(favoriteOf(8)).toBe(true)
+  })
+})
+
+/*
+  진행 중인 조회를 취소하지 않는다(자기검토). 예전에는 onMutate가 ['hospitals'] 전체를
+  cancelQueries 했는데, "다음 페이지"를 누른 직후 하트를 누르면 검색 조회가 끊기고
+  keepPreviousData 때문에 이전 페이지가 남은 채 재조회 트리거가 없어 목록이 멈춘다.
+*/
+describe('진행 중 조회와의 경합', () => {
+  beforeEach(() => {
+    vi.mocked(hospitalApi.addFavorite).mockReset()
+    useMeMock.mockReturnValue({ data: { role: MemberRole.GUARDIAN } })
+    useAuthStore.setState({ isAuthenticated: true })
+  })
+
+  it('하트를 눌러도 진행 중인 검색 조회가 취소되지 않는다', async () => {
+    vi.mocked(hospitalApi.addFavorite).mockResolvedValue(undefined)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    // 아직 끝나지 않은 검색 조회를 하나 띄워 둔다.
+    let resolveSearch: ((value: unknown) => void) | undefined
+    const searchPromise = queryClient.fetchQuery({
+      queryKey: hospitalKeys.search({ page: 2 }),
+      queryFn: () => new Promise((resolve) => { resolveSearch = resolve }),
+    })
+    let searchSettled: 'resolved' | 'rejected' | 'pending' = 'pending'
+    searchPromise.then(
+      () => { searchSettled = 'resolved' },
+      () => { searchSettled = 'rejected' },
+    )
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <FavoriteButton hospitalId={7} favorite={false} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: '찜하기' }))
+    await waitFor(() => expect(hospitalApi.addFavorite).toHaveBeenCalled())
+
+    // 취소됐다면 여기서 이미 rejected 상태다(예전 구현의 실패 모드).
+    expect(searchSettled).toBe('pending')
+
+    resolveSearch?.({ content: [], page: 2, totalPages: 3 })
+    await waitFor(() => expect(searchSettled).toBe('resolved'))
   })
 })

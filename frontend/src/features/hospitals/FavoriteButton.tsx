@@ -30,10 +30,15 @@ export function FavoriteButton({
 
   /*
     찜은 백엔드가 보호자 전용으로 제한한다(SecurityConfig → hasRole("GUARDIAN")). 병원 스태프에게
-    하트를 보여주면 누르는 순간 403이라, 역할이 보호자로 확인될 때만 렌더한다(리뷰 P2).
-    비로그인은 예외다 — 역할을 알 수 없지만 누르면 로그인으로 안내하므로 그대로 보여준다.
+    하트를 보여주면 누르는 순간 403이라 감춘다(리뷰 P2).
+
+    감추는 기준은 "스태프로 확인됨"이지 "보호자로 확인되지 않음"이 아니다(자기검토) — useMe는 실패 시
+    재시도하는 동안 계속 undefined이고, 그 창에서 하트를 지우면 정상 보호자가 기능을 잃는다. 역할을
+    모르면 보여주고, 최종 판단은 서버에 맡긴다. 비로그인은 눌렀을 때 로그인으로 안내한다.
   */
-  if (isAuthenticated && me.data?.role !== MemberRole.GUARDIAN) return null
+  if (isAuthenticated && me.data != null && me.data.role !== MemberRole.GUARDIAN) {
+    return null
+  }
 
   /*
     비로그인 상태에서는 서버가 favorite=false로 주므로 하트는 늘 비어 보인다. 눌러도 401이 날 뿐이라

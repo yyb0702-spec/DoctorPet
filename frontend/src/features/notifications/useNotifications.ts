@@ -25,11 +25,16 @@ export function useNotifications() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const queryClient = useQueryClient()
 
+  /*
+    목록은 주기적으로 긁지 않는다(자기검토). 배지 숫자를 개수 API로 옮긴 목적이 "개수만 필요한데
+    목록 전체를 폴링하는" 낭비를 없애는 것이었는데, 목록 폴링을 그대로 두면 120초마다 두 번 요청하는
+    셈이 된다. 목록은 SSE 이벤트와 벨을 열 때(refetch) 갱신하고, 주기 폴링은 개수 쪽만 유지한다 —
+    SSE가 막힌 환경에서도 배지는 살아 있고, 드롭다운은 열 때 최신을 받는다.
+  */
   const query = useQuery({
     queryKey: notificationKeys.list,
     queryFn: () => notificationApi.list({ page: 0, size: BELL_PAGE_SIZE }),
     enabled: isAuthenticated,
-    refetchInterval: isAuthenticated ? SAFETY_POLL_INTERVAL_MS : false,
     // 알림 조회가 실패해도 화면을 막지 않는다 — 재시도 없이 빈 목록.
     retry: false,
   })

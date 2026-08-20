@@ -185,15 +185,24 @@ export function PetRow({ pet }: { pet: Pet }) {
               e.target.value = ''
             }}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="사진 변경"
-            disabled={uploadImage.isPending}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <ImagePlus className="h-4 w-4" />
-          </Button>
+          {/*
+            발급→PUT→확정 3단계라 수 초 걸릴 수 있다. 아이콘만 비활성으로 두면 눌렸는지 알 수 없어
+            같은 카드의 저장 버튼처럼 진행 상태를 글자로도 알린다(자기검토).
+          */}
+          {uploadImage.isPending ? (
+            <span className="px-2 text-xs text-muted-foreground" aria-live="polite">
+              올리는 중…
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="사진 변경"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" aria-label="수정" onClick={startEdit}>
             <Pencil className="h-4 w-4" />
           </Button>

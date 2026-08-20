@@ -156,7 +156,8 @@ export function MyPage() {
   // 요약 카드는 개수만 쓰므로 첫 페이지 1건만 받아 totalElements를 읽는다.
   // 훅이 역할을 보고 호출 여부를 정하므로(보호자 전용 API) 스태프 계정에서는 요청이 나가지 않는다.
   const favorites = useFavoriteHospitals(1, 1)
-  const isGuardian = me.data?.role === MemberRole.GUARDIAN
+  // 스태프로 확인됐을 때만 숨긴다(역할 미확인 시에는 노출 — AppLayout·GuardianRoute와 같은 기준).
+  const knownNonGuardian = me.data != null && me.data.role !== MemberRole.GUARDIAN
   const [editingNickname, setEditingNickname] = useState(false)
 
   return (
@@ -277,7 +278,7 @@ export function MyPage() {
       </Card>
 
       {/* 관심 병원 요약 — 찜 API가 보호자 전용이라 스태프에게는 카드 자체를 두지 않는다. */}
-      {isGuardian && (
+      {!knownNonGuardian && (
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="flex items-center gap-2">

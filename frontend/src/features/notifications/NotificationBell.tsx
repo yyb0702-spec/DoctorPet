@@ -61,8 +61,14 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const me = useMe()
-  const { notifications, unreadCount, markRead, markAllRead, isMarkingAllRead } =
-    useNotifications()
+  const {
+    notifications,
+    unreadCount,
+    markRead,
+    markAllRead,
+    isMarkingAllRead,
+    refetch,
+  } = useNotifications()
 
   /*
     역할을 아직 모르는 동안(내 정보 조회 로딩 중이거나 실패)에는 어느 쪽 경로도 고르지 않는다. 보호자를
@@ -90,7 +96,11 @@ export function NotificationBell() {
         variant="ghost"
         size="icon"
         aria-label="알림"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // 목록은 주기 폴링을 하지 않으므로(useNotifications 주석) 열 때 한 번 최신을 받는다.
+          if (!open) refetch()
+          setOpen((v) => !v)
+        }}
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
