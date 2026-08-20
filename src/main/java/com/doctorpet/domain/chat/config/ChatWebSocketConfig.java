@@ -1,13 +1,12 @@
 package com.doctorpet.domain.chat.config;
 
-import java.util.Arrays;
+import com.doctorpet.global.config.CorsConfig;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.util.StringUtils;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -32,21 +31,10 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // Native WebSocket만 등록한다. SockJS fallback은 채팅 정책 범위 밖이다.
         // HTTP API CORS와 WebSocket 핸드셰이크의 Origin 검증이 어긋나지 않도록 같은 설정값을 쓴다.
         // 빈 값이면 Origin이 있는 교차 오리진 요청을 모두 거부해 CORS와 동일하게 fail-closed 한다.
-        List<String> allowedOrigins = parseAllowedOrigins(
+        List<String> allowedOrigins = CorsConfig.parseAllowedOrigins(
                 environment.getProperty("cors.allowed-origins", ""));
         registry.addEndpoint("/ws/chat")
                 .setAllowedOrigins(allowedOrigins.toArray(String[]::new));
-    }
-
-    // SecurityConfig와 같은 방식으로 콤마 구분 환경변수 값을 정확히 개별 오리진으로 해석한다.
-    private static List<String> parseAllowedOrigins(String raw) {
-        if (!StringUtils.hasText(raw)) {
-            return List.of();
-        }
-        return Arrays.stream(raw.split(","))
-                .map(String::trim)
-                .filter(StringUtils::hasText)
-                .toList();
     }
 
     @Override

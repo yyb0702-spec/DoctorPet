@@ -17,6 +17,15 @@ import org.springframework.web.cors.CorsConfiguration;
 class CorsConfigTest {
 
     @Test
+    @DisplayName("콤마 구분 허용 오리진은 공백과 빈 값을 제외해 순서대로 해석한다")
+    void parseAllowedOrigins_splitsAndTrimsConfiguredOrigins() {
+        assertThat(CorsConfig.parseAllowedOrigins(
+                " https://app.doctorpet.example, ,http://localhost:5173 "))
+                .containsExactly("https://app.doctorpet.example", "http://localhost:5173");
+        assertThat(CorsConfig.parseAllowedOrigins(" ")).isEmpty();
+    }
+
+    @Test
     @DisplayName("허용 오리진을 채우지 않으면(기본값) 어떤 오리진도 허용하지 않는다(fail-closed)")
     void corsConfigurationSource_emptyOrigins_allowsNoOrigin() {
         CorsConfiguration configuration = CorsConfig.corsConfigurationSource(List.of())

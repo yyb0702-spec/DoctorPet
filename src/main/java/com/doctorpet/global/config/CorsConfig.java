@@ -1,7 +1,9 @@
 package com.doctorpet.global.config;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
+import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -51,6 +53,19 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public final class CorsConfig {
 
     private CorsConfig() {
+    }
+
+    /**
+     * 환경변수의 콤마 구분 오리진을 HTTP CORS와 WebSocket 핸드셰이크가 동일하게 해석하도록 한다.
+     */
+    public static List<String> parseAllowedOrigins(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
     }
 
     public static CorsConfigurationSource corsConfigurationSource(List<String> allowedOrigins) {

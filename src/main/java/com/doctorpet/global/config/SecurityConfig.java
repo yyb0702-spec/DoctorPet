@@ -3,7 +3,6 @@ package com.doctorpet.global.config;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
 import com.doctorpet.global.security.JwtAuthenticationFilter;
-import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -18,7 +17,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.util.StringUtils;
 
 @Configuration
 @RequiredArgsConstructor
@@ -28,7 +26,7 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
     // CORS 허용 오리진(기능 구멍 점검 대응, CorsConfig 참고)을 읽는 데 쓴다 — @Value가 아니라
-    // Environment.getProperty()를 직접 호출하는 이유는 아래 parseAllowedOrigins() 주석 참고.
+    // Environment.getProperty()를 직접 호출하는 이유는 CorsConfig.parseAllowedOrigins() 주석 참고.
     private final Environment environment;
 
     // (PR 4차 리뷰 이후 CI `integrationTest`에서 실측으로 드러난 문제 수정 — 2차 시도) 처음엔
@@ -45,16 +43,6 @@ public class SecurityConfig {
     // `Environment.getProperty()`로 직접 읽도록 바꿨다 — 두 메커니즘이 같은 PropertySource
     // 체계를 쓰더라도 임베디드 값 해석 경로가 다르므로, 특정 슬라이스 테스트 컨텍스트에서만
     // 발생하는 해석 차이가 있다면 이쪽이 더 신뢰할 수 있는 경로다.
-    private static List<String> parseAllowedOrigins(String raw) {
-        if (!StringUtils.hasText(raw)) {
-            return List.of();
-        }
-        return Arrays.stream(raw.split(","))
-                .map(String::trim)
-                .filter(StringUtils::hasText)
-                .toList();
-    }
-
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -95,11 +83,11 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         List<String> corsAllowedOrigins =
-                parseAllowedOrigins(environment.getProperty("cors.allowed-origins", ""));
+                CorsConfig.parseAllowedOrigins(environment.getProperty("cors.allowed-origins", ""));
 
         http
                 .csrf(AbstractHttpConfigurer::disable)
-                // 브라우저 프론트엔드용 CORS(기능 구멍 점검 대응) — parseAllowedOrigins가 빈
+                // 브라우저 프론트엔드용 CORS(기능 구멍 점검 대응) — CorsConfig.parseAllowedOrigins가 빈
                 // 문자열을 빈 리스트로 바꾸므로, 미설정 시 어떤 오리진도 허용하지 않는다(fail-closed).
                 .cors(cors -> cors.configurationSource(
                         CorsConfig.corsConfigurationSource(corsAllowedOrigins)))
