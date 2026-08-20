@@ -44,6 +44,9 @@ export interface HospitalDetail {
   // 제휴 병원 응답 지표(PR #165). 비제휴거나 집계할 예약이 없으면 null이라 표시하지 않는다.
   reservationResponseRate: number | null // 예약 응답률(%), 0~100
   averageApprovalMinutes: number | null // 평균 승인 소요(분)
+  // 후기 평점 집계(이슈 #114). 후기가 없으면 averageRating은 null, reviewCount는 0이다.
+  averageRating: number | null // 1.0~5.0
+  reviewCount: number
 }
 
 // GET /api/hospitals (검색, 실연동). HospitalSearchResponse 실제 필드 기준.
