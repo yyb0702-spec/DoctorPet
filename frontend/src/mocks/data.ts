@@ -481,8 +481,24 @@ export const mockPaymentByReservation: Record<number, PaymentRecord[]> = {
 }
 
 export const mockPets: Pet[] = [
-  { petId: 1, name: '초코', species: 'DOG', age: 3, weight: 5.2, neutered: true },
-  { petId: 2, name: '나비', species: 'CAT', age: 2, weight: 3.8, neutered: false },
+  {
+    petId: 1,
+    name: '초코',
+    species: 'DOG',
+    age: 3,
+    weight: 5.2,
+    neutered: true,
+    imageUrl: null,
+  },
+  {
+    petId: 2,
+    name: '나비',
+    species: 'CAT',
+    age: 2,
+    weight: 3.8,
+    neutered: false,
+    imageUrl: null,
+  },
 ]
 
 export const mockNotifications: Notification[] = [

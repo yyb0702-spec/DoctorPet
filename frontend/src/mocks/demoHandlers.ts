@@ -153,8 +153,24 @@ let demoMember = {
 
 // 펫 in-memory 저장소 (dev:mock 오프라인 전용).
 const demoPets: Pet[] = [
-  { petId: 1, name: '초코', species: 'DOG', age: 3, weight: 5.2, neutered: true },
-  { petId: 2, name: '나비', species: 'CAT', age: 2, weight: 3.8, neutered: false },
+  {
+    petId: 1,
+    name: '초코',
+    species: 'DOG',
+    age: 3,
+    weight: 5.2,
+    neutered: true,
+    imageUrl: null,
+  },
+  {
+    petId: 2,
+    name: '나비',
+    species: 'CAT',
+    age: 2,
+    weight: 3.8,
+    neutered: false,
+    imageUrl: null,
+  },
 ]
 
 // 결제수단 in-memory 저장소.
@@ -471,6 +487,7 @@ export const demoHandlers = [
       age: Number(b.age ?? 0),
       weight: Number(b.weight ?? 0),
       neutered: Boolean(b.neutered),
+      imageUrl: null,
     }
     demoPets.push(pet)
     return ok(pet, 201)
@@ -481,6 +498,28 @@ export const demoHandlers = [
     Object.assign(pet, await request.json())
     return ok(pet)
   }),
+  /*
+    프로필 이미지 업로드 URL 발급 + 그 URL로의 PUT까지 목으로 받는다. 발급 응답의 uploadUrl은
+    같은 오리진(/__mock-upload/…)으로 만들어 MSW가 가로챌 수 있게 한다 — 실 백엔드(fake 스토리지)는
+    localhost:9000을 주고 실제 업로드는 되지 않으므로, 3단계 흐름 자체는 dev:mock에서만 끝까지 돈다.
+  */
+  http.post(`${BASE}/pets/:petId/image/upload-url`, async ({ params, request }) => {
+    const pet = demoPets.find((p) => p.petId === Number(params.petId))
+    if (!pet) return fail('PET_001', '존재하지 않는 반려동물입니다.', 404)
+    const body = (await request.json()) as { contentType?: string }
+    const allowed = ['image/jpeg', 'image/png', 'image/webp']
+    if (!body.contentType || !allowed.includes(body.contentType)) {
+      return fail('COMMON_001', '입력값이 올바르지 않습니다.', 400)
+    }
+    const extension = body.contentType.split('/')[1]
+    const key = `pets/${pet.petId}/${Date.now()}.${extension}`
+    return ok({
+      uploadUrl: `/__mock-upload/${key}`,
+      imageUrl: `/__mock-upload/${key}`,
+      expiresInSeconds: 300,
+    })
+  }),
+  http.put('/__mock-upload/*', () => new HttpResponse(null, { status: 200 })),
   http.delete(`${BASE}/pets/:petId`, ({ params }) => {
     const i = demoPets.findIndex((p) => p.petId === Number(params.petId))
     if (i >= 0) demoPets.splice(i, 1)
