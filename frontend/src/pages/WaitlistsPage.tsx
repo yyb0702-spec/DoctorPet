@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
 import { speciesLabel } from '@/lib/species'
+// 오프셋 없는 LocalDateTime 파싱은 공용 유틸을 쓴다(원래 이 파일에 있던 함수를 옮긴 것, PR #194 리뷰).
+import { parseSeoulDateTime } from '@/lib/seoulTime'
 
 // 상태별 배지 라벨·톤.
 const STATUS_META: Record<
@@ -39,15 +41,6 @@ function dateTimeLabel(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-// 백엔드는 오프셋 없는 LocalDateTime(서울 기준 AgoraClock 격의 서버 시계)을 그대로 보낸다.
-// new Date()로 그냥 파싱하면 브라우저가 자기 로컬 시간대로 해석해, 서울이 아닌 시간대에서는
-// 카운트다운이 몇 시간씩 어긋나 수락·거절 버튼이 조기에 사라지거나 너무 오래 남는다. 서울은
-// DST가 없는 고정 UTC+9라 오프셋을 명시해 파싱한다(PR #188 리뷰).
-function parseSeoulDateTime(iso: string): number {
-  const withOffset = /[Zz]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}+09:00`
-  return new Date(withOffset).getTime()
 }
 
 // 제안 만료까지 남은 ms를 1초마다 갱신한다. 버튼 활성 여부도 이 값으로 판단한다.

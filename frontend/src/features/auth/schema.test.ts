@@ -2,7 +2,11 @@
 import { describe, expect, it } from 'vitest'
 import { signupSchema } from './schema'
 
-const base = { email: 'a@test.com', nickname: '보호자' }
+const base = {
+  email: 'a@test.com',
+  nickname: '보호자',
+  phone: '010-1234-5678',
+}
 
 describe('signupSchema password', () => {
   it('8자 미만은 거절', () => {
@@ -23,6 +27,30 @@ describe('signupSchema password', () => {
     ).toBe(true)
     expect(
       signupSchema.safeParse({ ...base, password: '가'.repeat(25) }).success,
+    ).toBe(false)
+  })
+})
+
+describe('signupSchema phone', () => {
+  it.each(['010-1234-5678', '01012345678', '010-123-4567'])(
+    '허용되는 휴대폰 형식 통과: %s',
+    (phone) => {
+      expect(
+        signupSchema.safeParse({ ...base, password: 'password123', phone })
+          .success,
+      ).toBe(true)
+    },
+  )
+
+  it.each([
+    '010-12345678',
+    '0101234-5678',
+    '02-123-4567',
+    '010-1234-567',
+    '',
+  ])('허용되지 않는 전화번호 형식 거절: %s', (phone) => {
+    expect(
+      signupSchema.safeParse({ ...base, password: 'password123', phone }).success,
     ).toBe(false)
   })
 })
