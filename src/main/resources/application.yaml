@@ -165,6 +165,14 @@ chat:
   client-message-id-migration:
     enabled: ${CHAT_CLIENT_MESSAGE_ID_MIGRATION_ENABLED:true}
 
+# 알림 이메일 채널(고도화 3.9). 저장된 알림 중 예약 승인·결제 결과만 이메일로 함께 보낸다 — SSE는 앱이 연결돼
+# 있을 때만 도달하므로 앱을 닫은 사용자를 이메일이 메운다. 발송은 알림 저장이 커밋된 뒤(AFTER_COMMIT)에만 하고
+# 실패는 채널 단위로 삼킨다(저장이 원본). false로 끄면 EmailNotificationChannel 빈 자체가 등록되지 않아 이메일만
+# 빠지고 인앱 저장·SSE는 그대로 동작한다 — 메일 제공자 장애 시 운영에서 쓰는 스위치다.
+notification:
+  email:
+    enabled: ${NOTIFICATION_EMAIL_ENABLED:true}
+
 # 배포 헬스체크(CI/CD MVP) + 관측성 지표(이슈 #105). health 외에 prometheus만 추가로 노출한다 —
 # env, beans 등 나머지 엔드포인트는 민감정보를 노출할 수 있어 명시적으로 켜지 않는 한 노출하지
 # 않는다. show-details는 never로 둔다 — DB 종류·Redis 버전·디스크 경로 같은 내부 구성 정보가

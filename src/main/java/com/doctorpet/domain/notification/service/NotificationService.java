@@ -44,7 +44,7 @@ public class NotificationService {
     // JPA 감사 시각(createdAt/updatedAt)과 같은 서울 기준 Clock(applicationClock). 읽음 시각도 이 Clock으로 만들어
     // 업무 시각과 감사 시각이 같은 시계를 쓰게 한다(SA 시간 정책, PR #87 P2 리뷰 반영).
     private final Clock clock;
-    // 저장 커밋 이후 실시간 전송(SSE)을 트리거한다. AFTER_COMMIT 리스너가 받아 처리하므로 롤백 시 전송되지 않는다(SA §9-8).
+    // 저장 커밋 이후 채널 전달(SSE·이메일)을 트리거한다. AFTER_COMMIT 리스너가 받아 처리하므로 롤백 시 전달되지 않는다(SA §9-8).
     private final ApplicationEventPublisher eventPublisher;
     // 멱등 저장(saveIdempotent)을 프록시 경유로 호출해 REQUIRES_NEW 트랜잭션 경계를 적용하기 위한 자기참조.
     // 같은 빈 내부 호출은 프록시를 우회해 @Transactional이 무시되므로, 순환 초기화 없는 ObjectProvider로 지연 주입한다.
@@ -84,6 +84,7 @@ public class NotificationService {
                 new NotificationCreatedEvent(
                         saved.getRecipientType(),
                         saved.getRecipientId(),
+                        saved.getType(),
                         NotificationResponse.from(saved)
                 )
         );
@@ -156,7 +157,8 @@ public class NotificationService {
         // 커밋 이후에만 실시간 전송하도록 이벤트를 등록한다(롤백 시 전송되지 않음, create와 동일).
         eventPublisher.publishEvent(
                 new NotificationCreatedEvent(
-                        saved.getRecipientType(), saved.getRecipientId(), NotificationResponse.from(saved))
+                        saved.getRecipientType(), saved.getRecipientId(), saved.getType(),
+                        NotificationResponse.from(saved))
         );
     }
 

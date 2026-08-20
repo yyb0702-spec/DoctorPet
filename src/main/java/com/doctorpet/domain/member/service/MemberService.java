@@ -124,6 +124,27 @@ public class MemberService {
     }
 
     /*
+     * 알림 이메일 발송 대상 주소. 회원 수신 알림을 이메일 채널로도 보낼 때 알림 도메인이 호출한다(고도화 3.9,
+     * 구현 가드레일 — 다른 도메인은 Member의 Repository를 직접 참조하지 않고 이 Service를 경유한다).
+     *
+     * 인증된(email_verified) 활성 회원의 주소만 반환한다. 미인증 주소로 보내면 그 주소의 실제 소유자(회원이 아닌
+     * 제3자)에게 진료·결제 정보가 새어 나갈 수 있다. 탈퇴 회원은 Member의 @SQLRestriction("deleted_at is null")로
+     * 조회 자체가 빠지고, 남은 주소도 익명화(withdrawn_{id}@deleted.doctorpet)되어 있다.
+     *
+     * 보낼 수 없는 경우는 예외가 아니라 빈 Optional이다 — 호출부(채널)는 발송을 생략하고, 알림 자체는 이미 저장돼
+     * 사용자가 인앱 목록에서 확인할 수 있다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> findActiveVerifiedEmail(Long memberId) {
+        if (memberId == null) {
+            return Optional.empty();
+        }
+        return memberRepository.findById(memberId)
+                .filter(Member::isEmailVerified)
+                .map(Member::getEmail);
+    }
+
+    /*
      * 실제 탈퇴 처리(Soft Delete + 이메일 익명화). 활성 예약·미수금 보유 여부 확인은 이
      * 메서드의 책임이 아니다 — MemberWithdrawalApplicationService가 다른 도메인 Service를
      * 통해 먼저 확인하고 통과한 경우에만 이 메서드를 호출해야 한다(구현 가드레일).
