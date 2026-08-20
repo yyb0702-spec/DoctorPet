@@ -430,13 +430,15 @@ export const demoHandlers = [
   // --- 결제수단 ---
   http.get(`${BASE}/payment-methods`, () => ok(demoMethods)),
   http.post(`${BASE}/payment-methods`, () => {
+    // 실 백엔드(saveAsFirstDefaultOrNonDefault)는 활성 수단이 하나도 없을 때만 신규 카드를
+    // 기본값으로 만든다 — "기본값 없음"이 곧 첫 등록은 아니므로 기준은 활성 수단의 존재다.
+    const hasActive = demoMethods.some((m) => m.status === 'ACTIVE')
     const method: PaymentMethod = {
       id: methodSeq++,
       cardBrand: 'KB',
       cardLast4: String(1000 + Math.floor(methodSeq * 7)).slice(-4),
       status: 'ACTIVE',
-      // 실 백엔드도 등록만으로는 기본이 되지 않는다(첫 수단 자동 지정은 서비스 규칙 밖).
-      isDefault: false,
+      isDefault: !hasActive,
       createdAt: new Date().toISOString(),
     }
     demoMethods.push(method)

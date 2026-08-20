@@ -49,11 +49,21 @@ export async function uploadPetImageFile(
   uploadUrl: string,
   file: File,
 ): Promise<void> {
-  const res = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type },
-    body: file,
-  })
+  let res: Response
+  try {
+    res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    })
+  } catch {
+    /*
+      네트워크 자체가 실패하면 fetch는 "Failed to fetch" 같은 영어 TypeError를 던져 그대로
+      화면에 노출된다. 로컬 백엔드는 image.storage.provider=fake라 uploadUrl이 실제로
+      존재하지 않는 주소(localhost:9000)여서 이 경로를 자주 타므로 한국어로 감싼다.
+    */
+    throw new Error('이미지 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+  }
   if (!res.ok) {
     throw new Error(`이미지 업로드에 실패했습니다. (HTTP ${res.status})`)
   }

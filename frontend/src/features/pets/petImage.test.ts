@@ -60,3 +60,18 @@ describe('uploadPetImageFile', () => {
     ).rejects.toThrow(/403/)
   })
 })
+
+describe('uploadPetImageFile 네트워크 실패', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // 로컬 백엔드(fake 스토리지)는 존재하지 않는 주소를 주므로 이 경로를 실제로 자주 탄다.
+  it('fetch 자체가 실패하면 영어 TypeError 대신 한국어 안내로 바꿔 던진다', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(
+      uploadPetImageFile('http://localhost:9000/fake-bucket/x.png', file('image/png')),
+    ).rejects.toThrow('이미지 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+  })
+})
