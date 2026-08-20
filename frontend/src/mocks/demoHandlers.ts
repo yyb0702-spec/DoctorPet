@@ -362,6 +362,20 @@ export const demoHandlers = [
       last: page >= totalPages - 1,
     })
   }),
+  // 미읽음 개수 — 목록 페이지 크기와 무관하게 전체 기준으로 센다(실 백엔드 count 쿼리와 같은 의미).
+  http.get(`${BASE}/notifications/unread-count`, () =>
+    ok({ unreadCount: mockNotifications.filter((n) => !n.isRead).length }),
+  ),
+  // 모두 읽음 — 미읽음만 갱신하고 갱신 건수를 돌려준다(멱등: 두 번째 호출은 0건).
+  http.patch(`${BASE}/notifications/read-all`, () => {
+    const unread = mockNotifications.filter((n) => !n.isRead)
+    const readAt = new Date().toISOString()
+    unread.forEach((n) => {
+      n.isRead = true
+      n.readAt = readAt
+    })
+    return ok({ updatedCount: unread.length })
+  }),
   http.patch(`${BASE}/notifications/:notificationId/read`, ({ params }) => {
     const target = mockNotifications.find(
       (n) => n.id === Number(params.notificationId),

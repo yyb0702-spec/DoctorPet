@@ -3,7 +3,7 @@
 // 경로 문자열만 보지 않고 라우트를 실제로 걸어 렌더 결과까지 확인한다 — 스태프 예약 상세는 목록에서 넘겨준
 // location.state 없이는 열리지 않아서(병원 예약 단건 조회 API 부재) 상세 URL로 보내면 죽은 링크가 된다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +22,8 @@ vi.mock('./api', () => ({
   notificationApi: {
     list: vi.fn(),
     markRead: vi.fn(),
+    getUnreadCount: vi.fn(),
+    markAllRead: vi.fn(),
     issueTicket: vi.fn(),
   },
 }))
@@ -114,7 +116,12 @@ describe('NotificationBell', () => {
       last: true,
     })
     vi.mocked(notificationApi.markRead).mockResolvedValue(undefined)
+    vi.mocked(notificationApi.getUnreadCount).mockResolvedValue({ unreadCount: 1 })
+    vi.mocked(notificationApi.markAllRead).mockResolvedValue({ updatedCount: 1 })
     vi.mocked(subscribeToNotifications).mockClear()
+    // 호출 이력은 테스트마다 초기화한다 — 누적되면 "호출되지 않아야 한다" 단언이 앞 테스트 때문에 깨진다.
+    vi.mocked(notificationApi.markRead).mockClear()
+    vi.mocked(notificationApi.markAllRead).mockClear()
     useMeMock.mockReturnValue({ data: { role: MemberRole.GUARDIAN } })
     useAuthStore.setState({ isAuthenticated: true })
   })
@@ -187,5 +194,58 @@ describe('NotificationBell', () => {
     await openBellAndClickNotification()
 
     expect(notificationApi.markRead).toHaveBeenCalledWith(1)
+  })
+
+  /*
+    배지는 드롭다운이 받은 목록(최신 20건)이 아니라 서버 집계를 쓴다. 목록에서 세면 미읽음이 21건을
+    넘는 순간 조용히 20으로 상한이 걸려 과소집계되는데, 화면상 티가 나지 않아 회귀를 놓치기 쉽다.
+  */
+  it('배지 숫자는 목록 길이가 아니라 unread-count 응답을 쓴다', async () => {
+    vi.mocked(notificationApi.getUnreadCount).mockResolvedValue({
+      unreadCount: 37,
+    })
+    renderBell()
+
+    // 목록 mock은 1건뿐인데도 서버 집계값이 그대로 보인다.
+    expect(await screen.findByText('37')).toBeInTheDocument()
+  })
+
+  it('"모두 읽음"을 누르면 read-all 한 번으로 처리하고 배지가 사라진다', async () => {
+    vi.mocked(notificationApi.getUnreadCount).mockResolvedValue({
+      unreadCount: 3,
+    })
+    renderBell()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    expect(await screen.findByText('3')).toBeInTheDocument()
+
+    // 처리 후에는 개수가 0으로 내려온다(서버 bulk UPDATE 결과를 재조회).
+    vi.mocked(notificationApi.getUnreadCount).mockResolvedValue({
+      unreadCount: 0,
+    })
+    await user.click(screen.getByRole('button', { name: '모두 읽음' }))
+
+    expect(notificationApi.markAllRead).toHaveBeenCalledTimes(1)
+    // 보이는 항목을 순회하지 않는다 — 개별 읽음 API는 호출되지 않아야 한다.
+    expect(notificationApi.markRead).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('3')).not.toBeInTheDocument())
+  })
+
+  it('미읽음이 없으면 "모두 읽음" 버튼을 노출하지 않는다', async () => {
+    vi.mocked(notificationApi.getUnreadCount).mockResolvedValue({
+      unreadCount: 0,
+    })
+    renderBell()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+
+    expect(
+      await screen.findByRole('button', { name: /예약이 승인되었습니다/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: '모두 읽음' }),
+    ).not.toBeInTheDocument()
   })
 })
