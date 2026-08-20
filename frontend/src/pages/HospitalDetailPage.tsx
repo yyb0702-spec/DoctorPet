@@ -6,6 +6,7 @@ import {
   useHospitalDetail,
   useHospitalSlots,
 } from '@/features/hospitals/hooks'
+import { FavoriteButton } from '@/features/hospitals/FavoriteButton'
 import { ReservationRequestPanel } from '@/features/reservations/ReservationRequestPanel'
 import { useAuthStore } from '@/lib/auth/authStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -93,7 +94,15 @@ export function HospitalDetailPage() {
               </Badge>
             )}
           </div>
-          <h1 className="text-2xl font-bold">{data.name}</h1>
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="text-2xl font-bold">{data.name}</h1>
+            {/* 찜은 제휴 여부와 무관하다 — 비제휴 병원도 관심 목록에 담을 수 있다. */}
+            <FavoriteButton
+              hospitalId={data.hospitalId}
+              favorite={data.favorite}
+              withLabel
+            />
+          </div>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <MapPin className="h-4 w-4" />
             {data.address}

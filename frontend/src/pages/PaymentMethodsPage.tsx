@@ -6,6 +6,7 @@ import {
   usePaymentMethods,
   useRegisterPaymentMethod,
   useRemovePaymentMethod,
+  useSetDefaultPaymentMethod,
 } from '@/features/payments/hooks'
 import { Field } from '@/components/common/Field'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,7 @@ export function PaymentMethodsPage() {
   const methodsQuery = usePaymentMethods()
   const registerMethod = useRegisterPaymentMethod()
   const removeMethod = useRemovePaymentMethod()
+  const setDefaultMethod = useSetDefaultPaymentMethod()
   const [billingKey, setBillingKey] = useState('')
   const [issuing, setIssuing] = useState(false)
   const [sdkError, setSdkError] = useState<string | null>(null)
@@ -85,6 +87,17 @@ export function PaymentMethodsPage() {
     })
   }
 
+  // 기본 결제수단을 맨 위로 올린다(서버 정렬은 등록순) — 자동 결제에 쓰이는 수단이라 먼저 보여야 한다.
+  const sortedMethods = [...(methodsQuery.data ?? [])].sort(
+    (a, b) => Number(b.isDefault) - Number(a.isDefault),
+  )
+
+  const setDefaultErrorMessage = setDefaultMethod.isError
+    ? setDefaultMethod.error instanceof ApiError
+      ? setDefaultMethod.error.message
+      : '기본 결제수단 지정에 실패했습니다.'
+    : null
+
   const registerErrorMessage =
     sdkError ??
     (registerMethod.isError
@@ -105,7 +118,7 @@ export function PaymentMethodsPage() {
           <EmptyState message="등록된 결제수단이 없습니다." />
         )}
         <div className="grid gap-3">
-          {methodsQuery.data?.map((m) => (
+          {sortedMethods.map((m) => (
             <Card key={m.id}>
               <CardContent className="flex items-center justify-between p-5">
                 <div className="flex items-center gap-3">
@@ -115,25 +128,46 @@ export function PaymentMethodsPage() {
                       <span className="font-medium">
                         {m.cardBrand ?? '카드'} ****{m.cardLast4 ?? '****'}
                       </span>
+                      {m.isDefault && <Badge>기본</Badge>}
                       {m.status !== 'ACTIVE' && (
                         <Badge variant="muted">{m.status}</Badge>
                       )}
                     </div>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="삭제"
-                  disabled={removeMethod.isPending}
-                  onClick={() => removeMethod.mutate(m.id)}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  {/*
+                    기본 지정은 ACTIVE 수단만 가능하다(서버도 ACTIVE·본인 소유만 받는다). 이미 기본인
+                    수단에는 버튼을 두지 않는다 — 기본은 회원당 1건이라 해제라는 동작이 없다.
+                  */}
+                  {m.status === 'ACTIVE' && !m.isDefault && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs"
+                      disabled={setDefaultMethod.isPending}
+                      onClick={() => setDefaultMethod.mutate(m.id)}
+                    >
+                      기본으로 지정
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="삭제"
+                    disabled={removeMethod.isPending}
+                    onClick={() => removeMethod.mutate(m.id)}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
+        {setDefaultErrorMessage && (
+          <p className="text-sm text-destructive">{setDefaultErrorMessage}</p>
+        )}
       </div>
 
       <Card className="h-fit">
