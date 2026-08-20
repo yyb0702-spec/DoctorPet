@@ -16,6 +16,9 @@ import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
 import com.doctorpet.domain.reservation.repository.ReservationRepository;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
 import com.doctorpet.global.security.JwtTokenProvider;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
@@ -259,6 +262,21 @@ class ChatWebSocketIntegrationTest {
                 fixture.reservationId(), org.springframework.data.domain.Pageable.unpaged())).hasSize(2);
     }
 
+    @Test
+    void webSocketHandshake_allowsConfiguredCorsOrigin() throws Exception {
+        assertThat(handshakeStatus("http://localhost:5173")).isEqualTo(101);
+    }
+
+    @Test
+    void webSocketHandshake_rejectsUnconfiguredOrigin() throws Exception {
+        assertThat(handshakeStatus("https://untrusted.example")).isEqualTo(403);
+    }
+
+    @Test
+    void webSocketHandshake_allowsRequestsWithoutOrigin() throws Exception {
+        assertThat(handshakeStatus(null)).isEqualTo(101);
+    }
+
     private void awaitActiveSubscription(StompFrames frames, Long reservationId) throws InterruptedException {
         String delivered = null;
         for (int attempt = 1; attempt <= 5 && delivered == null; attempt++) {
@@ -287,6 +305,28 @@ class ChatWebSocketIntegrationTest {
                 "accept-version:1.2", "Authorization:Bearer " + accessToken), ""));
         assertThat(frames.awaitFrame()).startsWith("CONNECTED");
         return frames;
+    }
+
+    private int handshakeStatus(String origin) throws Exception {
+        try (Socket socket = new Socket("localhost", port)) {
+            socket.setSoTimeout(5_000);
+            String request = "GET /ws/chat HTTP/1.1\r\n"
+                    + "Host: localhost:" + port + "\r\n"
+                    + "Connection: Upgrade\r\n"
+                    + "Upgrade: websocket\r\n"
+                    + "Sec-WebSocket-Version: 13\r\n"
+                    + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                    + (origin == null ? "" : "Origin: " + origin + "\r\n")
+                    + "\r\n";
+            socket.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+
+            String statusLine = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII))
+                    .readLine();
+            assertThat(statusLine).startsWith("HTTP/1.1 ");
+            return Integer.parseInt(statusLine.substring("HTTP/1.1 ".length(), "HTTP/1.1 ".length() + 3));
+        }
     }
 
     private ChatFixture saveWritableReservation() {
