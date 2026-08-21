@@ -29,6 +29,7 @@ import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
+import jakarta.persistence.EntityManager;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
@@ -74,6 +75,9 @@ class HospitalOperatingHoursApplicationServiceTest {
     @Mock
     private Hospital lockedHospital;
 
+    @Mock
+    private EntityManager entityManager;
+
     @InjectMocks
     private HospitalOperatingHoursApplicationService service;
 
@@ -89,6 +93,10 @@ class HospitalOperatingHoursApplicationServiceTest {
                         Instant.parse("2026-08-09T15:00:00Z"),
                         TimePolicy.SEOUL_ZONE_ID
                 )
+        );
+        // @PersistenceContext 필드는 생성자로 안 들어오므로 수동 주입한다(저장 후 refresh 호출용).
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                service, "entityManager", entityManager
         );
         lenient().when(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .thenReturn(Optional.of(lockedHospital));
@@ -228,11 +236,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 expectedUpdatedAt
         );
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(reservationService.findLatestReservedBusinessDate(
-                HOSPITAL_ID,
-                TODAY,
-                TODAY.plusDays(13)
-        )).willReturn(Optional.empty());
+        // UPDATE는 선택한 발효일이 고정이라 예약 조회로 발효일을 밀지 않는다(CREATE 전용).
         given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(scheduleRepository.save(schedule)).willReturn(schedule);
@@ -244,6 +248,37 @@ class HospitalOperatingHoursApplicationServiceTest {
         service.updateOperatingHours(MEMBER_ID, request);
 
         verify(schedule).changeOperatingHours(org.mockito.ArgumentMatchers.anyMap());
+        verify(reservationService, never())
+                .findLatestReservedBusinessDate(any(), any(), any());
+    }
+
+    @Test
+    void updateDoesNotShiftEffectiveDateEvenWhenReservationsExistInWindow() {
+        // 발행창 안(오늘+5일) 예정 시간표의 시간만 바꾸는 UPDATE. CREATE라면 그 기간의 예약 때문에
+        // 발효일이 밀려 findSchedule이 대상을 못 찾고 HOSPITAL_016으로 오거부되지만, UPDATE는
+        // desiredEffectiveFrom을 그대로 써서 선택한 시간표를 찾아 수정해야 한다(P2 회귀 가드).
+        LocalDate targetEffectiveFrom = TODAY.plusDays(5);
+        LocalDateTime expectedUpdatedAt = LocalDateTime.of(2026, 8, 10, 9, 0);
+        OperatingHoursUpdateRequest request = updateSelectedRequest(
+                targetEffectiveFrom,
+                202L,
+                expectedUpdatedAt
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(scheduleRepository.findSchedule(HOSPITAL_ID, targetEffectiveFrom))
+                .willReturn(Optional.of(schedule));
+        given(scheduleRepository.save(schedule)).willReturn(schedule);
+        given(schedule.getId()).willReturn(202L);
+        given(schedule.getUpdatedAt()).willReturn(expectedUpdatedAt);
+        given(schedule.getEffectiveFrom()).willReturn(targetEffectiveFrom);
+        given(schedule.getOperatingHours()).willReturn(Map.of());
+
+        var response = service.updateOperatingHours(MEMBER_ID, request);
+
+        assertThat(response.effectiveFrom()).isEqualTo(targetEffectiveFrom);
+        verify(schedule).changeOperatingHours(org.mockito.ArgumentMatchers.anyMap());
+        verify(reservationService, never())
+                .findLatestReservedBusinessDate(any(), any(), any());
     }
 
     @Test
@@ -272,11 +307,6 @@ class HospitalOperatingHoursApplicationServiceTest {
     void updateOperatingHoursRejectsStaleSelectedSchedule() {
         LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(reservationService.findLatestReservedBusinessDate(
-                HOSPITAL_ID,
-                TODAY,
-                TODAY.plusDays(13)
-        )).willReturn(Optional.empty());
         given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(schedule.getId()).willReturn(101L);

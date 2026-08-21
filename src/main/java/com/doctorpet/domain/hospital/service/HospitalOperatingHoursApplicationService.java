@@ -22,6 +22,8 @@ import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -50,6 +52,10 @@ public class HospitalOperatingHoursApplicationService {
     private final HospitalOperatingScheduleRepository scheduleRepository;
     private final HospitalTemporaryClosureRepository closureRepository;
     private final Clock applicationClock;
+
+    // flush 후 저장 시간표를 DB 절단값으로 재적재하기 위해 쓴다(updatedAt 토큰 왕복 일치).
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public OperatingHoursResponse getOperatingHours(Long memberId) {
         Long hospitalId = getHospitalId(memberId);
@@ -92,11 +98,17 @@ public class HospitalOperatingHoursApplicationService {
         // 조회를 하면 MySQL REPEATABLE_READ 스냅샷이 고정돼, 잠금을 기다린 뒤에도 다른 트랜잭션이
         // 방금 만든 같은 발효일의 시간표를 못 보고 UNIQUE 위반으로 끝날 수 있다.
         Hospital hospital = lockHospital(hospitalId);
-        LocalDate effectiveFrom = resolveEffectiveFrom(
-                hospitalId,
-                today,
-                request.desiredEffectiveFrom()
-        );
+        // CREATE는 발행창 안에 예약이 있으면 발효일을 마지막 예약일 다음 날로 밀어 예약된 슬롯을
+        // 보존한다. UPDATE는 목록에서 선택한 기존 시간표의 발효일이 고정이므로 밀지 않는다 —
+        // 밀면 findSchedule이 대상 시간표를 못 찾아 정상 편집이 HOSPITAL_016으로 오거부된다.
+        LocalDate effectiveFrom = switch (request.saveMode()) {
+            case CREATE -> resolveEffectiveFrom(
+                    hospitalId,
+                    today,
+                    request.desiredEffectiveFrom()
+            );
+            case UPDATE -> request.desiredEffectiveFrom();
+        };
         HospitalOperatingSchedule existingSchedule = scheduleRepository
                 .findSchedule(hospitalId, effectiveFrom)
                 .orElse(null);
@@ -115,9 +127,12 @@ public class HospitalOperatingHoursApplicationService {
         };
 
         HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
-        // @LastModifiedDate는 flush 시점에 확정된다. 이를 응답으로 돌려줘야 다음 UPDATE가
-        // 비교할 기준이 실제 DB 값과 같아져 오래된 화면의 덮어쓰기를 막을 수 있다.
         scheduleRepository.flush();
+        // flush는 DB에 쓰기만 하고 인메모리 엔티티를 재적재하지 않는다. @LastModifiedDate는
+        // LocalDateTime.now()(나노초)로 채워지지만 컬럼은 datetime(6)이라, 응답의 updatedAt을
+        // 그대로 돌려주면 다음 UPDATE에서 DB 재조회 값(마이크로초 절단)과 달라 토큰 비교가
+        // 항상 어긋난다. refresh로 DB에 저장된 절단값을 다시 읽어 응답·후속 UPDATE 비교를 맞춘다.
+        entityManager.refresh(savedSchedule);
         replacePublishedSlots(
                 hospital,
                 hospitalId,

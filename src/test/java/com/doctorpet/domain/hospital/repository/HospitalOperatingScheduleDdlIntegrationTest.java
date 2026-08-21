@@ -13,6 +13,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +123,24 @@ class HospitalOperatingScheduleDdlIntegrationTest {
         assertThat(scheduleRepository.findScheduledSchedules(hospital.getId(), today))
                 .extracting(HospitalOperatingSchedule::getId)
                 .containsExactly(firstFuture.getId(), secondFuture.getId());
+    }
+
+    @Test
+    void refreshedUpdatedAtSurvivesReloadSoOptimisticTokenMatches() {
+        // 저장 직후 인메모리 updatedAt은 LocalDateTime.now()(나노초)라 datetime(6) 컬럼에
+        // 저장·재조회하면 값이 잘린다. 서비스가 응답 전 하는 refresh를 그대로 재현해, 클라이언트로
+        // 나가는 토큰이 다음 요청의 DB 재조회 값과 정확히 일치함을 못박는다(refresh 제거 시 회귀).
+        Hospital hospital = hospitalRepository.saveAndFlush(createHospital("SCHEDULE-UPDATED-AT"));
+        HospitalOperatingSchedule saved = scheduleRepository.saveAndFlush(
+                schedule(hospital, LocalDate.of(2026, 8, 20))
+        );
+        entityManager.refresh(saved);
+        LocalDateTime tokenReturnedToClient = saved.getUpdatedAt();
+        entityManager.clear();
+
+        HospitalOperatingSchedule reloaded = scheduleRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(reloaded.getUpdatedAt()).isEqualTo(tokenReturnedToClient);
     }
 
     private HospitalOperatingSchedule schedule(Hospital hospital, LocalDate effectiveFrom) {
