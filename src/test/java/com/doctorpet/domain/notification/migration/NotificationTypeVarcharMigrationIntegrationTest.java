@@ -213,6 +213,35 @@ class NotificationTypeVarcharMigrationIntegrationTest {
         return count == null ? 0 : count;
     }
 
+    @Test
+    @DisplayName("컬럼이 이미 varchar인데 마커가 없으면 오타 값을 정정한다(전환 직후 부분 실패 복구)")
+    void migration_correctsLegacyTypoEvenWhenColumnsAlreadyConverted() {
+        // 전환 ALTER는 DDL이라 즉시 커밋된다. 그 직후 다음 단계에서 예외가 나 부팅이 실패하면 컬럼만 varchar로
+        // 남고 마커는 없다. 그 상태를 재현한다 — 정정을 "방금 전환했는가"에만 묶으면 여기서 영구히 건너뛴다
+        // (리뷰 지적 P1). 위 migration_correctsLegacyTypoValue는 ENUM으로 되돌린 뒤 실행해 이 경로를 못 덮는다.
+        deleteMarker();
+        long id = insertNotification("RESERVATION_HOSPITAL_CANCELLED", "RESERVATION");
+        assertThat(columnType("type")).isEqualTo(NotificationTypeVarcharMigrationRunner.TARGET_COLUMN_TYPE);
+
+        new NotificationTypeVarcharMigrationRunner(jdbcTemplate).migrateBeforeJpa();
+
+        assertThat(typeOf(id)).isEqualTo("RESERVATION_HOSPITAL_CANCELED");
+        assertThat(markerExists()).isTrue();
+    }
+
+    @Test
+    @DisplayName("마커가 있고 전환도 불필요하면 정정 스캔을 반복하지 않는다")
+    void migration_skipsCorrectionWhenAlreadyApplied() {
+        // 정상 상태에서 매 부팅 full scan을 돌지 않는다는 계약. 오타 행을 남겨 두고도 손대지 않아야 한다
+        // (마커가 있으면 이미 완주했다는 뜻이므로, 이 상태의 오타 행은 이 러너가 만든 것이 아니다).
+        ensureMarker();
+        long id = insertNotification("RESERVATION_HOSPITAL_CANCELLED", "RESERVATION");
+
+        new NotificationTypeVarcharMigrationRunner(jdbcTemplate).migrateBeforeJpa();
+
+        assertThat(typeOf(id)).isEqualTo("RESERVATION_HOSPITAL_CANCELLED");
+    }
+
     private void revertToLegacyEnum(String typeEnum) {
         // enum에 없는 값을 쓰는 이전 테스트의 잔존 행이 있으면 ALTER 자체가 실패한다 — 먼저 지운다.
         jdbcTemplate.update("delete from notifications where content = ?", TEST_CONTENT);

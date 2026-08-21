@@ -91,11 +91,16 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
         boolean converted = convertToVarchar(connection, TYPE_COLUMN, true);
         converted |= convertToVarchar(connection, RESOURCE_TYPE_COLUMN, false);
 
-        if (converted) {
+        // 데이터 정정을 "방금 전환했는가"에만 묶으면 안 된다(리뷰 지적 P1). ALTER는 DDL이라 즉시 커밋되므로,
+        // 전환 직후 다음 단계에서 예외가 나 부팅이 실패하면(오타 UPDATE 락 대기 초과, CHECK 드롭 권한 오류 등)
+        // 컬럼만 varchar로 남는다. 그 상태로 재기동하면 converted=false가 되어 오타 값이 영구히 정정되지 않고,
+        // 남은 행은 NotificationType 파싱을 깨 목록 조회를 500으로 만든다. 마커가 기록되기 전까지는 계속 시도해
+        // 부분 실패를 스스로 복구한다 — 마커가 있으면 이미 완주했으므로 매 부팅 전체 스캔을 반복하지 않는다.
+        if (converted || !migrationApplied(connection)) {
             // VARCHAR가 된 뒤에야 정정할 수 있다 — ENUM 상태에서는 목표 값이 정의에 없으면 UPDATE 자체가 실패한다.
             int corrected = correctLegacyTypeValues(connection);
             warnOnUnknownValues(connection);
-            log.info("알림 유형 컬럼 VARCHAR 전환 완료: 오타 값 {}건 정정", corrected);
+            log.info("알림 유형 컬럼 VARCHAR 정리: 오타 값 {}건 정정(전환 {})", corrected, converted ? "수행" : "불필요");
         }
 
         // 타입 전환과 무관하게 매 부팅 확인한다. 신규 DB는 컬럼이 이미 varchar로 생성돼(엔티티 애너테이션) 위 전환이
@@ -243,6 +248,18 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
             statement.setString(1, column);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() ? resultSet.getString("column_type") : null;
+            }
+        }
+    }
+
+    // 이 마이그레이션이 끝까지 완주해 마커를 남겼는지. 데이터 정정의 재시도 여부를 가른다(위 migrate 주석).
+    private boolean migrationApplied(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*) from schema_migrations where migration_key = ?
+                """)) {
+            statement.setString(1, MIGRATION_KEY);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getInt(1) > 0;
             }
         }
     }

@@ -21,6 +21,11 @@ import java.util.List;
  * <p>이 제약은 <b>새로 생성되는 테이블에만</b> 붙는다 — `ddl-auto=update`는 이미 있는 테이블에 CHECK를 추가하지
  * 않는다(실측). 그래서 ENUM 시절에 만들어진 오래된 DB에는 없고, 빈 DB에서 생성된 테이블(CI·신규 배포)에만 있다.
  *
+ * <p><b>MySQL 8.0.16+ 전제.</b> CHECK 제약 자체와 `information_schema.CHECK_CONSTRAINTS`,
+ * `ALTER TABLE … DROP CHECK` 문법이 모두 8.0.16에서 도입됐다. 그 이하 버전에서는 아래 조회가 "table doesn't exist"로
+ * 실패해 부팅이 깨진다 — 그 버전에서는 CHECK 제약이 파싱만 되고 강제되지 않으므로 애초에 드롭할 대상도 없다.
+ * 운영·CI 모두 `mysql:8.0` 태그(현재 8.0.4x)를 쓰므로 실제로 그 아래로 내려가지 않지만, 전제를 SA §4에 적어 둔다.
+ *
  * <p>제약 이름은 MySQL이 `<table>_chk_N`으로 자동 부여하고 N이 생성 순서에 따라 달라지므로 하드코딩하지 않고,
  * CHECK 절이 대상 컬럼을 backtick으로 참조하는 것만 골라 드롭한다(backtick 경계 덕분에 `resource_type` 제약이
  * `type` 매칭에 걸리지 않는다). 대상 컬럼 외의 CHECK 제약은 건드리지 않는다.
