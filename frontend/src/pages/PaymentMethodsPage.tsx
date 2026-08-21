@@ -94,6 +94,13 @@ export function PaymentMethodsPage() {
 
     // 먼저 query를 지워야 네트워크 지연 중 새로고침해도 같은 빌링키를 두 번 등록하지 않는다.
     if (portoneErrorCode) {
+      // 실패·취소 결과도 같은 발급 시도의 종료면 상관관계 값을 소비한다. 단, 임의 error URL이 다른
+      // 진행 중 요청까지 취소하지 않도록 redirectUrl에 실은 issueId가 현재 값과 같을 때만 지운다.
+      const expectedIssueId = window.sessionStorage.getItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+      const issueIdFromRedirect = params.get(BILLING_KEY_ISSUE_ID_QUERY_PARAM)
+      if (expectedIssueId && expectedIssueId === issueIdFromRedirect) {
+        window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+      }
       navigate(BILLING_KEY_CALLBACK_PATH, {
         replace: true,
         state: {

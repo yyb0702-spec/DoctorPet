@@ -118,14 +118,39 @@ describe('PaymentMethodsPage', () => {
     expect(screen.getByTestId('current-search')).toHaveTextContent('')
   })
 
-  it('모바일 인증 실패 사유를 표시하고 URL query는 남기지 않는다', async () => {
-    renderPage('/payment-methods?code=USER_CANCELLED&message=인증을 취소했습니다.')
+  it('모바일 인증 실패 후 issueId를 소비해 같은 ID의 성공 callback을 등록하지 않는다', async () => {
+    const issueId = 'cancelled-issue'
+    window.sessionStorage.setItem('doctorpet:pending-billing-key-issue-id', issueId)
+    const failedCallback = renderPage(
+      `/payment-methods?code=USER_CANCELLED&message=인증을 취소했습니다.&billingKeyIssueId=${issueId}`,
+    )
 
     await waitFor(() =>
       expect(screen.getByText('인증을 취소했습니다.')).toBeInTheDocument(),
     )
     expect(registerBillingKey).not.toHaveBeenCalled()
     expect(screen.getByTestId('current-search')).toHaveTextContent('')
+    expect(window.sessionStorage.getItem('doctorpet:pending-billing-key-issue-id')).toBeNull()
+
+    failedCallback.unmount()
+    renderPage(`/payment-methods?billingKey=late-key&billingKeyIssueId=${issueId}`)
+
+    await waitFor(() =>
+      expect(screen.getByText('확인되지 않은 결제수단 인증 결과입니다. 다시 등록해 주세요.')).toBeInTheDocument(),
+    )
+    expect(registerBillingKey).not.toHaveBeenCalled()
+  })
+
+  it('현재 발급 요청과 다른 실패 callback은 진행 중인 issueId를 지우지 않는다', async () => {
+    window.sessionStorage.setItem('doctorpet:pending-billing-key-issue-id', 'active-issue')
+    renderPage(
+      '/payment-methods?code=USER_CANCELLED&message=인증을 취소했습니다.&billingKeyIssueId=other-issue',
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('인증을 취소했습니다.')).toBeInTheDocument(),
+    )
+    expect(window.sessionStorage.getItem('doctorpet:pending-billing-key-issue-id')).toBe('active-issue')
   })
 
   it('실제 보호자 식별자와 모바일 복귀 URL을 넣어 카카오페이 빌링키 발급을 요청한다', async () => {
