@@ -1,0 +1,3 @@
+This release makes every pre-VARCHAR notifications.type ENUM migration runner safe on varchar columns.
+Deploy this release before the notification type VARCHAR migration. Do not remove this marker while deploy.yml
+uses it to allow rollback from the VARCHAR migration only to a compatible prior image.
