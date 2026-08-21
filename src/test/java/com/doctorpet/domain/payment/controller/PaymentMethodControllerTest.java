@@ -133,6 +133,22 @@ class PaymentMethodControllerTest {
     }
 
     @Test
+    @DisplayName("iframe 완료의 빌링키가 허용 UTF-8 바이트(512B)를 넘으면 서비스 호출 전 400으로 거부한다")
+    void completeBillingKeyIssue_billingKeyTooLong() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
+        // 한글 1자 = UTF-8 3바이트. 171자 = 513바이트로 512바이트 상한 초과(문자 수만 보면 통과했을 입력).
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("가".repeat(171));
+
+        mockMvc.perform(post("/api/payment-methods/billing-key-issues/{issueId}/complete", "server-issued-id")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        org.mockito.Mockito.verifyNoInteractions(billingKeyIssueApplicationService);
+    }
+
+    @Test
     @DisplayName("본인 결제수단 조회 시 200과 목록을 반환하고, 인증된 회원 id로 조회한다")
     void getMyPaymentMethods_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));

@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +33,7 @@ import org.springframework.web.util.UriComponentsBuilder;
   회원 식별은 요청 body/path가 아니라 @AuthenticationPrincipal로만 한다(AGENTS 보안).
   보호자 권한(ROLE_GUARDIAN) 강제는 SecurityConfig의 URL 매처에서 처리한다.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/payment-methods")
 @RequiredArgsConstructor
@@ -75,9 +77,12 @@ public class PaymentMethodController {
                 // 같은 issueId를 재사용하지 못하게 한다.
                 billingKeyIssueApplicationService.discard(issueId);
             }
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException e) {
             // 콜백 URL의 빌링키는 로그·응답으로 다시 내보내지 않는다. 사용자는 결과 화면에서
-            // 재시도하고, 서버 측 감사·관측은 원문 없이 별도 에러 코드로 처리한다.
+            // 재시도하고, 관측은 원문(billingKey) 없이 issueId와 예외 종류만 남긴다 — 이렇게 해야
+            // DB·암호화·PG 조회 실패 같은 진짜 오류가 사용자 취소와 구분되지 않고 무음 유실되지 않는다.
+            log.warn("빌링키 모바일 콜백 처리 실패 issueId={} error={}",
+                    issueId, e.getClass().getSimpleName());
         }
         String target = UriComponentsBuilder.fromUriString(billingKeyResultUrl)
                 .queryParam("billingKeyResult", completed ? "success" : "failed")
