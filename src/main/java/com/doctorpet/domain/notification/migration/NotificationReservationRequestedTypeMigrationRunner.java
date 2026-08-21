@@ -72,6 +72,12 @@ public class NotificationReservationRequestedTypeMigrationRunner implements Appl
         if (columnType == null) {
             throw new IllegalStateException("notifications.type 컬럼이 없습니다.");
         }
+        // 후속 VARCHAR 전환(#176) 뒤 이 호환 버전으로 롤백해도 ENUM으로 되돌리지 않는다.
+        if (isVarchar(columnType)) {
+            recordMigration(connection);
+            log.info("새 예약 요청 알림 유형 마이그레이션 생략: notifications.type이 VARCHAR입니다.");
+            return;
+        }
         if (!columnType.contains(NEW_TYPE)) {
             // 오타 값 정정(대기열 유형 마이그레이션)이 아직 끝나지 않은 DB다. 여기서 목표 ENUM을 그대로 적용하면
             // 그 값을 쓰는 기존 행이 잘려 나가므로, 데이터를 건드리지 않고 멈춰 순서 위반을 드러낸다.
@@ -136,6 +142,10 @@ public class NotificationReservationRequestedTypeMigrationRunner implements Appl
                 return resultSet.next() ? resultSet.getString("column_type") : null;
             }
         }
+    }
+
+    private boolean isVarchar(String columnType) {
+        return columnType.toLowerCase(java.util.Locale.ROOT).startsWith("varchar(");
     }
 
     private void recordMigration(Connection connection) throws SQLException {

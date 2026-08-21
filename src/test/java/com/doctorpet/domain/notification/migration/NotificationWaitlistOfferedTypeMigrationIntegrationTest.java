@@ -31,6 +31,12 @@ class NotificationWaitlistOfferedTypeMigrationIntegrationTest {
     private static final String BEFORE_WAITLIST_ENUM =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED')";
+    // #166의 새 예약 요청 유형은 이미 있지만, 대기열 유형 정정 전 오타 값도 남아 있는 과도 상태.
+    // 이 상태에서도 대기열 마이그레이션이 새 값을 누락해 ALTER에 실패하면 안 된다.
+    private static final String LEGACY_ENUM_WITH_REQUESTED =
+            "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
+                    + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
+                    + "'RESERVATION_REJECTED','RESERVATION_REQUESTED')";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -61,6 +67,23 @@ class NotificationWaitlistOfferedTypeMigrationIntegrationTest {
         assertThat(notificationTypeColumn()).contains("PAYMENT_PENDING");
         assertThat(notificationTypeColumn()).contains("RESERVATION_WAITLIST_OFFERED");
         assertThat(migrationMarkerExists()).isTrue();
+    }
+
+    @Test
+    @DisplayName("새 예약 요청 유형이 있는 과도 스키마에서도 값을 보존하며 오타를 정정한다")
+    void migration_preservesReservationRequestedDuringLegacyTypoFix() {
+        jdbcTemplate.update("delete from notifications where type in ('RESERVATION_REQUESTED', 'RESERVATION_WAITLIST_OFFERED')");
+        jdbcTemplate.execute("alter table notifications modify column type " + LEGACY_ENUM_WITH_REQUESTED + " not null");
+        jdbcTemplate.update(
+                "delete from schema_migrations where migration_key = ?",
+                NotificationWaitlistOfferedTypeMigrationRunner.MIGRATION_KEY
+        );
+
+        new NotificationWaitlistOfferedTypeMigrationRunner(jdbcTemplate).migrateBeforeJpa();
+
+        assertThat(notificationTypeColumn()).contains("RESERVATION_REQUESTED");
+        assertThat(notificationTypeColumn()).contains("RESERVATION_WAITLIST_OFFERED");
+        assertThat(notificationTypeColumn()).doesNotContain("RESERVATION_HOSPITAL_CANCELLED");
     }
 
     private String notificationTypeColumn() {

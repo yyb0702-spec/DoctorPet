@@ -25,11 +25,12 @@ public class NotificationWaitlistOfferedTypeMigrationRunner implements Applicati
     private static final String NOTIFICATION_ENUM_WITH_LEGACY =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
-                    + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED')";
+                    + "'RESERVATION_REJECTED','RESERVATION_REQUESTED',"
+                    + "'RESERVATION_WAITLIST_OFFERED')";
     private static final String NOTIFICATION_ENUM =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED',"
-                    + "'RESERVATION_WAITLIST_OFFERED')";
+                    + "'RESERVATION_REQUESTED','RESERVATION_WAITLIST_OFFERED')";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -64,6 +65,14 @@ public class NotificationWaitlistOfferedTypeMigrationRunner implements Applicati
         String columnType = notificationTypeColumnType(connection);
         if (columnType == null) {
             throw new IllegalStateException("notifications.type 컬럼이 없습니다.");
+        }
+        // 후속 VARCHAR 전환(#176) 뒤 이 호환 버전으로 롤백해도 ENUM으로 되돌리지 않는다.
+        // VARCHAR는 애플리케이션이 알지 못하는 새 값을 보존할 수 있으므로, 여기서 목표 ENUM을
+        // 다시 적용하면 부팅 실패 또는 값 손실이 생긴다.
+        if (isVarchar(columnType)) {
+            recordMigration(connection);
+            log.info("대기열 승급 알림 유형 마이그레이션 생략: notifications.type이 VARCHAR입니다.");
+            return;
         }
         if (columnType.contains("RESERVATION_HOSPITAL_CANCELLED")) {
             alterNotificationTypeColumn(connection, NOTIFICATION_ENUM_WITH_LEGACY);
@@ -130,6 +139,10 @@ public class NotificationWaitlistOfferedTypeMigrationRunner implements Applicati
                 return resultSet.next() ? resultSet.getString("column_type") : null;
             }
         }
+    }
+
+    private boolean isVarchar(String columnType) {
+        return columnType.toLowerCase(java.util.Locale.ROOT).startsWith("varchar(");
     }
 
     private void recordMigration(Connection connection) throws SQLException {

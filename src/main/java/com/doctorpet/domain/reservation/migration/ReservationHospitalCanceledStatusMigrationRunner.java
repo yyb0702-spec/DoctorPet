@@ -42,11 +42,12 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
     private static final String NOTIFICATION_ENUM_WITH_LEGACY =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
-                    + "'RESERVATION_REJECTED','RESERVATION_WAITLIST_OFFERED')";
+                    + "'RESERVATION_REJECTED','RESERVATION_REQUESTED',"
+                    + "'RESERVATION_WAITLIST_OFFERED')";
     private static final String NOTIFICATION_ENUM =
             "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
                     + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED',"
-                    + "'RESERVATION_WAITLIST_OFFERED')";
+                    + "'RESERVATION_REQUESTED','RESERVATION_WAITLIST_OFFERED')";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -136,9 +137,10 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         if (notificationTypeColumnType == null) {
             throw new IllegalStateException("notifications.type 컬럼이 없습니다.");
         }
-        if (notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELLED")
+        if (!isVarchar(notificationTypeColumnType)
+                && (notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELLED")
                 || !notificationTypeColumnType.contains("PAYMENT_PENDING")
-                || !notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELED")) {
+                || !notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELED"))) {
             alterNotificationTypeColumn(connection, NOTIFICATION_ENUM_WITH_LEGACY);
             try (Statement statement = connection.createStatement()) {
                 statement.executeUpdate(
@@ -190,6 +192,11 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
 
     private void assertNotificationTypeColumn(Connection connection) throws SQLException {
         String columnType = notificationTypeColumnType(connection);
+        // VARCHAR 전환 이후에는 값 목록을 DB가 아니라 애플리케이션 enum이 검증한다. 이 호환
+        // 버전으로의 롤백은 VARCHAR를 보존해야 하므로 ENUM 전용 검증을 적용하지 않는다.
+        if (columnType != null && isVarchar(columnType)) {
+            return;
+        }
         if (columnType == null || !columnType.contains("PAYMENT_PENDING")
                 || !columnType.contains("RESERVATION_HOSPITAL_CANCELED")
                 || columnType.contains("RESERVATION_HOSPITAL_CANCELLED")) {
@@ -293,6 +300,10 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
                 return resultSet.next() ? resultSet.getString("column_type") : null;
             }
         }
+    }
+
+    private boolean isVarchar(String columnType) {
+        return columnType.toLowerCase(java.util.Locale.ROOT).startsWith("varchar(");
     }
 
     private void alterEventTypeColumn(Connection connection, String enumDefinition)
