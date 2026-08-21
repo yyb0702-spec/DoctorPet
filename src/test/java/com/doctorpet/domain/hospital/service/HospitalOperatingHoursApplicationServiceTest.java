@@ -98,6 +98,7 @@ class HospitalOperatingHoursApplicationServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(
                 service, "entityManager", entityManager
         );
+        lenient().when(scheduleRepository.advanceUpdateToken(any(), any(), any())).thenReturn(1);
         lenient().when(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .thenReturn(Optional.of(lockedHospital));
         lenient().when(lockedHospital.getBusinessStatus())

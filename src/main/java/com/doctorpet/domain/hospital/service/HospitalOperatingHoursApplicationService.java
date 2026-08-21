@@ -28,6 +28,7 @@ import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -128,11 +129,13 @@ public class HospitalOperatingHoursApplicationService {
 
         HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
         scheduleRepository.flush();
-        // flush는 DB에 쓰기만 하고 인메모리 엔티티를 재적재하지 않는다. @LastModifiedDate는
-        // LocalDateTime.now()(나노초)로 채워지지만 컬럼은 datetime(6)이라, 응답의 updatedAt을
-        // 그대로 돌려주면 다음 UPDATE에서 DB 재조회 값(마이크로초 절단)과 달라 토큰 비교가
-        // 항상 어긋난다. refresh로 DB에 저장된 절단값을 다시 읽어 응답·후속 UPDATE 비교를 맞춘다.
         entityManager.refresh(savedSchedule);
+        if (request.saveMode() == OperatingHoursSaveMode.UPDATE) {
+            advanceUpdateToken(savedSchedule);
+        }
+        // DB datetime(6)에 저장된 토큰을 먼저 읽은 뒤, UPDATE는 그보다 큰 마이크로초 토큰으로
+        // 조건부 갱신한다. 고정 Clock 또는 매우 촘촘한 요청으로 @LastModifiedDate가 같은 값을
+        // 만들어도 뒤늦은 요청이 같은 expectedUpdatedAt으로 통과하지 못하게 한다.
         replacePublishedSlots(
                 hospital,
                 hospitalId,
@@ -266,6 +269,27 @@ public class HospitalOperatingHoursApplicationService {
         }
         existingSchedule.changeOperatingHours(operatingHours);
         return existingSchedule;
+    }
+
+    private void advanceUpdateToken(HospitalOperatingSchedule schedule) {
+        LocalDateTime currentUpdatedAt = schedule.getUpdatedAt();
+        LocalDateTime nextUpdatedAt = nextUpdateToken(currentUpdatedAt);
+        if (scheduleRepository.advanceUpdateToken(
+                schedule.getId(),
+                currentUpdatedAt,
+                nextUpdatedAt
+        ) != 1) {
+            throw operatingScheduleConflict();
+        }
+        entityManager.refresh(schedule);
+    }
+
+    private LocalDateTime nextUpdateToken(LocalDateTime currentUpdatedAt) {
+        LocalDateTime now = LocalDateTime.now(applicationClock)
+                .truncatedTo(ChronoUnit.MICROS);
+        return now.isAfter(currentUpdatedAt)
+                ? now
+                : currentUpdatedAt.plus(1, ChronoUnit.MICROS);
     }
 
     private Hospital lockHospital(Long hospitalId) {
