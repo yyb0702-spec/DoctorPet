@@ -53,6 +53,8 @@ vi.mock('@/features/hospitalOps/hooks', () => ({
 }))
 
 const WEEKDAY_HOURS: OperatingHours = {
+  scheduleId: 1,
+  updatedAt: '2026-08-20T09:00:00',
   effectiveFrom: '2026-07-21',
   days: [
     {
@@ -75,6 +77,8 @@ const WEEKDAY_HOURS: OperatingHours = {
 }
 
 const FUTURE_WEEKDAY_HOURS: OperatingHours = {
+  scheduleId: 2,
+  updatedAt: '2026-08-20T10:00:00',
   effectiveFrom: '2026-08-25',
   days: [
     {
@@ -95,7 +99,7 @@ function renderPage() {
   const router = createMemoryRouter([
     { path: '/', element: <StaffOperatingHoursPage /> },
   ])
-  return render(<RouterProvider router={router} />)
+  return { ...render(<RouterProvider router={router} />), router }
 }
 
 beforeEach(() => {
@@ -231,6 +235,9 @@ describe('StaffOperatingHoursPage', () => {
     expect(mutate).toHaveBeenLastCalledWith(
       {
         desiredEffectiveFrom: '2026-08-25',
+        saveMode: 'UPDATE',
+        targetScheduleId: 2,
+        expectedUpdatedAt: '2026-08-20T10:00:00',
         days: [
           {
             dayOfWeek: 'MONDAY',
@@ -244,6 +251,73 @@ describe('StaffOperatingHoursPage', () => {
           { dayOfWeek: 'SUNDAY', periods: [] },
         ],
       },
+      expect.any(Object),
+    )
+  })
+
+  it('미저장 편집 중에는 다른 예정 시간표를 선택해 드래프트를 잃지 않는다', async () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    scheduledOperatingHoursQuery.data = [
+      FUTURE_WEEKDAY_HOURS,
+      {
+        ...FUTURE_WEEKDAY_HOURS,
+        scheduleId: 3,
+        updatedAt: '2026-08-20T11:00:00',
+        effectiveFrom: '2026-08-26',
+      },
+    ]
+    renderPage()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: '2026년 8월 25일부터 적용' }),
+    )
+    fireEvent.change(screen.getByLabelText('월요일 1번째 구간 시작 시각'), {
+      target: { value: '11:00' },
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: '2026년 8월 26일부터 적용' }),
+    )
+
+    expect(
+      screen.getByText(
+        '저장하지 않은 변경이 있습니다. 먼저 저장하거나 되돌린 뒤 다른 시간표를 선택해 주세요.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/8월 25일부터 적용 예정인 시간표를 편집 중입니다/),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('월요일 1번째 구간 시작 시각')).toHaveValue(
+      '11:00',
+    )
+  })
+
+  it('배경 재조회 뒤에도 편집을 시작한 시점의 토큰으로 저장한다', async () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    scheduledOperatingHoursQuery.data = [FUTURE_WEEKDAY_HOURS]
+    const view = renderPage()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: '2026년 8월 25일부터 적용' }),
+    )
+    fireEvent.change(screen.getByLabelText('월요일 1번째 구간 시작 시각'), {
+      target: { value: '11:00' },
+    })
+
+    // 다른 스태프 저장으로 목록이 갱신된 상황. 드래프트는 유지하되 새 토큰으로 저장하면 안 된다.
+    scheduledOperatingHoursQuery.data = [
+      { ...FUTURE_WEEKDAY_HOURS, updatedAt: '2026-08-20T12:00:00' },
+    ]
+    view.rerender(<RouterProvider router={view.router} />)
+
+    await userEvent.click(screen.getByRole('button', { name: '진료시간 저장' }))
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        saveMode: 'UPDATE',
+        targetScheduleId: 2,
+        expectedUpdatedAt: '2026-08-20T10:00:00',
+      }),
       expect.any(Object),
     )
   })

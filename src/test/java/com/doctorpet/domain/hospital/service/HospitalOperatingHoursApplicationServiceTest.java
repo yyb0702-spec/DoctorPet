@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingHoursSaveMode;
 import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
@@ -32,6 +33,7 @@ import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -219,7 +221,12 @@ class HospitalOperatingHoursApplicationServiceTest {
     @Test
     void updateOperatingHoursChangesScheduleWithSameEffectiveDate() {
         LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
-        OperatingHoursUpdateRequest request = updateRequest(desiredEffectiveFrom);
+        LocalDateTime expectedUpdatedAt = LocalDateTime.of(2026, 8, 10, 9, 0);
+        OperatingHoursUpdateRequest request = updateSelectedRequest(
+                desiredEffectiveFrom,
+                101L,
+                expectedUpdatedAt
+        );
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
         given(reservationService.findLatestReservedBusinessDate(
                 HOSPITAL_ID,
@@ -229,12 +236,66 @@ class HospitalOperatingHoursApplicationServiceTest {
         given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(scheduleRepository.save(schedule)).willReturn(schedule);
+        given(schedule.getId()).willReturn(101L);
+        given(schedule.getUpdatedAt()).willReturn(expectedUpdatedAt);
         given(schedule.getEffectiveFrom()).willReturn(desiredEffectiveFrom);
         given(schedule.getOperatingHours()).willReturn(Map.of());
 
         service.updateOperatingHours(MEMBER_ID, request);
 
         verify(schedule).changeOperatingHours(org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    @Test
+    void updateOperatingHoursRejectsCreateWhenScheduleAlreadyExists() {
+        LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(reservationService.findLatestReservedBusinessDate(
+                HOSPITAL_ID,
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.empty());
+        given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
+                .willReturn(Optional.of(schedule));
+
+        assertThatThrownBy(() -> service.updateOperatingHours(
+                MEMBER_ID,
+                updateRequest(desiredEffectiveFrom)
+        )).isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(HospitalErrorCode.OPERATING_SCHEDULE_CONFLICT));
+
+        verify(schedule, never()).changeOperatingHours(any());
+    }
+
+    @Test
+    void updateOperatingHoursRejectsStaleSelectedSchedule() {
+        LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(reservationService.findLatestReservedBusinessDate(
+                HOSPITAL_ID,
+                TODAY,
+                TODAY.plusDays(13)
+        )).willReturn(Optional.empty());
+        given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
+                .willReturn(Optional.of(schedule));
+        given(schedule.getId()).willReturn(101L);
+        given(schedule.getUpdatedAt()).willReturn(
+                LocalDateTime.of(2026, 8, 10, 9, 1)
+        );
+
+        assertThatThrownBy(() -> service.updateOperatingHours(
+                MEMBER_ID,
+                updateSelectedRequest(
+                        desiredEffectiveFrom,
+                        101L,
+                        LocalDateTime.of(2026, 8, 10, 9, 0)
+                )
+        )).isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(HospitalErrorCode.OPERATING_SCHEDULE_CONFLICT));
+
+        verify(schedule, never()).changeOperatingHours(any());
     }
 
     @Test
@@ -334,6 +395,9 @@ class HospitalOperatingHoursApplicationServiceTest {
     void updateOperatingHoursRejectsOverlappingPeriods() {
         OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
                 TODAY.plusDays(1),
+                OperatingHoursSaveMode.CREATE,
+                null,
+                null,
                 allDays(List.of(
                         new OperatingPeriodRequest(LocalTime.of(9, 0), LocalTime.of(13, 0)),
                         new OperatingPeriodRequest(LocalTime.of(12, 0), LocalTime.of(18, 0))
@@ -351,6 +415,9 @@ class HospitalOperatingHoursApplicationServiceTest {
     void updateOperatingHoursRejectsOverlapAcrossDayBoundary() {
         OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
                 TODAY.plusDays(1),
+                OperatingHoursSaveMode.CREATE,
+                null,
+                null,
                 java.util.Arrays.stream(DayOfWeek.values())
                         .map(day -> new DailyOperatingHoursRequest(
                                 day,
@@ -376,6 +443,9 @@ class HospitalOperatingHoursApplicationServiceTest {
     void updateOperatingHoursRejectsOverlapAcrossWeekBoundary() {
         OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
                 TODAY.plusDays(1),
+                OperatingHoursSaveMode.CREATE,
+                null,
+                null,
                 java.util.Arrays.stream(DayOfWeek.values())
                         .map(day -> new DailyOperatingHoursRequest(
                                 day,
@@ -693,6 +763,26 @@ class HospitalOperatingHoursApplicationServiceTest {
     private OperatingHoursUpdateRequest updateRequest(LocalDate desiredEffectiveFrom) {
         return new OperatingHoursUpdateRequest(
                 desiredEffectiveFrom,
+                OperatingHoursSaveMode.CREATE,
+                null,
+                null,
+                allDays(List.of(
+                        new OperatingPeriodRequest(LocalTime.of(9, 0), LocalTime.of(12, 0)),
+                        new OperatingPeriodRequest(LocalTime.of(13, 0), LocalTime.of(18, 0))
+                ))
+        );
+    }
+
+    private OperatingHoursUpdateRequest updateSelectedRequest(
+            LocalDate desiredEffectiveFrom,
+            Long targetScheduleId,
+            LocalDateTime expectedUpdatedAt
+    ) {
+        return new OperatingHoursUpdateRequest(
+                desiredEffectiveFrom,
+                OperatingHoursSaveMode.UPDATE,
+                targetScheduleId,
+                expectedUpdatedAt,
                 allDays(List.of(
                         new OperatingPeriodRequest(LocalTime.of(9, 0), LocalTime.of(12, 0)),
                         new OperatingPeriodRequest(LocalTime.of(13, 0), LocalTime.of(18, 0))

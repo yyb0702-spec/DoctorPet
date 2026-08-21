@@ -55,6 +55,9 @@ export interface DailyOperatingHours {
 }
 
 export interface OperatingHours {
+  scheduleId: number
+  // 예정 시간표 수정의 낙관적 비교 기준. 서버는 이 값이 달라지면 409을 돌려준다.
+  updatedAt: string
   effectiveFrom: string
   days: DailyOperatingHours[]
 }
@@ -62,6 +65,9 @@ export interface OperatingHours {
 // 요청한 발효일과 서버가 확정한 발효일은 다를 수 있다(발행창 안에 예약이 있으면 뒤로 밀린다).
 export interface OperatingHoursUpdateRequest {
   desiredEffectiveFrom: string
+  saveMode: 'CREATE' | 'UPDATE'
+  targetScheduleId?: number
+  expectedUpdatedAt?: string
   days: DailyOperatingHours[]
 }
 

@@ -1,5 +1,5 @@
 // 병원 스태프 — 진료시간 관리(현재·예정 시간표 조회, 요일별 구간 편집 + 발효일 지정).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import {
   useOperatingHours,
@@ -16,6 +16,7 @@ import {
   SLOT_PUBLICATION_DAYS,
   type DailyOperatingHours,
   type DayOfWeek,
+  type OperatingHours,
   type OperatingHoursUpdateRequest,
   type OperatingPeriod,
 } from '@/features/hospitalOps/types'
@@ -81,22 +82,27 @@ function errorMessage(
   return error instanceof ApiError ? error.message : fallback
 }
 
-// 서버 값이 바뀌면 부모가 key로 이 폼을 새로 만든다 — 편집 상태 동기화를 effect로 하지 않는다.
+// 선택 전환·내 저장 성공 때만 부모가 key로 이 폼을 새로 만든다. 백그라운드 재조회가 같은 선택의
+// props를 바꿔도 드래프트를 버리지 않도록 서버 값 자체를 key에 넣지 않는다.
 function OperatingHoursForm({
   initialDays,
   initialDesiredEffectiveFrom,
   scheduledEffectiveFroms,
   effectiveFromFixed,
+  initialSaveTarget,
   pending,
   onEdit,
+  onDirtyChange,
   onSave,
 }: {
   initialDays: DailyOperatingHours[]
   initialDesiredEffectiveFrom?: string
   scheduledEffectiveFroms: string[]
   effectiveFromFixed: boolean
+  initialSaveTarget?: Pick<OperatingHours, 'scheduleId' | 'updatedAt'>
   pending: boolean
   onEdit: () => void
+  onDirtyChange: (dirty: boolean) => void
   onSave: (request: OperatingHoursUpdateRequest) => void
 }) {
   const today = todaySeoulKey()
@@ -106,6 +112,9 @@ function OperatingHoursForm({
   const [draft, setDraft] = useState<DayDraft[]>(() => toDayDrafts(initialDays))
   const [desiredEffectiveFrom, setDesiredEffectiveFrom] =
     useState(initialEffectiveFrom)
+  // 배경 재조회로 부모의 예정 목록이 바뀌어도 이 편집 세션이 시작할 때 읽은 토큰을 쓴다.
+  // 새 토큰을 섞으면 오래된 드래프트가 최신 변경을 덮어쓸 수 있다.
+  const [saveTarget] = useState(initialSaveTarget)
   /*
     미저장 판정의 기준 발효일은 마운트 시점 값으로 고정한다. 렌더마다 다시 계산한 tomorrow를
     기준으로 쓰면, 페이지를 열어둔 채 자정(Asia/Seoul)을 넘길 때 기준값만 D+2로 바뀌고 입력은
@@ -138,10 +147,13 @@ function OperatingHoursForm({
       }),
     [initialDays, baselineEffectiveFrom],
   )
-  useUnsavedChangesWarning(
-    JSON.stringify({ days: wireDays, desiredEffectiveFrom }) !==
-      initialSnapshot,
-  )
+  const dirty =
+    JSON.stringify({ days: wireDays, desiredEffectiveFrom }) !== initialSnapshot
+  useUnsavedChangesWarning(dirty)
+  useEffect(() => {
+    onDirtyChange(dirty)
+    return () => onDirtyChange(false)
+  }, [dirty, onDirtyChange])
 
   // 편집을 시작하면 직전 저장 결과 메시지를 지운다 — "저장했습니다"와 검증 오류가 같이 떠서
   // 저장된 것으로 오독하는 일을 막는다.
@@ -230,7 +242,13 @@ function OperatingHoursForm({
     setClientProblems(messages)
     if (messages.length > 0) return
 
-    onSave({ desiredEffectiveFrom, days: wireDays })
+    onSave({
+      desiredEffectiveFrom,
+      saveMode: saveTarget ? 'UPDATE' : 'CREATE',
+      targetScheduleId: saveTarget?.scheduleId,
+      expectedUpdatedAt: saveTarget?.updatedAt,
+      days: wireDays,
+    })
   }
 
   return (
@@ -363,10 +381,13 @@ export function StaffOperatingHoursPage() {
   const query = useOperatingHours()
   const scheduledQuery = useScheduledOperatingHours()
   const update = useUpdateOperatingHours()
-  // 선택값만 화면 상태로 두고 시간표 자체는 항상 서버 조회 캐시에서 읽는다. 따라서 새로고침·
-  // 이탈 뒤 재진입해도 미래 발효 시간표를 잃지 않는다.
+  // 선택값은 서버 조회 캐시에서 복구하되, 선택 중인 폼의 드래프트는 재조회 응답으로 교체하지 않는다.
+  // 따라서 새로고침·재진입에는 복구되고, 편집 중 배경 재조회에는 입력이 보존된다.
   const [selectedScheduledEffectiveFrom, setSelectedScheduledEffectiveFrom] =
     useState<string | null>(null)
+  const [formRevision, setFormRevision] = useState(0)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [selectionWarning, setSelectionWarning] = useState<string | null>(null)
 
   /*
     아직 유효한 진료시간이 없는 병원은 GET이 HOSPITAL_004로 실패하지만 PUT은 스케줄을 새로
@@ -383,6 +404,20 @@ export function StaffOperatingHoursPage() {
 
   const clearResult = () => {
     if (update.isSuccess || update.isError) update.reset()
+  }
+
+  const selectSchedule = (effectiveFrom: string | null) => {
+    if (effectiveFrom === selectedScheduledEffectiveFrom) return
+    if (hasUnsavedChanges) {
+      setSelectionWarning(
+        '저장하지 않은 변경이 있습니다. 먼저 저장하거나 되돌린 뒤 다른 시간표를 선택해 주세요.',
+      )
+      return
+    }
+    clearResult()
+    setSelectionWarning(null)
+    setSelectedScheduledEffectiveFrom(effectiveFrom)
+    setFormRevision((revision) => revision + 1)
   }
 
   // 예정 시간표를 알 수 없는 상태에서 저장하면 같은 발효일을 조용히 덮어쓸 수 있다.
@@ -502,8 +537,7 @@ export function StaffOperatingHoursPage() {
                       : 'outline'
                   }
                   onClick={() => {
-                    clearResult()
-                    setSelectedScheduledEffectiveFrom(item.effectiveFrom)
+                    selectSchedule(item.effectiveFrom)
                   }}
                 >
                   {dateKeyLabel(item.effectiveFrom)}부터 적용
@@ -516,8 +550,7 @@ export function StaffOperatingHoursPage() {
               size="sm"
               variant="ghost"
               onClick={() => {
-                clearResult()
-                setSelectedScheduledEffectiveFrom(null)
+                selectSchedule(null)
               }}
             >
               현재 시간표로 새 예정 시간표 만들기
@@ -527,27 +560,41 @@ export function StaffOperatingHoursPage() {
             예정 시간표를 수정하려면 발효일을 선택하세요. 현재 시간표에서 같은
             발효일을 입력해 덮어쓰지는 못합니다.
           </p>
+          {selectionWarning && (
+            <p className="text-destructive" role="alert">
+              {selectionWarning}
+            </p>
+          )}
         </CardContent>
       </Card>
 
       <OperatingHoursForm
-        key={
-          editableSchedule
-            ? `${editableSchedule.effectiveFrom}|${JSON.stringify(editableSchedule.days)}`
-            : 'missing-schedule'
-        }
+        key={`${selectedScheduledEffectiveFrom ?? 'current'}|${formRevision}`}
         initialDays={editableSchedule?.days ?? emptyWeek()}
         initialDesiredEffectiveFrom={scheduledSchedule?.effectiveFrom}
         scheduledEffectiveFroms={scheduledSchedules.map(
           (item) => item.effectiveFrom,
         )}
         effectiveFromFixed={Boolean(scheduledSchedule)}
+        initialSaveTarget={
+          scheduledSchedule
+            ? {
+                scheduleId: scheduledSchedule.scheduleId,
+                updatedAt: scheduledSchedule.updatedAt,
+              }
+            : undefined
+        }
         pending={update.isPending}
         onEdit={clearResult}
+        onDirtyChange={setHasUnsavedChanges}
         onSave={(request) =>
           update.mutate(request, {
-            onSuccess: (savedSchedule) =>
-              setSelectedScheduledEffectiveFrom(savedSchedule.effectiveFrom),
+            onSuccess: (savedSchedule) => {
+              setHasUnsavedChanges(false)
+              setSelectionWarning(null)
+              setFormRevision((revision) => revision + 1)
+              setSelectedScheduledEffectiveFrom(savedSchedule.effectiveFrom)
+            },
           })
         }
       />

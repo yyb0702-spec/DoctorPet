@@ -15,11 +15,15 @@ vi.mock('./api', () => ({
 }))
 
 const currentHours: OperatingHours = {
+  scheduleId: 1,
+  updatedAt: '2026-08-20T09:00:00',
   effectiveFrom: '2026-08-01',
   days: [],
 }
 
 const futureHours: OperatingHours = {
+  scheduleId: 2,
+  updatedAt: '2026-08-20T10:00:00',
   effectiveFrom: '2026-08-22',
   days: [],
 }
@@ -29,9 +33,14 @@ describe('useUpdateOperatingHours', () => {
 
   beforeEach(() => {
     queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     })
-    vi.mocked(hospitalOpsApi.updateOperatingHours).mockResolvedValue(futureHours)
+    vi.mocked(hospitalOpsApi.updateOperatingHours).mockResolvedValue(
+      futureHours,
+    )
   })
 
   it('미래 발효 PUT 응답으로 현재 시간표 캐시를 덮지 않고 재조회한다', async () => {
@@ -45,6 +54,7 @@ describe('useUpdateOperatingHours', () => {
     await act(async () => {
       await result.current.mutateAsync({
         desiredEffectiveFrom: futureHours.effectiveFrom,
+        saveMode: 'CREATE',
         days: futureHours.days,
       })
     })

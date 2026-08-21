@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingHoursSaveMode;
 import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
@@ -93,20 +94,27 @@ public class HospitalOperatingHoursApplicationService {
                 request.desiredEffectiveFrom()
         );
         Hospital hospital = lockHospital(hospitalId);
-
-        HospitalOperatingSchedule schedule = scheduleRepository
+        HospitalOperatingSchedule existingSchedule = scheduleRepository
                 .findSchedule(hospitalId, effectiveFrom)
-                .map(existing -> {
-                    existing.changeOperatingHours(operatingHours);
-                    return existing;
-                })
-                .orElseGet(() -> createSchedule(
-                        hospital,
-                        effectiveFrom,
-                        operatingHours
-                ));
+                .orElse(null);
+        HospitalOperatingSchedule schedule = switch (request.saveMode()) {
+            case CREATE -> createScheduleForNewEffectiveDate(
+                    existingSchedule,
+                    hospital,
+                    effectiveFrom,
+                    operatingHours
+            );
+            case UPDATE -> updateSelectedSchedule(
+                    existingSchedule,
+                    request,
+                    operatingHours
+            );
+        };
 
         HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
+        // @LastModifiedDate는 flush 시점에 확정된다. 이를 응답으로 돌려줘야 다음 UPDATE가
+        // 비교할 기준이 실제 DB 값과 같아져 오래된 화면의 덮어쓰기를 막을 수 있다.
+        scheduleRepository.flush();
         replacePublishedSlots(
                 hospital,
                 hospitalId,
@@ -212,6 +220,34 @@ public class HospitalOperatingHoursApplicationService {
             Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
     ) {
         return HospitalOperatingSchedule.create(hospital, effectiveFrom, operatingHours);
+    }
+
+    private HospitalOperatingSchedule createScheduleForNewEffectiveDate(
+            HospitalOperatingSchedule existingSchedule,
+            Hospital hospital,
+            LocalDate effectiveFrom,
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        if (existingSchedule != null) {
+            throw operatingScheduleConflict();
+        }
+        return createSchedule(hospital, effectiveFrom, operatingHours);
+    }
+
+    private HospitalOperatingSchedule updateSelectedSchedule(
+            HospitalOperatingSchedule existingSchedule,
+            OperatingHoursUpdateRequest request,
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        if (existingSchedule == null
+                || request.targetScheduleId() == null
+                || request.expectedUpdatedAt() == null
+                || !existingSchedule.getId().equals(request.targetScheduleId())
+                || !existingSchedule.getUpdatedAt().equals(request.expectedUpdatedAt())) {
+            throw operatingScheduleConflict();
+        }
+        existingSchedule.changeOperatingHours(operatingHours);
+        return existingSchedule;
     }
 
     private Hospital lockHospital(Long hospitalId) {
@@ -436,6 +472,10 @@ public class HospitalOperatingHoursApplicationService {
 
     private ServiceException invalidOperatingHours() {
         return new ServiceException(HospitalErrorCode.INVALID_OPERATING_HOURS);
+    }
+
+    private ServiceException operatingScheduleConflict() {
+        return new ServiceException(HospitalErrorCode.OPERATING_SCHEDULE_CONFLICT);
     }
 
     private Long getHospitalId(Long memberId) {

@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
 import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingHoursSaveMode;
 import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.entity.BusinessStatus;
 import com.doctorpet.domain.hospital.entity.Hospital;
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
 import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
+import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
 import com.doctorpet.domain.hospital.model.DailyOperatingHours;
 import com.doctorpet.domain.hospital.repository.HospitalOperatingScheduleRepository;
 import com.doctorpet.domain.hospital.repository.HospitalRepository;
@@ -20,6 +22,7 @@ import com.doctorpet.domain.member.entity.MemberRole;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.entity.ReservationSlot;
 import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
 import java.time.Clock;
 import java.time.DayOfWeek;
@@ -239,6 +242,9 @@ class TemporaryClosureCancellationIntegrationTest {
         LocalDate effectiveFrom = TODAY.plusDays(1);
         OperatingHoursUpdateRequest request = new OperatingHoursUpdateRequest(
                 effectiveFrom,
+                OperatingHoursSaveMode.CREATE,
+                null,
+                null,
                 java.util.Arrays.stream(DayOfWeek.values())
                         .map(day -> new DailyOperatingHoursRequest(
                                 day,
@@ -263,6 +269,77 @@ class TemporaryClosureCancellationIntegrationTest {
                 TODAY.atStartOfDay(),
                 TODAY.plusDays(14).atStartOfDay()
         )).isEmpty();
+    }
+
+    @Test
+    void concurrentCreatesForSameEffectiveDateAllowOnlyOneRequest() throws Exception {
+        LocalDate effectiveFrom = TODAY.plusDays(2);
+        OperatingHoursUpdateRequest request = createOperatingHoursRequest(effectiveFrom);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<HospitalErrorCode> firstFuture = executor.submit(
+                    () -> updateAfterStartSignal(request, ready, start)
+            );
+            Future<HospitalErrorCode> secondFuture = executor.submit(
+                    () -> updateAfterStartSignal(request, ready, start)
+            );
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(java.util.Arrays.asList(
+                    firstFuture.get(30, TimeUnit.SECONDS),
+                    secondFuture.get(30, TimeUnit.SECONDS)
+            )).containsExactlyInAnyOrder(
+                    null,
+                    HospitalErrorCode.OPERATING_SCHEDULE_CONFLICT
+            );
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+
+        generatedScheduleId = scheduleRepository.findSchedule(hospitalId, effectiveFrom)
+                .orElseThrow()
+                .getId();
+    }
+
+    private HospitalErrorCode updateAfterStartSignal(
+            OperatingHoursUpdateRequest request,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) {
+        ready.countDown();
+        await(start);
+        try {
+            service.updateOperatingHours(MEMBER_ID, request);
+            return null;
+        } catch (ServiceException exception) {
+            return (HospitalErrorCode) exception.getErrorCode();
+        }
+    }
+
+    private OperatingHoursUpdateRequest createOperatingHoursRequest(LocalDate effectiveFrom) {
+        return new OperatingHoursUpdateRequest(
+                effectiveFrom,
+                OperatingHoursSaveMode.CREATE,
+                null,
+                null,
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new DailyOperatingHoursRequest(
+                                day,
+                                day == effectiveFrom.getDayOfWeek()
+                                        ? List.of(new OperatingPeriodRequest(
+                                                LocalTime.of(9, 0),
+                                                LocalTime.of(10, 0)
+                                        ))
+                                        : List.of()
+                        ))
+                        .toList()
+        );
     }
 
     private Hospital createHospital() {

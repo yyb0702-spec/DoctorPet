@@ -272,6 +272,8 @@ function mockDateKey(offsetDays: number): string {
 }
 
 const demoOperatingHours = {
+  scheduleId: 1,
+  updatedAt: '2026-01-01T00:00:00',
   effectiveFrom: mockDateKey(-30),
   days: [
     { dayOfWeek: 'MONDAY', periods: [{ startTime: '09:00', endTime: '18:00' }] },
@@ -290,6 +292,7 @@ const demoOperatingHours = {
   ] as { dayOfWeek: string; periods: { startTime: string; endTime: string }[] }[],
 }
 let demoScheduledOperatingHours: typeof demoOperatingHours[] = []
+let demoOperatingHoursSequence = 2
 
 let demoCapabilities: string[] = ['DOG', 'CAT', 'XRAY']
 
@@ -608,6 +611,9 @@ export const demoHandlers = [
   http.put(`${BASE}/hospital/operating-hours`, async ({ request }) => {
     const body = (await request.json()) as {
       desiredEffectiveFrom: string
+      saveMode: 'CREATE' | 'UPDATE'
+      targetScheduleId?: number
+      expectedUpdatedAt?: string
       days: { dayOfWeek: string; periods: { startTime: string; endTime: string }[] }[]
     }
     if (body.desiredEffectiveFrom <= mockDateKey(0)) {
@@ -634,7 +640,34 @@ export const demoHandlers = [
       body.desiredEffectiveFrom <= demoReservedClosureDate
         ? pushedTo
         : body.desiredEffectiveFrom
-    const savedSchedule = { effectiveFrom, days: body.days }
+    const existingSchedule = demoScheduledOperatingHours.find(
+      (schedule) => schedule.effectiveFrom === effectiveFrom,
+    )
+    if (body.saveMode === 'CREATE' && existingSchedule) {
+      return fail(
+        'HOSPITAL_016',
+        '진료시간이 다른 변경으로 갱신되었습니다. 새로고침 후 다시 시도해 주세요.',
+        409,
+      )
+    }
+    if (
+      body.saveMode === 'UPDATE' &&
+      (!existingSchedule ||
+        existingSchedule.scheduleId !== body.targetScheduleId ||
+        existingSchedule.updatedAt !== body.expectedUpdatedAt)
+    ) {
+      return fail(
+        'HOSPITAL_016',
+        '진료시간이 다른 변경으로 갱신되었습니다. 새로고침 후 다시 시도해 주세요.',
+        409,
+      )
+    }
+    const savedSchedule = {
+      scheduleId: existingSchedule?.scheduleId ?? demoOperatingHoursSequence++,
+      updatedAt: new Date().toISOString(),
+      effectiveFrom,
+      days: body.days,
+    }
     demoScheduledOperatingHours = [
       ...demoScheduledOperatingHours.filter(
         (schedule) => schedule.effectiveFrom !== effectiveFrom,

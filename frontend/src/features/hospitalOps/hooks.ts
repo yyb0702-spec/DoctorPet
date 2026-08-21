@@ -57,6 +57,11 @@ export function useUpdateOperatingHours() {
       // 진료시간이 바뀌면 발행된 슬롯도 교체되므로 병원 상세·슬롯 캐시를 버린다.
       queryClient.invalidateQueries({ queryKey: hospitalKeys.all })
     },
+    // 다른 스태프가 먼저 저장해 409이 나면, 다음 편집은 반드시 최신 예정 목록을 기준으로 한다.
+    onError: () =>
+      queryClient.invalidateQueries({
+        queryKey: hospitalOpsKeys.scheduledOperatingHours,
+      }),
   })
 }
 
