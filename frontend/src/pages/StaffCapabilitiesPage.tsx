@@ -12,6 +12,7 @@ import {
   CAPABILITY_GROUPS,
   CAPABILITY_TYPE_LABEL,
   capabilityLabel,
+  isKnownCapability,
 } from '@/lib/capabilities'
 import { ApiError } from '@/lib/api/error'
 import { useUnsavedChangesWarning } from '@/lib/useUnsavedChangesWarning'
@@ -40,6 +41,13 @@ function CapabilityPicker({
 }) {
   const [selected, setSelected] = useState<Set<CapabilityValue>>(
     () => new Set(initial),
+  )
+
+  // 프론트가 모르는 값(백엔드 화이트리스트가 먼저 늘어난 경우). 분류 그룹에 없어 체크박스가
+  // 생기지 않으므로 따로 모아 보여준다 — 그래야 해제도 할 수 있다.
+  const unknownSelected = useMemo(
+    () => [...selected].filter((capability) => !isKnownCapability(capability)),
+    [selected],
   )
 
   // 저장하지 않은 편집이 있으면 이탈을 막는다(순서 무관하게 집합만 비교한다).
@@ -84,6 +92,31 @@ function CapabilityPicker({
               </div>
             </div>
           ))}
+
+          {unknownSelected.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold">분류 미확인</h2>
+              <p className="text-xs text-muted-foreground">
+                이 화면이 모르는 값입니다(서버에 먼저 추가된 항목). 그대로 두면
+                유지되고, 체크를 풀면 삭제됩니다.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {unknownSelected.map((capability) => (
+                  <label
+                    key={capability}
+                    className="flex items-center gap-1.5 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => toggle(capability)}
+                    />
+                    {capabilityLabel(capability)}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

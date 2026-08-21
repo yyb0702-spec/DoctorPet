@@ -30,6 +30,44 @@ import { useUnsavedChangesWarning } from '@/lib/useUnsavedChangesWarning'
 // 새 구간을 추가할 때의 기본값(휴무 해제도 같은 값으로 연다).
 const DEFAULT_PERIOD = { startTime: '09:00', endTime: '18:00' }
 
+/*
+  편집용 드래프트는 구간마다 id를 갖는다. 배열 인덱스를 React key로 쓰면 중간 구간을 삭제할 때
+  뒤 구간이 앞 구간의 DOM을 물려받아 포커스·IME 상태가 엉뚱한 칸으로 튄다. id는 화면 안에서만
+  쓰고 서버로 보낼 때 toWire로 벗긴다 — 요청 DTO(OperatingPeriodRequest)에 없는 필드다.
+*/
+let periodSeq = 0
+
+interface PeriodDraft extends OperatingPeriod {
+  id: number
+}
+
+interface DayDraft {
+  dayOfWeek: DayOfWeek
+  periods: PeriodDraft[]
+}
+
+function newPeriod(period: OperatingPeriod): PeriodDraft {
+  periodSeq += 1
+  return { ...period, id: periodSeq }
+}
+
+function toDayDrafts(days: DailyOperatingHours[]): DayDraft[] {
+  return toWeekDraft(days).map((day) => ({
+    dayOfWeek: day.dayOfWeek,
+    periods: day.periods.map(newPeriod),
+  }))
+}
+
+function toWire(draft: DayDraft[]): DailyOperatingHours[] {
+  return draft.map((day) => ({
+    dayOfWeek: day.dayOfWeek,
+    periods: day.periods.map(({ startTime, endTime }) => ({
+      startTime,
+      endTime,
+    })),
+  }))
+}
+
 // 아직 유효한 진료시간이 없는 병원에서 GET이 내는 코드(HospitalErrorCode.OPERATING_SCHEDULE_NOT_FOUND).
 const OPERATING_SCHEDULE_NOT_FOUND = 'HOSPITAL_004'
 
@@ -57,30 +95,40 @@ function OperatingHoursForm({
   const today = todaySeoulKey()
   const tomorrow = shiftDateKey(today, 1)
 
-  const [draft, setDraft] = useState<DailyOperatingHours[]>(() =>
-    toWeekDraft(initialDays),
-  )
+  const [draft, setDraft] = useState<DayDraft[]>(() => toDayDrafts(initialDays))
   const [desiredEffectiveFrom, setDesiredEffectiveFrom] = useState(tomorrow)
   const [clientProblems, setClientProblems] = useState<string[]>([])
   // 휴무로 바꾸기 직전의 구간. 휴무를 풀면 기본값이 아니라 이 값을 되살린다.
   const [stashedPeriods, setStashedPeriods] = useState<
-    Partial<Record<DayOfWeek, OperatingPeriod[]>>
+    Partial<Record<DayOfWeek, PeriodDraft[]>>
   >({})
 
-  const problems = useMemo(() => validateWeeklyOperatingHours(draft), [draft])
-
-  // 저장하지 않은 편집이 있으면 이탈을 막는다(서버 값과 다른지로만 판정한다).
-  const initialSnapshot = useMemo(
-    () => JSON.stringify(toWeekDraft(initialDays)),
-    [initialDays],
+  const wireDays = useMemo(() => toWire(draft), [draft])
+  const problems = useMemo(
+    () => validateWeeklyOperatingHours(wireDays),
+    [wireDays],
   )
-  useUnsavedChangesWarning(JSON.stringify(draft) !== initialSnapshot)
+
+  // 저장하지 않은 편집이 있으면 이탈을 막는다. 시간표뿐 아니라 발효일만 바꾼 경우도
+  // 저장 전에는 서버 요청 내용이 달라지므로 함께 스냅샷에 넣는다.
+  const initialSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        days: toWeekDraft(initialDays),
+        desiredEffectiveFrom: tomorrow,
+      }),
+    [initialDays, tomorrow],
+  )
+  useUnsavedChangesWarning(
+    JSON.stringify({ days: wireDays, desiredEffectiveFrom }) !==
+      initialSnapshot,
+  )
 
   // 편집을 시작하면 직전 저장 결과 메시지를 지운다 — "저장했습니다"와 검증 오류가 같이 떠서
   // 저장된 것으로 오독하는 일을 막는다.
   const updateDay = (
     dayOfWeek: DayOfWeek,
-    mapper: (day: DailyOperatingHours) => DailyOperatingHours,
+    mapper: (day: DayDraft) => DayDraft,
   ) => {
     onEdit()
     setDraft((prev) =>
@@ -109,34 +157,34 @@ function OperatingHoursForm({
       ...day,
       periods: restored?.length
         ? restored.map((period) => ({ ...period }))
-        : [{ ...DEFAULT_PERIOD }],
+        : [newPeriod(DEFAULT_PERIOD)],
     }))
   }
 
   const addPeriod = (dayOfWeek: DayOfWeek) => {
     updateDay(dayOfWeek, (day) => ({
       ...day,
-      periods: [...day.periods, { ...DEFAULT_PERIOD }],
+      periods: [...day.periods, newPeriod(DEFAULT_PERIOD)],
     }))
   }
 
-  const removePeriod = (dayOfWeek: DayOfWeek, index: number) => {
+  const removePeriod = (dayOfWeek: DayOfWeek, periodId: number) => {
     updateDay(dayOfWeek, (day) => ({
       ...day,
-      periods: day.periods.filter((_, i) => i !== index),
+      periods: day.periods.filter((period) => period.id !== periodId),
     }))
   }
 
   const changePeriod = (
     dayOfWeek: DayOfWeek,
-    index: number,
+    periodId: number,
     field: 'startTime' | 'endTime',
     value: string,
   ) => {
     updateDay(dayOfWeek, (day) => ({
       ...day,
-      periods: day.periods.map((period, i) =>
-        i === index ? { ...period, [field]: value } : period,
+      periods: day.periods.map((period) =>
+        period.id === periodId ? { ...period, [field]: value } : period,
       ),
     }))
   }
@@ -151,7 +199,7 @@ function OperatingHoursForm({
     setClientProblems(messages)
     if (messages.length > 0) return
 
-    onSave({ desiredEffectiveFrom, days: draft })
+    onSave({ desiredEffectiveFrom, days: wireDays })
   }
 
   return (
@@ -189,7 +237,7 @@ function OperatingHoursForm({
                     </p>
                   )}
                   {day.periods.map((period, index) => (
-                    <div key={index} className="flex items-center gap-2">
+                    <div key={period.id} className="flex items-center gap-2">
                       <Input
                         type="time"
                         className="w-32"
@@ -198,7 +246,7 @@ function OperatingHoursForm({
                         onChange={(e) =>
                           changePeriod(
                             day.dayOfWeek,
-                            index,
+                            period.id,
                             'startTime',
                             e.target.value,
                           )
@@ -213,7 +261,7 @@ function OperatingHoursForm({
                         onChange={(e) =>
                           changePeriod(
                             day.dayOfWeek,
-                            index,
+                            period.id,
                             'endTime',
                             e.target.value,
                           )
@@ -223,7 +271,7 @@ function OperatingHoursForm({
                         size="sm"
                         variant="ghost"
                         aria-label={`${DAY_LABEL[day.dayOfWeek]} ${index + 1}번째 구간 삭제`}
-                        onClick={() => removePeriod(day.dayOfWeek, index)}
+                        onClick={() => removePeriod(day.dayOfWeek, period.id)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

@@ -4,7 +4,8 @@
 //     GET 실패를 그대로 에러 화면으로 처리하면 PUT으로 만들 수 있는데도 등록 경로가 사라진다.
 //  3) 휴무 토글은 구간을 파기하지 않고 되살린다.
 //  4) 저장하지 않은 편집이 있으면 새로고침·탭 닫기를 막는다.
-import { render, screen } from '@testing-library/react'
+//  5) 서버로 보내는 payload에는 화면 전용 id가 섞이지 않는다.
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -141,6 +142,49 @@ describe('StaffOperatingHoursPage', () => {
     const afterEdit = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(afterEdit)
     expect(afterEdit.defaultPrevented).toBe(true)
+  })
+
+  it('발효일만 바꿔도 저장 전 이탈을 막는다', () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    renderPage()
+
+    fireEvent.change(screen.getByLabelText('발효일'), {
+      target: { value: '2026-12-31' },
+    })
+
+    const beforeUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(beforeUnload)
+    expect(beforeUnload.defaultPrevented).toBe(true)
+  })
+
+  /*
+    구간은 화면 안에서만 쓰는 id를 갖는다(중간 삭제 시 포커스가 튀지 않게). 그 id가 요청에
+    섞이면 요청 DTO에 없는 필드를 보내게 되므로, 저장 payload는 startTime·endTime만 담아야 한다.
+    중간 구간을 지운 뒤에도 남은 구간의 값이 그대로인지 함께 본다.
+  */
+  it('중간 구간을 지워도 남은 값이 유지되고 payload에 화면용 id가 섞이지 않는다', async () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    renderPage()
+
+    // 수요일 09:00~13:00 / 14:00~18:00 중 첫 구간을 지운다.
+    await userEvent.click(
+      screen.getByRole('button', { name: '수요일 1번째 구간 삭제' }),
+    )
+    expect(screen.getByLabelText('수요일 1번째 구간 시작 시각')).toHaveValue(
+      '14:00',
+    )
+    expect(
+      screen.queryByLabelText('수요일 2번째 구간 시작 시각'),
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '진료시간 저장' }))
+
+    expect(mutate).toHaveBeenCalledTimes(1)
+    const { days } = mutate.mock.calls[0][0]
+    expect(days[2]).toEqual({
+      dayOfWeek: 'WEDNESDAY',
+      periods: [{ startTime: '14:00', endTime: '18:00' }],
+    })
   })
 
   it('진료시간이 없는 병원(HOSPITAL_004)은 빈 폼으로 최초 등록할 수 있다', () => {

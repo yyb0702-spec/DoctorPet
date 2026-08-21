@@ -72,6 +72,19 @@ const NON_SPECIES_LABEL: Record<string, string> = {
   ENDOSCOPE: '내시경',
 }
 
+const KNOWN_VALUES = new Set<string>(
+  CAPABILITY_GROUPS.flatMap((group) => group.values),
+)
+
+/*
+  이 화면이 아는 값인지. 백엔드가 화이트리스트를 늘렸는데 프론트가 아직 모르면 그 값은 분류
+  그룹 어디에도 없어 체크박스가 생기지 않는다 — 저장 시 값은 보존되지만 스태프가 해제할 방법이
+  없어진다. 그래서 편집 화면이 "모르는 값"을 따로 모아 보여줄 수 있게 판별만 내보낸다.
+*/
+export function isKnownCapability(capability: string): boolean {
+  return KNOWN_VALUES.has(capability)
+}
+
 // 백엔드에서 온 값을 라벨로 바꾼다(모르는 값이면 원문 그대로 — 화이트리스트가 늘어나도 화면이 깨지지 않는다).
 export function capabilityLabel(capability: string): string {
   return (
