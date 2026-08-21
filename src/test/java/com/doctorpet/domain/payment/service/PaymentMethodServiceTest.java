@@ -79,6 +79,35 @@ class PaymentMethodServiceTest {
     }
 
     @Test
+    @DisplayName("서버 발급 issueId와 PortOne 응답 issueId가 일치할 때만 빌링키를 저장한다")
+    void registerIssued_matchingMerchantId_savesBillingKey() {
+        given(paymentGateway.verifyBillingKey("valid_billing_key"))
+                .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234", "issue-1"));
+        given(billingKeyCryptor.encrypt("valid_billing_key")).willReturn("v1:encrypted");
+        given(paymentMethodRepository.save(any(PaymentMethod.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        paymentMethodService.registerIssued(MEMBER_ID, "issue-1", "valid_billing_key");
+
+        verify(paymentMethodRepository).save(any(PaymentMethod.class));
+    }
+
+    @Test
+    @DisplayName("서버 발급 issueId와 PortOne 응답 issueId가 다르면 저장하지 않는다")
+    void registerIssued_mismatchedMerchantId_rejects() {
+        given(paymentGateway.verifyBillingKey("forged_key"))
+                .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234", "another-issue"));
+
+        assertThatThrownBy(() -> paymentMethodService.registerIssued(MEMBER_ID, "issue-1", "forged_key"))
+                .isInstanceOf(ServiceException.class)
+                .extracting("errorCode")
+                .isEqualTo(PaymentMethodErrorCode.BILLING_KEY_ISSUE_MISMATCH);
+
+        verify(billingKeyCryptor, never()).encrypt(anyString());
+        verify(paymentMethodRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("기존 활성 결제수단이 있고 기본값이 비어 있어도 신규 등록분을 기본값으로 만들지 않는다")
     void register_existingActivePaymentMethod_doesNotAssignDefault() {
         PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");

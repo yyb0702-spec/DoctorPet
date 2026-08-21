@@ -156,6 +156,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/ai/consultations").permitAll()
                         // 결제 웹훅 - JWT가 아니라 웹훅 서명으로 검증한다(이슈 #48). 컨트롤러가 서명 실패를 401로 거부한다.
                         .requestMatchers(HttpMethod.POST, "/api/payments/webhook").permitAll()
+                        // PortOne 모바일 빌링키 발급 완료 콜백. 인증은 URL의 난수가 아니라 서버 Redis의
+                        // 단기·1회성 issueId와 PortOne merchantId 대조로 처리한다.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/payment-methods/billing-key-issues/*/callback").permitAll()
                         // 실시간 알림 SSE 구독 - EventSource가 JWT 헤더를 못 실으므로 비인증 경로로 열고,
                         // 발급받은 1회성 티켓(?ticket=)으로 서비스단에서 식별한다(SA §9-8). 티켓 발급 자체는 인증 필요.
                         .requestMatchers(HttpMethod.GET, "/api/notifications/subscribe").permitAll()
