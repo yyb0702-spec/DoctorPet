@@ -3,10 +3,12 @@ package com.doctorpet.domain.notification.channel;
 // 기존 SSE 실시간 전송을 채널 추상화에 얹는 어댑터(고도화 3.9).
 
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.push.NotificationPusher;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -21,6 +23,9 @@ import org.springframework.stereotype.Component;
  * <p>대상 판단(MEMBER 직접 전송 / HOSPITAL은 소속 스태프 fan-out)은 그대로 pusher가 한다.
  */
 @Component
+// 가장 먼저 전달한다(리뷰 지적 P1). 인메모리 전송이라 빠르고, 앱을 보고 있는 사용자에게 즉시 도달해야 한다 —
+// 외부 채널(이메일)을 먼저 부르면 그 왕복이 끝날 때까지 이 전달과 요청 응답이 함께 막힌다.
+@Order(NotificationChannel.REALTIME_ORDER)
 @RequiredArgsConstructor
 public class RealtimeNotificationChannel implements NotificationChannel {
 

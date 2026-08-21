@@ -4,9 +4,11 @@ package com.doctorpet.domain.notification.entity;
 // 이 PR의 범위는 스키마 선반영과 이메일 채널이 그것을 존중하는 것까지다 — 설정을 바꾸는 API·화면은 없다.
 // 행이 없으면 "수신"이 기본이므로, 설정을 소급 생성하지 않아도 기존 회원의 동작이 바뀌지 않는다
 // (스키마를 먼저 두기로 한 이유 — 나중에 추가하면 기존 회원에게 소급 적용할 근거가 없다).
-// 채널은 REALTIME·EMAIL만이다. 인앱 저장은 알림의 원본이라 끌 수 있는 대상이 아니다(NotificationChannelType).
+// 설정 가능한 채널만 행으로 만들 수 있다 — 현재는 EMAIL뿐이다. SSE(REALTIME)는 인앱 화면을 실시간으로
+// 갱신하는 수단이라 끄는 개념이 없고, 인앱 저장은 알림의 원본이라 아예 채널이 아니다. 표가 받아주지만
+// 아무도 읽지 않는 설정이 생기는 것을 막기 위해 팩터리에서 거부한다(리뷰 지적 P2).
 
-import com.doctorpet.domain.notification.channel.NotificationChannelType;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.global.entity.BaseEntity;
 import jakarta.persistence.Column;
@@ -73,12 +75,23 @@ public class NotificationPreference extends BaseEntity {
         this.enabled = enabled;
     }
 
+    /**
+     * 수신 설정 행을 만든다. 설정 가능한 채널({@link NotificationChannelType#isConfigurable()})만 허용한다.
+     *
+     * <p>DB 제약이 아니라 팩터리에서 막는 이유: 이 도메인은 값 검증을 애플리케이션이 전담하기로 정했고
+     * (이슈 #176 — 컬럼을 VARCHAR로 두고 CHECK 제약도 드롭했다), 채널을 추가할 때 DDL이 필요해지는 상태로
+     * 되돌아가지 않기 위함이다. 컬럼은 VARCHAR로 남아 있어 향후 설정 가능한 채널이 늘어도 스키마는 그대로다.
+     */
     public static NotificationPreference of(
             Long memberId,
             NotificationType notificationType,
             NotificationChannelType channel,
             boolean enabled
     ) {
+        if (!channel.isConfigurable()) {
+            throw new IllegalArgumentException(
+                    "수신 설정을 둘 수 없는 채널입니다: " + channel + " (설정 가능한 채널만 행으로 만든다)");
+        }
         return new NotificationPreference(memberId, notificationType, channel, enabled);
     }
 

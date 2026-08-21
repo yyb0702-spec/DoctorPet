@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.entity.NotificationPreference;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;

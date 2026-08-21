@@ -35,6 +35,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class NotificationPreferenceCheckConstraintMigrationIntegrationTest {
 
     private static final String TEST_CONSTRAINT = "chk_test_pref_notification_type";
+    // 현재 NotificationType 전체 값. 일부만 열거하면 공유 테스트 DB에 남은 다른 유형 행이 제약을 위반해
+    // ALTER ADD CONSTRAINT 자체가 실패하고, 검증하려는 러너 동작에 도달하지 못한다(리뷰 지적 P2 —
+    // NotificationTypeVarcharMigrationIntegrationTest가 같은 이유로 전체 목록을 쓴다).
+    private static final String CURRENT_TYPE_VALUES =
+            "'NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
+                    + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED',"
+                    + "'RESERVATION_REQUESTED','RESERVATION_WAITLIST_OFFERED'";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -58,7 +65,7 @@ class NotificationPreferenceCheckConstraintMigrationIntegrationTest {
     void migrate_dropsCheckConstraintSoNewValuesInsert() {
         // Hibernate가 테이블 생성 시 붙이는 것과 같은 형태를 재현한다(현재 enum 값만 허용).
         jdbcTemplate.execute("alter table notification_preferences add constraint " + TEST_CONSTRAINT
-                + " check (`notification_type` in ('RESERVATION_CONFIRMED','PAYMENT_RESULT'))");
+                + " check (`notification_type` in (" + CURRENT_TYPE_VALUES + "))");
         assertThat(checkConstraintNames()).contains(TEST_CONSTRAINT);
 
         new NotificationPreferenceCheckConstraintMigrationRunner(jdbcTemplate).migrate();

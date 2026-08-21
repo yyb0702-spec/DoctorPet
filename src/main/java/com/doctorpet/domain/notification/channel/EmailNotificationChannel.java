@@ -5,16 +5,17 @@ package com.doctorpet.domain.notification.channel;
 import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.entity.NotificationPreference;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.repository.NotificationPreferenceRepository;
 import com.doctorpet.global.gateway.mail.EmailGateway;
-import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -42,16 +43,20 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+// 실시간 채널보다 뒤에 둔다(리뷰 지적 P1). 리스너는 채널을 순서대로 동기 호출하므로, 외부 SMTP를 먼저 부르면
+// 그 왕복이 끝날 때까지 SSE 전달과 요청 응답이 함께 막힌다. 순서를 명시하지 않으면 빈 등록 순서(클래스명
+// 알파벳)에 따라 이메일이 먼저 도는데, 그건 결정이 아니라 우연이다.
+@Order(NotificationChannel.EMAIL_ORDER)
 @ConditionalOnProperty(name = "notification.email.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class EmailNotificationChannel implements NotificationChannel {
 
     // 이메일로 보내는 유형과 제목. 본문은 알림 content 스냅샷을 그대로 쓴다 — 알림 문구는 이미 동적 PII를 담지
     // 않도록 발행부에서 관리되므로(SA §4 notifications.content), 채널이 문구를 새로 조립해 그 원칙을 깨지 않는다.
-    private static final Map<NotificationType, String> SUBJECTS = new EnumMap<>(Map.of(
+    private static final Map<NotificationType, String> SUBJECTS = Map.of(
             NotificationType.RESERVATION_CONFIRMED, "[DoctorPet] 예약이 승인되었습니다",
             NotificationType.PAYMENT_RESULT, "[DoctorPet] 진료비 결제 결과를 알려드립니다"
-    ));
+    );
     private static final String BODY_FOOTER = "\n\n자세한 내용은 DoctorPet에서 확인하실 수 있습니다.";
 
     private final EmailGateway emailGateway;

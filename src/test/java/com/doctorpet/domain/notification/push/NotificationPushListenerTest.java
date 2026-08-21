@@ -9,7 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.doctorpet.domain.notification.channel.NotificationChannel;
-import com.doctorpet.domain.notification.channel.NotificationChannelType;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;

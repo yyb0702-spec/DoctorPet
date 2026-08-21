@@ -32,6 +32,15 @@ public class MailConfig {
         javaMailProperties.put("mail.transport.protocol", "smtp");
         javaMailProperties.put("mail.smtp.auth", "true");
         javaMailProperties.put("mail.smtp.starttls.enable", "true");
+        // JavaMail 기본값은 무한 대기다 — 값을 주지 않으면 응답 없는 SMTP 호스트가 발송 호출 스레드를
+        // 영원히 붙잡는다. 알림 이메일 채널이 예약 승인·결제 확정 요청 스레드에서 발송하므로 필수다
+        // (리뷰 지적 P1, 근거는 MailSmtpProperties 주석).
+        javaMailProperties.put("mail.smtp.connectiontimeout",
+                String.valueOf(properties.getConnectionTimeout().toMillis()));
+        javaMailProperties.put("mail.smtp.timeout",
+                String.valueOf(properties.getReadTimeout().toMillis()));
+        javaMailProperties.put("mail.smtp.writetimeout",
+                String.valueOf(properties.getWriteTimeout().toMillis()));
 
         return sender;
     }

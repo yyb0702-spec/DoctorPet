@@ -13,6 +13,7 @@ import com.doctorpet.domain.member.repository.MemberRepository;
 import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.NotificationPreference;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.repository.NotificationPreferenceRepository;
 import com.doctorpet.domain.notification.service.NotificationService;

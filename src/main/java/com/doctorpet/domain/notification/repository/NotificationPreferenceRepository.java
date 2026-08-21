@@ -2,7 +2,7 @@ package com.doctorpet.domain.notification.repository;
 
 // 알림 수신 설정 조회(고도화 3.9). 설정 변경 API는 이 PR 범위가 아니므로 조회 계약만 둔다.
 
-import com.doctorpet.domain.notification.channel.NotificationChannelType;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.NotificationPreference;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import java.util.Optional;

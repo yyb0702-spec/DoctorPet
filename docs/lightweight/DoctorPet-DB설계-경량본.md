@@ -271,7 +271,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `enabled` | BOOLEAN | 수신 여부 |
 | `created_at` | DATETIME | 생성 시각 |
 | `updated_at` | DATETIME | 수정 시각 |
-제약: `UNIQUE(member_id, notification_type, channel)`. 행이 없으면 수신이 기본이라 소급 생성이 필요 없다. 인앱 저장은 설정 대상이 아니다(저장이 원본). 테이블·UNIQUE는 `ddl-auto=update`가 만든다. enum 컬럼은 VARCHAR로 못박고, Hibernate가 함께 만드는 값 열거 CHECK 제약은 `notification_preference_check_drop_v1` 러너가 드롭한다(이슈 #176 — 신규 테이블이라 모든 DB에 붙는다).
+제약: `UNIQUE(member_id, notification_type, channel)`. 행이 없으면 수신이 기본이라 소급 생성이 필요 없다. **설정 가능한 채널(현재 EMAIL)만 행을 만들 수 있다** — REALTIME·인앱 저장은 끄는 개념이 없어 `NotificationPreference.of()`가 거부한다. 테이블·UNIQUE는 `ddl-auto=update`가 만든다. enum 컬럼은 VARCHAR로 못박고, Hibernate가 함께 만드는 값 열거 CHECK 제약은 `notification_preference_check_drop_v1` 러너가 드롭한다(이슈 #176 — 신규 테이블이라 모든 DB에 붙는다).
 ### `chat_messages`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |

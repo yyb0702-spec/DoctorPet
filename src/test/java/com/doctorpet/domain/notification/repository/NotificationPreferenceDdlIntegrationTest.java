@@ -3,7 +3,7 @@ package com.doctorpet.domain.notification.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.doctorpet.domain.notification.channel.NotificationChannelType;
+import com.doctorpet.domain.notification.entity.status.NotificationChannelType;
 import com.doctorpet.domain.notification.entity.NotificationPreference;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
 import java.util.ArrayList;
@@ -73,13 +73,13 @@ class NotificationPreferenceDdlIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 회원·유형이라도 채널이 다르면 따로 저장된다")
-    void differentChannel_isSeparateRow() {
+    @DisplayName("같은 회원·채널이라도 알림 유형이 다르면 따로 저장된다")
+    void differentNotificationType_isSeparateRow() {
         Long memberId = nextMemberId();
         preferenceRepository.saveAndFlush(NotificationPreference.of(
                 memberId, NotificationType.PAYMENT_RESULT, NotificationChannelType.EMAIL, false));
         preferenceRepository.saveAndFlush(NotificationPreference.of(
-                memberId, NotificationType.PAYMENT_RESULT, NotificationChannelType.REALTIME, true));
+                memberId, NotificationType.RESERVATION_CONFIRMED, NotificationChannelType.EMAIL, true));
 
         assertThat(preferenceRepository.findByMemberIdAndNotificationTypeAndChannel(
                 memberId, NotificationType.PAYMENT_RESULT, NotificationChannelType.EMAIL))
@@ -88,11 +88,22 @@ class NotificationPreferenceDdlIntegrationTest {
                 .extracting(NotificationPreference::isEnabled)
                 .isEqualTo(false);
         assertThat(preferenceRepository.findByMemberIdAndNotificationTypeAndChannel(
-                memberId, NotificationType.PAYMENT_RESULT, NotificationChannelType.REALTIME))
+                memberId, NotificationType.RESERVATION_CONFIRMED, NotificationChannelType.EMAIL))
                 .isPresent()
                 .get()
                 .extracting(NotificationPreference::isEnabled)
                 .isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("설정을 둘 수 없는 채널(REALTIME)은 행 자체를 만들 수 없다")
+    void nonConfigurableChannel_isRejected() {
+        // 표가 받아주지만 아무도 읽지 않는 설정이 생기는 것을 막는 계약(리뷰 지적 P2). SSE는 인앱 화면을
+        // 실시간으로 갱신하는 수단이라 끄는 개념이 없고, 실제로 RealtimeNotificationChannel은 설정을 읽지 않는다.
+        assertThatThrownBy(() -> NotificationPreference.of(
+                nextMemberId(), NotificationType.PAYMENT_RESULT, NotificationChannelType.REALTIME, false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("REALTIME");
     }
 
     @Test
