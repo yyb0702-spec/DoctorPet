@@ -28,6 +28,7 @@ import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -307,6 +308,55 @@ class TemporaryClosureCancellationIntegrationTest {
                 .getId();
     }
 
+    @Test
+    void concurrentUpdatesWithSameTokenAllowOnlyOneRequest() throws Exception {
+        LocalDate effectiveFrom = TODAY.plusDays(2);
+        var createdSchedule = service.updateOperatingHours(
+                MEMBER_ID,
+                createOperatingHoursRequest(effectiveFrom)
+        );
+        generatedScheduleId = createdSchedule.scheduleId();
+
+        OperatingHoursUpdateRequest firstRequest = updateOperatingHoursRequest(
+                effectiveFrom,
+                createdSchedule.scheduleId(),
+                createdSchedule.updatedAt(),
+                LocalTime.of(10, 0)
+        );
+        OperatingHoursUpdateRequest secondRequest = updateOperatingHoursRequest(
+                effectiveFrom,
+                createdSchedule.scheduleId(),
+                createdSchedule.updatedAt(),
+                LocalTime.of(11, 0)
+        );
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<HospitalErrorCode> firstFuture = executor.submit(
+                    () -> updateAfterStartSignal(firstRequest, ready, start)
+            );
+            Future<HospitalErrorCode> secondFuture = executor.submit(
+                    () -> updateAfterStartSignal(secondRequest, ready, start)
+            );
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(java.util.Arrays.asList(
+                    firstFuture.get(30, TimeUnit.SECONDS),
+                    secondFuture.get(30, TimeUnit.SECONDS)
+            )).containsExactlyInAnyOrder(
+                    null,
+                    HospitalErrorCode.OPERATING_SCHEDULE_CONFLICT
+            );
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     private HospitalErrorCode updateAfterStartSignal(
             OperatingHoursUpdateRequest request,
             CountDownLatch ready,
@@ -335,6 +385,31 @@ class TemporaryClosureCancellationIntegrationTest {
                                         ? List.of(new OperatingPeriodRequest(
                                                 LocalTime.of(9, 0),
                                                 LocalTime.of(10, 0)
+                                        ))
+                                        : List.of()
+                        ))
+                        .toList()
+        );
+    }
+
+    private OperatingHoursUpdateRequest updateOperatingHoursRequest(
+            LocalDate effectiveFrom,
+            Long targetScheduleId,
+            LocalDateTime expectedUpdatedAt,
+            LocalTime startTime
+    ) {
+        return new OperatingHoursUpdateRequest(
+                effectiveFrom,
+                OperatingHoursSaveMode.UPDATE,
+                targetScheduleId,
+                expectedUpdatedAt,
+                java.util.Arrays.stream(DayOfWeek.values())
+                        .map(day -> new DailyOperatingHoursRequest(
+                                day,
+                                day == effectiveFrom.getDayOfWeek()
+                                        ? List.of(new OperatingPeriodRequest(
+                                                startTime,
+                                                startTime.plusHours(1)
                                         ))
                                         : List.of()
                         ))
