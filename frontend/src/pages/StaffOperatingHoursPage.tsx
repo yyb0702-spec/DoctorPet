@@ -16,6 +16,7 @@ import {
   type DailyOperatingHours,
   type DayOfWeek,
   type OperatingHoursUpdateRequest,
+  type OperatingPeriod,
 } from '@/features/hospitalOps/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
 import { dateKeyLabel, shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
+import { useUnsavedChangesWarning } from '@/lib/useUnsavedChangesWarning'
 
 // 새 구간을 추가할 때의 기본값(휴무 해제도 같은 값으로 연다).
 const DEFAULT_PERIOD = { startTime: '09:00', endTime: '18:00' }
@@ -60,8 +62,19 @@ function OperatingHoursForm({
   )
   const [desiredEffectiveFrom, setDesiredEffectiveFrom] = useState(tomorrow)
   const [clientProblems, setClientProblems] = useState<string[]>([])
+  // 휴무로 바꾸기 직전의 구간. 휴무를 풀면 기본값이 아니라 이 값을 되살린다.
+  const [stashedPeriods, setStashedPeriods] = useState<
+    Partial<Record<DayOfWeek, OperatingPeriod[]>>
+  >({})
 
   const problems = useMemo(() => validateWeeklyOperatingHours(draft), [draft])
+
+  // 저장하지 않은 편집이 있으면 이탈을 막는다(서버 값과 다른지로만 판정한다).
+  const initialSnapshot = useMemo(
+    () => JSON.stringify(toWeekDraft(initialDays)),
+    [initialDays],
+  )
+  useUnsavedChangesWarning(JSON.stringify(draft) !== initialSnapshot)
 
   // 편집을 시작하면 직전 저장 결과 메시지를 지운다 — "저장했습니다"와 검증 오류가 같이 떠서
   // 저장된 것으로 오독하는 일을 막는다.
@@ -75,10 +88,28 @@ function OperatingHoursForm({
     )
   }
 
+  /*
+    휴무 토글은 구간을 파기하지 않는다 — 체크할 때 보관해 두고, 풀면 그대로 되살린다.
+    실수로 눌러 하루치 구간(예: 오전·오후 두 구간)을 잃는 일이 없어야 하고, 그래서 삭제
+    확인 모달도 두지 않았다. 보관은 이 폼이 살아 있는 동안만 유효하다(저장·재조회 시 초기화).
+  */
   const toggleClosed = (dayOfWeek: DayOfWeek, closed: boolean) => {
+    if (closed) {
+      const current =
+        draft.find((day) => day.dayOfWeek === dayOfWeek)?.periods ?? []
+      if (current.length > 0) {
+        setStashedPeriods((prev) => ({ ...prev, [dayOfWeek]: current }))
+      }
+      updateDay(dayOfWeek, (day) => ({ ...day, periods: [] }))
+      return
+    }
+
+    const restored = stashedPeriods[dayOfWeek]
     updateDay(dayOfWeek, (day) => ({
       ...day,
-      periods: closed ? [] : [{ ...DEFAULT_PERIOD }],
+      periods: restored?.length
+        ? restored.map((period) => ({ ...period }))
+        : [{ ...DEFAULT_PERIOD }],
     }))
   }
 
@@ -152,7 +183,9 @@ function OperatingHoursForm({
                 <div className="flex-1 space-y-2">
                   {closed && (
                     <p className="text-sm text-muted-foreground">
-                      휴무일입니다.
+                      {stashedPeriods[day.dayOfWeek]?.length
+                        ? '휴무일입니다. 휴무를 풀면 이전 구간이 복원됩니다.'
+                        : '휴무일입니다.'}
                     </p>
                   )}
                   {day.periods.map((period, index) => (

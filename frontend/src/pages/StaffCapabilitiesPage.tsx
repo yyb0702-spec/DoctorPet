@@ -1,5 +1,5 @@
 // 병원 스태프 — 진료역량 관리(분류별 체크박스, 전체 교체 저장). GET/PUT /api/hospital/capabilities.
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   useCapabilities,
   useUpdateCapabilities,
@@ -14,6 +14,7 @@ import {
   capabilityLabel,
 } from '@/lib/capabilities'
 import { ApiError } from '@/lib/api/error'
+import { useUnsavedChangesWarning } from '@/lib/useUnsavedChangesWarning'
 import type { CapabilityValue } from '@/types/enums'
 
 // ApiError면 백엔드 문구를 그대로 쓴다. 그 밖(네트워크·예상 못한 예외)은 호출 맥락에 맞는
@@ -40,6 +41,10 @@ function CapabilityPicker({
   const [selected, setSelected] = useState<Set<CapabilityValue>>(
     () => new Set(initial),
   )
+
+  // 저장하지 않은 편집이 있으면 이탈을 막는다(순서 무관하게 집합만 비교한다).
+  const initialKey = useMemo(() => [...initial].sort().join('|'), [initial])
+  useUnsavedChangesWarning([...selected].sort().join('|') !== initialKey)
 
   // 편집을 시작하면 직전 저장 결과 메시지를 지운다 — 바뀐 선택과 "저장했습니다"가 같이 떠서
   // 저장된 것으로 오독하는 일을 막는다.
