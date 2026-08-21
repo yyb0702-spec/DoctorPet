@@ -9,6 +9,8 @@ package com.doctorpet.domain.notification.entity;
 // 무시하는데, ddl-auto=update는 기존 ENUM 정의를 넓혀주지 않아 enum에 값만 추가하면 기존 DB에서 그 값의
 // INSERT만 실패한다(MySQL 1265). VARCHAR로 못박으면 신규 DB도 varchar로 생성돼 값 추가에 DDL이 필요 없다
 // (기존 DB 전환은 NotificationTypeVarcharMigrationRunner). 값 검증은 DB가 아니라 이 enum 파싱이 맡는다.
+// 주의: 애너테이션만으로는 부족하다 — Hibernate는 VARCHAR enum 컬럼에 허용 값을 열거하는 CHECK 제약을 함께
+// 만들어(신규 DB) ENUM과 같은 제약을 다시 세운다. 그 CHECK 드롭도 같은 러너가 담당한다.
 
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;

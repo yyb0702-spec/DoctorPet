@@ -27,6 +27,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *   <li>**컬럼이 ENUM이 아니어야 한다** — 엔티티의 VARCHAR 고정이 사라지면 신규 DB에서 Hibernate가 다시 native
  *       ENUM을 만들고, 값 추가마다 마이그레이션이 필요한 상태로 조용히 되돌아간다. 그 회귀를 여기서 깨뜨린다.</li>
  *   <li>**varchar 길이가 가장 긴 상수를 담아야 한다** — 길이가 부족하면 여전히 그 값의 저장이 실패한다.</li>
+ *   <li>**허용 값을 열거하는 CHECK 제약이 없어야 한다** — Hibernate는 VARCHAR enum 컬럼에 그 제약을 자동
+ *       생성하므로(신규 DB), 남아 있으면 ENUM을 없앤 의미가 사라진다. 값 추가 시 실패가 MySQL 1265에서
+ *       3819로 이름만 바뀐다.</li>
  * </ul>
  *
  * <p>전체 컨텍스트(MySQL·Redis·env)가 필요하다 — 없으면 BLOCKED.
@@ -46,6 +49,29 @@ class NotificationEnumColumnSchemaIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Test
+    @DisplayName("유형 컬럼에 허용 값을 열거하는 CHECK 제약이 없다")
+    void enumColumns_haveNoValueCheckConstraint() {
+        List<String> clauses = jdbcTemplate.queryForList("""
+                select cc.check_clause
+                  from information_schema.table_constraints tc
+                  join information_schema.check_constraints cc
+                    on tc.constraint_schema = cc.constraint_schema
+                   and tc.constraint_name = cc.constraint_name
+                 where tc.table_schema = database()
+                   and tc.table_name = 'notifications'
+                   and tc.constraint_type = 'CHECK'
+                   and (cc.check_clause like '%`type`%'
+                     or cc.check_clause like '%`resource_type`%'
+                     or cc.check_clause like '%`recipient_type`%')
+                """, String.class);
+
+        assertThat(clauses)
+                .as("유형 컬럼에 CHECK 제약이 남으면 값 추가마다 DDL이 다시 필요해진다(이슈 #176) — "
+                        + "NotificationTypeVarcharMigrationRunner의 드롭 단계를 확인한다")
+                .isEmpty();
+    }
 
     @Test
     @DisplayName("NotificationType의 모든 값이 notifications.type에 저장 가능하다")

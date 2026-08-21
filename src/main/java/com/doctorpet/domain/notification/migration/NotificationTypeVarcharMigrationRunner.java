@@ -1,8 +1,11 @@
 package com.doctorpet.domain.notification.migration;
 
-// notifications.type·resource_type 컬럼을 MySQL native ENUM에서 VARCHAR로 전환한다(이슈 #176). 값이 늘 때마다
-// 전용 ENUM 확장 러너를 만들고 상위집합·실행 순서 관례를 지켜야 했던 원인(컬럼이 ENUM인 것) 자체를 없앤다.
-// 엔티티는 @JdbcTypeCode(SqlTypes.VARCHAR)로 신규 DB의 생성 타입을 못박고, 이 러너가 기존 DB를 전환한다.
+// notifications의 유형 컬럼에 대한 "DB가 값을 막지 않게" 만드는 스키마 정리(이슈 #176). 값이 늘 때마다 전용
+// 확장 마이그레이션을 만들어야 했던 원인을 둘 다 없앤다.
+//   ① type·resource_type이 MySQL native ENUM이던 것 → VARCHAR로 전환한다(기존 DB).
+//   ② Hibernate가 VARCHAR enum 컬럼에 함께 만드는 CHECK 제약(`col in ('A','B',...)`) → 드롭한다(신규 DB).
+// ②를 빼면 전환이 무의미하다 — ENUM 대신 CHECK가 같은 역할을 해서 값 추가에 여전히 DDL이 필요하다.
+// 엔티티는 @JdbcTypeCode(SqlTypes.VARCHAR)로 신규 DB의 생성 타입을 못박고, 이 러너가 나머지를 정리한다.
 // Flyway 없이 ddl-auto=update로 운영하므로 schema_migrations 마커 + get_lock으로 멱등·직렬화한다
 // (NotificationRecipientMigrationRunner와 동일 관례). 넓히는 방향(ENUM→VARCHAR)이라 데이터 손실이 없다.
 
@@ -40,6 +43,10 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
     private static final Pattern VARCHAR_LENGTH = Pattern.compile("^varchar\\((\\d+)\\)$");
     static final String TYPE_COLUMN = "type";
     static final String RESOURCE_TYPE_COLUMN = "resource_type";
+    // CHECK 제약 드롭 대상. recipient_type은 이미 varchar(20)이라 타입 전환 대상은 아니지만(#141 러너가 바꿔놨다),
+    // 신규 DB에서는 Hibernate가 같은 CHECK 제약을 만들어 값 추가에 DDL이 필요해지므로 함께 정리한다(이슈 #176 범위).
+    private static final List<String> ENUM_COLUMNS =
+            List.of(TYPE_COLUMN, RESOURCE_TYPE_COLUMN, "recipient_type");
     // 대기열 승급 유형 도입 전에 쓰였던 오타 값. ENUM 시절에는 전용 러너가 두 단계 ALTER로 정정했는데, VARCHAR로
     // 전환하면 DB가 값을 막지 않아 이 문자열이 그대로 남을 수 있다 — 남으면 목록 조회에서 enum 파싱이 깨지므로
     // 전환과 같은 잠금 안에서 함께 정정한다(정정 러너를 제거해도 데이터 보정 보장이 사라지지 않게 하기 위함).
@@ -90,8 +97,70 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
             log.info("알림 유형 컬럼 VARCHAR 전환 완료: 오타 값 {}건 정정", corrected);
         }
 
+        // 타입 전환과 무관하게 매 부팅 확인한다. 신규 DB는 컬럼이 이미 varchar로 생성돼(엔티티 애너테이션) 위 전환이
+        // 일어나지 않는데, 바로 그 생성 시점에 Hibernate가 CHECK 제약을 함께 만든다 — 전환 여부와 독립적이다.
+        int droppedChecks = dropEnumCheckConstraints(connection);
+        if (droppedChecks > 0) {
+            log.info("notifications의 enum CHECK 제약 {}건을 드롭했습니다.", droppedChecks);
+        }
+
         assertTargetSchema(connection);
         recordMigration(connection);
+    }
+
+    /**
+     * 유형 컬럼에 걸린 CHECK 제약을 드롭한다. 이미 없으면 아무것도 하지 않는다(멱등).
+     *
+     * <p>Hibernate는 `@Enumerated(EnumType.STRING)` 컬럼을 VARCHAR로 만들 때 허용 값을 열거하는 CHECK 제약을
+     * 함께 생성한다(`check (type in ('NO_SHOW',...))`). `@Column(columnDefinition = ...)`으로도 억제되지 않음을
+     * 실측 확인했다. 이 제약이 남으면 ENUM을 없앤 의미가 사라진다 — enum에 값을 추가했을 때 기존 DB에서 그 값의
+     * INSERT만 실패하는 증상이 MySQL 1265(ENUM) 대신 3819(CHECK)로 이름만 바뀐 채 그대로 재현된다.
+     *
+     * <p>제약 이름은 MySQL이 `notifications_chk_N`으로 자동 부여하고 N은 생성 순서에 따라 달라지므로 하드코딩하지
+     * 않고, CHECK 절이 대상 컬럼을 backtick으로 참조하는 것만 골라 드롭한다(backtick 경계 덕분에 `resource_type`
+     * 제약이 `type` 매칭에 걸리지 않는다). `ddl-auto=update`는 이미 있는 테이블에 CHECK를 다시 만들지 않으므로
+     * (실측 확인) 한 번 드롭하면 유지되며, 그래도 매 부팅 확인해 드리프트를 스스로 복구한다.
+     *
+     * @return 드롭한 제약 수
+     */
+    private int dropEnumCheckConstraints(Connection connection) throws SQLException {
+        List<String> names = enumCheckConstraintNames(connection);
+        for (String name : names) {
+            try (Statement statement = connection.createStatement()) {
+                // MySQL 8.0.16+ 문법. 제약 이름은 information_schema에서 읽은 값이라 외부 입력이 아니다.
+                statement.executeUpdate("alter table notifications drop check `" + name + "`");
+            }
+        }
+        return names.size();
+    }
+
+    // 유형 컬럼을 참조하는 CHECK 제약 이름 목록. 대상 컬럼 외의 CHECK 제약은 건드리지 않는다.
+    private List<String> enumCheckConstraintNames(Connection connection) throws SQLException {
+        List<String> names = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select tc.constraint_name, cc.check_clause
+                  from information_schema.table_constraints tc
+                  join information_schema.check_constraints cc
+                    on tc.constraint_schema = cc.constraint_schema
+                   and tc.constraint_name = cc.constraint_name
+                 where tc.table_schema = database()
+                   and tc.table_name = 'notifications'
+                   and tc.constraint_type = 'CHECK'
+                """)) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    String clause = resultSet.getString("check_clause");
+                    if (clause != null && referencesEnumColumn(clause)) {
+                        names.add(resultSet.getString("constraint_name"));
+                    }
+                }
+            }
+        }
+        return names;
+    }
+
+    private boolean referencesEnumColumn(String checkClause) {
+        return ENUM_COLUMNS.stream().anyMatch(column -> checkClause.contains("`" + column + "`"));
     }
 
     /**
@@ -167,6 +236,12 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
     private void assertTargetSchema(Connection connection) throws SQLException {
         assertColumnIsTargetVarchar(connection, TYPE_COLUMN);
         assertColumnIsTargetVarchar(connection, RESOURCE_TYPE_COLUMN);
+        // CHECK 제약이 남아 있으면 ENUM을 없앤 의미가 사라지므로 조용히 통과시키지 않는다.
+        List<String> remaining = enumCheckConstraintNames(connection);
+        if (!remaining.isEmpty()) {
+            throw new IllegalStateException(
+                    "notifications 유형 컬럼에 CHECK 제약이 남아 있습니다: " + remaining);
+        }
     }
 
     private void assertColumnIsTargetVarchar(Connection connection, String column) throws SQLException {
