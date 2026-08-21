@@ -271,7 +271,7 @@ function mockDateKey(offsetDays: number): string {
   return shiftDateKey(todaySeoulKey(), offsetDays)
 }
 
-let demoOperatingHours = {
+const demoOperatingHours = {
   effectiveFrom: mockDateKey(-30),
   days: [
     { dayOfWeek: 'MONDAY', periods: [{ startTime: '09:00', endTime: '18:00' }] },
