@@ -9,6 +9,7 @@ import com.doctorpet.global.response.ApiResponse;
 import com.doctorpet.global.security.MemberPrincipal;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -35,6 +36,16 @@ public class HospitalOperatingHoursController {
             @AuthenticationPrincipal MemberPrincipal principal
     ) {
         OperatingHoursResponse response = service.getOperatingHours(principal.memberId());
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/operating-hours/scheduled")
+    public ResponseEntity<ApiResponse<List<OperatingHoursResponse>>> getScheduledOperatingHours(
+            @AuthenticationPrincipal MemberPrincipal principal
+    ) {
+        List<OperatingHoursResponse> response = service
+                .getScheduledOperatingHours(principal.memberId());
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

@@ -4,6 +4,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -55,6 +56,24 @@ class HospitalOperatingHoursControllerTest {
 
     @MockitoBean
     private PasswordChangeInvalidationPort passwordChangeInvalidationPort; // 기능 구멍 점검 대응(비밀번호 재설정 시 Access Token 무효화) - JwtAuthenticationFilter 생성자 의존성
+
+    @Test
+    void hospitalStaffGetsScheduledOperatingHours() throws Exception {
+        mockMvc.perform(get("/api/hospital/operating-hours/scheduled")
+                        .with(authentication(hospitalStaffAuthentication())))
+                .andExpect(status().isOk());
+
+        verify(service).getScheduledOperatingHours(MEMBER_ID);
+    }
+
+    @Test
+    void guardianCannotGetScheduledOperatingHours() throws Exception {
+        mockMvc.perform(get("/api/hospital/operating-hours/scheduled")
+                        .with(authentication(guardianAuthentication())))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(service);
+    }
 
     @Test
     void hospitalStaffCancelsTemporaryClosure() throws Exception {

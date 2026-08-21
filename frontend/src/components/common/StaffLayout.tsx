@@ -1,11 +1,14 @@
-// 병원 스태프 전용 레이아웃 — 좌측 사이드바(예약 관리) + 상단(병원명·로그아웃).
+// 병원 스태프 전용 레이아웃 — 좌측 사이드바(예약·운영 관리) + 상단(병원명·로그아웃).
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   CalendarCheck,
   CalendarClock,
+  CalendarOff,
+  Clock,
   CreditCard,
   LayoutDashboard,
   PawPrint,
+  Stethoscope,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -22,6 +25,10 @@ import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 const NAV = [
   { to: '/staff', label: '대시보드', icon: LayoutDashboard, end: true },
   { to: '/staff/reservations', label: '예약 관리', icon: CalendarCheck },
+  // 진료시간·진료역량·임시휴진은 백엔드 API가 이미 있으므로 위 플래그와 무관하게 항상 노출한다.
+  { to: '/staff/operating-hours', label: '진료시간', icon: Clock },
+  { to: '/staff/capabilities', label: '진료역량', icon: Stethoscope },
+  { to: '/staff/temporary-closures', label: '임시휴진', icon: CalendarOff },
   ...(HOSPITAL_OPS_BACKEND_READY
     ? [
         { to: '/staff/payments', label: '결제 관리', icon: CreditCard },

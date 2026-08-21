@@ -7,6 +7,7 @@ import { useAiConsultation } from '@/features/ai/hooks'
 import type { UrgencyLevel } from '@/features/ai/types'
 import { PetSpecies } from '@/types/enums'
 import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
+import { capabilityLabel } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -225,9 +226,10 @@ export function AiConsultationPage() {
                 <div className="space-y-1.5">
                   <p className="font-medium">필요할 수 있는 진료</p>
                   <div className="flex flex-wrap gap-1.5">
+                    {/* AI 응답은 화이트리스트 밖 값도 올 수 있어 라벨이 없으면 원문을 그대로 쓴다. */}
                     {result.structured.requiredCapabilities.map((c) => (
                       <Badge key={c} variant="secondary">
-                        {c}
+                        {capabilityLabel(c)}
                       </Badge>
                     ))}
                   </div>

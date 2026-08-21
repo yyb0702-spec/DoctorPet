@@ -1,6 +1,7 @@
 package com.doctorpet.domain.hospital.service;
 
 import com.doctorpet.domain.hospital.dto.request.DailyOperatingHoursRequest;
+import com.doctorpet.domain.hospital.dto.request.OperatingHoursSaveMode;
 import com.doctorpet.domain.hospital.dto.request.OperatingHoursUpdateRequest;
 import com.doctorpet.domain.hospital.dto.request.OperatingPeriodRequest;
 import com.doctorpet.domain.hospital.dto.request.TemporaryClosureCreateRequest;
@@ -21,10 +22,14 @@ import com.doctorpet.domain.member.service.MemberService;
 import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -50,6 +55,10 @@ public class HospitalOperatingHoursApplicationService {
     private final HospitalTemporaryClosureRepository closureRepository;
     private final Clock applicationClock;
 
+    // flush 후 저장 시간표를 DB 절단값으로 재적재하기 위해 쓴다(updatedAt 토큰 왕복 일치).
+    @PersistenceContext
+    private EntityManager entityManager;
+
     public OperatingHoursResponse getOperatingHours(Long memberId) {
         Long hospitalId = getHospitalId(memberId);
         LocalDate today = LocalDate.now(applicationClock);
@@ -62,6 +71,21 @@ public class HospitalOperatingHoursApplicationService {
         return OperatingHoursResponse.from(schedule);
     }
 
+    /**
+     * 현재 시간표와 별도로, 아직 발효되지 않은 시간표 전체를 발효일 순으로 반환한다.
+     * 현재 GET 응답에 미래 시간표를 섞으면 현재 적용 중인 정책으로 오인될 수 있으므로
+     * 편집 화면은 이 조회 결과에서 대상 발효일을 명시적으로 선택해야 한다.
+     */
+    public List<OperatingHoursResponse> getScheduledOperatingHours(Long memberId) {
+        Long hospitalId = getHospitalId(memberId);
+        LocalDate today = LocalDate.now(applicationClock);
+
+        return scheduleRepository.findScheduledSchedules(hospitalId, today)
+                .stream()
+                .map(OperatingHoursResponse::from)
+                .toList();
+    }
+
     @Transactional
     public OperatingHoursResponse updateOperatingHours(
             Long memberId,
@@ -72,26 +96,50 @@ public class HospitalOperatingHoursApplicationService {
         validateDesiredEffectiveFrom(request.desiredEffectiveFrom(), today);
         Map<DayOfWeek, List<DailyOperatingHours>> operatingHours =
                 validateAndConvert(request.days());
-        LocalDate effectiveFrom = resolveEffectiveFrom(
-                hospitalId,
-                today,
-                request.desiredEffectiveFrom()
-        );
+        // 같은 병원의 시간표 생성·수정은 병원 행 잠금으로 먼저 직렬화한다. 이보다 앞서 일반
+        // 조회를 하면 MySQL REPEATABLE_READ 스냅샷이 고정돼, 잠금을 기다린 뒤에도 다른 트랜잭션이
+        // 방금 만든 같은 발효일의 시간표를 못 보고 UNIQUE 위반으로 끝날 수 있다.
         Hospital hospital = lockHospital(hospitalId);
-
-        HospitalOperatingSchedule schedule = scheduleRepository
-                .findSchedule(hospitalId, effectiveFrom)
-                .map(existing -> {
-                    existing.changeOperatingHours(operatingHours);
-                    return existing;
-                })
-                .orElseGet(() -> createSchedule(
-                        hospital,
-                        effectiveFrom,
-                        operatingHours
-                ));
+        // CREATE는 발행창 안에 예약이 있으면 발효일을 마지막 예약일 다음 날로 밀어 예약된 슬롯을
+        // 보존한다. UPDATE는 목록에서 선택한 기존 시간표의 발효일이 고정이므로 밀지 않는다 —
+        // 밀면 findSchedule이 대상 시간표를 못 찾아 정상 편집이 HOSPITAL_016으로 오거부된다.
+        LocalDate effectiveFrom = switch (request.saveMode()) {
+            case CREATE -> resolveEffectiveFrom(
+                    hospitalId,
+                    today,
+                    request.desiredEffectiveFrom()
+            );
+            case UPDATE -> request.desiredEffectiveFrom();
+        };
+        HospitalOperatingSchedule existingSchedule = scheduleRepository
+                .findScheduleForUpdate(hospitalId, effectiveFrom)
+                .map(this::refreshForCurrentRead)
+                .orElse(null);
+        HospitalOperatingSchedule schedule = switch (request.saveMode()) {
+            case CREATE -> createScheduleForNewEffectiveDate(
+                    existingSchedule,
+                    hospital,
+                    effectiveFrom,
+                    operatingHours
+            );
+            case UPDATE -> updateSelectedSchedule(
+                    existingSchedule,
+                    hospitalId,
+                    effectiveFrom,
+                    request,
+                    operatingHours
+            );
+        };
 
         HospitalOperatingSchedule savedSchedule = scheduleRepository.save(schedule);
+        scheduleRepository.flush();
+        entityManager.refresh(savedSchedule);
+        if (request.saveMode() == OperatingHoursSaveMode.UPDATE) {
+            advanceUpdateToken(savedSchedule);
+        }
+        // DB datetime(6)에 저장된 토큰을 먼저 읽은 뒤, UPDATE는 그보다 큰 마이크로초 토큰으로
+        // 조건부 갱신한다. 고정 Clock 또는 매우 촘촘한 요청으로 @LastModifiedDate가 같은 값을
+        // 만들어도 뒤늦은 요청이 같은 expectedUpdatedAt으로 통과하지 못하게 한다.
         replacePublishedSlots(
                 hospital,
                 hospitalId,
@@ -197,6 +245,84 @@ public class HospitalOperatingHoursApplicationService {
             Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
     ) {
         return HospitalOperatingSchedule.create(hospital, effectiveFrom, operatingHours);
+    }
+
+    private HospitalOperatingSchedule createScheduleForNewEffectiveDate(
+            HospitalOperatingSchedule existingSchedule,
+            Hospital hospital,
+            LocalDate effectiveFrom,
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        if (existingSchedule != null) {
+            throw operatingScheduleConflict();
+        }
+        return createSchedule(hospital, effectiveFrom, operatingHours);
+    }
+
+    private HospitalOperatingSchedule updateSelectedSchedule(
+            HospitalOperatingSchedule existingSchedule,
+            Long hospitalId,
+            LocalDate effectiveFrom,
+            OperatingHoursUpdateRequest request,
+            Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
+    ) {
+        if (existingSchedule == null
+                || request.targetScheduleId() == null
+                || request.expectedUpdatedAt() == null
+                || !existingSchedule.getId().equals(request.targetScheduleId())) {
+            throw operatingScheduleConflict();
+        }
+        claimUpdateToken(request);
+        // 토큰 선점 전의 일반 조회가 이 시간표를 1차 캐시에 보관했을 수 있으므로, 선점 직후에는
+        // 그 엔티티를 버리고 DB current read로 다시 적재한다. 이후의 본문 UPDATE가 stale 스냅샷을
+        // 덮어쓰지 않으며, 선점에 실패한 요청은 이 지점보다 앞에서 409로 끝난다.
+        entityManager.detach(existingSchedule);
+        HospitalOperatingSchedule claimedSchedule = scheduleRepository
+                .findScheduleForUpdate(hospitalId, effectiveFrom)
+                .orElseThrow(this::operatingScheduleConflict);
+        claimedSchedule.changeOperatingHours(operatingHours);
+        return claimedSchedule;
+    }
+
+    private void advanceUpdateToken(HospitalOperatingSchedule schedule) {
+        LocalDateTime currentUpdatedAt = schedule.getUpdatedAt();
+        LocalDateTime nextUpdatedAt = nextUpdateToken(currentUpdatedAt);
+        if (scheduleRepository.advanceUpdateToken(
+                schedule.getId(),
+                currentUpdatedAt,
+                nextUpdatedAt
+        ) != 1) {
+            throw operatingScheduleConflict();
+        }
+        entityManager.refresh(schedule);
+    }
+
+    private void claimUpdateToken(OperatingHoursUpdateRequest request) {
+        if (scheduleRepository.advanceUpdateToken(
+                request.targetScheduleId(),
+                request.expectedUpdatedAt(),
+                nextUpdateToken(request.expectedUpdatedAt())
+        ) != 1) {
+            throw operatingScheduleConflict();
+        }
+    }
+
+    private HospitalOperatingSchedule refreshForCurrentRead(
+            HospitalOperatingSchedule schedule
+    ) {
+        // 같은 영속성 컨텍스트에서 잠금 전 일반 조회가 이미 엔티티를 관리 중이면, PESSIMISTIC_WRITE
+        // 조회만으로는 1차 캐시의 오래된 필드를 다시 쓸 수 있다. refresh + 잠금으로 DB current read를
+        // 엔티티에 재적재해 CREATE 존재 확인과 UPDATE 토큰 검증 모두 최신 행으로 수행한다.
+        entityManager.refresh(schedule, LockModeType.PESSIMISTIC_WRITE);
+        return schedule;
+    }
+
+    private LocalDateTime nextUpdateToken(LocalDateTime currentUpdatedAt) {
+        LocalDateTime now = LocalDateTime.now(applicationClock)
+                .truncatedTo(ChronoUnit.MICROS);
+        return now.isAfter(currentUpdatedAt)
+                ? now
+                : currentUpdatedAt.plus(1, ChronoUnit.MICROS);
     }
 
     private Hospital lockHospital(Long hospitalId) {
@@ -421,6 +547,10 @@ public class HospitalOperatingHoursApplicationService {
 
     private ServiceException invalidOperatingHours() {
         return new ServiceException(HospitalErrorCode.INVALID_OPERATING_HOURS);
+    }
+
+    private ServiceException operatingScheduleConflict() {
+        return new ServiceException(HospitalErrorCode.OPERATING_SCHEDULE_CONFLICT);
     }
 
     private Long getHospitalId(Long memberId) {

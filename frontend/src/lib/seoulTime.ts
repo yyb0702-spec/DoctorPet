@@ -31,6 +31,33 @@ export function shiftDateKey(dateKey: string, days: number): string {
   return base.toISOString().slice(0, 10)
 }
 
+/*
+  날짜 키("yyyy-MM-dd") 표시 라벨. 같은 개념이 화면마다 따로 구현돼 표기가 갈라지지 않게 여기 둔다.
+  둘 다 파싱을 UTC 자정으로 고정해 로컬 타임존이 날짜·요일을 밀지 않게 한다.
+*/
+
+/** "2026년 8월 22일" — 연도까지 필요한 단일 날짜(발효일·영업일) 표기. */
+export function dateKeyLabel(dateKey: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return dateKey
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return `${year}년 ${month}월 ${day}일`
+}
+
+/** "오늘"·"내일"·"8월 19일 (수)" — 목록 그룹 헤더용 상대 표기. 기준 날짜를 주입해 테스트를 고정한다. */
+export function relativeDateKeyLabel(
+  dateKey: string,
+  todayKey: string = todaySeoulKey(),
+): string {
+  if (dateKey === todayKey) return '오늘'
+  if (dateKey === shiftDateKey(todayKey, 1)) return '내일'
+  return new Date(`${dateKey}T00:00:00Z`).toLocaleDateString('ko-KR', {
+    timeZone: 'UTC',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  })
+}
+
 // 백엔드 LocalDateTime 형식("yyyy-MM-ddTHH:mm" 이상, 소수점 초는 있을 수 있음).
 // 형식이 다르면 슬라이스가 엉뚱한 값을 만들어 시각이 조용히 사라지므로, 먼저 확인하고 아니면 원문을 준다.
 const NAIVE_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/

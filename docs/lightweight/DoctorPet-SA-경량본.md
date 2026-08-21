@@ -169,6 +169,7 @@ NO_SHOW → CHECKED_IN  // 병원 오판정 정정
 - 결제 웹훅은 확장 범위이다.
 ## 9. 슬롯과 스케줄러
 - 예약 슬롯은 14일치를 사전 생성한다.
+- 병원 스태프 진료시간은 현재 적용 시간표(`GET /api/hospital/operating-hours`)와 미래 시간표 전체(`GET /api/hospital/operating-hours/scheduled`)를 분리해 조회한다. 미래 시간표 수정은 목록에서 받은 `scheduleId`·`updatedAt` 토큰을 `UPDATE` 요청에 되보내고, 새 시간표는 `CREATE`로만 저장한다. 병원 행 잠금 뒤 대상 시간표는 `PESSIMISTIC_WRITE` current read로 다시 읽어 이전 일반 조회의 MySQL 스냅샷을 쓰지 않는다. `UPDATE`는 본문 변경 전에 `WHERE id AND updated_at` 조건부 갱신으로 토큰을 선점하고, 갱신 행이 1건일 때만 최신 행을 다시 적재해 수정한다. 토큰 또는 생성 대상이 달라지면 `HOSPITAL_016`(409)으로 거절해 오래된 화면의 덮어쓰기를 막는다.
 | 작업 | 주기 | 비고 |
 | --- | --- | --- |
 | 자동 노쇼 판정 | 1분 | +10분 경과 건을 `NO_SHOW_PENDING`, 추가 5분 경과 건을 `NO_SHOW`로 처리 |

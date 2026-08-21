@@ -26,6 +26,9 @@ import { StaffDashboardPage } from '@/pages/StaffDashboardPage'
 import { StaffReservationQueuePage } from '@/pages/StaffReservationQueuePage'
 import { StaffReservationDetailPage } from '@/pages/StaffReservationDetailPage'
 import { StaffPaymentsPage } from '@/pages/StaffPaymentsPage'
+import { StaffOperatingHoursPage } from '@/pages/StaffOperatingHoursPage'
+import { StaffCapabilitiesPage } from '@/pages/StaffCapabilitiesPage'
+import { StaffTemporaryClosuresPage } from '@/pages/StaffTemporaryClosuresPage'
 import { StaffSlotsPage } from '@/pages/StaffSlotsPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 
@@ -89,6 +92,16 @@ export const router = createBrowserRouter([
           {
             path: '/staff/reservations/:reservationId',
             element: <StaffReservationDetailPage />,
+          },
+          // 진료시간·진료역량·임시휴진은 백엔드 API가 develop에 있으므로 플래그와 무관하게 항상 등록한다.
+          {
+            path: '/staff/operating-hours',
+            element: <StaffOperatingHoursPage />,
+          },
+          { path: '/staff/capabilities', element: <StaffCapabilitiesPage /> },
+          {
+            path: '/staff/temporary-closures',
+            element: <StaffTemporaryClosuresPage />,
           },
           // 결제 관리·슬롯 관리는 백엔드 미착수 — 플래그가 켜질 때만 라우트를 등록해
           // URL 직접 접근으로도 미구현 API 404에 도달하지 못하게 막는다(PR #127 리뷰).

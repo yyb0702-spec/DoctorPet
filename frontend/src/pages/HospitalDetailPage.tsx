@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { HospitalMap } from '@/components/common/HospitalMap'
 import { HospitalReviewList } from '@/features/reviews/HospitalReviewList'
+import { capabilityLabel } from '@/lib/capabilities'
 import type { BusinessHour } from '@/features/hospitals/types'
 
 const DAY_LABEL: Record<string, string> = {
@@ -162,7 +163,7 @@ export function HospitalDetailPage() {
                 <CardContent className="flex flex-wrap gap-1.5">
                   {data.capabilities.map((c) => (
                     <Badge key={c} variant="secondary">
-                      {c}
+                      {capabilityLabel(c)}
                     </Badge>
                   ))}
                 </CardContent>
