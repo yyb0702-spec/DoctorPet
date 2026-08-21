@@ -204,6 +204,11 @@ describe('StaffOperatingHoursPage', () => {
     )
     expect(screen.getByLabelText('발효일')).toHaveValue('2026-08-25')
 
+    // PUT 응답을 폼의 새 기준값으로 다시 마운트했으므로, 저장 직후에는 이탈 경고가 남지 않아야 한다.
+    const afterSave = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(afterSave)
+    expect(afterSave.defaultPrevented).toBe(false)
+
     fireEvent.change(screen.getByLabelText('월요일 1번째 구간 시작 시각'), {
       target: { value: '11:00' },
     })
