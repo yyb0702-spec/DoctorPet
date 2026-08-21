@@ -88,12 +88,15 @@ public class HospitalOperatingHoursApplicationService {
         validateDesiredEffectiveFrom(request.desiredEffectiveFrom(), today);
         Map<DayOfWeek, List<DailyOperatingHours>> operatingHours =
                 validateAndConvert(request.days());
+        // 같은 병원의 시간표 생성·수정은 병원 행 잠금으로 먼저 직렬화한다. 이보다 앞서 일반
+        // 조회를 하면 MySQL REPEATABLE_READ 스냅샷이 고정돼, 잠금을 기다린 뒤에도 다른 트랜잭션이
+        // 방금 만든 같은 발효일의 시간표를 못 보고 UNIQUE 위반으로 끝날 수 있다.
+        Hospital hospital = lockHospital(hospitalId);
         LocalDate effectiveFrom = resolveEffectiveFrom(
                 hospitalId,
                 today,
                 request.desiredEffectiveFrom()
         );
-        Hospital hospital = lockHospital(hospitalId);
         HospitalOperatingSchedule existingSchedule = scheduleRepository
                 .findSchedule(hospitalId, effectiveFrom)
                 .orElse(null);
