@@ -1,5 +1,5 @@
 // 결제수단 관리 — 목록 + 등록(PortOne 빌링키 발급 / 직접 입력) + 삭제.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trash2, CreditCard } from 'lucide-react'
 import * as PortOne from '@portone/browser-sdk/v2'
 import type { EasyPayProvider } from '@portone/browser-sdk/v2'
@@ -45,6 +45,8 @@ const EASY_PAY_METHODS: { provider: EasyPayProvider; label: string }[] = [
 // 카카오페이는 모바일에서 REDIRECTION 방식만 지원한다. 인증 결과는 이 경로의 query로 되돌아오며,
 // 빌링키는 등록 요청을 시작한 뒤 즉시 주소창에서 제거한다(새로고침에 의한 중복 등록·노출 방지).
 const BILLING_KEY_CALLBACK_PATH = '/payment-methods'
+const BILLING_KEY_ISSUE_ID_QUERY_PARAM = 'billingKeyIssueId'
+const BILLING_KEY_ISSUE_ID_STORAGE_KEY = 'doctorpet:pending-billing-key-issue-id'
 
 function getRedirectErrorMessage(state: unknown) {
   if (
@@ -70,6 +72,8 @@ export function PaymentMethodsPage() {
   // 어떤 등록 버튼을 눌렀는지 추적한다(버튼별 로딩 라벨·중복 클릭 방지용).
   const [issuingKey, setIssuingKey] = useState<string | null>(null)
   const [sdkError, setSdkError] = useState<string | null>(null)
+  // StrictMode의 effect 재실행과 렌더 사이의 query 유지 구간에서 같은 빌링키를 두 번 등록하지 않는다.
+  const handledRedirectQueryRef = useRef<string | null>(null)
 
   const { storeId, channelKey } = getPortOneConfig()
   const portoneReady = Boolean(storeId && channelKey)
@@ -84,6 +88,10 @@ export function PaymentMethodsPage() {
     // 일반 진입과 PC iframe 응답은 URL query가 없으므로 아무 작업도 하지 않는다.
     if (!billingKeyFromRedirect && !portoneErrorCode) return
 
+    // navigate는 다음 렌더에서 반영되므로, StrictMode가 effect를 재실행해도 같은 복귀 query를 한 번만 처리한다.
+    if (handledRedirectQueryRef.current === location.search) return
+    handledRedirectQueryRef.current = location.search
+
     // 먼저 query를 지워야 네트워크 지연 중 새로고침해도 같은 빌링키를 두 번 등록하지 않는다.
     if (portoneErrorCode) {
       navigate(BILLING_KEY_CALLBACK_PATH, {
@@ -96,6 +104,23 @@ export function PaymentMethodsPage() {
       return
     }
 
+    // URL의 billingKey만으로는 이 탭·로그인 사용자가 시작한 인증 결과인지 알 수 없다. 요청을 시작할 때
+    // sessionStorage에 선점한 issueId와 redirectUrl에 실어 되돌아온 값을 대조한다.
+    const expectedIssueId = window.sessionStorage.getItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+    const issueIdFromRedirect = params.get(BILLING_KEY_ISSUE_ID_QUERY_PARAM)
+    if (!expectedIssueId || expectedIssueId !== issueIdFromRedirect) {
+      navigate(BILLING_KEY_CALLBACK_PATH, {
+        replace: true,
+        state: {
+          portoneErrorMessage:
+            '확인되지 않은 결제수단 인증 결과입니다. 다시 등록해 주세요.',
+        },
+      })
+      return
+    }
+
+    // mutation을 시작하기 전에 소비해 새로고침·재마운트에서도 같은 결과를 다시 등록하지 못하게 한다.
+    window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
     navigate(BILLING_KEY_CALLBACK_PATH, { replace: true })
     registerBillingKey(billingKeyFromRedirect!)
   }, [location.search, navigate, registerBillingKey])
@@ -124,6 +149,10 @@ export function PaymentMethodsPage() {
     }
     setSdkError(null)
     setIssuingKey(key)
+    const redirectUrl = new URL(BILLING_KEY_CALLBACK_PATH, window.location.origin)
+    redirectUrl.searchParams.set(BILLING_KEY_ISSUE_ID_QUERY_PARAM, issueId)
+    // 모바일 리디렉션 뒤에도 같은 탭에서만 소비된다. PC iframe 응답·발급 실패에서는 아래에서 즉시 정리한다.
+    window.sessionStorage.setItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY, issueId)
     try {
       const res = await PortOne.requestIssueBillingKey({
         storeId: storeId!,
@@ -131,7 +160,7 @@ export function PaymentMethodsPage() {
         ...request,
         issueId,
         issueName: 'DoctorPet 결제수단',
-        redirectUrl: `${window.location.origin}${BILLING_KEY_CALLBACK_PATH}`,
+        redirectUrl: redirectUrl.toString(),
         // 회원 API가 제공하는 실제 로그인 보호자 식별자·이메일만 전달한다. 전화번호 응답 계약이 없는데
         // 임의의 번호를 보내면 PG 기록이 오염되므로 넣지 않는다.
         customer: {
@@ -140,19 +169,24 @@ export function PaymentMethodsPage() {
         },
       })
       if (!res) {
+        window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
         setSdkError('발급창 응답이 없습니다.')
         return
       }
       if ('code' in res && res.code) {
+        window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
         setSdkError(res.message ?? '빌링키 발급에 실패했습니다.')
         return
       }
       if ('billingKey' in res && res.billingKey) {
+        window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
         registerMethod.mutate(res.billingKey)
       } else {
+        window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
         setSdkError('응답에서 billingKey를 찾지 못했습니다.')
       }
     } catch (e) {
+      window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
       setSdkError(e instanceof Error ? e.message : '빌링키 발급 중 오류가 발생했습니다.')
     } finally {
       setIssuingKey(null)

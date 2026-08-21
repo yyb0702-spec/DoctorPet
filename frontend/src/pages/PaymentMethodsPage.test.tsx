@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -31,11 +32,17 @@ function CurrentSearch() {
   return <output data-testid="current-search">{useLocation().search}</output>
 }
 
-function renderPage(initialEntry = '/payment-methods') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
+function renderPage(initialEntry = '/payment-methods', strictMode = false) {
+  const content = (
+    <>
       <PaymentMethodsPage />
       <CurrentSearch />
+    </>
+  )
+
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      {strictMode ? <StrictMode>{content}</StrictMode> : content}
     </MemoryRouter>,
   )
 }
@@ -43,6 +50,7 @@ function renderPage(initialEntry = '/payment-methods') {
 describe('PaymentMethodsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.sessionStorage.clear()
     vi.stubEnv('VITE_PORTONE_STORE_ID', 'store-test')
     vi.stubEnv('VITE_PORTONE_CHANNEL_KEY', 'channel-key-test')
 
@@ -78,15 +86,35 @@ describe('PaymentMethodsPage', () => {
   })
 
   afterEach(() => {
+    window.sessionStorage.clear()
     vi.unstubAllEnvs()
   })
 
-  it('모바일 인증 복귀 URL의 빌링키를 한 번 등록하고 주소창 query를 제거한다', async () => {
-    renderPage('/payment-methods?billingKey=billing-key-from-kakaopay')
+  it('StrictMode에서도 일치하는 모바일 인증 복귀 URL의 빌링키를 한 번만 등록하고 query를 제거한다', async () => {
+    window.sessionStorage.setItem('doctorpet:pending-billing-key-issue-id', 'issue-from-kakaopay')
+    renderPage(
+      '/payment-methods?billingKey=billing-key-from-kakaopay&billingKeyIssueId=issue-from-kakaopay',
+      true,
+    )
+
+    await waitFor(() => expect(registerBillingKey).toHaveBeenCalledTimes(1))
+    expect(registerBillingKey).toHaveBeenCalledWith('billing-key-from-kakaopay')
+    expect(screen.getByTestId('current-search')).toHaveTextContent('')
+  })
+
+  it('현재 탭에서 시작하지 않은 인증 결과는 등록하지 않는다', async () => {
+    window.sessionStorage.setItem(
+      'doctorpet:pending-billing-key-issue-id',
+      'expected-issue',
+    )
+    renderPage(
+      '/payment-methods?billingKey=untrusted-key&billingKeyIssueId=other-issue',
+    )
 
     await waitFor(() =>
-      expect(registerBillingKey).toHaveBeenCalledWith('billing-key-from-kakaopay'),
+      expect(screen.getByText('확인되지 않은 결제수단 인증 결과입니다. 다시 등록해 주세요.')).toBeInTheDocument(),
     )
+    expect(registerBillingKey).not.toHaveBeenCalled()
     expect(screen.getByTestId('current-search')).toHaveTextContent('')
   })
 
@@ -116,7 +144,10 @@ describe('PaymentMethodsPage', () => {
           storeId: 'store-test',
           channelKey: 'channel-key-test',
           billingKeyMethod: 'EASY_PAY',
-          redirectUrl: `${window.location.origin}/payment-methods`,
+          issueId: expect.stringMatching(/^dp-bk-/),
+          redirectUrl: expect.stringMatching(
+            new RegExp(`^${window.location.origin}/payment-methods\\?billingKeyIssueId=dp-bk-`),
+          ),
           customer: {
             customerId: 'doctorpet-member-31',
             email: 'guardian@example.com',
