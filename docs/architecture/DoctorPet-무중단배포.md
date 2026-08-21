@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 버전 | v1.4 |
+| 문서 버전 | v1.5 |
 | 작성 기준일 | 2026-08-20 |
 | 상태 | 설계 확정, 구현 진행 중 |
 | 전제(동결 baseline) | `docker-compose.yml`, `.github/workflows/deploy.yml` (2026-08-10 시점 — blue/green 컷오버 로직 자체의 동결 기준이며, 이후 RDS 이전(이슈 #163)이 MySQL 부분을, ElastiCache 이전이 Redis 부분을 변경했다. 4-3절 참고) |
@@ -207,6 +207,20 @@ upstream app_upstream {
 - **로컬 개발 시 `nginx/conf.d/upstream-active.conf`를 직접 만들어야 한다(실제로 겪은 문제)**: 이 파일은 git 비추적이라 저장소를 새로 클론하거나 `nginx/conf.d/upstream-active.conf.example`을 복사하지 않은 채 `docker compose up`을 실행하면, nginx가 `upstream app_upstream`을 찾지 못해 "host not found in upstream" 오류로 기동 즉시 재시작을 반복한다(`restart: unless-stopped`라 계속 재시작 루프에 빠지고, 브라우저에서는 그 사이 타이밍에 연결 거부로 보인다). EC2에서는 `deploy.yml`이 최초 배포 시 이 파일을 자동 생성해주지만, 로컬은 그 부트스트랩 로직이 없으므로 `cp nginx/conf.d/upstream-active.conf.example nginx/conf.d/upstream-active.conf`를 먼저 실행해야 한다.
 - **`nginx.conf` 본문 변경이 운영에 반영 안 되던 사고(실제로 겪은 문제, 수정 완료)**: `docker-compose.yml`이 `nginx.conf`를 단일 파일로 bind mount하고 있었는데, Docker의 단일 파일 mount는 마운트 시점의 inode에 고정된다. `git checkout`은 파일을 unlink 후 새로 만들어(새 inode) 갱신하는 방식이라, 이미 떠 있는 nginx 컨테이너는 그 새 inode를 못 보고 예전 설정에 계속 고정됐다 — `deploy.yml`이 매 배포마다 `docker compose up -d ... nginx`를 실행하긴 하지만 `--force-recreate`가 없어 nginx 서비스 정의 자체가 안 바뀌는 한 컨테이너를 재생성하지 않으므로, 이 문제가 컨테이너를 수동으로 갈아엎기 전까지 무기한 지속됐다. 실제로 `/ws/chat`(WebSocket 채팅) proxy 블록이 코드·git에는 있는데 운영 컨테이너 안 `nginx.conf`에는 없어 채팅 연결이 실패하는 사고로 발견됐다(2026-08-18). `conf.d/`는 원래부터 디렉터리 마운트라 이 문제가 없었다(디렉터리 마운트는 안의 파일이 바뀌어도 경로 조회가 매번 새로 일어나 항상 최신 내용을 본다) — 그래서 같은 컷오버 방식을 쓰는 `upstream-active.conf`는 항상 정상 반영됐다. 수정: `nginx.conf`도 `conf.d`와 같은 디렉터리 마운트 방식으로 통일했다(`nginx/` 전체를 `/etc/nginx/custom`으로 마운트하고, 컨테이너 시작 시 `/etc/nginx/nginx.conf`·`/etc/nginx/conf.d`를 그 밑을 가리키는 심볼릭 링크로 교체 — `docker-compose.yml` nginx 서비스의 `entrypoint` 참고. 최초에는 `command`로 구현했는데, 이러면 컨테이너 첫 인자가 "nginx"가 아니게 돼 nginx 공식 `/docker-entrypoint.d/*` 초기화 스크립트가 스킵되는 부작용이 있어(리뷰 지적), `entrypoint`를 셸 래퍼로 감싸 심볼릭 링크 설정 후 원래 `/docker-entrypoint.sh`를 그대로 호출하는 방식으로 바꿨다. 다만 Compose는 `entrypoint`를 지정하면 이미지의 기본 CMD를 완전히 무시하므로(공식 문서: "If entrypoint is non-null, Compose ignores any default command from the image") `command`를 지정하지 않으면 셸 래퍼의 `"$@"`가 비어 `/docker-entrypoint.sh`가 인자 없이 호출돼 초기화 스크립트뿐 아니라 nginx 기동 자체가 실패하는 2차 회귀가 있었다(리뷰 재지적, P0) — `docker-compose.yml` nginx 서비스에 `command: ["nginx", "-g", "daemon off;"]`를 명시적으로 함께 지정해 이미지 기본 CMD와 동일한 인자를 되살렸다. `nginx -t`/`nginx -s reload`가 기본 경로를 그대로 쓰므로 `deploy.yml`은 수정하지 않았다. 이 수정(`docker-compose.yml`의 nginx `volumes`/`entrypoint` 변경)이 `develop`에 머지돼 정상 `deploy.yml` 흐름으로 배포되면, `docker compose up -d ... nginx`가 Compose의 설정 해시 변경을 감지해 **자동으로** 컨테이너를 재생성한다 — 이 문제 자체가 "compose 서비스 정의가 안 바뀌어 재생성이 안 됨"이었으므로, 이 수정으로 서비스 정의가 바뀌는 순간 그 근본 메커니즘에 의해 저절로 해결된다. 별도 수동 `--force-recreate`가 정규 절차로 필요하지는 않다. (참고: 이 PR이 머지되기 전, 이미 배포돼 있던 컨테이너를 당장 복구하기 위해 `docker compose up -d --force-recreate nginx`를 1회 수동 실행해 운영을 먼저 되살린 적이 있다(2026-08-18) — 이건 이 PR 반영 전 임시 조치였고, 이 PR이 정상 배포된 이후에는 다시 필요하지 않다.)
 - **상태 저장소를 관리형으로 옮긴 뒤에는 EC2의 옛 로컬 컨테이너를 반드시 내린다(ElastiCache PR 재검토 지적 P1)**: `docker-compose.yml`의 `mysql`/`redis` 서비스 정의는 로컬 개발용으로 계속 남아 있고 `restart: unless-stopped`다 — RDS·ElastiCache로 전환해도 EC2에서 이미 떠 있던 옛 컨테이너를 누가 직접 내리지 않으면 계속 살아 있다. 이게 특히 위험한 건 두 컨테이너의 실패 모드가 비대칭이라서다: 로컬 mysql은 root 비밀번호가 RDS와 달라 `.env`가 잘못돼도 인증 실패로 시끄럽게 죽지만, 로컬 redis는 `requirepass`가 아예 없어서 `.env`에서 Redis 4줄이 빠지거나 오타가 나면 앱이 조용히 옛 로컬 redis로 폴백해버린다 — 아무 에러 없이 Refresh Token·블랙리스트가 갈라져, ElastiCache 이전이 막으려던 "이미 폐기한 토큰이 다시 유효해지는" 문제가 신호 없이 되돌아올 수 있다. 컷오버가 끝나면 `docker compose rm -sf mysql redis`(또는 서비스별로)로 실제로 내리고, 재발 방지를 위해 이 문서에 그 사실을 남겨둔다.
+- **`notifications.type`·`resource_type` VARCHAR 전환 뒤에는 이전 ENUM 이미지로 롤백하지 않는다(PR #199 리뷰 P1)**: 이전 이미지의 `NotificationWaitlistOfferedTypeMigrationRunner`·`NotificationReservationRequestedTypeMigrationRunner`는 VARCHAR 컬럼을 ENUM으로 다시 바꾼다. 새 알림 값이 한 건이라도 있으면 ALTER가 실패해 부팅이 멈추고, 모두 예전 값이어도 물리 스키마가 되돌아가 다음 배포의 계약이 깨진다. 따라서 새 색이 healthy 이전에 실패하면 blue/green이 기존 색을 유지하는 현재 절차를 사용하고, **컷오버 뒤 장애는 VARCHAR 계약을 유지한 정방향 수정 커밋으로 복구**한다. `deploy.yml`은 현재 활성 SHA에는 VARCHAR 러너가 있고 배포 대상 SHA에는 없을 때 명시적으로 배포를 차단한다. 이 가드를 SSH 수동 배포로 우회하지 않는다. 정말로 레거시 이미지가 필요한 재난 상황은 알림 쓰기를 먼저 중지하고 RDS 스냅샷을 만든 뒤, 아래 조회가 0행임을 확인한 담당자가 별도 변경 승인으로만 수행한다 — 이 경로는 표준 롤백이 아니며 데이터 정정·ENUM 재전환·재기동을 한 작업으로 원자화해야 한다.
+
+  ```sql
+  select id, type, resource_type
+    from notifications
+   where type not in (
+       'RESERVATION_REQUESTED', 'RESERVATION_CONFIRMED', 'RESERVATION_REJECTED',
+       'RESERVATION_HOSPITAL_CANCELED', 'RESERVATION_WAITLIST_OFFERED',
+       'PAYMENT_RESULT', 'PAYMENT_PENDING', 'NO_SHOW'
+   )
+      or resource_type not in ('RESERVATION', 'RESERVATION_WAITLIST', 'PAYMENT');
+  ```
+
+  조회 결과가 있으면 강제 롤백을 중단하고 정방향 수정으로 복구한다. 0행은 레거시 ENUM이 값을 잃지 않는 **필요조건일 뿐**이며, 스키마를 되돌리는 작업 자체의 위험을 없애지는 않는다.
 
 ## 8. 구현 체크리스트
 
