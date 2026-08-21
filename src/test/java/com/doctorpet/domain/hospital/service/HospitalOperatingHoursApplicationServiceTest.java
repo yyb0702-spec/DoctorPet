@@ -184,7 +184,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 TODAY,
                 TODAY.plusDays(13)
         )).willReturn(Optional.of(TODAY.plusDays(3)));
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, actualEffectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, actualEffectiveFrom))
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));
@@ -211,7 +211,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 TODAY,
                 lastPublishedBusinessDate
         )).willReturn(Optional.of(lastPublishedBusinessDate));
-        given(scheduleRepository.findSchedule(
+        given(scheduleRepository.findScheduleForUpdate(
                 HOSPITAL_ID,
                 TODAY.plusDays(14)
         )).willReturn(Optional.empty());
@@ -238,7 +238,7 @@ class HospitalOperatingHoursApplicationServiceTest {
         );
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
         // UPDATE는 선택한 발효일이 고정이라 예약 조회로 발효일을 밀지 않는다(CREATE 전용).
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(scheduleRepository.save(schedule)).willReturn(schedule);
         given(schedule.getId()).willReturn(101L);
@@ -266,7 +266,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 expectedUpdatedAt
         );
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, targetEffectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, targetEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(scheduleRepository.save(schedule)).willReturn(schedule);
         given(schedule.getId()).willReturn(202L);
@@ -291,7 +291,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 TODAY,
                 TODAY.plusDays(13)
         )).willReturn(Optional.empty());
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
 
         assertThatThrownBy(() -> service.updateOperatingHours(
@@ -308,7 +308,7 @@ class HospitalOperatingHoursApplicationServiceTest {
     void updateOperatingHoursRejectsStaleSelectedSchedule() {
         LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, desiredEffectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(schedule.getId()).willReturn(101L);
         given(schedule.getUpdatedAt()).willReturn(
@@ -340,7 +340,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 TODAY,
                 TODAY.plusDays(13)
         )).willReturn(Optional.empty());
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));
@@ -383,7 +383,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 TODAY,
                 TODAY.plusDays(13)
         )).willReturn(Optional.empty());
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
         given(lockedHospital.getBusinessStatus())
                 .willReturn(BusinessStatus.CLOSED_TEMP);
@@ -409,7 +409,7 @@ class HospitalOperatingHoursApplicationServiceTest {
                 TODAY,
                 TODAY.plusDays(13)
         )).willReturn(Optional.empty());
-        given(scheduleRepository.findSchedule(HOSPITAL_ID, effectiveFrom))
+        given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, effectiveFrom))
                 .willReturn(Optional.empty());
         given(hospitalRepository.findByIdForUpdate(HOSPITAL_ID))
                 .willReturn(Optional.of(hospital));

@@ -23,6 +23,7 @@ import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand
 import com.doctorpet.domain.reservation.service.ReservationService;
 import com.doctorpet.global.exception.ServiceException;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import java.time.Clock;
 import java.time.DayOfWeek;
@@ -111,7 +112,8 @@ public class HospitalOperatingHoursApplicationService {
             case UPDATE -> request.desiredEffectiveFrom();
         };
         HospitalOperatingSchedule existingSchedule = scheduleRepository
-                .findSchedule(hospitalId, effectiveFrom)
+                .findScheduleForUpdate(hospitalId, effectiveFrom)
+                .map(this::refreshForCurrentRead)
                 .orElse(null);
         HospitalOperatingSchedule schedule = switch (request.saveMode()) {
             case CREATE -> createScheduleForNewEffectiveDate(
@@ -282,6 +284,16 @@ public class HospitalOperatingHoursApplicationService {
             throw operatingScheduleConflict();
         }
         entityManager.refresh(schedule);
+    }
+
+    private HospitalOperatingSchedule refreshForCurrentRead(
+            HospitalOperatingSchedule schedule
+    ) {
+        // 같은 영속성 컨텍스트에서 잠금 전 일반 조회가 이미 엔티티를 관리 중이면, PESSIMISTIC_WRITE
+        // 조회만으로는 1차 캐시의 오래된 필드를 다시 쓸 수 있다. refresh + 잠금으로 DB current read를
+        // 엔티티에 재적재해 CREATE 존재 확인과 UPDATE 토큰 검증 모두 최신 행으로 수행한다.
+        entityManager.refresh(schedule, LockModeType.PESSIMISTIC_WRITE);
+        return schedule;
     }
 
     private LocalDateTime nextUpdateToken(LocalDateTime currentUpdatedAt) {

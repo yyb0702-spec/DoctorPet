@@ -38,6 +38,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 // applicationClock을 @MockitoBean으로 갈아끼운 유일한 클래스다(테스트 스위트 전체에서 Clock을 목으로
@@ -335,10 +337,10 @@ class TemporaryClosureCancellationIntegrationTest {
 
         try {
             Future<HospitalErrorCode> firstFuture = executor.submit(
-                    () -> updateAfterStartSignal(firstRequest, ready, start)
+                    () -> updateAfterSnapshotAndStartSignal(firstRequest, ready, start)
             );
             Future<HospitalErrorCode> secondFuture = executor.submit(
-                    () -> updateAfterStartSignal(secondRequest, ready, start)
+                    () -> updateAfterSnapshotAndStartSignal(secondRequest, ready, start)
             );
 
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
@@ -370,6 +372,34 @@ class TemporaryClosureCancellationIntegrationTest {
         } catch (ServiceException exception) {
             return (HospitalErrorCode) exception.getErrorCode();
         }
+    }
+
+    private HospitalErrorCode updateAfterSnapshotAndStartSignal(
+            OperatingHoursUpdateRequest request,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) {
+        AtomicReference<HospitalErrorCode> errorCode = new AtomicReference<>();
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                // 실제 요청의 회원 조회처럼, 병원 행 잠금 전에 일반 조회가 REPEATABLE_READ 스냅샷을
+                // 만들었을 때에도 대상 시간표는 current read로 다시 읽어야 한다.
+                scheduleRepository.findSchedule(hospitalId, request.desiredEffectiveFrom())
+                        .orElseThrow();
+                ready.countDown();
+                await(start);
+                try {
+                    service.updateOperatingHours(MEMBER_ID, request);
+                } catch (ServiceException exception) {
+                    errorCode.set((HospitalErrorCode) exception.getErrorCode());
+                }
+            });
+        } catch (UnexpectedRollbackException exception) {
+            if (errorCode.get() == null) {
+                throw exception;
+            }
+        }
+        return errorCode.get();
     }
 
     private OperatingHoursUpdateRequest createOperatingHoursRequest(LocalDate effectiveFrom) {

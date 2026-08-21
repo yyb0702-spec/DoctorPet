@@ -1,9 +1,11 @@
 package com.doctorpet.domain.hospital.repository;
 
 import com.doctorpet.domain.hospital.entity.HospitalOperatingSchedule;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -35,6 +37,20 @@ public interface HospitalOperatingScheduleRepository
               AND schedule.effectiveFrom = :effectiveFrom
             """)
     Optional<HospitalOperatingSchedule> findSchedule(
+            @Param("hospitalId") Long hospitalId,
+            @Param("effectiveFrom") LocalDate effectiveFrom
+    );
+
+    // 병원 행 잠금 전에 만들어진 REPEATABLE_READ 스냅샷을 재사용하지 않도록 현재 읽기로 가져온다.
+    // CREATE의 동일 발효일 재확인과 UPDATE의 stale token 검증 모두 이 조회 결과만 사용한다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT schedule
+            FROM HospitalOperatingSchedule schedule
+            WHERE schedule.hospital.id = :hospitalId
+              AND schedule.effectiveFrom = :effectiveFrom
+            """)
+    Optional<HospitalOperatingSchedule> findScheduleForUpdate(
             @Param("hospitalId") Long hospitalId,
             @Param("effectiveFrom") LocalDate effectiveFrom
     );
