@@ -1,9 +1,11 @@
 // 오프셋 없는 백엔드 시각을 다루는 유틸. 실행 환경 타임존이 결과를 바꾸지 않아야 한다.
 import { describe, expect, it } from 'vitest'
 import {
+  dateKeyLabel,
   naiveDateTimeLabel,
   naiveTimeLabel,
   parseSeoulDateTime,
+  relativeDateKeyLabel,
   shiftDateKey,
   todaySeoulKey,
 } from './seoulTime'
@@ -66,5 +68,41 @@ describe('naive 라벨', () => {
     expect(naiveTimeLabel('2026-08-20')).toBe('2026-08-20')
     expect(naiveTimeLabel('')).toBe('')
     expect(naiveDateTimeLabel('nonsense')).toBe('nonsense')
+  })
+})
+
+describe('날짜 키 라벨', () => {
+  it('연도까지 필요한 표기는 연·월·일을 준다', () => {
+    expect(dateKeyLabel('2026-08-22')).toBe('2026년 8월 22일')
+    expect(dateKeyLabel('2026-12-01')).toBe('2026년 12월 1일')
+  })
+
+  // 형식이 다르면 split이 NaN을 만들어 "NaN년 …"이 화면에 뜬다. 원문을 그대로 보여주는 편이 낫다.
+  it('형식이 다르면 원문을 그대로 돌려준다', () => {
+    expect(dateKeyLabel('')).toBe('')
+    expect(dateKeyLabel('2026-08')).toBe('2026-08')
+    expect(dateKeyLabel('2026-08-22T09:00')).toBe('2026-08-22T09:00')
+  })
+
+  // 기준 날짜(Asia/Seoul)를 주입해 "오늘"·"내일"이 실행 환경 날짜에 흔들리지 않게 한다.
+  it('기준 날짜와 같으면 오늘, 하루 뒤면 내일', () => {
+    expect(relativeDateKeyLabel('2026-08-20', '2026-08-20')).toBe('오늘')
+    expect(relativeDateKeyLabel('2026-08-21', '2026-08-20')).toBe('내일')
+  })
+
+  it('월말을 넘겨도 내일을 맞게 계산한다', () => {
+    expect(relativeDateKeyLabel('2026-09-01', '2026-08-31')).toBe('내일')
+  })
+
+  /*
+    그 밖의 날짜는 로케일 포맷을 그대로 쓴다. 정확한 표기는 ICU 버전에 따라 달라질 수 있어
+    문자열 전체를 단언하지 않고, 날짜 정보가 들어 있고 오늘·내일로 오분류되지 않는지만 본다.
+  */
+  it('그 밖의 날짜는 월·일이 담긴 상대 라벨로 표시한다', () => {
+    const label = relativeDateKeyLabel('2026-08-25', '2026-08-20')
+    expect(label).toContain('8월')
+    expect(label).toContain('25')
+    expect(label).not.toBe('오늘')
+    expect(label).not.toBe('내일')
   })
 })

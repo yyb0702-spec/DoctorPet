@@ -1,6 +1,14 @@
 // 병원 스태프 운영 계약(진료시간·진료역량·임시휴진). SA §8-8, /api/hospital/**.
 import type { CapabilityValue } from '@/types/enums'
 
+/*
+  슬롯 발행창 — 백엔드가 오늘부터 이 일수만큼 뒤까지 슬롯을 발행해 둔다
+  (HospitalSlotGenerationScheduler.PUBLISHED_RANGE_LAST_DAY_OFFSET,
+  HospitalOperatingHoursApplicationService의 today.plusDays(13)와 같은 값).
+  진료시간·임시휴진 화면이 각자 하드코딩하면 서로 어긋나므로 여기 한 번만 둔다.
+*/
+export const SLOT_PUBLICATION_DAYS = 13
+
 // 백엔드 java.time.DayOfWeek 이름을 그대로 쓴다.
 export const DayOfWeek = {
   MONDAY: 'MONDAY',

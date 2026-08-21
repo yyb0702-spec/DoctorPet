@@ -8,7 +8,11 @@
 // 시각은 오프셋 없는 문자열이라 Asia/Seoul 오프셋을 붙여 파싱한다(lib/seoulTime.parseSeoulDateTime).
 import type { StaffReservationListItem } from './types'
 import { ReservationStatus } from '@/types/enums'
-import { parseSeoulDateTime, shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
+import {
+  parseSeoulDateTime,
+  relativeDateKeyLabel,
+  todaySeoulKey,
+} from '@/lib/seoulTime'
 
 // 다가오는(예정) 상태 — 이른 시간부터 보여준다. 그 외(이력) 상태는 최근부터.
 const UPCOMING_STATUSES: ReservationStatus[] = [
@@ -35,22 +39,6 @@ export interface DateGroup {
   items: StaffReservationListItem[]
 }
 
-/*
-  "오늘"·"내일" 판정은 Asia/Seoul 날짜로 한다 — 브라우저 로컬 날짜를 쓰면 UTC 환경에서 한국의
-  오늘 예약이 "내일"로 붙는다. 기준 날짜를 인자로 받아 테스트가 타임존과 무관하게 고정된다.
-*/
-export function dateLabel(key: string, todayKey: string = todaySeoulKey()): string {
-  if (key === todayKey) return '오늘'
-  if (key === shiftDateKey(todayKey, 1)) return '내일'
-  // UTC 자정으로 파싱하고 UTC로 표시해, 로컬 타임존이 날짜·요일을 밀지 않게 한다.
-  return new Date(`${key}T00:00:00Z`).toLocaleDateString('ko-KR', {
-    timeZone: 'UTC',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  })
-}
-
 // 예약 시각으로 정렬한 뒤 날짜별로 묶는다. ascending=true면 이른 시간부터.
 // 정렬 범위는 넘겨받은 배열(=현재 페이지)뿐이다. 파일 상단 주석의 한계를 참고.
 export function groupByDate(
@@ -71,7 +59,7 @@ export function groupByDate(
     if (idx === undefined) {
       idx = groups.length
       indexByKey.set(key, idx)
-      groups.push({ date: key, label: dateLabel(key, todayKey), items: [] })
+      groups.push({ date: key, label: relativeDateKeyLabel(key, todayKey), items: [] })
     }
     groups[idx].items.push(item)
   }

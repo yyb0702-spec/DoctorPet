@@ -2,7 +2,7 @@
 // 시각 비교는 Asia/Seoul 기준 문자열로 하므로, 기준 시각을 인자로 주입해 테스트가 실행 환경의
 // 타임존에 흔들리지 않게 한다(리뷰 P2 — 예전엔 로컬 Date 파싱이라 UTC CI에서 결과가 달라졌다).
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dateLabel, groupByDate, isOverdue, isUpcomingStatus } from './schedule'
+import { groupByDate, isOverdue, isUpcomingStatus } from './schedule'
 import type { StaffReservationListItem } from './types'
 import { ReservationStatus } from '@/types/enums'
 
@@ -39,6 +39,17 @@ describe('groupByDate', () => {
     expect(groups.map((g) => g.date)).toEqual(['2026-08-19', '2026-08-20'])
     expect(groups[0].items.map((i) => i.reservationId)).toEqual([3, 2])
     expect(groups[1].items.map((i) => i.reservationId)).toEqual([1])
+  })
+
+  // 그룹 라벨은 공용 relativeDateKeyLabel(lib/seoulTime)이 만든다 — 여기로 옮긴 뒤에도
+  // "오늘"·"내일" 상대 표기가 그대로 붙는지 고정한다(PR #198 리팩터).
+  it('그룹 라벨에 기준 날짜 기준 상대 표기를 붙인다', () => {
+    const groups = groupByDate(
+      [item(1, '2026-08-19T09:00:00'), item(2, '2026-08-20T10:00:00')],
+      true,
+      '2026-08-19',
+    )
+    expect(groups.map((g) => g.label)).toEqual(['오늘', '내일'])
   })
 
   it('descending이면 최근 날짜·늦은 시간부터', () => {
@@ -100,30 +111,6 @@ describe('isOverdue', () => {
 
 afterEach(() => {
   vi.useRealTimers()
-})
-
-describe('dateLabel', () => {
-  // 기준 날짜(Asia/Seoul)를 주입해 "오늘"·"내일"이 실행 환경 날짜에 흔들리지 않게 한다.
-  it('기준 날짜와 같으면 오늘, 하루 뒤면 내일', () => {
-    expect(dateLabel('2026-08-20', '2026-08-20')).toBe('오늘')
-    expect(dateLabel('2026-08-21', '2026-08-20')).toBe('내일')
-  })
-
-  it('월말을 넘겨도 내일을 맞게 계산한다', () => {
-    expect(dateLabel('2026-09-01', '2026-08-31')).toBe('내일')
-  })
-
-  /*
-    그 밖의 날짜는 로케일 포맷을 그대로 쓴다. 정확한 표기는 ICU 버전에 따라 달라질 수 있어
-    문자열 전체를 단언하지 않고, 날짜 정보가 들어 있고 오늘·내일로 오분류되지 않는지만 본다.
-  */
-  it('그 밖의 날짜는 월·일이 담긴 라벨로 표시한다', () => {
-    const label = dateLabel('2026-08-25', '2026-08-20')
-    expect(label).toContain('8월')
-    expect(label).toContain('25')
-    expect(label).not.toBe('오늘')
-    expect(label).not.toBe('내일')
-  })
 })
 
 describe('isUpcomingStatus', () => {

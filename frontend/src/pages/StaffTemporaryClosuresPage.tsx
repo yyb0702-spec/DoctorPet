@@ -14,11 +14,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SLOT_PUBLICATION_DAYS } from '@/features/hospitalOps/types'
 import { ApiError } from '@/lib/api/error'
-import { shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
-
-// 슬롯 발행창 — 백엔드가 today+13일까지 슬롯을 발행해 둔다.
-const PUBLISHED_DAYS = 13
+import { dateKeyLabel, shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
 
 interface HistoryEntry {
   businessDate: string
@@ -27,11 +25,6 @@ interface HistoryEntry {
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
-}
-
-function dateLabel(dateKey: string): string {
-  const [year, month, day] = dateKey.split('-').map(Number)
-  return `${year}년 ${month}월 ${day}일`
 }
 
 export function StaffTemporaryClosuresPage() {
@@ -47,6 +40,14 @@ export function StaffTemporaryClosuresPage() {
 
   const addHistory = (entry: HistoryEntry) =>
     setHistory((prev) => [entry, ...prev])
+
+  // 날짜를 바꾸면 이전 날짜에 대한 오류 문구를 지운다 — 그대로 두면 새 날짜의 오류로 읽힌다.
+  const changeBusinessDate = (next: string) => {
+    setBusinessDate(next)
+    setDateProblem(null)
+    if (create.isError) create.reset()
+    if (cancel.isError) cancel.reset()
+  }
 
   // 등록·취소 모두 "요청일 다음 날부터"만 가능하다(오늘도 불가).
   const guardDate = (): boolean => {
@@ -94,9 +95,10 @@ export function StaffTemporaryClosuresPage() {
             · 등록하면 그 날의 예약 없는 슬롯이 사라져 새 예약을 받지 않습니다.
           </p>
           <p>
-            · 취소하면 그 날 슬롯이 다시 열립니다. 오늘부터 {PUBLISHED_DAYS}일
-            뒤까지의 발행창 안이면 <strong>즉시</strong> 다시 만들어지고, 그
-            밖의 날짜는 발행 스케줄러가 도달할 때 반영됩니다.
+            · 취소하면 그 날 슬롯이 다시 열립니다. 오늘부터{' '}
+            {SLOT_PUBLICATION_DAYS}일 뒤까지의 발행창 안이면{' '}
+            <strong>즉시</strong> 다시 만들어지고, 그 밖의 날짜는 발행
+            스케줄러가 도달할 때 반영됩니다.
           </p>
           <p>· 휴진 취소는 휴진 영업일 전날까지만 할 수 있습니다.</p>
         </CardContent>
@@ -113,7 +115,7 @@ export function StaffTemporaryClosuresPage() {
                 className="w-44"
                 min={tomorrow}
                 value={businessDate}
-                onChange={(e) => setBusinessDate(e.target.value)}
+                onChange={(e) => changeBusinessDate(e.target.value)}
               />
             </div>
             <Button disabled={pending} onClick={handleCreate}>
@@ -168,7 +170,7 @@ export function StaffTemporaryClosuresPage() {
                   >
                     {entry.action === 'created' ? '휴진 등록' : '휴진 취소'}
                   </Badge>
-                  {dateLabel(entry.businessDate)}
+                  {dateKeyLabel(entry.businessDate)}
                 </li>
               ))}
             </ul>

@@ -24,17 +24,22 @@ function errorMessage(error: unknown): string {
 function CapabilityPicker({
   initial,
   pending,
+  onEdit,
   onSave,
 }: {
   initial: CapabilityValue[]
   pending: boolean
+  onEdit: () => void
   onSave: (capabilities: CapabilityValue[]) => void
 }) {
   const [selected, setSelected] = useState<Set<CapabilityValue>>(
     () => new Set(initial),
   )
 
+  // 편집을 시작하면 직전 저장 결과 메시지를 지운다 — 바뀐 선택과 "저장했습니다"가 같이 떠서
+  // 저장된 것으로 오독하는 일을 막는다.
   const toggle = (capability: CapabilityValue) => {
+    onEdit()
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(capability)) next.delete(capability)
@@ -98,6 +103,10 @@ export function StaffCapabilitiesPage() {
   const query = useCapabilities()
   const update = useUpdateCapabilities()
 
+  const clearResult = () => {
+    if (update.isSuccess || update.isError) update.reset()
+  }
+
   if (query.isLoading) return <PageLoader />
   if (query.isError || !query.data) {
     return (
@@ -135,6 +144,7 @@ export function StaffCapabilitiesPage() {
         key={capabilities.join('|')}
         initial={capabilities}
         pending={update.isPending}
+        onEdit={clearResult}
         onSave={(next) => update.mutate(next)}
       />
 

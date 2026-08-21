@@ -6,11 +6,13 @@ import {
   useUpdateOperatingHours,
 } from '@/features/hospitalOps/hooks'
 import {
+  emptyWeek,
   toWeekDraft,
   validateWeeklyOperatingHours,
 } from '@/features/hospitalOps/operatingHours'
 import {
   DAY_LABEL,
+  SLOT_PUBLICATION_DAYS,
   type DailyOperatingHours,
   type DayOfWeek,
   type OperatingHoursUpdateRequest,
@@ -21,31 +23,28 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
-import { shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
+import { dateKeyLabel, shiftDateKey, todaySeoulKey } from '@/lib/seoulTime'
 
 // 새 구간을 추가할 때의 기본값(휴무 해제도 같은 값으로 연다).
 const DEFAULT_PERIOD = { startTime: '09:00', endTime: '18:00' }
 
-// 슬롯 발행창 — 백엔드가 today+13일까지 슬롯을 발행해 둔다.
-const PUBLISHED_DAYS = 13
+// 아직 유효한 진료시간이 없는 병원에서 GET이 내는 코드(HospitalErrorCode.OPERATING_SCHEDULE_NOT_FOUND).
+const OPERATING_SCHEDULE_NOT_FOUND = 'HOSPITAL_004'
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '저장에 실패했습니다.'
-}
-
-function dateLabel(dateKey: string): string {
-  const [year, month, day] = dateKey.split('-').map(Number)
-  return `${year}년 ${month}월 ${day}일`
 }
 
 // 서버 값이 바뀌면 부모가 key로 이 폼을 새로 만든다 — 편집 상태 동기화를 effect로 하지 않는다.
 function OperatingHoursForm({
   initialDays,
   pending,
+  onEdit,
   onSave,
 }: {
   initialDays: DailyOperatingHours[]
   pending: boolean
+  onEdit: () => void
   onSave: (request: OperatingHoursUpdateRequest) => void
 }) {
   const today = todaySeoulKey()
@@ -59,10 +58,13 @@ function OperatingHoursForm({
 
   const problems = useMemo(() => validateWeeklyOperatingHours(draft), [draft])
 
+  // 편집을 시작하면 직전 저장 결과 메시지를 지운다 — "저장했습니다"와 검증 오류가 같이 떠서
+  // 저장된 것으로 오독하는 일을 막는다.
   const updateDay = (
     dayOfWeek: DayOfWeek,
     mapper: (day: DailyOperatingHours) => DailyOperatingHours,
   ) => {
+    onEdit()
     setDraft((prev) =>
       prev.map((day) => (day.dayOfWeek === dayOfWeek ? mapper(day) : day)),
     )
@@ -215,7 +217,10 @@ function OperatingHoursForm({
                 className="w-44"
                 min={tomorrow}
                 value={desiredEffectiveFrom}
-                onChange={(e) => setDesiredEffectiveFrom(e.target.value)}
+                onChange={(e) => {
+                  onEdit()
+                  setDesiredEffectiveFrom(e.target.value)
+                }}
               />
             </div>
             <Button disabled={pending} onClick={handleSave}>
@@ -240,8 +245,25 @@ export function StaffOperatingHoursPage() {
   const query = useOperatingHours()
   const update = useUpdateOperatingHours()
 
+  /*
+    아직 유효한 진료시간이 없는 병원은 GET이 HOSPITAL_004로 실패하지만 PUT은 스케줄을 새로
+    만들 수 있다(updateOperatingHours의 orElseGet(createSchedule)). 초기 스케줄 시드는 제휴
+    병원만 대상이라(findPartnerDetailsWithoutEffectiveSchedule) 그 밖의 병원은 이 화면이
+    유일한 등록 경로다 — 이 코드일 때만 빈 폼을 열어 준다.
+    다른 오류(일시적 5xx·권한)는 폼을 열지 않는다. 빈 시간표를 현재 상태로 착각해 저장하면
+    기존 진료시간을 덮어쓰기 때문이다.
+  */
+  const scheduleMissing =
+    query.isError &&
+    query.error instanceof ApiError &&
+    query.error.code === OPERATING_SCHEDULE_NOT_FOUND
+
+  const clearResult = () => {
+    if (update.isSuccess || update.isError) update.reset()
+  }
+
   if (query.isLoading) return <PageLoader />
-  if (query.isError || !query.data) {
+  if (!query.data && !scheduleMissing) {
     return (
       <ErrorState
         message={errorMessage(query.error)}
@@ -250,7 +272,7 @@ export function StaffOperatingHoursPage() {
     )
   }
 
-  const schedule = query.data
+  const schedule = query.data ?? null
   // 요청한 발효일과 서버가 확정한 발효일을 비교해 "뒤로 밀렸다"를 알린다.
   const requestedFrom = update.variables?.desiredEffectiveFrom
   const confirmedFrom = update.data?.effectiveFrom
@@ -270,23 +292,32 @@ export function StaffOperatingHoursPage() {
           <CardTitle className="text-base">저장 전에 알아두기</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1.5 text-sm text-muted-foreground">
-          <p>
-            현재 적용 중인 진료시간의 발효일은{' '}
-            <strong className="text-foreground">
-              {dateLabel(schedule.effectiveFrom)}
-            </strong>
-            입니다.
-          </p>
+          {schedule ? (
+            <p>
+              현재 적용 중인 진료시간의 발효일은{' '}
+              <strong className="text-foreground">
+                {dateKeyLabel(schedule.effectiveFrom)}
+              </strong>
+              입니다.
+            </p>
+          ) : (
+            <p className="text-foreground">
+              <strong>아직 등록된 진료시간이 없습니다.</strong> 아래에서 요일별
+              진료 구간을 채워 처음 등록해 주세요.
+            </p>
+          )}
           <p>· 새 진료시간은 오늘 이후 날짜부터만 적용할 수 있습니다.</p>
           <p>
-            · 예약 슬롯은 오늘부터 {PUBLISHED_DAYS}일 뒤까지 미리 발행돼
-            있습니다. 발효일이 그 안이면 발효일부터 {PUBLISHED_DAYS}일 뒤까지의{' '}
-            <strong>예약 없는 슬롯이 새 진료시간으로 교체</strong>됩니다.
+            · 예약 슬롯은 오늘부터 {SLOT_PUBLICATION_DAYS}일 뒤까지 미리 발행돼
+            있습니다. 발효일이 그 안이면 발효일부터 {SLOT_PUBLICATION_DAYS}일
+            뒤까지의 슬롯을 <strong>통째로 새 시간표로 교체</strong>
+            합니다(슬롯을 골라 남기는 부분 교체가 아닙니다).
           </p>
           <p>
             · 그 기간에 이미 예약이 있으면 서버가 발효일을{' '}
             <strong>마지막 예약일의 다음 날로 자동 조정</strong>합니다. 저장 후
-            확정된 발효일을 확인해 주세요.
+            확정된 발효일을 확인해 주세요. 조정한 뒤에도 예약이 남아 있으면
+            저장은 실패합니다(예약된 슬롯이 있다는 오류).
           </p>
           <p>
             · 종료 시각이 시작 시각보다 이르면 자정을 넘긴 야간 진료로
@@ -301,9 +332,14 @@ export function StaffOperatingHoursPage() {
       </Card>
 
       <OperatingHoursForm
-        key={`${schedule.effectiveFrom}|${JSON.stringify(schedule.days)}`}
-        initialDays={schedule.days}
+        key={
+          schedule
+            ? `${schedule.effectiveFrom}|${JSON.stringify(schedule.days)}`
+            : 'missing-schedule'
+        }
+        initialDays={schedule?.days ?? emptyWeek()}
         pending={update.isPending}
+        onEdit={clearResult}
         onSave={(request) => update.mutate(request)}
       />
 
@@ -312,10 +348,12 @@ export function StaffOperatingHoursPage() {
       )}
       {update.isSuccess && confirmedFrom && (
         <div className="space-y-1 text-sm">
-          <p>저장했습니다. 확정된 발효일은 {dateLabel(confirmedFrom)}입니다.</p>
+          <p>
+            저장했습니다. 확정된 발효일은 {dateKeyLabel(confirmedFrom)}입니다.
+          </p>
           {pushedBack && requestedFrom && (
             <p className="text-muted-foreground">
-              요청한 {dateLabel(requestedFrom)}에는 이미 예약이 있어 서버가
+              요청한 {dateKeyLabel(requestedFrom)}에는 이미 예약이 있어 서버가
               발효일을 뒤로 조정했습니다. 그 전까지는 기존 진료시간이 그대로
               쓰입니다.
             </p>
