@@ -68,7 +68,7 @@ MSW는 `VITE_ENABLE_MOCKS=true`인 `dev:mock`에서만 켜진다. 백엔드 구�
 
 ## 아직 안 만든 것 / 후속
 
-- **PortOne 빌링키 발급**(결제창 연동): 현재 결제수단 등록은 발급된 빌링키 문자열 입력. SDK 통합은 후속.
+- **PortOne 실제 운영 인증**: 결제수단 화면의 Browser SDK 카카오페이 빌링키 발급·등록은 구현됐다. PC iframe·모바일 `/payment-methods` 복귀를 실제로 검증하려면 Vercel의 `VITE_PORTONE_STORE_ID`·`VITE_PORTONE_CHANNEL_KEY`를 주입하고 실인증을 확인해야 한다.
 - **실시간 push**: 실시간 알림은 SSE로 연동 완료(`features/notifications/notificationSse.ts`, 티켓 인증·1회성 티켓 재구독 계약 포함). 폴링(`useNotifications`)은 끊김 시 백업 경로로 유지.
 - **예약당 채팅**: 보호자·병원 스태프 예약 상세에서 REST 이력 조회 후 native WebSocket + STOMP로 실시간 수신한다. `dev:mock`은 실제 STOMP 연결을 시도하지 않고 안내만 표시한다. 운영 Nginx의 `/ws/chat` Upgrade 프록시 설정도 반영돼 있다.
 - **결제 복구·정정 UI**: 백엔드의 보호자 셀프 재청구와 병원 스태프 정정 재청구 API는 구현됐지만 이를 실행하는 프론트 화면은 아직 없다.
