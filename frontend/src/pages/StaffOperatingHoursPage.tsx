@@ -31,8 +31,13 @@ const DEFAULT_PERIOD = { startTime: '09:00', endTime: '18:00' }
 // 아직 유효한 진료시간이 없는 병원에서 GET이 내는 코드(HospitalErrorCode.OPERATING_SCHEDULE_NOT_FOUND).
 const OPERATING_SCHEDULE_NOT_FOUND = 'HOSPITAL_004'
 
-function errorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : '저장에 실패했습니다.'
+// ApiError면 백엔드 문구를 그대로 쓴다. 그 밖(네트워크·예상 못한 예외)은 호출 맥락에 맞는
+// 문구로 대체한다 — 조회 실패에 "저장에 실패"가 뜨면 안 된다.
+function errorMessage(
+  error: unknown,
+  fallback = '저장에 실패했습니다.',
+): string {
+  return error instanceof ApiError ? error.message : fallback
 }
 
 // 서버 값이 바뀌면 부모가 key로 이 폼을 새로 만든다 — 편집 상태 동기화를 effect로 하지 않는다.
@@ -266,7 +271,7 @@ export function StaffOperatingHoursPage() {
   if (!query.data && !scheduleMissing) {
     return (
       <ErrorState
-        message={errorMessage(query.error)}
+        message={errorMessage(query.error, '진료시간을 불러오지 못했습니다.')}
         onRetry={() => query.refetch()}
       />
     )
