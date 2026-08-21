@@ -5,6 +5,7 @@
 //  3) 휴무 토글은 구간을 파기하지 않고 되살린다.
 //  4) 저장하지 않은 편집이 있으면 새로고침·탭 닫기를 막는다.
 //  5) 서버로 보내는 payload에는 화면 전용 id가 섞이지 않는다.
+//  6) 자정을 넘겨도 건드리지 않은 폼이 미저장 상태로 바뀌지 않는다.
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryRouter } from 'react-router-dom'
@@ -12,6 +13,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StaffOperatingHoursPage } from './StaffOperatingHoursPage'
 import { ApiError } from '@/lib/api/error'
 import type { OperatingHours } from '@/features/hospitalOps/types'
+
+// 오늘(Asia/Seoul)을 고정해 실행 시각에 흔들리지 않게 하고, 자정 경계도 직접 만든다.
+let fakeToday = '2026-08-21'
+vi.mock('@/lib/seoulTime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/seoulTime')>()
+  return { ...actual, todaySeoulKey: () => fakeToday }
+})
 
 const mutate = vi.fn()
 const operatingHoursQuery = {
@@ -67,6 +75,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  fakeToday = '2026-08-21'
   mutate.mockClear()
   operatingHoursQuery.data = undefined
   operatingHoursQuery.error = null
@@ -185,6 +194,30 @@ describe('StaffOperatingHoursPage', () => {
       dayOfWeek: 'WEDNESDAY',
       periods: [{ startTime: '14:00', endTime: '18:00' }],
     })
+  })
+
+  /*
+    발효일 기본값("내일")을 미저장 판정의 기준으로 매 렌더 다시 계산하면, 페이지를 열어둔 채
+    자정을 넘길 때 기준값만 하루 밀려 아무것도 건드리지 않은 폼이 미저장 상태가 된다.
+    기준값은 마운트 시점에 고정돼야 한다.
+  */
+  it('자정을 넘겨도 건드리지 않은 폼은 이탈을 막지 않는다', async () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    renderPage()
+
+    fakeToday = '2026-08-22' // 자정 경과
+
+    // 구간을 추가했다 지워 내용은 그대로 두면서 자정 이후 상태로 다시 렌더한다.
+    await userEvent.click(
+      screen.getAllByRole('button', { name: '구간 추가' })[0],
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: '월요일 2번째 구간 삭제' }),
+    )
+
+    const beforeUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(beforeUnload)
+    expect(beforeUnload.defaultPrevented).toBe(false)
   })
 
   it('진료시간이 없는 병원(HOSPITAL_004)은 빈 폼으로 최초 등록할 수 있다', () => {

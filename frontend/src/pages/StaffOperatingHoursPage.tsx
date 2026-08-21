@@ -97,6 +97,13 @@ function OperatingHoursForm({
 
   const [draft, setDraft] = useState<DayDraft[]>(() => toDayDrafts(initialDays))
   const [desiredEffectiveFrom, setDesiredEffectiveFrom] = useState(tomorrow)
+  /*
+    미저장 판정의 기준 발효일은 마운트 시점 값으로 고정한다. 렌더마다 다시 계산한 tomorrow를
+    기준으로 쓰면, 페이지를 열어둔 채 자정(Asia/Seoul)을 넘길 때 기준값만 D+2로 바뀌고 입력은
+    D+1에 머물러 — 아무것도 건드리지 않았는데 미저장 편집으로 잡히고 이탈이 막힌다.
+    입력 가능 최소값(min)은 그대로 살아 있는 tomorrow를 써야 하므로 둘을 분리한다.
+  */
+  const [baselineEffectiveFrom] = useState(tomorrow)
   const [clientProblems, setClientProblems] = useState<string[]>([])
   // 휴무로 바꾸기 직전의 구간. 휴무를 풀면 기본값이 아니라 이 값을 되살린다.
   const [stashedPeriods, setStashedPeriods] = useState<
@@ -109,15 +116,18 @@ function OperatingHoursForm({
     [wireDays],
   )
 
-  // 저장하지 않은 편집이 있으면 이탈을 막는다. 시간표뿐 아니라 발효일만 바꾼 경우도
-  // 저장 전에는 서버 요청 내용이 달라지므로 함께 스냅샷에 넣는다.
+  /*
+    저장하지 않은 편집이 있으면 이탈을 막는다. 시간표뿐 아니라 발효일도 함께 본다 —
+    시간표를 그대로 두고 발효일만 옮겨 저장하는 것도 의미 있는 변경이라(같은 주간 시간표를
+    더 늦은 날부터 적용) 발효일을 빼면 그 유일한 입력을 조용히 잃는다.
+  */
   const initialSnapshot = useMemo(
     () =>
       JSON.stringify({
         days: toWeekDraft(initialDays),
-        desiredEffectiveFrom: tomorrow,
+        desiredEffectiveFrom: baselineEffectiveFrom,
       }),
-    [initialDays, tomorrow],
+    [initialDays, baselineEffectiveFrom],
   )
   useUnsavedChangesWarning(
     JSON.stringify({ days: wireDays, desiredEffectiveFrom }) !==
