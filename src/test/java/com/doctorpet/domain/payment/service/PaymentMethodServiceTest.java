@@ -79,7 +79,7 @@ class PaymentMethodServiceTest {
     }
 
     @Test
-    @DisplayName("서버 발급 issueId와 PortOne merchantId가 일치할 때만 빌링키를 저장한다")
+    @DisplayName("서버 발급 issueId와 PortOne 응답 issueId가 일치할 때만 빌링키를 저장한다")
     void registerIssued_matchingMerchantId_savesBillingKey() {
         given(paymentGateway.verifyBillingKey("valid_billing_key"))
                 .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234", "issue-1"));
@@ -93,7 +93,7 @@ class PaymentMethodServiceTest {
     }
 
     @Test
-    @DisplayName("서버 발급 issueId와 PortOne merchantId가 다르면 저장하지 않는다")
+    @DisplayName("서버 발급 issueId와 PortOne 응답 issueId가 다르면 저장하지 않는다")
     void registerIssued_mismatchedMerchantId_rejects() {
         given(paymentGateway.verifyBillingKey("forged_key"))
                 .willReturn(new BillingKeyIssueResult(true, "SHINHAN", "1234", "another-issue"));

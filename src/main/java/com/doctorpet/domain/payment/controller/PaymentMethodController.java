@@ -93,7 +93,7 @@ public class PaymentMethodController {
     }
 
     /** PC iframe 응답은 URL 대신 SDK Promise로 빌링키를 돌려준다. 원문은 인증된 HTTPS body로만 받고,
-     * 서버가 발급한 1회성 issueId와 PortOne merchantId를 대조한 뒤 등록한다. */
+     * 서버가 발급한 1회성 issueId와 PortOne 응답의 발급 건 issueId를 대조한 뒤 등록한다. */
     @PostMapping("/billing-key-issues/{issueId}/complete")
     public ResponseEntity<ApiResponse<PaymentMethodResponse>> completeBillingKeyIssueFromSdk(
             @AuthenticationPrincipal MemberPrincipal principal,

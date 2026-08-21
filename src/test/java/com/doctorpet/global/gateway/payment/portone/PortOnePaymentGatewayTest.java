@@ -131,17 +131,19 @@ class PortOnePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("빌링키가 ISSUED면 유효로 보고 카드 정보와 서버 발급 issueId(merchantId)를 반환한다")
+    @DisplayName("빌링키가 ISSUED면 유효로 보고 카드 정보와 서버 발급 issueId를 반환한다(고객사 상수 merchantId가 아니다)")
     void verifyBillingKey_issued() throws Exception {
+        // 실제 PortOne 응답은 발급 건 issueId와 고객사 상수 merchantId를 함께 준다. 게이트웨이는
+        // 발급 건 식별용 issueId를 읽어야 한다 — merchantId를 읽으면 콜백 귀속 검증이 전건 실패한다.
         PortOnePaymentGateway gateway = gatewayWith(response(200,
-                "{\"status\":\"ISSUED\",\"merchantId\":\"server-issued-id\",\"methods\":[{\"type\":\"CARD\",\"card\":{\"brand\":\"MASTER\",\"number\":\"433012******1234\"}}]}"));
+                "{\"status\":\"ISSUED\",\"issueId\":\"server-issued-id\",\"merchantId\":\"store-constant-id\",\"methods\":[{\"type\":\"CARD\",\"card\":{\"brand\":\"MASTER\",\"number\":\"433012******1234\"}}]}"));
 
         BillingKeyIssueResult result = gateway.verifyBillingKey("billing-key-1");
 
         assertThat(result.valid()).isTrue();
         assertThat(result.cardBrand()).isEqualTo("MASTER");
         assertThat(result.cardLast4()).isEqualTo("1234");
-        assertThat(result.merchantId()).isEqualTo("server-issued-id");
+        assertThat(result.issueId()).isEqualTo("server-issued-id");
     }
 
     @Test

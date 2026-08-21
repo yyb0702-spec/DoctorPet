@@ -36,7 +36,7 @@
 
 1. **빌링키 발급** — PortOne 결제창(정기결제)에서 **테스트 카드**를 입력해 빌링키를 받는다(KG이니시스 테스트 카드). 카드 입력은 사람이 직접 한다.
 2. 프런트가 보호자 JWT로 `POST /api/payment-methods/billing-key-issues`를 호출해 서버 1회성 `issueId`·콜백 주소를 받는다.
-3. PC iframe 결과는 인증된 `POST /api/payment-methods/billing-key-issues/{issueId}/complete` body로 보내고, 모바일은 PortOne이 서버 콜백으로 보낸다. 서버가 PortOne 조회의 `merchantId`와 `issueId`를 대조한 뒤에만 저장한다. **빌링키를 프런트 URL·로그·수동 POST에 넣지 않는다.**
+3. PC iframe 결과는 인증된 `POST /api/payment-methods/billing-key-issues/{issueId}/complete` body로 보내고, 모바일은 PortOne이 서버 콜백으로 보낸다. 서버가 PortOne 조회가 돌려준 발급 건 `issueId`와 서버가 만든 `issueId`를 대조한 뒤에만 저장한다(고객사 상수 `merchantId`가 아니다). **빌링키를 프런트 URL·로그·수동 POST에 넣지 않는다.**
 4. 예약(진료 완료 상태)·병원 스태프 계정을 준비한 뒤 청구 → PortOne 승인 → `PAID`.
 
 ## 3. 웹훅 테스트 (로컬)

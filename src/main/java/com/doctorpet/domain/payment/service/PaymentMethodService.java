@@ -50,14 +50,14 @@ public class PaymentMethodService {
 
     /**
      * PortOne 모바일 콜백의 빌링키를 등록한다. 브라우저가 보낸 issueId를 믿지 않고, 서버가
-     * PortOne 단건 조회에서 받은 merchantId가 발급 때 서버가 만든 issueId와 같은지 확인한다.
+     * PortOne 단건 조회에서 받은 발급 건 issueId가 발급 때 서버가 만든 issueId와 같은지 확인한다.
      */
     public PaymentMethodResponse registerIssued(Long memberId, String issueId, String billingKey) {
         BillingKeyIssueResult result = verifyBillingKey(billingKey);
         if (!result.valid()) {
             throw new ServiceException(PaymentMethodErrorCode.INVALID_BILLING_KEY);
         }
-        if (!issueId.equals(result.merchantId())) {
+        if (!issueId.equals(result.issueId())) {
             throw new ServiceException(PaymentMethodErrorCode.BILLING_KEY_ISSUE_MISMATCH);
         }
 
