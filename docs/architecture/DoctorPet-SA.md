@@ -483,7 +483,7 @@ UNIQUE: `(reservation_id, event_type)`. 같은 사건의 재요청·경쟁 실�
 
 제약: `UNIQUE(member_id, notification_type, channel)`(`uk_notification_preferences_member_type_channel`) — (회원 · 유형 · 채널)당 1행이다. 설정 API가 생기면 이 제약이 upsert의 기준이 되고, 같은 조합이 둘로 갈려 어느 쪽이 이기는지 모호해지는 상황을 DB가 막는다.
 
-회원별 알림 수신 on/off 설정이다(고도화 3.9). **행이 없으면 "수신"이 기본**이므로 설정을 소급 생성하지 않아도 기존 회원의 동작이 바뀌지 않는다 — 스키마를 먼저 두는 이유가 이것이다(나중에 도입하면 기존 회원에게 어떤 기본값을 소급할지 근거가 없다). 채널은 REALTIME·EMAIL만이고 **인앱 저장은 설정 대상이 아니다**(저장이 알림의 원본이라 끄면 알림 자체가 사라진다). 현재 이 설정을 읽는 곳은 이메일 채널 하나이며, 설정을 바꾸는 API·화면은 아직 없다. 새 테이블이라 전용 마이그레이션 러너가 없다 — `ddl-auto=update`가 테이블과 UNIQUE를 함께 만든다(신규·기존 DB 모두 실측 확인). 두 enum 컬럼은 `@JdbcTypeCode(SqlTypes.VARCHAR)`로 VARCHAR를 못박는다(이슈 #176) — 안 하면 Hibernate가 native ENUM으로 만들어 유형·채널을 추가할 때마다 확장 마이그레이션이 필요해진다.
+회원별 알림 수신 on/off 설정이다(고도화 3.9). **행이 없으면 "수신"이 기본**이므로 설정을 소급 생성하지 않아도 기존 회원의 동작이 바뀌지 않는다 — 스키마를 먼저 두는 이유가 이것이다(나중에 도입하면 기존 회원에게 어떤 기본값을 소급할지 근거가 없다). 채널은 REALTIME·EMAIL만이고 **인앱 저장은 설정 대상이 아니다**(저장이 알림의 원본이라 끄면 알림 자체가 사라진다). 현재 이 설정을 읽는 곳은 이메일 채널 하나이며, 설정을 바꾸는 API·화면은 아직 없다. 테이블·UNIQUE 자체는 `ddl-auto=update`가 만든다(신규·기존 DB 모두 실측 확인). 두 enum 컬럼은 `@JdbcTypeCode(SqlTypes.VARCHAR)`로 VARCHAR를 못박는다(이슈 #176) — 안 하면 Hibernate가 native ENUM으로 만들어 유형·채널을 추가할 때마다 확장 마이그레이션이 필요해진다. **그것만으로는 부족하다** — Hibernate는 VARCHAR enum 컬럼에 허용 값을 열거하는 CHECK 제약도 함께 만들고, 이 테이블은 신규라 **모든 DB에서 새로 생성**되므로 예외 없이 붙는다. 그래서 `NotificationPreferenceCheckConstraintMigrationRunner`(마커 `notification_preference_check_drop_v1`)가 부팅 시 `notification_type`·`channel`을 참조하는 CHECK 제약을 드롭하고, 남아 있으면 부팅을 중단시킨다. 이 러너는 선행(pre-JPA)이 아니라 **JPA 초기화 이후**에 도는 `ApplicationRunner`다 — 제약을 만드는 주체가 Hibernate의 테이블 생성이라 그보다 먼저 돌면 드롭할 대상이 없다.
 
 ### payment_webhooks (확장)
 

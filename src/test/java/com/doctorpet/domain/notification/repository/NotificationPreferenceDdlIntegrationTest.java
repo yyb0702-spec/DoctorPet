@@ -21,9 +21,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>설정 변경 API는 이 범위가 아니므로 여기서 보는 것은 스키마다. ① (회원 · 유형 · 채널)당 1행을 DB가 강제하는지
  * — 이 제약이 없으면 나중에 설정 API가 upsert할 때 같은 조합이 둘로 갈려 어느 쪽이 이기는지 모호해진다.
- * ② 두 enum 컬럼이 native ENUM이 아니라 varchar인지 — ENUM이면 알림 유형·채널을 추가할 때마다 확장
- * 마이그레이션이 다시 필요해진다(이슈 #176에서 notifications에 대해 없앤 바로 그 부채를 새 테이블이 되살리지
- * 않게 한다). ③ 저장·조회 왕복.
+ * ② 두 enum 컬럼이 native ENUM이 아니라 varchar인지, 그리고 **값 열거 CHECK 제약이 없는지** — 둘 중 하나라도
+ * 남으면 알림 유형·채널을 추가할 때마다 이 테이블에 DDL이 필요해진다(이슈 #176에서 notifications에 대해 없앤 바로
+ * 그 부채를 새 테이블이 되살리지 않게 한다). ③ 저장·조회 왕복.
+ *
+ * <p>CHECK 제약은 Hibernate가 테이블을 만들 때 자동으로 붙이고, 이 테이블은 신규라 <b>모든 DB에서 새로 생성</b>되므로
+ * 예외 없이 붙는다 — {@code NotificationPreferenceCheckConstraintMigrationRunner}가 부팅 시 드롭한다.
  *
  * <p>새 테이블이라 전용 마이그레이션 러너가 없다 — {@code ddl-auto=update}가 테이블·UNIQUE를 함께 만든다.
  * 그 전제가 실제로 성립하는지도 이 테스트가 확인하는 대상이다.
@@ -114,12 +117,37 @@ class NotificationPreferenceDdlIntegrationTest {
     }
 
     @Test
+    @DisplayName("enum 컬럼에 값 열거 CHECK 제약이 없다")
+    void enumColumns_haveNoValueCheckConstraint() {
+        assertThat(enumCheckConstraintNames())
+                .as("CHECK 제약이 남으면 알림 유형·채널 추가마다 이 테이블에 DDL이 필요해진다(이슈 #176) — "
+                        + "NotificationPreferenceCheckConstraintMigrationRunner의 드롭을 확인한다")
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("enum 컬럼이 native ENUM이 아니라 varchar로 생성된다")
     void enumColumns_areVarchar() {
         // ENUM이면 알림 유형·채널을 추가할 때마다 확장 마이그레이션이 필요해진다(이슈 #176) — 새 테이블이
         // 그 부채를 되살리지 않는지 엔티티 애너테이션(@JdbcTypeCode(SqlTypes.VARCHAR))의 효과로 확인한다.
         assertThat(columnType("notification_type")).isEqualTo("varchar(40)");
         assertThat(columnType("channel")).isEqualTo("varchar(20)");
+    }
+
+    // 러너가 드롭 대상을 고르는 기준과 같은 조건으로 센다(이름으로 세지 않는다 — MySQL 자동 이름은 순서에 따라 변한다).
+    private List<String> enumCheckConstraintNames() {
+        return jdbcTemplate.queryForList("""
+                select tc.constraint_name
+                  from information_schema.table_constraints tc
+                  join information_schema.check_constraints cc
+                    on tc.constraint_schema = cc.constraint_schema
+                   and tc.constraint_name = cc.constraint_name
+                 where tc.table_schema = database()
+                   and tc.table_name = 'notification_preferences'
+                   and tc.constraint_type = 'CHECK'
+                   and (cc.check_clause like '%`notification_type`%'
+                     or cc.check_clause like '%`channel`%')
+                """, String.class);
     }
 
     private String columnType(String columnName) {
