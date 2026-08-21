@@ -33,6 +33,18 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof ApiError ? error.message : fallback
 }
 
+function getCallbackMessage(state: unknown) {
+  if (
+    typeof state === 'object' &&
+    state !== null &&
+    'billingKeyCallbackMessage' in state &&
+    typeof state.billingKeyCallbackMessage === 'string'
+  ) {
+    return state.billingKeyCallbackMessage
+  }
+  return null
+}
+
 export function PaymentMethodsPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -45,22 +57,27 @@ export function PaymentMethodsPage() {
   const setDefaultMethod = useSetDefaultPaymentMethod()
   const [issuingKey, setIssuingKey] = useState<string | null>(null)
   const [sdkError, setSdkError] = useState<string | null>(null)
-  const [callbackMessage, setCallbackMessage] = useState<string | null>(null)
+  const [issueSuccessMessage, setIssueSuccessMessage] = useState<string | null>(null)
   const { storeId, channelKey } = getPortOneConfig()
   const portoneReady = Boolean(storeId && channelKey)
+  const callbackResult = new URLSearchParams(location.search).get('billingKeyResult')
+  const callbackMessage =
+    getCallbackMessage(location.state) ??
+    (callbackResult
+      ? callbackResult === 'success'
+        ? '결제수단을 등록했습니다.'
+        : '결제수단 인증에 실패했습니다. 다시 등록해 주세요.'
+      : null)
 
   // 서버 콜백은 빌링키가 아닌 성공·실패 상태만 프런트로 돌려준다.
   useEffect(() => {
-    const result = new URLSearchParams(location.search).get('billingKeyResult')
-    if (!result) return
-    setCallbackMessage(
-      result === 'success'
-        ? '결제수단을 등록했습니다.'
-        : '결제수단 인증에 실패했습니다. 다시 등록해 주세요.',
-    )
-    if (result === 'success') refetchMethods()
-    navigate('/payment-methods', { replace: true })
-  }, [location.search, navigate, refetchMethods])
+    if (!callbackResult) return
+    if (callbackResult === 'success') refetchMethods()
+    navigate('/payment-methods', {
+      replace: true,
+      state: { billingKeyCallbackMessage: callbackMessage },
+    })
+  }, [callbackMessage, callbackResult, navigate, refetchMethods])
 
   const issueBillingKey = async (
     key: string,
@@ -71,7 +88,7 @@ export function PaymentMethodsPage() {
   ) => {
     if (!portoneReady || !meQuery.data) return
     setSdkError(null)
-    setCallbackMessage(null)
+    setIssueSuccessMessage(null)
     setIssuingKey(key)
     try {
       const issued = await issue.mutateAsync()
@@ -98,7 +115,7 @@ export function PaymentMethodsPage() {
           issueId: issued.issueId,
           billingKey: res.billingKey,
         })
-        setCallbackMessage('결제수단을 등록했습니다.')
+        setIssueSuccessMessage('결제수단을 등록했습니다.')
         return
       }
       setSdkError('응답에서 billingKey를 찾지 못했습니다.')
@@ -224,7 +241,9 @@ export function PaymentMethodsPage() {
             </p>
           )}
           {registerErrorMessage && <p className="text-sm text-destructive">{registerErrorMessage}</p>}
-          {callbackMessage && <p className="text-sm">{callbackMessage}</p>}
+          {(issueSuccessMessage ?? callbackMessage) && (
+            <p className="text-sm">{issueSuccessMessage ?? callbackMessage}</p>
+          )}
         </CardContent>
       </Card>
     </div>
