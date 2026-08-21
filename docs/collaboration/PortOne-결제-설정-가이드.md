@@ -24,6 +24,7 @@
 | `payment.portone.base-url` | 아니오 | 고정값 | `https://api.portone.io` |
 | `payment.portone.store-id` | 아니오 | 콘솔 → 연동 정보 상단 상점아이디(`store-...`), 또는 팀원 | 팀 공용 테스트 상점 |
 | `payment.portone.channel-key` | 아니오 | 콘솔 → 연동 정보 → 채널 관리 → **결제(정기결제) 채널**의 채널 키(`channel-key-...`) | 빌링키 결제 대상 채널 |
+| `payment.portone.billing-key-result-url` | 아니오 | 프런트 배포 주소 | 모바일 콜백 완료 뒤 이동할 `/payment-methods` 주소(빌링키 원문 없음) |
 | `payment.portone.api-secret` | **예** | 콘솔 → 식별코드·API Keys → **V2 API** 발급, 또는 팀 시크릿 저장소 | **커밋 금지** |
 | `payment.portone.webhook-secret` | **예** | 콘솔 → 결제알림(Webhook) → **결제모듈 V2** → 시크릿 발급, 또는 팀 시크릿 | **커밋 금지** (#48) |
 | `payment.billing-key.enc-key` | **예** | 팀 시크릿 저장소 | **환경 안에서 하나로 고정**(아래 §4) |
@@ -34,8 +35,9 @@
 ## 2. 실제 결제(빌링키 승인) 테스트 흐름
 
 1. **빌링키 발급** — PortOne 결제창(정기결제)에서 **테스트 카드**를 입력해 빌링키를 받는다(KG이니시스 테스트 카드). 카드 입력은 사람이 직접 한다.
-2. 발급된 빌링키를 `POST /api/payment-methods`로 등록(보호자 JWT).
-3. 예약(진료 완료 상태)·병원 스태프 계정을 준비한 뒤 청구 → PortOne 승인 → `PAID`.
+2. 프런트가 보호자 JWT로 `POST /api/payment-methods/billing-key-issues`를 호출해 서버 1회성 `issueId`·콜백 주소를 받는다.
+3. PC iframe 결과는 인증된 `POST /api/payment-methods/billing-key-issues/{issueId}/complete` body로 보내고, 모바일은 PortOne이 서버 콜백으로 보낸다. 서버가 PortOne 조회의 `merchantId`와 `issueId`를 대조한 뒤에만 저장한다. **빌링키를 프런트 URL·로그·수동 POST에 넣지 않는다.**
+4. 예약(진료 완료 상태)·병원 스태프 계정을 준비한 뒤 청구 → PortOne 승인 → `PAID`.
 
 ## 3. 웹훅 테스트 (로컬)
 

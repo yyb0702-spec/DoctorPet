@@ -20,7 +20,11 @@ public enum PaymentMethodErrorCode implements ErrorCode {
             "결제수단 인증에 실패했습니다. 잠시 후 다시 시도해주세요."),
     // 존재하지 않거나 본인 소유가 아닌 결제수단. 존재 여부 노출을 막기 위해 두 경우를 같은 404로 응답한다.
     PAYMENT_METHOD_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_METHOD_003", "결제수단을 찾을 수 없습니다."),
-    PAYMENT_METHOD_NOT_ACTIVE(HttpStatus.CONFLICT, "PAYMENT_METHOD_004", "활성 상태의 결제수단만 지정할 수 있습니다.");
+    PAYMENT_METHOD_NOT_ACTIVE(HttpStatus.CONFLICT, "PAYMENT_METHOD_004", "활성 상태의 결제수단만 지정할 수 있습니다."),
+    BILLING_KEY_ISSUE_INVALID(HttpStatus.BAD_REQUEST, "PAYMENT_METHOD_005",
+            "유효하지 않거나 만료된 결제수단 인증 요청입니다."),
+    BILLING_KEY_ISSUE_MISMATCH(HttpStatus.BAD_REQUEST, "PAYMENT_METHOD_006",
+            "결제수단 인증 결과를 확인할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

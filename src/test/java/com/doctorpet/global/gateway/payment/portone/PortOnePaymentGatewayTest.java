@@ -131,16 +131,17 @@ class PortOnePaymentGatewayTest {
     }
 
     @Test
-    @DisplayName("빌링키가 ISSUED면 유효로 보고 카드 brand·last4를 스냅샷용으로 반환한다")
+    @DisplayName("빌링키가 ISSUED면 유효로 보고 카드 정보와 서버 발급 issueId(merchantId)를 반환한다")
     void verifyBillingKey_issued() throws Exception {
         PortOnePaymentGateway gateway = gatewayWith(response(200,
-                "{\"status\":\"ISSUED\",\"methods\":[{\"type\":\"CARD\",\"card\":{\"brand\":\"MASTER\",\"number\":\"433012******1234\"}}]}"));
+                "{\"status\":\"ISSUED\",\"merchantId\":\"server-issued-id\",\"methods\":[{\"type\":\"CARD\",\"card\":{\"brand\":\"MASTER\",\"number\":\"433012******1234\"}}]}"));
 
         BillingKeyIssueResult result = gateway.verifyBillingKey("billing-key-1");
 
         assertThat(result.valid()).isTrue();
         assertThat(result.cardBrand()).isEqualTo("MASTER");
         assertThat(result.cardLast4()).isEqualTo("1234");
+        assertThat(result.merchantId()).isEqualTo("server-issued-id");
     }
 
     @Test

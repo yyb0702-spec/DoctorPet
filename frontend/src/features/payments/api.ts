@@ -2,12 +2,23 @@
 import { http } from '@/lib/api/client'
 import type { PaymentChargeResult, PaymentMethod, PaymentRecord, Receipt } from './types'
 
+export interface BillingKeyIssue {
+  issueId: string
+  redirectUrl: string
+}
+
 export const paymentApi = {
   // 결제수단 — 실연동 (SA §8-7).
-  // 등록은 빌링키만 받는다. 발급은 PortOne 브라우저 SDK가 맡고, 이 API에는 발급 결과만 전달한다.
+  // 빌링키 발급은 서버가 만든 일회성 issueId에 귀속한다. 모바일 원문은 서버 콜백으로,
+  // PC iframe 원문은 이 issueId 전용 인증 요청 body로만 전달한다.
   listMethods: () => http.get<PaymentMethod[]>('/payment-methods'),
-  registerMethod: (billingKey: string) =>
-    http.post<PaymentMethod>('/payment-methods', { billingKey }),
+  issueBillingKey: () =>
+    http.post<BillingKeyIssue>('/payment-methods/billing-key-issues'),
+  completeBillingKeyIssue: (issueId: string, billingKey: string) =>
+    http.post<PaymentMethod>(
+      `/payment-methods/billing-key-issues/${issueId}/complete`,
+      { billingKey },
+    ),
   removeMethod: (paymentMethodId: number) =>
     http.delete<void>(`/payment-methods/${paymentMethodId}`),
   // 기본 결제수단 지정 — 실연동 (SA §8-7, PR #152). ACTIVE·본인 소유만 지정할 수 있고,

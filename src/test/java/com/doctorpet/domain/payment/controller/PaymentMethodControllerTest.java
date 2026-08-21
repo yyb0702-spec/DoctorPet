@@ -1,7 +1,5 @@
 package com.doctorpet.domain.payment.controller;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -12,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.payment.dto.request.PaymentMethodRegisterRequest;
+import com.doctorpet.domain.payment.service.BillingKeyIssueApplicationService;
 import com.doctorpet.domain.payment.dto.response.PaymentMethodResponse;
 import com.doctorpet.domain.payment.exception.PaymentMethodErrorCode;
 import com.doctorpet.domain.payment.service.PaymentMethodService;
@@ -65,6 +64,9 @@ class PaymentMethodControllerTest {
     private PaymentMethodService paymentMethodService;
 
     @MockitoBean
+    private BillingKeyIssueApplicationService billingKeyIssueApplicationService;
+
+    @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
 
     // JwtAuthenticationFilter 생성자 의존성(탈퇴 회원 Access Token 블랙리스트 체크, 리뷰 지적 P1
@@ -84,53 +86,50 @@ class PaymentMethodControllerTest {
     }
 
     @Test
-    @DisplayName("결제수단 등록 성공 시 201과 표시용 카드 정보를 반환하고, 인증된 회원 id로 서비스를 호출한다")
-    void register_success() throws Exception {
+    @DisplayName("빌링키 발급 시도 생성은 서버 발급 issueId와 콜백 주소만 반환한다")
+    void issueBillingKey_success() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
-        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");
-        given(paymentMethodService.register(eq(MEMBER_ID), any(PaymentMethodRegisterRequest.class)))
-                .willReturn(new PaymentMethodResponse(100L, "SHINHAN", "1234", "ACTIVE", true, LocalDateTime.now()));
+        given(billingKeyIssueApplicationService.issue(MEMBER_ID)).willReturn("server-issued-id");
 
-        mockMvc.perform(post("/api/payment-methods")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+        mockMvc.perform(post("/api/payment-methods/billing-key-issues"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("SUCCESS"))
-                .andExpect(jsonPath("$.data.id").value(100))
-                .andExpect(jsonPath("$.data.cardBrand").value("SHINHAN"))
-                .andExpect(jsonPath("$.data.cardLast4").value("1234"))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.data.isDefault").value(true));
+                .andExpect(jsonPath("$.data.issueId").value("server-issued-id"))
+                .andExpect(jsonPath("$.data.redirectUrl")
+                        .value("http://localhost/api/payment-methods/billing-key-issues/server-issued-id/callback"));
 
-        verify(paymentMethodService).register(eq(MEMBER_ID), any(PaymentMethodRegisterRequest.class));
+        verify(billingKeyIssueApplicationService).issue(MEMBER_ID);
     }
 
     @Test
-    @DisplayName("빌링키가 비어 있으면 400과 COMMON_001(VALIDATION_FAILED)을 반환한다")
-    void register_blankBillingKey() throws Exception {
+    @DisplayName("iframe 빌링키 완료는 인증 회원과 서버 발급 issueId를 함께 서비스에 전달한다")
+    void completeBillingKeyIssue_success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
+        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("valid_billing_key");
+        given(billingKeyIssueApplicationService.complete(MEMBER_ID, "server-issued-id", "valid_billing_key"))
+                .willReturn(new PaymentMethodResponse(100L, "SHINHAN", "1234", "ACTIVE", true, LocalDateTime.now()));
+
+        mockMvc.perform(post("/api/payment-methods/billing-key-issues/{issueId}/complete", "server-issued-id")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").value(100));
+
+        verify(billingKeyIssueApplicationService)
+                .complete(MEMBER_ID, "server-issued-id", "valid_billing_key");
+    }
+
+    @Test
+    @DisplayName("iframe 완료의 빈 빌링키는 서비스 호출 전 400으로 거부한다")
+    void completeBillingKeyIssue_blankBillingKey() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
         PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("");
 
-        mockMvc.perform(post("/api/payment-methods")
+        mockMvc.perform(post("/api/payment-methods/billing-key-issues/{issueId}/complete", "server-issued-id")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
-    }
-
-    @Test
-    @DisplayName("무효한 빌링키면 400과 PAYMENT_METHOD_001을 반환한다")
-    void register_invalidBillingKey() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
-        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("forged_key");
-        given(paymentMethodService.register(eq(MEMBER_ID), any(PaymentMethodRegisterRequest.class)))
-                .willThrow(new ServiceException(PaymentMethodErrorCode.INVALID_BILLING_KEY));
-
-        mockMvc.perform(post("/api/payment-methods")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PAYMENT_METHOD_001"));
     }
 
     @Test
@@ -157,38 +156,6 @@ class PaymentMethodControllerTest {
                 .andExpect(status().isNoContent());
 
         verify(paymentMethodService).delete(MEMBER_ID, 100L);
-    }
-
-    @Test
-    @DisplayName("빌링키가 허용 바이트를 초과하면(ASCII 513B) 400과 COMMON_001을 반환하고 서비스를 호출하지 않는다")
-    void register_billingKeyTooLong() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
-        // 513바이트 = 512바이트 상한 초과.
-        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("a".repeat(513));
-
-        mockMvc.perform(post("/api/payment-methods")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON_001"));
-
-        org.mockito.Mockito.verifyNoInteractions(paymentMethodService);
-    }
-
-    @Test
-    @DisplayName("문자 수는 적어도 UTF-8 바이트가 상한을 넘으면(한글 200자=600B) 400을 반환한다")
-    void register_billingKeyMultibyteExceedsByteLimit() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(memberAuthentication(MEMBER_ID));
-        // 한글 1자 = UTF-8 3바이트. 200자 = 600바이트로 512바이트 상한 초과(문자 수(200)만 보면 통과했을 입력).
-        PaymentMethodRegisterRequest request = new PaymentMethodRegisterRequest("가".repeat(200));
-
-        mockMvc.perform(post("/api/payment-methods")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("COMMON_001"));
-
-        org.mockito.Mockito.verifyNoInteractions(paymentMethodService);
     }
 
     @Test

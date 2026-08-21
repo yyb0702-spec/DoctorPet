@@ -19,10 +19,17 @@ export function usePaymentMethods() {
   })
 }
 
-export function useRegisterPaymentMethod() {
+export function useIssueBillingKey() {
+  return useMutation({
+    mutationFn: paymentApi.issueBillingKey,
+  })
+}
+
+export function useCompleteBillingKeyIssue() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (billingKey: string) => paymentApi.registerMethod(billingKey),
+    mutationFn: ({ issueId, billingKey }: { issueId: string; billingKey: string }) =>
+      paymentApi.completeBillingKeyIssue(issueId, billingKey),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: paymentKeys.methods }),
   })

@@ -3,9 +3,11 @@ package com.doctorpet.domain.payment.controller;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.payment.service.PaymentMethodService;
+import com.doctorpet.domain.payment.service.BillingKeyIssueApplicationService;
 import com.doctorpet.global.config.SecurityConfig;
 import com.doctorpet.global.security.JwtAccessDeniedHandler;
 import com.doctorpet.global.security.JwtAuthenticationEntryPoint;
@@ -40,6 +42,9 @@ class PaymentMethodAuthorizationTest {
 
     @MockitoBean
     private PaymentMethodService paymentMethodService;
+
+    @MockitoBean
+    private BillingKeyIssueApplicationService billingKeyIssueApplicationService;
 
     // 필터 체인이 켜져 있어도 Bearer 토큰이 없으면 JwtAuthenticationFilter는 인증을 세팅하지 않는다.
     // JwtAuthenticationFilter 빈이 JwtTokenProvider를 요구하므로 컨텍스트 로딩을 위해 목으로 채운다.
@@ -78,6 +83,18 @@ class PaymentMethodAuthorizationTest {
     @DisplayName("비인증 요청은 결제수단 API 접근이 거부된다(401)")
     void anonymous_isUnauthorized() throws Exception {
         mockMvc.perform(get("/api/payment-methods"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("PortOne 모바일 콜백만 비인증으로 허용하고 일반 결제수단 API는 계속 보호한다")
+    void anonymous_callback_isAllowed() throws Exception {
+        mockMvc.perform(get("/api/payment-methods/billing-key-issues/issue-1/callback"))
+                .andExpect(status().isFound());
+
+        mockMvc.perform(post("/api/payment-methods/billing-key-issues/issue-1/complete")
+                        .contentType("application/json")
+                        .content("{\"billingKey\":\"key\"}"))
                 .andExpect(status().isUnauthorized());
     }
 

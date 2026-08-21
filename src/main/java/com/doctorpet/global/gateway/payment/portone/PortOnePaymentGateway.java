@@ -97,7 +97,9 @@ public class PortOnePaymentGateway implements PaymentGateway {
         JsonNode card = firstCard(root);
         String brand = card != null ? text(card, "brand") : null;
         String last4 = card != null ? last4(text(card, "number")) : null;
-        return new BillingKeyIssueResult(true, brand, last4);
+        // merchantId는 SDK 발급 요청의 issueId다. 콜백의 빌링키를 특정 발급 시도에
+        // 귀속할 때만 쓰며, 빌링키 원문과 달리 응답·로그에 노출하지 않는다.
+        return new BillingKeyIssueResult(true, brand, last4, text(root, "merchantId"));
     }
 
     @Override

@@ -11,6 +11,11 @@ package com.doctorpet.global.gateway.payment.dto;
 public record BillingKeyIssueResult(
         boolean valid,
         String cardBrand,
-        String cardLast4
+        String cardLast4,
+        String merchantId
 ) {
+
+    public BillingKeyIssueResult(boolean valid, String cardBrand, String cardLast4) {
+        this(valid, cardBrand, cardLast4, null);
+    }
 }
