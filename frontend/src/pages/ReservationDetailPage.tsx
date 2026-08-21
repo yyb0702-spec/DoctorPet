@@ -7,6 +7,8 @@ import {
   useReservationDetail,
   useUpdateReservationPaymentMethod,
 } from '@/features/reservations/hooks'
+import { usePets } from '@/features/pets/hooks'
+import { PetAvatar } from '@/features/pets/PetAvatar'
 import { canChangePaymentMethod } from '@/features/reservations/paymentMethodChange'
 import {
   usePaymentMethods,
@@ -363,6 +365,7 @@ export function ReservationDetailPage() {
   const id = Number(reservationId)
   const detailQuery = useReservationDetail(id)
   const paymentsQuery = useReservationPayments(id)
+  const petsQuery = usePets()
   const cancel = useCancelReservation()
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null)
 
@@ -371,6 +374,11 @@ export function ReservationDetailPage() {
     return <ErrorState onRetry={() => detailQuery.refetch()} />
 
   const r = detailQuery.data
+  // 예약의 이름·종은 이력 보존 스냅샷이고, 사진은 보호자가 마지막으로 저장한 현재 프로필 값이다.
+  // 삭제된 프로필이면 사진만 비우고 스냅샷 텍스트는 그대로 유지한다.
+  const currentPet = (petsQuery.data ?? []).find(
+    (pet) => pet.petId === r.petSnapshot.petId,
+  )
   const payments = paymentsQuery.data ?? []
   // 활성 판정은 최신 생성분 추론이다(응답에 supersededAt이 없다). 실제 성립 여부는 서버의 조건부 전이가 강제한다.
   const activeId = activePaymentId(payments)
@@ -431,8 +439,15 @@ export function ReservationDetailPage() {
           )}
           <dl className="grid grid-cols-[80px_1fr] gap-y-1 pt-2">
             <dt className="text-muted-foreground">반려동물</dt>
-            <dd>
-              {r.petSnapshot.name} ({speciesLabel(r.petSnapshot.species)})
+            <dd className="flex items-center gap-2">
+              <PetAvatar
+                name={r.petSnapshot.name}
+                imageUrl={currentPet?.imageUrl}
+                className="h-10 w-10"
+              />
+              <span>
+                {r.petSnapshot.name} ({speciesLabel(r.petSnapshot.species)})
+              </span>
             </dd>
             <dt className="text-muted-foreground">진료 시간</dt>
             <dd>{fmt(r.slot.startAt)}</dd>

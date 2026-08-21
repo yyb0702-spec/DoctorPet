@@ -2,10 +2,11 @@
 import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { ImagePlus, PawPrint, Pencil, Trash2 } from 'lucide-react'
+import { ImagePlus, Pencil, Trash2 } from 'lucide-react'
 import { petSchema, type PetInput } from './schema'
 import { useDeletePet, useUpdatePet, useUploadPetImage } from './hooks'
 import { validatePetImageFile, PET_IMAGE_CONTENT_TYPES } from './petImage'
+import { PetAvatar } from './PetAvatar'
 import type { Pet } from './api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -138,18 +139,7 @@ export function PetRow({ pet }: { pet: Pet }) {
     <Card>
       <CardContent className="flex items-center justify-between p-5">
         <div className="flex items-center gap-3">
-          {/* 프로필 사진. 없으면 발자국 아이콘으로 자리를 지킨다(레이아웃이 흔들리지 않게). */}
-          {pet.imageUrl ? (
-            <img
-              src={pet.imageUrl}
-              alt={`${pet.name} 프로필 사진`}
-              className="h-12 w-12 rounded-full object-cover"
-            />
-          ) : (
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <PawPrint className="h-5 w-5 text-muted-foreground" />
-            </span>
-          )}
+          <PetAvatar name={pet.name} imageUrl={pet.imageUrl} className="h-12 w-12" />
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="font-semibold">{pet.name}</span>

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { todaySeoul, useHospitalSlots } from '@/features/hospitals/hooks'
 import { usePets } from '@/features/pets/hooks'
+import { PetAvatar } from '@/features/pets/PetAvatar'
 import { usePaymentMethods } from '@/features/payments/hooks'
 import { useCreateReservation } from './hooks'
 import {
@@ -298,10 +299,18 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   key={p.petId}
                   type="button"
                   size="sm"
+                  className="h-auto gap-2 px-2 py-1.5"
                   variant={petId === p.petId ? 'default' : 'outline'}
                   onClick={() => setPetId(p.petId)}
                 >
-                  {p.name} ({speciesLabel(p.species)})
+                  <PetAvatar
+                    name={p.name}
+                    imageUrl={p.imageUrl}
+                    className="h-7 w-7"
+                  />
+                  <span>
+                    {p.name} ({speciesLabel(p.species)})
+                  </span>
                 </Button>
               ))}
             </div>
