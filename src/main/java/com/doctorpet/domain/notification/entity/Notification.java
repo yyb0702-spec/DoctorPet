@@ -23,6 +23,8 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(
@@ -55,6 +57,7 @@ public class Notification extends BaseEntity {
     // MEMBER로 백필한 뒤 NOT NULL을 적용한다(엔티티에 nullable=false를 걸면 기존 행이 있는 운영 테이블에서
     // 컬럼 추가 자체가 실패하므로 제약은 Runner가 건다 — reservations.approval_deadline_at와 같은 관례).
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "recipient_type", length = 20)
     private NotificationRecipientType recipientType;
 
@@ -66,14 +69,16 @@ public class Notification extends BaseEntity {
     private Long memberId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 40)
     private NotificationType type;
 
     @Column(nullable = false, length = 500)
     private String content;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "resource_type", length = 20)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "resource_type", length = 40)
     private NotificationResourceType resourceType;
 
     @Column(name = "resource_id")
