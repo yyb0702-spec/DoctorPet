@@ -307,20 +307,23 @@ class HospitalOperatingHoursApplicationServiceTest {
     @Test
     void updateOperatingHoursRejectsStaleSelectedSchedule() {
         LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
+        LocalDateTime staleUpdatedAt = LocalDateTime.of(2026, 8, 10, 9, 0);
         given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
         given(scheduleRepository.findScheduleForUpdate(HOSPITAL_ID, desiredEffectiveFrom))
                 .willReturn(Optional.of(schedule));
         given(schedule.getId()).willReturn(101L);
-        given(schedule.getUpdatedAt()).willReturn(
-                LocalDateTime.of(2026, 8, 10, 9, 1)
-        );
+        given(scheduleRepository.advanceUpdateToken(
+                org.mockito.ArgumentMatchers.eq(101L),
+                org.mockito.ArgumentMatchers.eq(staleUpdatedAt),
+                any()
+        )).willReturn(0);
 
         assertThatThrownBy(() -> service.updateOperatingHours(
                 MEMBER_ID,
                 updateSelectedRequest(
                         desiredEffectiveFrom,
                         101L,
-                        LocalDateTime.of(2026, 8, 10, 9, 0)
+                        staleUpdatedAt
                 )
         )).isInstanceOf(ServiceException.class)
                 .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())

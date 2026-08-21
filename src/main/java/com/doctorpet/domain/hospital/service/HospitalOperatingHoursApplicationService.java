@@ -124,6 +124,8 @@ public class HospitalOperatingHoursApplicationService {
             );
             case UPDATE -> updateSelectedSchedule(
                     existingSchedule,
+                    hospitalId,
+                    effectiveFrom,
                     request,
                     operatingHours
             );
@@ -259,18 +261,27 @@ public class HospitalOperatingHoursApplicationService {
 
     private HospitalOperatingSchedule updateSelectedSchedule(
             HospitalOperatingSchedule existingSchedule,
+            Long hospitalId,
+            LocalDate effectiveFrom,
             OperatingHoursUpdateRequest request,
             Map<DayOfWeek, List<DailyOperatingHours>> operatingHours
     ) {
         if (existingSchedule == null
                 || request.targetScheduleId() == null
                 || request.expectedUpdatedAt() == null
-                || !existingSchedule.getId().equals(request.targetScheduleId())
-                || !existingSchedule.getUpdatedAt().equals(request.expectedUpdatedAt())) {
+                || !existingSchedule.getId().equals(request.targetScheduleId())) {
             throw operatingScheduleConflict();
         }
-        existingSchedule.changeOperatingHours(operatingHours);
-        return existingSchedule;
+        claimUpdateToken(request);
+        // 토큰 선점 전의 일반 조회가 이 시간표를 1차 캐시에 보관했을 수 있으므로, 선점 직후에는
+        // 그 엔티티를 버리고 DB current read로 다시 적재한다. 이후의 본문 UPDATE가 stale 스냅샷을
+        // 덮어쓰지 않으며, 선점에 실패한 요청은 이 지점보다 앞에서 409로 끝난다.
+        entityManager.detach(existingSchedule);
+        HospitalOperatingSchedule claimedSchedule = scheduleRepository
+                .findScheduleForUpdate(hospitalId, effectiveFrom)
+                .orElseThrow(this::operatingScheduleConflict);
+        claimedSchedule.changeOperatingHours(operatingHours);
+        return claimedSchedule;
     }
 
     private void advanceUpdateToken(HospitalOperatingSchedule schedule) {
@@ -284,6 +295,16 @@ public class HospitalOperatingHoursApplicationService {
             throw operatingScheduleConflict();
         }
         entityManager.refresh(schedule);
+    }
+
+    private void claimUpdateToken(OperatingHoursUpdateRequest request) {
+        if (scheduleRepository.advanceUpdateToken(
+                request.targetScheduleId(),
+                request.expectedUpdatedAt(),
+                nextUpdateToken(request.expectedUpdatedAt())
+        ) != 1) {
+            throw operatingScheduleConflict();
+        }
     }
 
     private HospitalOperatingSchedule refreshForCurrentRead(
