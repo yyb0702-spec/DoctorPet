@@ -22,8 +22,10 @@ export function useUpdateOperatingHours() {
   return useMutation({
     mutationFn: (body: OperatingHoursUpdateRequest) =>
       hospitalOpsApi.updateOperatingHours(body),
-    onSuccess: (data) => {
-      queryClient.setQueryData(hospitalOpsKeys.operatingHours, data)
+    onSuccess: () => {
+      // PUT은 미래 발효 시간표를 돌려줄 수 있지만, GET은 오늘 유효한 시간표만 돌려준다.
+      // 같은 캐시에 PUT 응답을 쓰면 저장 직후 미래 시간표를 "현재 적용 중"으로 잘못 표시한다.
+      queryClient.invalidateQueries({ queryKey: hospitalOpsKeys.operatingHours })
       // 진료시간이 바뀌면 발행된 슬롯도 교체되므로 병원 상세·슬롯 캐시를 버린다.
       queryClient.invalidateQueries({ queryKey: hospitalKeys.all })
     },
