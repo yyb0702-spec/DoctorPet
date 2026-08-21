@@ -29,9 +29,17 @@ const operatingHoursQuery = {
   isError: false,
   refetch: vi.fn(),
 }
+const scheduledOperatingHoursQuery = {
+  data: [] as OperatingHours[],
+  error: null as unknown,
+  isLoading: false,
+  isError: false,
+  refetch: vi.fn(),
+}
 
 vi.mock('@/features/hospitalOps/hooks', () => ({
   useOperatingHours: () => operatingHoursQuery,
+  useScheduledOperatingHours: () => scheduledOperatingHoursQuery,
   useUpdateOperatingHours: () => ({
     mutate,
     variables: undefined,
@@ -96,6 +104,9 @@ beforeEach(() => {
   operatingHoursQuery.data = undefined
   operatingHoursQuery.error = null
   operatingHoursQuery.isError = false
+  scheduledOperatingHoursQuery.data = []
+  scheduledOperatingHoursQuery.error = null
+  scheduledOperatingHoursQuery.isError = false
 })
 
 describe('StaffOperatingHoursPage', () => {
@@ -183,16 +194,16 @@ describe('StaffOperatingHoursPage', () => {
   })
 
   /*
-    GET은 오늘 유효한 시간표만 주므로, PUT 성공 뒤 쿼리를 무효화하면 기존 시간표가 다시 온다.
-    이때 PUT 응답(적용 예정 시간표)을 따로 붙잡지 않으면 방금 저장한 내용을 보거나 같은 발효일로
-    재편집할 수 없고, 현재 시간표를 다시 저장해 미래 시간표를 덮어쓸 수 있다.
+    예정 시간표는 컴포넌트 메모리가 아니라 별도 GET에서 복구해야 한다. 화면을 닫아도 목록에서
+    다시 선택해 같은 발효일을 편집할 수 있고, 현재 시간표로 같은 발효일을 덮어쓰지 않아야 한다.
   */
-  it('저장한 미래 시간표를 현재 시간표와 구분해 같은 발효일로 재편집한다', async () => {
+  it('재진입 뒤에도 예정 시간표를 선택해 같은 발효일로 재편집한다', async () => {
     operatingHoursQuery.data = WEEKDAY_HOURS
-    mutate.mockImplementation((_request, options) =>
-      options?.onSuccess?.(FUTURE_WEEKDAY_HOURS),
-    )
-    renderPage()
+    mutate.mockImplementation((_request, options) => {
+      scheduledOperatingHoursQuery.data = [FUTURE_WEEKDAY_HOURS]
+      options?.onSuccess?.(FUTURE_WEEKDAY_HOURS)
+    })
+    const view = renderPage()
 
     await userEvent.click(screen.getByRole('button', { name: '진료시간 저장' }))
 
@@ -203,11 +214,14 @@ describe('StaffOperatingHoursPage', () => {
       '10:00',
     )
     expect(screen.getByLabelText('발효일')).toHaveValue('2026-08-25')
+    expect(screen.getByLabelText('발효일')).toBeDisabled()
 
-    // PUT 응답을 폼의 새 기준값으로 다시 마운트했으므로, 저장 직후에는 이탈 경고가 남지 않아야 한다.
-    const afterSave = new Event('beforeunload', { cancelable: true })
-    window.dispatchEvent(afterSave)
-    expect(afterSave.defaultPrevented).toBe(false)
+    // 실제 새로고침/재진입과 동등하게 언마운트 후 다시 마운트해도 서버 목록에서 복구된다.
+    view.unmount()
+    renderPage()
+    await userEvent.click(
+      screen.getByRole('button', { name: '2026년 8월 25일부터 적용' }),
+    )
 
     fireEvent.change(screen.getByLabelText('월요일 1번째 구간 시작 시각'), {
       target: { value: '11:00' },
@@ -232,6 +246,38 @@ describe('StaffOperatingHoursPage', () => {
       },
       expect.any(Object),
     )
+  })
+
+  it('현재 시간표에서 이미 예정된 발효일을 입력해 덮어쓰지 못한다', async () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    scheduledOperatingHoursQuery.data = [FUTURE_WEEKDAY_HOURS]
+    renderPage()
+
+    fireEvent.change(screen.getByLabelText('발효일'), {
+      target: { value: '2026-08-25' },
+    })
+    await userEvent.click(screen.getByRole('button', { name: '진료시간 저장' }))
+
+    expect(
+      screen.getByText(
+        '이미 저장된 예정 시간표입니다. 위 목록에서 해당 발효일을 선택해 수정해 주세요.',
+      ),
+    ).toBeInTheDocument()
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('예정 시간표 조회에 실패하면 저장 폼을 열지 않는다', () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    scheduledOperatingHoursQuery.isError = true
+    scheduledOperatingHoursQuery.error = new Error('network failed')
+    renderPage()
+
+    expect(
+      screen.getByText('적용 예정 진료시간을 불러오지 못했습니다.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: '진료시간 저장' }),
+    ).not.toBeInTheDocument()
   })
 
   /*

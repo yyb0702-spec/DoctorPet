@@ -62,6 +62,21 @@ public class HospitalOperatingHoursApplicationService {
         return OperatingHoursResponse.from(schedule);
     }
 
+    /**
+     * 현재 시간표와 별도로, 아직 발효되지 않은 시간표 전체를 발효일 순으로 반환한다.
+     * 현재 GET 응답에 미래 시간표를 섞으면 현재 적용 중인 정책으로 오인될 수 있으므로
+     * 편집 화면은 이 조회 결과에서 대상 발효일을 명시적으로 선택해야 한다.
+     */
+    public List<OperatingHoursResponse> getScheduledOperatingHours(Long memberId) {
+        Long hospitalId = getHospitalId(memberId);
+        LocalDate today = LocalDate.now(applicationClock);
+
+        return scheduleRepository.findScheduledSchedules(hospitalId, today)
+                .stream()
+                .map(OperatingHoursResponse::from)
+                .toList();
+    }
+
     @Transactional
     public OperatingHoursResponse updateOperatingHours(
             Long memberId,

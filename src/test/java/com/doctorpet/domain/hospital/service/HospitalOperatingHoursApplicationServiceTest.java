@@ -127,6 +127,40 @@ class HospitalOperatingHoursApplicationServiceTest {
     }
 
     @Test
+    void getScheduledOperatingHoursReturnsAllFutureSchedulesInOrder() {
+        HospitalOperatingSchedule firstSchedule = org.mockito.Mockito.mock(
+                HospitalOperatingSchedule.class
+        );
+        HospitalOperatingSchedule secondSchedule = org.mockito.Mockito.mock(
+                HospitalOperatingSchedule.class
+        );
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(HOSPITAL_ID));
+        given(scheduleRepository.findScheduledSchedules(HOSPITAL_ID, TODAY))
+                .willReturn(List.of(firstSchedule, secondSchedule));
+        given(firstSchedule.getEffectiveFrom()).willReturn(TODAY.plusDays(2));
+        given(secondSchedule.getEffectiveFrom()).willReturn(TODAY.plusDays(5));
+        given(firstSchedule.getOperatingHours()).willReturn(Map.of());
+        given(secondSchedule.getOperatingHours()).willReturn(Map.of());
+
+        var responses = service.getScheduledOperatingHours(MEMBER_ID);
+
+        assertThat(responses)
+                .extracting(response -> response.effectiveFrom())
+                .containsExactly(TODAY.plusDays(2), TODAY.plusDays(5));
+        verify(scheduleRepository).findScheduledSchedules(HOSPITAL_ID, TODAY);
+    }
+
+    @Test
+    void getScheduledOperatingHoursRejectsMemberWithoutHospital() {
+        given(memberService.getMyInfo(MEMBER_ID)).willReturn(staff(null));
+
+        assertThatThrownBy(() -> service.getScheduledOperatingHours(MEMBER_ID))
+                .isInstanceOf(ServiceException.class)
+                .satisfies(error -> assertThat(((ServiceException) error).getErrorCode())
+                        .isEqualTo(HospitalErrorCode.NOT_OWN_HOSPITAL));
+    }
+
+    @Test
     void updateOperatingHoursAppliesAfterLatestReservedDate() {
         LocalDate desiredEffectiveFrom = TODAY.plusDays(1);
         LocalDate actualEffectiveFrom = TODAY.plusDays(4);

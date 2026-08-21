@@ -1,8 +1,9 @@
-// 병원 스태프 — 진료시간 관리(요일별 구간 편집 + 발효일 지정). GET/PUT /api/hospital/operating-hours.
+// 병원 스태프 — 진료시간 관리(현재·예정 시간표 조회, 요일별 구간 편집 + 발효일 지정).
 import { useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import {
   useOperatingHours,
+  useScheduledOperatingHours,
   useUpdateOperatingHours,
 } from '@/features/hospitalOps/hooks'
 import {
@@ -15,7 +16,6 @@ import {
   SLOT_PUBLICATION_DAYS,
   type DailyOperatingHours,
   type DayOfWeek,
-  type OperatingHours,
   type OperatingHoursUpdateRequest,
   type OperatingPeriod,
 } from '@/features/hospitalOps/types'
@@ -85,12 +85,16 @@ function errorMessage(
 function OperatingHoursForm({
   initialDays,
   initialDesiredEffectiveFrom,
+  scheduledEffectiveFroms,
+  effectiveFromFixed,
   pending,
   onEdit,
   onSave,
 }: {
   initialDays: DailyOperatingHours[]
   initialDesiredEffectiveFrom?: string
+  scheduledEffectiveFroms: string[]
+  effectiveFromFixed: boolean
   pending: boolean
   onEdit: () => void
   onSave: (request: OperatingHoursUpdateRequest) => void
@@ -211,6 +215,18 @@ function OperatingHoursForm({
     if (desiredEffectiveFrom <= today) {
       messages.unshift('발효일은 오늘 이후 날짜여야 합니다.')
     }
+    /*
+      현재 시간표에서 새 미래 정책을 만들 때 이미 있는 발효일을 직접 입력하면 그 시간표를
+      의도 없이 덮어쓴다. 예정 목록에서 대상을 선택해야만 같은 날짜를 수정할 수 있게 한다.
+    */
+    if (
+      desiredEffectiveFrom !== initialDesiredEffectiveFrom &&
+      scheduledEffectiveFroms.includes(desiredEffectiveFrom)
+    ) {
+      messages.unshift(
+        '이미 저장된 예정 시간표입니다. 위 목록에서 해당 발효일을 선택해 수정해 주세요.',
+      )
+    }
     setClientProblems(messages)
     if (messages.length > 0) return
 
@@ -318,6 +334,7 @@ function OperatingHoursForm({
                 className="w-44"
                 min={tomorrow}
                 value={desiredEffectiveFrom}
+                disabled={effectiveFromFixed}
                 onChange={(e) => {
                   onEdit()
                   setDesiredEffectiveFrom(e.target.value)
@@ -344,11 +361,12 @@ function OperatingHoursForm({
 
 export function StaffOperatingHoursPage() {
   const query = useOperatingHours()
+  const scheduledQuery = useScheduledOperatingHours()
   const update = useUpdateOperatingHours()
-  // GET은 현재 유효 시간표만 반환한다. PUT으로 막 저장한 미래 시간표는 별도로 보존해
-  // 재조회 결과(현재 시간표)가 이를 덮지 않게 하고, 같은 발효일로 다시 편집할 수 있게 한다.
-  const [scheduledSchedule, setScheduledSchedule] =
-    useState<OperatingHours | null>(null)
+  // 선택값만 화면 상태로 두고 시간표 자체는 항상 서버 조회 캐시에서 읽는다. 따라서 새로고침·
+  // 이탈 뒤 재진입해도 미래 발효 시간표를 잃지 않는다.
+  const [selectedScheduledEffectiveFrom, setSelectedScheduledEffectiveFrom] =
+    useState<string | null>(null)
 
   /*
     아직 유효한 진료시간이 없는 병원은 GET이 HOSPITAL_004로 실패하지만 PUT은 스케줄을 새로
@@ -367,7 +385,20 @@ export function StaffOperatingHoursPage() {
     if (update.isSuccess || update.isError) update.reset()
   }
 
-  if (query.isLoading) return <PageLoader />
+  // 예정 시간표를 알 수 없는 상태에서 저장하면 같은 발효일을 조용히 덮어쓸 수 있다.
+  // 현재 시간표가 정상이어도 예정 목록 조회가 끝날 때까지는 편집 폼을 열지 않는다.
+  if (query.isLoading || scheduledQuery.isLoading) return <PageLoader />
+  if (scheduledQuery.isError) {
+    return (
+      <ErrorState
+        message={errorMessage(
+          scheduledQuery.error,
+          '적용 예정 진료시간을 불러오지 못했습니다.',
+        )}
+        onRetry={() => scheduledQuery.refetch()}
+      />
+    )
+  }
   if (!query.data && !scheduleMissing) {
     return (
       <ErrorState
@@ -378,6 +409,10 @@ export function StaffOperatingHoursPage() {
   }
 
   const schedule = query.data ?? null
+  const scheduledSchedules = scheduledQuery.data ?? []
+  const scheduledSchedule = scheduledSchedules.find(
+    (item) => item.effectiveFrom === selectedScheduledEffectiveFrom,
+  )
   const editableSchedule = scheduledSchedule ?? schedule
   // 요청한 발효일과 서버가 확정한 발효일을 비교해 "뒤로 밀렸다"를 알린다.
   const requestedFrom = update.variables?.desiredEffectiveFrom
@@ -446,6 +481,55 @@ export function StaffOperatingHoursPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">적용 예정 시간표</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {scheduledSchedules.length === 0 ? (
+            <p className="text-muted-foreground">
+              저장된 적용 예정 시간표가 없습니다.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {scheduledSchedules.map((item) => (
+                <Button
+                  key={item.effectiveFrom}
+                  size="sm"
+                  variant={
+                    item.effectiveFrom === selectedScheduledEffectiveFrom
+                      ? 'default'
+                      : 'outline'
+                  }
+                  onClick={() => {
+                    clearResult()
+                    setSelectedScheduledEffectiveFrom(item.effectiveFrom)
+                  }}
+                >
+                  {dateKeyLabel(item.effectiveFrom)}부터 적용
+                </Button>
+              ))}
+            </div>
+          )}
+          {scheduledSchedule && schedule && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                clearResult()
+                setSelectedScheduledEffectiveFrom(null)
+              }}
+            >
+              현재 시간표로 새 예정 시간표 만들기
+            </Button>
+          )}
+          <p className="text-muted-foreground">
+            예정 시간표를 수정하려면 발효일을 선택하세요. 현재 시간표에서 같은
+            발효일을 입력해 덮어쓰지는 못합니다.
+          </p>
+        </CardContent>
+      </Card>
+
       <OperatingHoursForm
         key={
           editableSchedule
@@ -454,11 +538,16 @@ export function StaffOperatingHoursPage() {
         }
         initialDays={editableSchedule?.days ?? emptyWeek()}
         initialDesiredEffectiveFrom={scheduledSchedule?.effectiveFrom}
+        scheduledEffectiveFroms={scheduledSchedules.map(
+          (item) => item.effectiveFrom,
+        )}
+        effectiveFromFixed={Boolean(scheduledSchedule)}
         pending={update.isPending}
         onEdit={clearResult}
         onSave={(request) =>
           update.mutate(request, {
-            onSuccess: (savedSchedule) => setScheduledSchedule(savedSchedule),
+            onSuccess: (savedSchedule) =>
+              setSelectedScheduledEffectiveFrom(savedSchedule.effectiveFrom),
           })
         }
       />

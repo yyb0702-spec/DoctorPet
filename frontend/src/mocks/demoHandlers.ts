@@ -289,6 +289,7 @@ let demoOperatingHours = {
     { dayOfWeek: 'SUNDAY', periods: [] },
   ] as { dayOfWeek: string; periods: { startTime: string; endTime: string }[] }[],
 }
+let demoScheduledOperatingHours: typeof demoOperatingHours[] = []
 
 let demoCapabilities: string[] = ['DOG', 'CAT', 'XRAY']
 
@@ -599,8 +600,11 @@ export const demoHandlers = [
     })
   }),
 
-  // --- 병원 스태프 운영: 진료시간 (GET/PUT /hospital/operating-hours) ---
+  // --- 병원 스태프 운영: 진료시간 (현재·예정 GET, PUT /hospital/operating-hours) ---
   http.get(`${BASE}/hospital/operating-hours`, () => ok(demoOperatingHours)),
+  http.get(`${BASE}/hospital/operating-hours/scheduled`, () =>
+    ok(demoScheduledOperatingHours),
+  ),
   http.put(`${BASE}/hospital/operating-hours`, async ({ request }) => {
     const body = (await request.json()) as {
       desiredEffectiveFrom: string
@@ -630,8 +634,16 @@ export const demoHandlers = [
       body.desiredEffectiveFrom <= demoReservedClosureDate
         ? pushedTo
         : body.desiredEffectiveFrom
-    demoOperatingHours = { effectiveFrom, days: body.days }
-    return ok(demoOperatingHours)
+    const savedSchedule = { effectiveFrom, days: body.days }
+    demoScheduledOperatingHours = [
+      ...demoScheduledOperatingHours.filter(
+        (schedule) => schedule.effectiveFrom !== effectiveFrom,
+      ),
+      savedSchedule,
+    ].sort((first, second) =>
+      first.effectiveFrom.localeCompare(second.effectiveFrom),
+    )
+    return ok(savedSchedule)
   }),
 
   // --- 병원 스태프 운영: 진료역량 (GET/PUT /hospital/capabilities) ---

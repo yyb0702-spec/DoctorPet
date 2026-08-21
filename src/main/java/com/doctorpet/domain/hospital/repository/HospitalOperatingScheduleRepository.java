@@ -39,6 +39,18 @@ public interface HospitalOperatingScheduleRepository
     );
 
     @Query("""
+            SELECT schedule
+            FROM HospitalOperatingSchedule schedule
+            WHERE schedule.hospital.id = :hospitalId
+              AND schedule.effectiveFrom > :today
+            ORDER BY schedule.effectiveFrom ASC
+            """)
+    List<HospitalOperatingSchedule> findScheduledSchedules(
+            @Param("hospitalId") Long hospitalId,
+            @Param("today") LocalDate today
+    );
+
+    @Query("""
             SELECT DISTINCT schedule.hospital.id
             FROM HospitalOperatingSchedule schedule
             WHERE schedule.effectiveFrom <= :businessDate

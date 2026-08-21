@@ -11,6 +11,8 @@ import type {
 export const hospitalOpsApi = {
   getOperatingHours: () =>
     http.get<OperatingHours>('/hospital/operating-hours'),
+  getScheduledOperatingHours: () =>
+    http.get<OperatingHours[]>('/hospital/operating-hours/scheduled'),
   updateOperatingHours: (body: OperatingHoursUpdateRequest) =>
     http.put<OperatingHours>('/hospital/operating-hours', body),
   getCapabilities: () =>

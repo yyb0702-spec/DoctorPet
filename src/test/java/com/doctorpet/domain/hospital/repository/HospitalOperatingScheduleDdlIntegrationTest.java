@@ -106,6 +106,24 @@ class HospitalOperatingScheduleDdlIntegrationTest {
         )).get().extracting(HospitalOperatingSchedule::getId).isEqualTo(current.getId());
     }
 
+    @Test
+    void scheduledSchedulesReturnOnlyFutureSchedulesInEffectiveFromOrder() {
+        Hospital hospital = hospitalRepository.saveAndFlush(createHospital("SCHEDULE-FUTURE"));
+        LocalDate today = LocalDate.of(2026, 8, 10);
+        scheduleRepository.saveAndFlush(schedule(hospital, today.minusDays(1)));
+        HospitalOperatingSchedule firstFuture = scheduleRepository.saveAndFlush(
+                schedule(hospital, today.plusDays(2))
+        );
+        HospitalOperatingSchedule secondFuture = scheduleRepository.saveAndFlush(
+                schedule(hospital, today.plusDays(5))
+        );
+        entityManager.clear();
+
+        assertThat(scheduleRepository.findScheduledSchedules(hospital.getId(), today))
+                .extracting(HospitalOperatingSchedule::getId)
+                .containsExactly(firstFuture.getId(), secondFuture.getId());
+    }
+
     private HospitalOperatingSchedule schedule(Hospital hospital, LocalDate effectiveFrom) {
         return HospitalOperatingSchedule.create(
                 hospital,
