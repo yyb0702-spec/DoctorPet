@@ -4,8 +4,7 @@ import type { PaymentChargeResult, PaymentMethod, PaymentRecord, Receipt } from 
 
 export const paymentApi = {
   // 결제수단 — 실연동 (SA §8-7).
-  // 등록은 빌링키만 받는다. 빌링키 발급(카드 인증)은 PortOne SDK 몫으로,
-  // 프론트 통합은 후속 작업. 지금은 발급된 billingKey 문자열을 전달한다.
+  // 등록은 빌링키만 받는다. 발급은 PortOne 브라우저 SDK가 맡고, 이 API에는 발급 결과만 전달한다.
   listMethods: () => http.get<PaymentMethod[]>('/payment-methods'),
   registerMethod: (billingKey: string) =>
     http.post<PaymentMethod>('/payment-methods', { billingKey }),

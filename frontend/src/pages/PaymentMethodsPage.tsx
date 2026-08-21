@@ -1,8 +1,9 @@
 // 결제수단 관리 — 목록 + 등록(PortOne 빌링키 발급 / 직접 입력) + 삭제.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Trash2, CreditCard } from 'lucide-react'
 import * as PortOne from '@portone/browser-sdk/v2'
 import type { EasyPayProvider } from '@portone/browser-sdk/v2'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   usePaymentMethods,
   useRegisterPaymentMethod,
@@ -15,11 +16,16 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
+import { useMe } from '@/features/members/hooks'
 import { ApiError } from '@/lib/api/error'
 
 // 클라이언트 노출 값(비밀 아님). 콘솔 연동정보의 상점ID·결제(정기결제) 채널 키.
-const PORTONE_STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID as string | undefined
-const PORTONE_CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY as string | undefined
+function getPortOneConfig() {
+  return {
+    storeId: import.meta.env.VITE_PORTONE_STORE_ID as string | undefined,
+    channelKey: import.meta.env.VITE_PORTONE_CHANNEL_KEY as string | undefined,
+  }
+}
 
 // 빌링키 원본을 텍스트로 입력·표시하는 UI는 운영 빌드에 노출하지 않는다 — 로컬
 // 개발(DEV) + 명시적 옵트인 플래그를 모두 만족할 때만 렌더링한다(PR #127 리뷰).
@@ -36,7 +42,26 @@ const EASY_PAY_METHODS: { provider: EasyPayProvider; label: string }[] = [
   { provider: 'KAKAOPAY', label: '카카오페이' },
 ]
 
+// 카카오페이는 모바일에서 REDIRECTION 방식만 지원한다. 인증 결과는 이 경로의 query로 되돌아오며,
+// 빌링키는 등록 요청을 시작한 뒤 즉시 주소창에서 제거한다(새로고침에 의한 중복 등록·노출 방지).
+const BILLING_KEY_CALLBACK_PATH = '/payment-methods'
+
+function getRedirectErrorMessage(state: unknown) {
+  if (
+    typeof state === 'object' &&
+    state !== null &&
+    'portoneErrorMessage' in state &&
+    typeof state.portoneErrorMessage === 'string'
+  ) {
+    return state.portoneErrorMessage
+  }
+  return null
+}
+
 export function PaymentMethodsPage() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const meQuery = useMe()
   const methodsQuery = usePaymentMethods()
   const registerMethod = useRegisterPaymentMethod()
   const removeMethod = useRemovePaymentMethod()
@@ -46,7 +71,34 @@ export function PaymentMethodsPage() {
   const [issuingKey, setIssuingKey] = useState<string | null>(null)
   const [sdkError, setSdkError] = useState<string | null>(null)
 
-  const portoneReady = Boolean(PORTONE_STORE_ID && PORTONE_CHANNEL_KEY)
+  const { storeId, channelKey } = getPortOneConfig()
+  const portoneReady = Boolean(storeId && channelKey)
+  const redirectErrorMessage = getRedirectErrorMessage(location.state)
+  const registerBillingKey = registerMethod.mutate
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const billingKeyFromRedirect = params.get('billingKey')
+    const portoneErrorCode = params.get('code')
+
+    // 일반 진입과 PC iframe 응답은 URL query가 없으므로 아무 작업도 하지 않는다.
+    if (!billingKeyFromRedirect && !portoneErrorCode) return
+
+    // 먼저 query를 지워야 네트워크 지연 중 새로고침해도 같은 빌링키를 두 번 등록하지 않는다.
+    if (portoneErrorCode) {
+      navigate(BILLING_KEY_CALLBACK_PATH, {
+        replace: true,
+        state: {
+          portoneErrorMessage:
+            params.get('message') ?? '카카오페이 인증에 실패했습니다.',
+        },
+      })
+      return
+    }
+
+    navigate(BILLING_KEY_CALLBACK_PATH, { replace: true })
+    registerBillingKey(billingKeyFromRedirect!)
+  }, [location.search, navigate, registerBillingKey])
 
   // PortOne 결제창으로 빌링키를 발급받아 그대로 등록한다(발급→등록 원스텝). 카드 등록(CARD)과
   // 간편결제(EASY_PAY+provider) 모두 이 함수 하나로 처리한다.
@@ -62,20 +114,29 @@ export function PaymentMethodsPage() {
       setSdkError('PortOne 설정(VITE_PORTONE_STORE_ID / VITE_PORTONE_CHANNEL_KEY)이 없습니다.')
       return
     }
+    if (!meQuery.data) {
+      setSdkError('보호자 정보를 확인한 뒤 다시 시도해 주세요.')
+      return
+    }
+    // 이전 모바일 인증 실패 메시지는 이번 새 요청과 무관하므로 라우트 상태에서 비운다.
+    if (redirectErrorMessage) {
+      navigate(BILLING_KEY_CALLBACK_PATH, { replace: true })
+    }
     setSdkError(null)
     setIssuingKey(key)
     try {
       const res = await PortOne.requestIssueBillingKey({
-        storeId: PORTONE_STORE_ID!,
-        channelKey: PORTONE_CHANNEL_KEY!,
+        storeId: storeId!,
+        channelKey: channelKey!,
         ...request,
         issueId,
         issueName: 'DoctorPet 결제수단',
-        // TODO: 실제 로그인 보호자 정보로 대체(회원정보 조회 연동). 지금은 발급에 필요한 최소 정보만 채운다.
+        redirectUrl: `${window.location.origin}${BILLING_KEY_CALLBACK_PATH}`,
+        // 회원 API가 제공하는 실제 로그인 보호자 식별자·이메일만 전달한다. 전화번호 응답 계약이 없는데
+        // 임의의 번호를 보내면 PG 기록이 오염되므로 넣지 않는다.
         customer: {
-          fullName: '보호자',
-          phoneNumber: '010-0000-0000',
-          email: 'guardian@doctorpet.example',
+          customerId: `doctorpet-member-${meQuery.data.memberId}`,
+          email: meQuery.data.email,
         },
       })
       if (!res) {
@@ -122,7 +183,7 @@ export function PaymentMethodsPage() {
       ? registerMethod.error instanceof ApiError
         ? registerMethod.error.message
         : '등록에 실패했습니다.'
-      : null)
+      : redirectErrorMessage)
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -202,10 +263,13 @@ export function PaymentMethodsPage() {
               key={provider}
               className="w-full"
               disabled={
-                !portoneReady || issuingKey !== null || registerMethod.isPending
+                !portoneReady ||
+                !meQuery.data ||
+                issuingKey !== null ||
+                registerMethod.isPending
               }
               onClick={() =>
-                issueBillingKey(provider, `dp-${Date.now()}`, {
+                issueBillingKey(provider, `dp-bk-${crypto.randomUUID()}`, {
                   billingKeyMethod: 'EASY_PAY',
                   easyPay: { easyPayProvider: provider },
                 })
@@ -222,6 +286,11 @@ export function PaymentMethodsPage() {
             <p className="text-xs text-muted-foreground">
               PortOne 설정이 없어 결제창 발급이 비활성화되었습니다(.env의 VITE_PORTONE_* 설정 필요).
               {ALLOW_MANUAL_BILLING_KEY && ' 아래에서 빌링키를 직접 입력해 등록할 수 있습니다.'}
+            </p>
+          )}
+          {portoneReady && meQuery.isError && (
+            <p className="text-xs text-destructive">
+              보호자 정보를 불러오지 못해 결제수단을 등록할 수 없습니다. 잠시 후 다시 시도해 주세요.
             </p>
           )}
 
