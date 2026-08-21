@@ -10,6 +10,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -74,8 +76,12 @@ public class NotificationReservationRequestedTypeMigrationRunner implements Appl
         }
         // 후속 VARCHAR 전환(#176) 뒤 이 호환 버전으로 롤백해도 ENUM으로 되돌리지 않는다.
         if (isVarchar(columnType)) {
+            int droppedChecks = dropNotificationTypeCheckConstraints(connection);
             recordMigration(connection);
-            log.info("새 예약 요청 알림 유형 마이그레이션 생략: notifications.type이 VARCHAR입니다.");
+            log.info(
+                    "새 예약 요청 알림 유형 마이그레이션 생략: notifications.type이 VARCHAR입니다. CHECK 제약 {}건을 제거했습니다.",
+                    droppedChecks
+            );
             return;
         }
         if (!columnType.contains(NEW_TYPE)) {
@@ -146,6 +152,43 @@ public class NotificationReservationRequestedTypeMigrationRunner implements Appl
 
     private boolean isVarchar(String columnType) {
         return columnType.toLowerCase(java.util.Locale.ROOT).startsWith("varchar(");
+    }
+
+    /**
+     * Hibernate는 {@code @Enumerated(EnumType.STRING)} 컬럼을 VARCHAR로 만들 때 기존 enum 값 목록을 CHECK로
+     * 함께 만들 수 있다. 이 제약이 남으면 VARCHAR 전환 뒤의 새 값도 INSERT할 수 없어 전환 목적이 사라진다.
+     * 제약 이름은 생성 순서에 따라 달라지므로 {@code information_schema}에서 type 컬럼을 참조하는 것만 찾는다.
+     */
+    private int dropNotificationTypeCheckConstraints(Connection connection) throws SQLException {
+        List<String> constraintNames = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select tc.constraint_name, cc.check_clause
+                  from information_schema.table_constraints tc
+                  join information_schema.check_constraints cc
+                    on tc.constraint_schema = cc.constraint_schema
+                   and tc.constraint_name = cc.constraint_name
+                 where tc.table_schema = database()
+                   and tc.table_name = 'notifications'
+                   and tc.constraint_type = 'CHECK'
+                """)) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    String checkClause = resultSet.getString("check_clause");
+                    if (checkClause != null && checkClause.contains("`type`")) {
+                        constraintNames.add(resultSet.getString("constraint_name"));
+                    }
+                }
+            }
+        }
+        for (String constraintName : constraintNames) {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        "alter table notifications drop check `"
+                                + constraintName.replace("`", "``") + "`"
+                );
+            }
+        }
+        return constraintNames.size();
     }
 
     private void recordMigration(Connection connection) throws SQLException {
