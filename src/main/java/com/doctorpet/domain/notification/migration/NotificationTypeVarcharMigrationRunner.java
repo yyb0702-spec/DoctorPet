@@ -36,6 +36,7 @@ import org.springframework.stereotype.Component;
 public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner {
 
     static final String MIGRATION_KEY = "notification_type_varchar_v1";
+    private static final String TABLE = "notifications";
     // 여유를 둔 목표 길이. 현재 최장 상수는 RESERVATION_HOSPITAL_CANCELED(29자)·RESERVATION_WAITLIST(20자)로,
     // ENUM 시절 length(30·20)는 여유가 1·0이었다. 엔티티 @Column(length)와 같은 값을 쓴다.
     private static final int TARGET_LENGTH = 40;
@@ -108,59 +109,9 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
         recordMigration(connection);
     }
 
-    /**
-     * 유형 컬럼에 걸린 CHECK 제약을 드롭한다. 이미 없으면 아무것도 하지 않는다(멱등).
-     *
-     * <p>Hibernate는 `@Enumerated(EnumType.STRING)` 컬럼을 VARCHAR로 만들 때 허용 값을 열거하는 CHECK 제약을
-     * 함께 생성한다(`check (type in ('NO_SHOW',...))`). `@Column(columnDefinition = ...)`으로도 억제되지 않음을
-     * 실측 확인했다. 이 제약이 남으면 ENUM을 없앤 의미가 사라진다 — enum에 값을 추가했을 때 기존 DB에서 그 값의
-     * INSERT만 실패하는 증상이 MySQL 1265(ENUM) 대신 3819(CHECK)로 이름만 바뀐 채 그대로 재현된다.
-     *
-     * <p>제약 이름은 MySQL이 `notifications_chk_N`으로 자동 부여하고 N은 생성 순서에 따라 달라지므로 하드코딩하지
-     * 않고, CHECK 절이 대상 컬럼을 backtick으로 참조하는 것만 골라 드롭한다(backtick 경계 덕분에 `resource_type`
-     * 제약이 `type` 매칭에 걸리지 않는다). `ddl-auto=update`는 이미 있는 테이블에 CHECK를 다시 만들지 않으므로
-     * (실측 확인) 한 번 드롭하면 유지되며, 그래도 매 부팅 확인해 드리프트를 스스로 복구한다.
-     *
-     * @return 드롭한 제약 수
-     */
+    // 유형 컬럼에 걸린 CHECK 제약을 드롭한다. 왜 필요한지·왜 이름을 하드코딩하지 않는지는 헬퍼 주석에 있다.
     private int dropEnumCheckConstraints(Connection connection) throws SQLException {
-        List<String> names = enumCheckConstraintNames(connection);
-        for (String name : names) {
-            try (Statement statement = connection.createStatement()) {
-                // MySQL 8.0.16+ 문법. 제약 이름은 information_schema에서 읽은 값이라 외부 입력이 아니다.
-                statement.executeUpdate("alter table notifications drop check `" + name + "`");
-            }
-        }
-        return names.size();
-    }
-
-    // 유형 컬럼을 참조하는 CHECK 제약 이름 목록. 대상 컬럼 외의 CHECK 제약은 건드리지 않는다.
-    private List<String> enumCheckConstraintNames(Connection connection) throws SQLException {
-        List<String> names = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select tc.constraint_name, cc.check_clause
-                  from information_schema.table_constraints tc
-                  join information_schema.check_constraints cc
-                    on tc.constraint_schema = cc.constraint_schema
-                   and tc.constraint_name = cc.constraint_name
-                 where tc.table_schema = database()
-                   and tc.table_name = 'notifications'
-                   and tc.constraint_type = 'CHECK'
-                """)) {
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    String clause = resultSet.getString("check_clause");
-                    if (clause != null && referencesEnumColumn(clause)) {
-                        names.add(resultSet.getString("constraint_name"));
-                    }
-                }
-            }
-        }
-        return names;
-    }
-
-    private boolean referencesEnumColumn(String checkClause) {
-        return ENUM_COLUMNS.stream().anyMatch(column -> checkClause.contains("`" + column + "`"));
+        return NotificationEnumCheckConstraints.drop(connection, TABLE, ENUM_COLUMNS);
     }
 
     /**
@@ -237,7 +188,7 @@ public class NotificationTypeVarcharMigrationRunner implements ApplicationRunner
         assertColumnIsTargetVarchar(connection, TYPE_COLUMN);
         assertColumnIsTargetVarchar(connection, RESOURCE_TYPE_COLUMN);
         // CHECK 제약이 남아 있으면 ENUM을 없앤 의미가 사라지므로 조용히 통과시키지 않는다.
-        List<String> remaining = enumCheckConstraintNames(connection);
+        List<String> remaining = NotificationEnumCheckConstraints.names(connection, TABLE, ENUM_COLUMNS);
         if (!remaining.isEmpty()) {
             throw new IllegalStateException(
                     "notifications 유형 컬럼에 CHECK 제약이 남아 있습니다: " + remaining);
