@@ -259,7 +259,7 @@ UNIQUE: `(reservation_id, event_type)` — 같은 사건은 재요청되어도 �
 | `read_at` | DATETIME NULL | 읽은 시각(NULL=미읽음). `isRead`는 `read_at IS NOT NULL` 파생 |
 | `created_at` | DATETIME | 생성 시각 |
 
-`type`·`resource_type`은 MySQL native ENUM이 아니라 VARCHAR(40)이다(이슈 #176) — 엔티티에 `@JdbcTypeCode(SqlTypes.VARCHAR)`를 못박고 기존 DB는 `notification_type_varchar_v1` 마커로 전환했다. 유형 값 추가에 DDL이 필요하지 않고, 값 유효성은 애플리케이션 enum 파싱이 전담한다.
+`type`·`resource_type`은 MySQL native ENUM이 아니라 VARCHAR(40)이고 **허용 값 CHECK 제약도 없다**(이슈 #176) — 엔티티에 `@JdbcTypeCode(SqlTypes.VARCHAR)`를 못박고, 기존 DB의 ENUM 전환과 Hibernate가 신규 DB에 만드는 CHECK 제약 드롭을 `notification_type_varchar_v1` 마커 러너가 함께 처리한다. 유형 값 추가에 DDL이 필요하지 않고, 값 유효성은 애플리케이션 enum 파싱이 전담한다.
 ### `chat_messages`
 | 필드 | 타입 | 제약·설명 |
 | --- | --- | --- |

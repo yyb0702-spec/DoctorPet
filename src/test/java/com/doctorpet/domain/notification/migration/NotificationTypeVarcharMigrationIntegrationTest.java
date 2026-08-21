@@ -16,7 +16,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>검증 계약: ① 기존 ENUM 컬럼을 전환하고 재실행해도 멱등하다, ② 기존 행의 값이 보존된다(ENUM 라벨 → 문자열),
  * ③ 마커가 이미 있는데 수동으로 ENUM으로 되돌린 드리프트도 스스로 복구한다, ④ 전환 후에는 ENUM 정의에 없던
- * 새 값도 DDL 없이 저장된다(이 이슈의 목적), ⑤ 제거한 정정 러너가 담당했던 오타 값 보정이 유지된다.
+ * 새 값도 DDL 없이 저장된다(이 이슈의 목적), ⑤ 제거한 정정 러너가 담당했던 오타 값 보정이 유지된다,
+ * ⑥ Hibernate가 VARCHAR enum 컬럼에 만드는 CHECK 제약을 드롭한다.
+ *
+ * <p>⑥은 <b>신규 DB에서만 재현되는 결함</b>이었다(CI 실패로 발견). 오래된 개발 DB의 notifications에는 CHECK 제약이
+ * 없어서(테이블이 ENUM 시절에 만들어졌고 `ddl-auto=update`는 기존 테이블에 CHECK를 추가하지 않는다) 기존 DB로만
+ * 통합 테스트를 돌리면 통과한다. 그래서 이 클래스는 CHECK 제약을 <b>직접 만들어 놓고</b> 러너가 드롭하는지 본다 —
+ * 신규 DB의 상태를 기존 DB에서 재현하는 것이 목적이다.
  *
  * <p>전체 컨텍스트(MySQL·Redis·env)가 필요하다 — 없으면 BLOCKED.
  */
@@ -46,6 +52,14 @@ class NotificationTypeVarcharMigrationIntegrationTest {
             "enum('PAYMENT','RESERVATION','RESERVATION_WAITLIST')";
     // 이 테스트가 만든 행만 골라 지우기 위한 표식.
     private static final String TEST_CONTENT = "[#176 전환 테스트] 알림 유형 컬럼 VARCHAR 전환 검증";
+    // 현재 enum 값 전체. Hibernate가 신규 DB에 만드는 CHECK 제약과 같은 열거를 재현할 때 쓴다 — 기존 행이
+    // 위반하지 않아야 ALTER ADD CONSTRAINT 자체가 성공한다.
+    private static final String CURRENT_TYPE_VALUES =
+            "'NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
+                    + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED',"
+                    + "'RESERVATION_REQUESTED','RESERVATION_WAITLIST_OFFERED'";
+    private static final String CURRENT_RESOURCE_TYPE_VALUES =
+            "'PAYMENT','RESERVATION','RESERVATION_WAITLIST'";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -134,6 +148,33 @@ class NotificationTypeVarcharMigrationIntegrationTest {
     }
 
     @Test
+    @DisplayName("Hibernate가 만든 CHECK 제약을 드롭해, 열거에 없는 값도 저장된다")
+    void migration_dropsEnumCheckConstraintsSoNewValuesInsert() {
+        // 신규 DB 상태 재현 — Hibernate가 만드는 것과 같은 형태의 CHECK 제약을 직접 만든다. 이게 남아 있으면
+        // ENUM을 없앤 의미가 사라진다(값 추가 시 MySQL 1265 대신 3819로 이름만 바뀐 채 같은 증상).
+        addCheckConstraint("chk_test_notification_type", "type", CURRENT_TYPE_VALUES);
+        addCheckConstraint("chk_test_notification_resource_type", "resource_type", CURRENT_RESOURCE_TYPE_VALUES);
+        assertThat(enumCheckConstraintCount()).isEqualTo(2);
+
+        new NotificationTypeVarcharMigrationRunner(jdbcTemplate).migrateBeforeJpa();
+
+        assertThat(enumCheckConstraintCount()).isZero();
+        assertThatCode(() -> insertNotification("FUTURE_TYPE_NOT_IN_ENUM", "FUTURE_RESOURCE_NOT_IN_ENUM"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("recipient_type의 CHECK 제약도 함께 드롭한다")
+    void migration_dropsRecipientTypeCheckConstraint() {
+        // recipient_type은 타입 전환 대상이 아니지만(이미 varchar(20)) 신규 DB에서는 같은 CHECK가 생긴다.
+        addCheckConstraint("chk_test_notification_recipient_type", "recipient_type", "'MEMBER','HOSPITAL'");
+
+        new NotificationTypeVarcharMigrationRunner(jdbcTemplate).migrateBeforeJpa();
+
+        assertThat(enumCheckConstraintCount()).isZero();
+    }
+
+    @Test
     @DisplayName("오타 값이 남은 DB를 전환하면서 정정한다(제거한 정정 러너의 보정을 승계)")
     void migration_correctsLegacyTypoValue() {
         revertToLegacyEnum(LEGACY_TYPE_ENUM_WITH_TYPO);
@@ -144,6 +185,32 @@ class NotificationTypeVarcharMigrationIntegrationTest {
 
         assertThat(typeOf(id)).isEqualTo("RESERVATION_HOSPITAL_CANCELED");
         assertThat(legacyTypoRowCount()).isZero();
+    }
+
+    // Hibernate가 신규 DB에 만드는 것과 같은 형태의 CHECK 제약을 만든다. 이름은 테스트가 정하지만 러너는
+    // 이름이 아니라 CHECK 절이 참조하는 컬럼으로 대상을 고르므로, 자동 이름(notifications_chk_N)과 동등하다.
+    private void addCheckConstraint(String name, String column, String allowedValues) {
+        jdbcTemplate.execute("alter table notifications add constraint `" + name + "` check (`"
+                + column + "` in (" + allowedValues + "))");
+    }
+
+    // 유형 컬럼(type·resource_type·recipient_type)을 참조하는 CHECK 제약 수. 러너가 고르는 기준과 같은 조건으로
+    // 센다 — 러너가 이름을 하드코딩하지 않으므로 테스트도 이름으로 세지 않는다.
+    private int enumCheckConstraintCount() {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.table_constraints tc
+                  join information_schema.check_constraints cc
+                    on tc.constraint_schema = cc.constraint_schema
+                   and tc.constraint_name = cc.constraint_name
+                 where tc.table_schema = database()
+                   and tc.table_name = 'notifications'
+                   and tc.constraint_type = 'CHECK'
+                   and (cc.check_clause like '%`type`%'
+                     or cc.check_clause like '%`resource_type`%'
+                     or cc.check_clause like '%`recipient_type`%')
+                """, Integer.class);
+        return count == null ? 0 : count;
     }
 
     private void revertToLegacyEnum(String typeEnum) {
