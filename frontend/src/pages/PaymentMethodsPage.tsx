@@ -48,6 +48,34 @@ const BILLING_KEY_CALLBACK_PATH = '/payment-methods'
 const BILLING_KEY_ISSUE_ID_QUERY_PARAM = 'billingKeyIssueId'
 const BILLING_KEY_ISSUE_ID_STORAGE_KEY = 'doctorpet:pending-billing-key-issue-id'
 
+type PendingBillingKeyIssue = {
+  issueId: string
+  memberId: number
+}
+
+function getPendingBillingKeyIssue(): PendingBillingKeyIssue | null {
+  const stored = window.sessionStorage.getItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+  if (!stored) return null
+
+  try {
+    const parsed: unknown = JSON.parse(stored)
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'issueId' in parsed &&
+      typeof parsed.issueId === 'string' &&
+      'memberId' in parsed &&
+      typeof parsed.memberId === 'number' &&
+      Number.isSafeInteger(parsed.memberId)
+    ) {
+      return { issueId: parsed.issueId, memberId: parsed.memberId }
+    }
+  } catch {
+    // 이전 형식·변조된 저장값은 정상 발급 callback으로 취급하지 않는다.
+  }
+  return null
+}
+
 function getRedirectErrorMessage(state: unknown) {
   if (
     typeof state === 'object' &&
@@ -79,6 +107,7 @@ export function PaymentMethodsPage() {
   const portoneReady = Boolean(storeId && channelKey)
   const redirectErrorMessage = getRedirectErrorMessage(location.state)
   const registerBillingKey = registerMethod.mutate
+  const currentMemberId = meQuery.data?.memberId
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -88,17 +117,16 @@ export function PaymentMethodsPage() {
     // 일반 진입과 PC iframe 응답은 URL query가 없으므로 아무 작업도 하지 않는다.
     if (!billingKeyFromRedirect && !portoneErrorCode) return
 
-    // navigate는 다음 렌더에서 반영되므로, StrictMode가 effect를 재실행해도 같은 복귀 query를 한 번만 처리한다.
-    if (handledRedirectQueryRef.current === location.search) return
-    handledRedirectQueryRef.current = location.search
-
     // 먼저 query를 지워야 네트워크 지연 중 새로고침해도 같은 빌링키를 두 번 등록하지 않는다.
     if (portoneErrorCode) {
+      // navigate는 다음 렌더에서 반영되므로, StrictMode가 effect를 재실행해도 같은 복귀 query를 한 번만 처리한다.
+      if (handledRedirectQueryRef.current === location.search) return
+      handledRedirectQueryRef.current = location.search
       // 실패·취소 결과도 같은 발급 시도의 종료면 상관관계 값을 소비한다. 단, 임의 error URL이 다른
       // 진행 중 요청까지 취소하지 않도록 redirectUrl에 실은 issueId가 현재 값과 같을 때만 지운다.
-      const expectedIssueId = window.sessionStorage.getItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+      const pendingIssue = getPendingBillingKeyIssue()
       const issueIdFromRedirect = params.get(BILLING_KEY_ISSUE_ID_QUERY_PARAM)
-      if (expectedIssueId && expectedIssueId === issueIdFromRedirect) {
+      if (pendingIssue?.issueId === issueIdFromRedirect) {
         window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
       }
       navigate(BILLING_KEY_CALLBACK_PATH, {
@@ -112,10 +140,12 @@ export function PaymentMethodsPage() {
     }
 
     // URL의 billingKey만으로는 이 탭·로그인 사용자가 시작한 인증 결과인지 알 수 없다. 요청을 시작할 때
-    // sessionStorage에 선점한 issueId와 redirectUrl에 실어 되돌아온 값을 대조한다.
-    const expectedIssueId = window.sessionStorage.getItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+    // sessionStorage에 선점한 issueId·회원 ID와 redirectUrl에 실어 되돌아온 값을 대조한다.
+    const pendingIssue = getPendingBillingKeyIssue()
     const issueIdFromRedirect = params.get(BILLING_KEY_ISSUE_ID_QUERY_PARAM)
-    if (!expectedIssueId || expectedIssueId !== issueIdFromRedirect) {
+    if (!pendingIssue || pendingIssue.issueId !== issueIdFromRedirect) {
+      if (handledRedirectQueryRef.current === location.search) return
+      handledRedirectQueryRef.current = location.search
       navigate(BILLING_KEY_CALLBACK_PATH, {
         replace: true,
         state: {
@@ -126,11 +156,30 @@ export function PaymentMethodsPage() {
       return
     }
 
+    // 전체 페이지 리디렉션 뒤에는 회원 조회가 다시 시작된다. 로딩 중에는 query를 처리한 것으로
+    // 선점하지 않아, 현재 로그인 회원을 확인한 다음에만 등록하도록 한다.
+    if (meQuery.isLoading) return
+
+    if (handledRedirectQueryRef.current === location.search) return
+    handledRedirectQueryRef.current = location.search
+    if (!currentMemberId || pendingIssue.memberId !== currentMemberId) {
+      // 계정이 바뀐 인증 결과는 이후 원래 계정으로 돌아와도 재사용하지 않도록 폐기한다.
+      window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
+      navigate(BILLING_KEY_CALLBACK_PATH, {
+        replace: true,
+        state: {
+          portoneErrorMessage:
+            '인증을 시작한 계정과 현재 로그인 계정이 다릅니다. 다시 등록해 주세요.',
+        },
+      })
+      return
+    }
+
     // mutation을 시작하기 전에 소비해 새로고침·재마운트에서도 같은 결과를 다시 등록하지 못하게 한다.
     window.sessionStorage.removeItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY)
     navigate(BILLING_KEY_CALLBACK_PATH, { replace: true })
     registerBillingKey(billingKeyFromRedirect!)
-  }, [location.search, navigate, registerBillingKey])
+  }, [currentMemberId, location.search, meQuery.isLoading, navigate, registerBillingKey])
 
   // PortOne 결제창으로 빌링키를 발급받아 그대로 등록한다(발급→등록 원스텝). 카드 등록(CARD)과
   // 간편결제(EASY_PAY+provider) 모두 이 함수 하나로 처리한다.
@@ -158,8 +207,11 @@ export function PaymentMethodsPage() {
     setIssuingKey(key)
     const redirectUrl = new URL(BILLING_KEY_CALLBACK_PATH, window.location.origin)
     redirectUrl.searchParams.set(BILLING_KEY_ISSUE_ID_QUERY_PARAM, issueId)
-    // 모바일 리디렉션 뒤에도 같은 탭에서만 소비된다. PC iframe 응답·발급 실패에서는 아래에서 즉시 정리한다.
-    window.sessionStorage.setItem(BILLING_KEY_ISSUE_ID_STORAGE_KEY, issueId)
+    // 모바일 리디렉션 뒤에도 같은 탭·같은 회원에서만 소비된다. PC iframe 응답·발급 실패에서는 아래에서 즉시 정리한다.
+    window.sessionStorage.setItem(
+      BILLING_KEY_ISSUE_ID_STORAGE_KEY,
+      JSON.stringify({ issueId, memberId: meQuery.data.memberId }),
+    )
     try {
       const res = await PortOne.requestIssueBillingKey({
         storeId: storeId!,

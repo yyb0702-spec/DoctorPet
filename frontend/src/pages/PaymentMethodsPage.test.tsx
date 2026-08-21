@@ -27,6 +27,14 @@ vi.mock('@/features/payments/hooks', () => ({
 }))
 
 const registerBillingKey = vi.fn()
+const PENDING_ISSUE_STORAGE_KEY = 'doctorpet:pending-billing-key-issue-id'
+
+function storePendingIssue(issueId: string, memberId = 31) {
+  window.sessionStorage.setItem(
+    PENDING_ISSUE_STORAGE_KEY,
+    JSON.stringify({ issueId, memberId }),
+  )
+}
 
 function CurrentSearch() {
   return <output data-testid="current-search">{useLocation().search}</output>
@@ -91,7 +99,7 @@ describe('PaymentMethodsPage', () => {
   })
 
   it('StrictMode에서도 일치하는 모바일 인증 복귀 URL의 빌링키를 한 번만 등록하고 query를 제거한다', async () => {
-    window.sessionStorage.setItem('doctorpet:pending-billing-key-issue-id', 'issue-from-kakaopay')
+    storePendingIssue('issue-from-kakaopay')
     renderPage(
       '/payment-methods?billingKey=billing-key-from-kakaopay&billingKeyIssueId=issue-from-kakaopay',
       true,
@@ -103,10 +111,7 @@ describe('PaymentMethodsPage', () => {
   })
 
   it('현재 탭에서 시작하지 않은 인증 결과는 등록하지 않는다', async () => {
-    window.sessionStorage.setItem(
-      'doctorpet:pending-billing-key-issue-id',
-      'expected-issue',
-    )
+    storePendingIssue('expected-issue')
     renderPage(
       '/payment-methods?billingKey=untrusted-key&billingKeyIssueId=other-issue',
     )
@@ -120,7 +125,7 @@ describe('PaymentMethodsPage', () => {
 
   it('모바일 인증 실패 후 issueId를 소비해 같은 ID의 성공 callback을 등록하지 않는다', async () => {
     const issueId = 'cancelled-issue'
-    window.sessionStorage.setItem('doctorpet:pending-billing-key-issue-id', issueId)
+    storePendingIssue(issueId)
     const failedCallback = renderPage(
       `/payment-methods?code=USER_CANCELLED&message=인증을 취소했습니다.&billingKeyIssueId=${issueId}`,
     )
@@ -130,7 +135,7 @@ describe('PaymentMethodsPage', () => {
     )
     expect(registerBillingKey).not.toHaveBeenCalled()
     expect(screen.getByTestId('current-search')).toHaveTextContent('')
-    expect(window.sessionStorage.getItem('doctorpet:pending-billing-key-issue-id')).toBeNull()
+    expect(window.sessionStorage.getItem(PENDING_ISSUE_STORAGE_KEY)).toBeNull()
 
     failedCallback.unmount()
     renderPage(`/payment-methods?billingKey=late-key&billingKeyIssueId=${issueId}`)
@@ -142,7 +147,7 @@ describe('PaymentMethodsPage', () => {
   })
 
   it('현재 발급 요청과 다른 실패 callback은 진행 중인 issueId를 지우지 않는다', async () => {
-    window.sessionStorage.setItem('doctorpet:pending-billing-key-issue-id', 'active-issue')
+    storePendingIssue('active-issue')
     renderPage(
       '/payment-methods?code=USER_CANCELLED&message=인증을 취소했습니다.&billingKeyIssueId=other-issue',
     )
@@ -150,7 +155,33 @@ describe('PaymentMethodsPage', () => {
     await waitFor(() =>
       expect(screen.getByText('인증을 취소했습니다.')).toBeInTheDocument(),
     )
-    expect(window.sessionStorage.getItem('doctorpet:pending-billing-key-issue-id')).toBe('active-issue')
+    expect(window.sessionStorage.getItem(PENDING_ISSUE_STORAGE_KEY)).toBe(
+      JSON.stringify({ issueId: 'active-issue', memberId: 31 }),
+    )
+  })
+
+  it('인증 중 계정이 바뀐 callback은 등록하지 않고 발급 상태를 폐기한다', async () => {
+    storePendingIssue('guardian-a-issue', 31)
+    vi.mocked(useMe).mockReturnValue({
+      data: {
+        memberId: 42,
+        email: 'other-guardian@example.com',
+        nickname: '다른 보호자',
+        role: 'GUARDIAN',
+        hospitalId: null,
+      },
+      isError: false,
+      isLoading: false,
+    } as ReturnType<typeof useMe>)
+    renderPage(
+      '/payment-methods?billingKey=guardian-a-key&billingKeyIssueId=guardian-a-issue',
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('인증을 시작한 계정과 현재 로그인 계정이 다릅니다. 다시 등록해 주세요.')).toBeInTheDocument(),
+    )
+    expect(registerBillingKey).not.toHaveBeenCalled()
+    expect(window.sessionStorage.getItem(PENDING_ISSUE_STORAGE_KEY)).toBeNull()
   })
 
   it('실제 보호자 식별자와 모바일 복귀 URL을 넣어 카카오페이 빌링키 발급을 요청한다', async () => {
