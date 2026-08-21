@@ -313,8 +313,9 @@ class PaymentItemChargeIntegrationTest {
         List<Throwable> unexpected = new ArrayList<>();
 
         // 한쪽은 청구, 다른 쪽은 항목 교체를 동시에 시도한다. 두 경로는 같은 예약 행을 PESSIMISTIC_WRITE로
-        // 잠그므로 하나가 끝난 뒤 다른 하나가 실행된다 — 청구가 먼저면 교체가 409, 교체가 먼저면 청구가
-        // 교체된 항목 합계로 성립한다. 어느 순서에서도 총액과 스탬프된 항목 합계는 같아야 한다.
+        // 잠그므로 하나가 끝난 뒤 다른 하나가 실행된다 — 청구가 먼저면 교체가 409다. 교체가 먼저면 청구는
+        // 새 초안으로 성립할 수도 있고, 교체 전 토큰을 이미 계산했다면 PAYMENT_ITEM_CHANGED(409)로 거부된다.
+        // 어느 순서에서도 총액과 스탬프된 항목 합계는 같아야 한다.
         executor.submit(() -> runGuarded(readyLatch, startLatch, doneLatch, unexpected,
                 () -> paymentApplicationService.charge(reservationId, STAFF_MEMBER_ID, PaymentItemTestSupport.draftToken(paymentItemRepository, reservationId))));
         executor.submit(() -> runGuarded(readyLatch, startLatch, doneLatch, unexpected,
@@ -354,9 +355,12 @@ class PaymentItemChargeIntegrationTest {
             startLatch.await();
             action.run();
         } catch (ServiceException e) {
-            // 직렬화 결과로 지는 쪽은 도메인 에러를 받는다(청구 후 교체=409, 교체 후 청구는 성립). 그 밖은 실패다.
+            // 직렬화 결과로 지는 쪽은 도메인 에러를 받는다. 청구 후 교체는 PAYMENT_ITEM_ALREADY_CHARGED,
+            // 교체가 청구의 토큰 산출 뒤에 끝나면 PAYMENT_ITEM_CHANGED, 동시 청구는 DUPLICATE_CHARGE다.
+            // 그 밖은 실패다.
             if (e.getErrorCode() != PaymentErrorCode.PAYMENT_ITEM_ALREADY_CHARGED
                     && e.getErrorCode() != PaymentErrorCode.DUPLICATE_CHARGE
+                    && e.getErrorCode() != PaymentErrorCode.PAYMENT_ITEM_CHANGED
                     && e.getErrorCode() != PaymentErrorCode.PAYMENT_ITEM_REQUIRED) {
                 synchronized (unexpected) {
                     unexpected.add(e);

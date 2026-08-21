@@ -13,7 +13,15 @@ import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** 기존 예약 상태 enum의 병원 취소 명칭을 프로젝트 표준(CANCELED)에 맞게 정리한다. */
+/**
+ * 기존 예약 상태 enum의 병원 취소 명칭을 프로젝트 표준(CANCELED)에 맞게 정리한다.
+ *
+ * <p>이 러너는 원래 같은 오타 정리를 notifications.type ENUM에도 적용했는데, 이슈 #176에서 그 컬럼을 VARCHAR로
+ * 전환하면서 제거했다. 이유가 둘이다 — ① VARCHAR가 된 뒤에는 이 러너의 검증(ENUM 정의에 특정 값이 있는지)이
+ * 항상 실패해 부팅을 막는다, ② 목표 ENUM 목록을 하드코딩해 통째로 교체하는 방식이라, 그 목록에 없는 뒤에 추가된
+ * 값(RESERVATION_REQUESTED)을 조용히 지우는 지뢰였다. notifications 쪽 컬럼·오타 값 정정은 이제
+ * NotificationTypeVarcharMigrationRunner가 단독으로 담당한다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -39,15 +47,6 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
     private static final String EVENT_ENUM =
             "enum('AUTO_NO_SHOW','AUTO_NO_SHOW_PENDING','CHECKED_IN','HOSPITAL_CANCELED',"
                     + "'MANUAL_NO_SHOW','NO_SHOW_CORRECTED','TIMEOUT_REJECTED')";
-    private static final String NOTIFICATION_ENUM_WITH_LEGACY =
-            "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
-                    + "'RESERVATION_HOSPITAL_CANCELLED','RESERVATION_HOSPITAL_CANCELED',"
-                    + "'RESERVATION_REJECTED','RESERVATION_REQUESTED',"
-                    + "'RESERVATION_WAITLIST_OFFERED')";
-    private static final String NOTIFICATION_ENUM =
-            "enum('NO_SHOW','PAYMENT_PENDING','PAYMENT_RESULT','RESERVATION_CONFIRMED',"
-                    + "'RESERVATION_HOSPITAL_CANCELED','RESERVATION_REJECTED',"
-                    + "'RESERVATION_REQUESTED','RESERVATION_WAITLIST_OFFERED')";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -96,7 +95,6 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         if (migrationApplied(connection)) {
             assertStatusColumn(connection);
             assertEventTypeColumn(connection);
-            assertNotificationTypeColumn(connection);
             assertHospitalCancelColumns(connection);
             return;
         }
@@ -133,27 +131,8 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
             alterEventTypeColumn(connection, EVENT_ENUM);
         }
 
-        String notificationTypeColumnType = notificationTypeColumnType(connection);
-        if (notificationTypeColumnType == null) {
-            throw new IllegalStateException("notifications.type 컬럼이 없습니다.");
-        }
-        if (!isVarchar(notificationTypeColumnType)
-                && (notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELLED")
-                || !notificationTypeColumnType.contains("PAYMENT_PENDING")
-                || !notificationTypeColumnType.contains("RESERVATION_HOSPITAL_CANCELED"))) {
-            alterNotificationTypeColumn(connection, NOTIFICATION_ENUM_WITH_LEGACY);
-            try (Statement statement = connection.createStatement()) {
-                statement.executeUpdate(
-                        "update notifications set type = 'RESERVATION_HOSPITAL_CANCELED' "
-                                + "where type = 'RESERVATION_HOSPITAL_CANCELLED'"
-                );
-            }
-            alterNotificationTypeColumn(connection, NOTIFICATION_ENUM);
-        }
-
         assertStatusColumn(connection);
         assertEventTypeColumn(connection);
-        assertNotificationTypeColumn(connection);
         ensureHospitalCancelColumns(connection);
         assertHospitalCancelColumns(connection);
         recordMigration(connection);
@@ -186,22 +165,6 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
                 || columnType.contains("HOSPITAL_CANCELLED")) {
             throw new IllegalStateException(
                     "reservation_events.event_type enum에 HOSPITAL_CANCELED가 올바르게 반영되지 않았습니다."
-            );
-        }
-    }
-
-    private void assertNotificationTypeColumn(Connection connection) throws SQLException {
-        String columnType = notificationTypeColumnType(connection);
-        // VARCHAR 전환 이후에는 값 목록을 DB가 아니라 애플리케이션 enum이 검증한다. 이 호환
-        // 버전으로의 롤백은 VARCHAR를 보존해야 하므로 ENUM 전용 검증을 적용하지 않는다.
-        if (columnType != null && isVarchar(columnType)) {
-            return;
-        }
-        if (columnType == null || !columnType.contains("PAYMENT_PENDING")
-                || !columnType.contains("RESERVATION_HOSPITAL_CANCELED")
-                || columnType.contains("RESERVATION_HOSPITAL_CANCELLED")) {
-            throw new IllegalStateException(
-                    "notifications.type enum에 PAYMENT_PENDING과 RESERVATION_HOSPITAL_CANCELED가 올바르게 반영되지 않았습니다."
             );
         }
     }
@@ -288,39 +251,11 @@ public class ReservationHospitalCanceledStatusMigrationRunner implements Applica
         }
     }
 
-    private String notificationTypeColumnType(Connection connection) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select column_type
-                  from information_schema.columns
-                 where table_schema = database()
-                   and table_name = 'notifications'
-                   and column_name = 'type'
-                """)) {
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() ? resultSet.getString("column_type") : null;
-            }
-        }
-    }
-
-    private boolean isVarchar(String columnType) {
-        return columnType.toLowerCase(java.util.Locale.ROOT).startsWith("varchar(");
-    }
-
     private void alterEventTypeColumn(Connection connection, String enumDefinition)
             throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate(
                     "alter table reservation_events modify column event_type "
-                            + enumDefinition + " not null"
-            );
-        }
-    }
-
-    private void alterNotificationTypeColumn(Connection connection, String enumDefinition)
-            throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate(
-                    "alter table notifications modify column type "
                             + enumDefinition + " not null"
             );
         }

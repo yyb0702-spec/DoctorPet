@@ -4,6 +4,13 @@ package com.doctorpet.domain.notification.entity;
 // 수신자는 recipient_type(MEMBER|HOSPITAL) + recipient_id가 정본이다(고도화 3.10). member_id는 기존 행 백필과
 // 하위호환용으로 유지하되(MEMBER 행만 채우고 HOSPITAL 행은 NULL), 신규 로직은 recipient_*를 기준으로 쓴다.
 // 읽음 상태는 read_at(NULL=미읽음)을 정본으로 저장하고 isRead는 파생값이다(#39 확정).
+// 세 enum 컬럼(recipient_type·type·resource_type)에는 @JdbcTypeCode(SqlTypes.VARCHAR)를 못박는다(이슈 #176).
+// Hibernate(Boot 4.1)는 @Enumerated(EnumType.STRING)을 MySQL native ENUM 컬럼으로 만들고 @Column(length)를
+// 무시하는데, ddl-auto=update는 기존 ENUM 정의를 넓혀주지 않아 enum에 값만 추가하면 기존 DB에서 그 값의
+// INSERT만 실패한다(MySQL 1265). VARCHAR로 못박으면 신규 DB도 varchar로 생성돼 값 추가에 DDL이 필요 없다
+// (기존 DB 전환은 NotificationTypeVarcharMigrationRunner). 값 검증은 DB가 아니라 이 enum 파싱이 맡는다.
+// 주의: 애너테이션만으로는 부족하다 — Hibernate는 VARCHAR enum 컬럼에 허용 값을 열거하는 CHECK 제약을 함께
+// 만들어(신규 DB) ENUM과 같은 제약을 다시 세운다. 그 CHECK 드롭도 같은 러너가 담당한다.
 
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;

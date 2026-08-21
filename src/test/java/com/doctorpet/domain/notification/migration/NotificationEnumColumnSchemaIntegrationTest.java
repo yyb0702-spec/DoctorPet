@@ -18,17 +18,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * Level 3 — 애플리케이션 enum의 **모든 값이 실제로 저장 가능한 상태**인지 실제 MySQL 스키마로 검증한다(#166 자가검토).
  *
  * <p>왜 필요한가: Hibernate는 `@Enumerated(EnumType.STRING)` 자바 enum을 MySQL native ENUM 컬럼으로 만들고,
- * `ddl-auto=update`는 기존 ENUM 정의를 넓혀주지 않는다. 그래서 enum에 값만 추가하고 확장 마이그레이션을 빼먹으면
- * 컴파일·단위 테스트는 모두 통과하는데 **운영 DB에서 그 값의 INSERT만 실패**한다(MySQL 1265). 게다가 기존 ENUM
- * 마이그레이션 러너들은 목표 목록을 하드코딩한 뒤 컬럼 정의를 통째로 교체하므로, 새 러너가 상위집합·실행 순서
- * 관례를 지키지 않으면 남의 값이 목록에서 조용히 빠질 수도 있다. 그 관례를 사람이 기억하는 대신 이 테스트가 깨지게 한다.
+ * `ddl-auto=update`는 기존 ENUM 정의를 넓혀주지 않는다. 그래서 ENUM이던 동안에는 enum에 값만 추가하고 확장
+ * 마이그레이션을 빼먹으면 컴파일·단위 테스트는 모두 통과하는데 **운영 DB에서 그 값의 INSERT만 실패**했다(MySQL 1265).
  *
- * <p>ENUM이 아닌 VARCHAR 컬럼에도 의미 있는 검사를 남긴다 — 길이가 가장 긴 상수를 담지 못하면 역시 저장이 실패하므로
- * `varchar(n)`의 n을 검사한다. 현재 두 컬럼은 여유가 거의 없다(`resource_type`은 `RESERVATION_WAITLIST` 20자에
- * `length = 20`으로 정확히 한계, `type`은 `RESERVATION_HOSPITAL_CANCELED` 29자에 `length = 30`).
- *
- * <p>수명: `notifications.type`·`resource_type`을 VARCHAR로 전환하면 ENUM 분기는 더 이상 쓰이지 않고 길이 검사만
- * 남는다. 전환 이슈에서 이 테스트의 ENUM 분기를 함께 정리한다.
+ * <p>이슈 #176에서 두 컬럼을 VARCHAR로 전환하고 엔티티에 `@JdbcTypeCode(SqlTypes.VARCHAR)`로 못박아 그 원인을
+ * 없앴으므로, 이 테스트의 계약도 두 가지로 바뀐다.
+ * <ul>
+ *   <li>**컬럼이 ENUM이 아니어야 한다** — 엔티티의 VARCHAR 고정이 사라지면 신규 DB에서 Hibernate가 다시 native
+ *       ENUM을 만들고, 값 추가마다 마이그레이션이 필요한 상태로 조용히 되돌아간다. 그 회귀를 여기서 깨뜨린다.</li>
+ *   <li>**varchar 길이가 가장 긴 상수를 담아야 한다** — 길이가 부족하면 여전히 그 값의 저장이 실패한다.</li>
+ *   <li>**허용 값을 열거하는 CHECK 제약이 없어야 한다** — Hibernate는 VARCHAR enum 컬럼에 그 제약을 자동
+ *       생성하므로(신규 DB), 남아 있으면 ENUM을 없앤 의미가 사라진다. 값 추가 시 실패가 MySQL 1265에서
+ *       3819로 이름만 바뀐다.</li>
+ * </ul>
  *
  * <p>전체 컨텍스트(MySQL·Redis·env)가 필요하다 — 없으면 BLOCKED.
  */
@@ -43,11 +45,33 @@ import org.springframework.jdbc.core.JdbcTemplate;
 })
 class NotificationEnumColumnSchemaIntegrationTest {
 
-    private static final Pattern ENUM_VALUE = Pattern.compile("'([^']*)'");
     private static final Pattern VARCHAR_LENGTH = Pattern.compile("^varchar\\((\\d+)\\)$");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Test
+    @DisplayName("유형 컬럼에 허용 값을 열거하는 CHECK 제약이 없다")
+    void enumColumns_haveNoValueCheckConstraint() {
+        List<String> clauses = jdbcTemplate.queryForList("""
+                select cc.check_clause
+                  from information_schema.table_constraints tc
+                  join information_schema.check_constraints cc
+                    on tc.constraint_schema = cc.constraint_schema
+                   and tc.constraint_name = cc.constraint_name
+                 where tc.table_schema = database()
+                   and tc.table_name = 'notifications'
+                   and tc.constraint_type = 'CHECK'
+                   and (cc.check_clause like '%`type`%'
+                     or cc.check_clause like '%`resource_type`%'
+                     or cc.check_clause like '%`recipient_type`%')
+                """, String.class);
+
+        assertThat(clauses)
+                .as("유형 컬럼에 CHECK 제약이 남으면 값 추가마다 DDL이 다시 필요해진다(이슈 #176) — "
+                        + "NotificationTypeVarcharMigrationRunner의 드롭 단계를 확인한다")
+                .isEmpty();
+    }
 
     @Test
     @DisplayName("NotificationType의 모든 값이 notifications.type에 저장 가능하다")
@@ -61,7 +85,7 @@ class NotificationEnumColumnSchemaIntegrationTest {
     @Test
     @DisplayName("NotificationResourceType의 모든 값이 notifications.resource_type에 저장 가능하다")
     void notificationResourceType_everyValueIsPersistable() {
-        // 이 컬럼에는 확장 마이그레이션 러너가 아예 없다 — 값이 늘면 기존 DB에서 바로 깨진다(#166 자가검토 발견).
+        // ENUM이던 동안 이 컬럼에는 확장 러너가 아예 없어, 값이 늘면 기존 DB에서 바로 깨졌다(#166 자가검토 발견).
         assertEveryValuePersistable(
                 "resource_type",
                 Arrays.stream(NotificationResourceType.values()).map(Enum::name).toList()
@@ -74,21 +98,15 @@ class NotificationEnumColumnSchemaIntegrationTest {
                 .as("notifications.%s 컬럼이 존재해야 한다", columnName)
                 .isNotNull();
 
-        if (columnType.startsWith("enum(")) {
-            List<String> declared = declaredEnumValues(columnType);
-            assertThat(declared)
-                    .as("notifications.%s ENUM 정의에 빠진 %s 값이 있으면, 그 값의 알림은 기존 DB에서 저장에 실패한다 "
-                            + "— enum에 값을 추가했다면 확장 마이그레이션 러너도 함께 넣어야 한다 (현재 정의: %s)",
-                            columnName, columnName, columnType)
-                    .containsAll(values);
-            return;
-        }
-
-        // VARCHAR로 전환된 뒤에도 남는 검사 — 가장 긴 상수를 담지 못하면 역시 저장이 실패한다.
+        // ENUM으로 되돌아가면(엔티티의 @JdbcTypeCode(SqlTypes.VARCHAR) 유실) 값 추가마다 마이그레이션이 다시
+        // 필요해진다 — 이슈 #176이 없앤 원인이므로 여기서 회귀를 잡는다.
         Matcher matcher = VARCHAR_LENGTH.matcher(columnType);
         assertThat(matcher.matches())
-                .as("notifications.%s은 enum 또는 varchar여야 한다 (현재: %s)", columnName, columnType)
+                .as("notifications.%s은 varchar여야 한다 — enum으로 되돌아가면 %s에 값을 추가할 때마다 확장 "
+                        + "마이그레이션이 다시 필요해진다(이슈 #176, 엔티티의 @JdbcTypeCode(SqlTypes.VARCHAR) 확인). "
+                        + "현재: %s", columnName, columnName, columnType)
                 .isTrue();
+
         int length = Integer.parseInt(matcher.group(1));
         String longest = values.stream().max(java.util.Comparator.comparingInt(String::length)).orElseThrow();
         assertThat(length)
@@ -107,12 +125,4 @@ class NotificationEnumColumnSchemaIntegrationTest {
         return found.isEmpty() ? null : found.get(0);
     }
 
-    private List<String> declaredEnumValues(String columnType) {
-        Matcher matcher = ENUM_VALUE.matcher(columnType);
-        List<String> values = new java.util.ArrayList<>();
-        while (matcher.find()) {
-            values.add(matcher.group(1));
-        }
-        return values;
-    }
 }
