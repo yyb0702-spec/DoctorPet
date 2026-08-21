@@ -66,6 +66,22 @@ const WEEKDAY_HOURS: OperatingHours = {
   ],
 }
 
+const FUTURE_WEEKDAY_HOURS: OperatingHours = {
+  effectiveFrom: '2026-08-25',
+  days: [
+    {
+      dayOfWeek: 'MONDAY',
+      periods: [{ startTime: '10:00', endTime: '19:00' }],
+    },
+    { dayOfWeek: 'TUESDAY', periods: [] },
+    { dayOfWeek: 'WEDNESDAY', periods: [] },
+    { dayOfWeek: 'THURSDAY', periods: [] },
+    { dayOfWeek: 'FRIDAY', periods: [] },
+    { dayOfWeek: 'SATURDAY', periods: [] },
+    { dayOfWeek: 'SUNDAY', periods: [] },
+  ],
+}
+
 // 이탈 경고 훅(useBlocker)이 데이터 라우터를 요구하므로 메모리 라우터로 감싼다.
 function renderPage() {
   const router = createMemoryRouter([
@@ -76,7 +92,7 @@ function renderPage() {
 
 beforeEach(() => {
   fakeToday = '2026-08-21'
-  mutate.mockClear()
+  mutate.mockReset()
   operatingHoursQuery.data = undefined
   operatingHoursQuery.error = null
   operatingHoursQuery.isError = false
@@ -164,6 +180,53 @@ describe('StaffOperatingHoursPage', () => {
     const beforeUnload = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(beforeUnload)
     expect(beforeUnload.defaultPrevented).toBe(true)
+  })
+
+  /*
+    GET은 오늘 유효한 시간표만 주므로, PUT 성공 뒤 쿼리를 무효화하면 기존 시간표가 다시 온다.
+    이때 PUT 응답(적용 예정 시간표)을 따로 붙잡지 않으면 방금 저장한 내용을 보거나 같은 발효일로
+    재편집할 수 없고, 현재 시간표를 다시 저장해 미래 시간표를 덮어쓸 수 있다.
+  */
+  it('저장한 미래 시간표를 현재 시간표와 구분해 같은 발효일로 재편집한다', async () => {
+    operatingHoursQuery.data = WEEKDAY_HOURS
+    mutate.mockImplementation((_request, options) =>
+      options?.onSuccess?.(FUTURE_WEEKDAY_HOURS),
+    )
+    renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: '진료시간 저장' }))
+
+    expect(
+      screen.getByText(/8월 25일부터 적용 예정인 시간표를 편집 중입니다/),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('월요일 1번째 구간 시작 시각')).toHaveValue(
+      '10:00',
+    )
+    expect(screen.getByLabelText('발효일')).toHaveValue('2026-08-25')
+
+    fireEvent.change(screen.getByLabelText('월요일 1번째 구간 시작 시각'), {
+      target: { value: '11:00' },
+    })
+    await userEvent.click(screen.getByRole('button', { name: '진료시간 저장' }))
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      {
+        desiredEffectiveFrom: '2026-08-25',
+        days: [
+          {
+            dayOfWeek: 'MONDAY',
+            periods: [{ startTime: '11:00', endTime: '19:00' }],
+          },
+          { dayOfWeek: 'TUESDAY', periods: [] },
+          { dayOfWeek: 'WEDNESDAY', periods: [] },
+          { dayOfWeek: 'THURSDAY', periods: [] },
+          { dayOfWeek: 'FRIDAY', periods: [] },
+          { dayOfWeek: 'SATURDAY', periods: [] },
+          { dayOfWeek: 'SUNDAY', periods: [] },
+        ],
+      },
+      expect.any(Object),
+    )
   })
 
   /*

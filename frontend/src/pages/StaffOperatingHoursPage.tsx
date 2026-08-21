@@ -15,6 +15,7 @@ import {
   SLOT_PUBLICATION_DAYS,
   type DailyOperatingHours,
   type DayOfWeek,
+  type OperatingHours,
   type OperatingHoursUpdateRequest,
   type OperatingPeriod,
 } from '@/features/hospitalOps/types'
@@ -83,27 +84,31 @@ function errorMessage(
 // 서버 값이 바뀌면 부모가 key로 이 폼을 새로 만든다 — 편집 상태 동기화를 effect로 하지 않는다.
 function OperatingHoursForm({
   initialDays,
+  initialDesiredEffectiveFrom,
   pending,
   onEdit,
   onSave,
 }: {
   initialDays: DailyOperatingHours[]
+  initialDesiredEffectiveFrom?: string
   pending: boolean
   onEdit: () => void
   onSave: (request: OperatingHoursUpdateRequest) => void
 }) {
   const today = todaySeoulKey()
   const tomorrow = shiftDateKey(today, 1)
+  const initialEffectiveFrom = initialDesiredEffectiveFrom ?? tomorrow
 
   const [draft, setDraft] = useState<DayDraft[]>(() => toDayDrafts(initialDays))
-  const [desiredEffectiveFrom, setDesiredEffectiveFrom] = useState(tomorrow)
+  const [desiredEffectiveFrom, setDesiredEffectiveFrom] =
+    useState(initialEffectiveFrom)
   /*
     미저장 판정의 기준 발효일은 마운트 시점 값으로 고정한다. 렌더마다 다시 계산한 tomorrow를
     기준으로 쓰면, 페이지를 열어둔 채 자정(Asia/Seoul)을 넘길 때 기준값만 D+2로 바뀌고 입력은
     D+1에 머물러 — 아무것도 건드리지 않았는데 미저장 편집으로 잡히고 이탈이 막힌다.
     입력 가능 최소값(min)은 그대로 살아 있는 tomorrow를 써야 하므로 둘을 분리한다.
   */
-  const [baselineEffectiveFrom] = useState(tomorrow)
+  const [baselineEffectiveFrom] = useState(initialEffectiveFrom)
   const [clientProblems, setClientProblems] = useState<string[]>([])
   // 휴무로 바꾸기 직전의 구간. 휴무를 풀면 기본값이 아니라 이 값을 되살린다.
   const [stashedPeriods, setStashedPeriods] = useState<
@@ -340,6 +345,10 @@ function OperatingHoursForm({
 export function StaffOperatingHoursPage() {
   const query = useOperatingHours()
   const update = useUpdateOperatingHours()
+  // GET은 현재 유효 시간표만 반환한다. PUT으로 막 저장한 미래 시간표는 별도로 보존해
+  // 재조회 결과(현재 시간표)가 이를 덮지 않게 하고, 같은 발효일로 다시 편집할 수 있게 한다.
+  const [scheduledSchedule, setScheduledSchedule] =
+    useState<OperatingHours | null>(null)
 
   /*
     아직 유효한 진료시간이 없는 병원은 GET이 HOSPITAL_004로 실패하지만 PUT은 스케줄을 새로
@@ -369,6 +378,7 @@ export function StaffOperatingHoursPage() {
   }
 
   const schedule = query.data ?? null
+  const editableSchedule = scheduledSchedule ?? schedule
   // 요청한 발효일과 서버가 확정한 발효일을 비교해 "뒤로 밀렸다"를 알린다.
   const requestedFrom = update.variables?.desiredEffectiveFrom
   const confirmedFrom = update.data?.effectiveFrom
@@ -402,6 +412,15 @@ export function StaffOperatingHoursPage() {
               진료 구간을 채워 처음 등록해 주세요.
             </p>
           )}
+          {scheduledSchedule && (
+            <p className="text-foreground">
+              <strong>
+                {dateKeyLabel(scheduledSchedule.effectiveFrom)}부터 적용 예정인
+                시간표를 편집 중입니다.
+              </strong>{' '}
+              현재 적용 중인 시간표는 그 전날까지 유지됩니다.
+            </p>
+          )}
           <p>· 새 진료시간은 오늘 이후 날짜부터만 적용할 수 있습니다.</p>
           <p>
             · 예약 슬롯은 오늘부터 {SLOT_PUBLICATION_DAYS}일 뒤까지 미리 발행돼
@@ -429,14 +448,19 @@ export function StaffOperatingHoursPage() {
 
       <OperatingHoursForm
         key={
-          schedule
-            ? `${schedule.effectiveFrom}|${JSON.stringify(schedule.days)}`
+          editableSchedule
+            ? `${editableSchedule.effectiveFrom}|${JSON.stringify(editableSchedule.days)}`
             : 'missing-schedule'
         }
-        initialDays={schedule?.days ?? emptyWeek()}
+        initialDays={editableSchedule?.days ?? emptyWeek()}
+        initialDesiredEffectiveFrom={scheduledSchedule?.effectiveFrom}
         pending={update.isPending}
         onEdit={clearResult}
-        onSave={(request) => update.mutate(request)}
+        onSave={(request) =>
+          update.mutate(request, {
+            onSuccess: (savedSchedule) => setScheduledSchedule(savedSchedule),
+          })
+        }
       />
 
       {update.isError && (
