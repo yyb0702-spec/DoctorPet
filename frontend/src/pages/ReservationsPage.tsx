@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useReservations } from '@/features/reservations/hooks'
 import type { ReservationListParams } from '@/features/reservations/types'
+import { usePets } from '@/features/pets/hooks'
+import { PetAvatar } from '@/features/pets/PetAvatar'
 import { ReservationProgressBadge } from '@/components/common/StatusBadge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -39,8 +41,12 @@ export function ReservationsPage() {
   })
   const { data, isLoading, isError, refetch, isFetching } =
     useReservations(params)
+  // 예약은 이름만 스냅샷으로 보관하므로, 사진은 내 활성 프로필 목록에서 현재 값을 결합한다.
+  // 삭제된 프로필·아직 불러오는 경우에는 PetAvatar가 자리표시자를 보여준다.
+  const petsQuery = usePets()
 
   const content = data?.content ?? []
+  const petsById = new Map((petsQuery.data ?? []).map((pet) => [pet.petId, pet]))
 
   const setStatus = (status: string | undefined) =>
     setParams((p) => ({ ...p, status, page: 0 }))
@@ -85,7 +91,14 @@ export function ReservationsPage() {
               </div>
               <div className="flex-1 space-y-0.5">
                 <p className="font-semibold">{r.hospitalName}</p>
-                <p className="text-sm text-muted-foreground">{r.petName}</p>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <PetAvatar
+                    name={r.petName}
+                    imageUrl={petsById.get(r.petId)?.imageUrl}
+                    className="h-7 w-7"
+                  />
+                  <span>{r.petName}</span>
+                </div>
               </div>
               <div className="flex flex-col items-end gap-2">
                 <ReservationProgressBadge
