@@ -5,11 +5,19 @@ import type { PaymentMethod } from './types'
 
 type LabelSource = Pick<PaymentMethod, 'id' | 'cardBrand' | 'cardLast4' | 'createdAt'>
 
-// 간편결제로 발급한 빌링키는 카드 정보가 비어 올 수 있다. 그때는 최소한 "카드"로 표기한다.
-function baseLabel(method: LabelSource): string {
+/**
+ * 결제수단의 주 표시명. 카드 정보가 있으면 카드사·뒷자리로, 없으면 수단 이름으로 적는다.
+ * 간편결제(카카오페이)로 발급한 빌링키는 카드사·뒷자리가 비어 오는데, 그걸 "카드"로 적으면
+ * 여러 개가 전부 "카드"로 똑같이 보인다 — 이 앱의 간편결제는 카카오페이뿐이므로 그렇게 표기한다.
+ */
+export function paymentMethodPrimaryLabel(method: Pick<PaymentMethod, 'cardBrand' | 'cardLast4'>): string {
   return method.cardBrand
     ? `${method.cardBrand} ****${method.cardLast4 ?? '****'}`
-    : '카드'
+    : '카카오페이'
+}
+
+function baseLabel(method: LabelSource): string {
+  return paymentMethodPrimaryLabel(method)
 }
 
 /** id → 표시명. 같은 표시명이 둘 이상이면 그 항목들에만 등록 시각을 붙인다. */

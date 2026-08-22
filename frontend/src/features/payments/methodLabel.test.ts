@@ -1,6 +1,6 @@
 // 결제수단 표시명 — 겹칠 때만 등록 시각을 덧붙여 구분하는지 검증.
 import { describe, expect, it } from 'vitest'
-import { paymentMethodLabels } from './methodLabel'
+import { paymentMethodLabels, paymentMethodPrimaryLabel } from './methodLabel'
 
 function method(overrides: Partial<Parameters<typeof paymentMethodLabels>[0][number]> = {}) {
   return {
@@ -44,9 +44,16 @@ describe('paymentMethodLabels', () => {
     expect(labels.get(2)).toContain(' · ')
   })
 
-  it('카드 정보가 없는 간편결제 빌링키도 최소 표기를 갖는다', () => {
+  it('카드 정보가 없는 간편결제 빌링키는 카카오페이로 표기한다', () => {
     const labels = paymentMethodLabels([method({ id: 1, cardBrand: null, cardLast4: null })])
-    expect(labels.get(1)).toBe('카드')
+    expect(labels.get(1)).toBe('카카오페이')
+  })
+
+  it('paymentMethodPrimaryLabel: 카드정보 유무로 카드사·뒷자리 또는 카카오페이를 낸다', () => {
+    expect(paymentMethodPrimaryLabel({ cardBrand: 'SHINHAN', cardLast4: '1234' })).toBe(
+      'SHINHAN ****1234',
+    )
+    expect(paymentMethodPrimaryLabel({ cardBrand: null, cardLast4: null })).toBe('카카오페이')
   })
 
   it('카드 정보가 없는 수단이 여럿이면 등록 시각으로 구분한다', () => {

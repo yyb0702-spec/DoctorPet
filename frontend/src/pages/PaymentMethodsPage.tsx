@@ -16,7 +16,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { useMe } from '@/features/members/hooks'
+import { paymentMethodPrimaryLabel } from '@/features/payments/methodLabel'
+import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
+
+// 등록일 부제 — 카드사·뒷자리가 비어 같은 이름으로 보이는 수단을 서로 구분할 수 있게 한다.
+function registeredAtLabel(createdAt: string): string {
+  return `${new Date(createdAt).toLocaleDateString('ko-KR')} 등록`
+}
 
 function getPortOneConfig() {
   return {
@@ -151,20 +158,26 @@ export function PaymentMethodsPage() {
         )}
         <div className="grid gap-3">
           {sortedMethods.map((method) => (
-            <Card key={method.id}>
+            <Card
+              key={method.id}
+              className={cn(method.isDefault && 'border-primary ring-1 ring-primary')}
+            >
               <CardContent className="flex items-center justify-between p-5">
                 <div className="flex items-center gap-3">
                   <CreditCard className="h-5 w-5 text-primary" />
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">
-                        {method.cardBrand ?? '카드'} ****{method.cardLast4 ?? '****'}
+                        {paymentMethodPrimaryLabel(method)}
                       </span>
                       {method.isDefault && <Badge>기본</Badge>}
                       {method.status !== 'ACTIVE' && (
                         <Badge variant="muted">{method.status}</Badge>
                       )}
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      {registeredAtLabel(method.createdAt)}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -194,6 +207,9 @@ export function PaymentMethodsPage() {
           ))}
         </div>
         {setDefaultErrorMessage && <p className="text-sm text-destructive">{setDefaultErrorMessage}</p>}
+        {setDefaultMethod.isSuccess && !setDefaultMethod.isPending && (
+          <p className="text-sm text-primary">기본 결제수단을 변경했습니다.</p>
+        )}
       </div>
 
       <Card className="h-fit">
