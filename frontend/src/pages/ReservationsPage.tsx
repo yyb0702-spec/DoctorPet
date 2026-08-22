@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ReservationStatus } from '@/types/enums'
+import { groupByDateKey } from '@/lib/seoulTime'
 
 const PAGE_SIZE = 20
 
@@ -46,7 +47,11 @@ export function ReservationsPage() {
   const petsQuery = usePets()
 
   const content = data?.content ?? []
-  const petsById = new Map((petsQuery.data ?? []).map((pet) => [pet.petId, pet]))
+  const petsById = new Map(
+    (petsQuery.data ?? []).map((pet) => [pet.petId, pet]),
+  )
+  // 불러온 페이지 안에서 날짜별로 묶어 최근 날짜부터 보여준다(오늘·내일·날짜 헤더).
+  const dateGroups = groupByDateKey(content, (r) => r.reservedAt, false)
 
   const setStatus = (status: string | undefined) =>
     setParams((p) => ({ ...p, status, page: 0 }))
@@ -77,40 +82,51 @@ export function ReservationsPage() {
         <EmptyState message="예약 내역이 없습니다." />
       )}
 
-      <div className="grid gap-3">
-        {content.map((r) => (
-          <Card key={r.reservationId}>
-            <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex flex-col items-center rounded-lg bg-primary/5 px-3 py-2 text-center">
-                <span className="text-lg font-bold text-primary">
-                  {shortDate(r.reservedAt)}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {timeLabel(r.reservedAt)}
-                </span>
-              </div>
-              <div className="flex-1 space-y-0.5">
-                <p className="font-semibold">{r.hospitalName}</p>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <PetAvatar
-                    name={r.petName}
-                    imageUrl={petsById.get(r.petId)?.imageUrl}
-                    className="h-7 w-7"
-                  />
-                  <span>{r.petName}</span>
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <ReservationProgressBadge
-                  progressStatus={r.progressStatus}
-                  paymentStatus={r.paymentStatus}
-                />
-                <Button asChild size="sm" variant="outline">
-                  <Link to={`/reservations/${r.reservationId}`}>상세 보기</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+      <div className="space-y-5">
+        {dateGroups.map((group) => (
+          <div key={group.date} className="space-y-2">
+            <h2 className="text-sm font-semibold text-muted-foreground">
+              {group.label}
+            </h2>
+            <div className="grid gap-3">
+              {group.items.map((r) => (
+                <Card key={r.reservationId}>
+                  <CardContent className="flex items-center gap-4 p-5">
+                    <div className="flex flex-col items-center rounded-lg bg-primary/5 px-3 py-2 text-center">
+                      <span className="text-lg font-bold text-primary">
+                        {shortDate(r.reservedAt)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {timeLabel(r.reservedAt)}
+                      </span>
+                    </div>
+                    <div className="flex-1 space-y-0.5">
+                      <p className="font-semibold">{r.hospitalName}</p>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <PetAvatar
+                          name={r.petName}
+                          imageUrl={petsById.get(r.petId)?.imageUrl}
+                          className="h-7 w-7"
+                        />
+                        <span>{r.petName}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <ReservationProgressBadge
+                        progressStatus={r.progressStatus}
+                        paymentStatus={r.paymentStatus}
+                      />
+                      <Button asChild size="sm" variant="outline">
+                        <Link to={`/reservations/${r.reservationId}`}>
+                          상세 보기
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 
