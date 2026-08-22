@@ -26,22 +26,33 @@ export const handlers = [
   http.get(`${BASE}/hospitals`, ({ request }) => {
     const url = new URL(request.url)
     const keyword = url.searchParams.get('keyword')?.trim()
+    const region = url.searchParams.get('region')?.trim()
+    const sort = url.searchParams.get('sort')
     const partnerOnly = url.searchParams.get('partnerOnly') === 'true'
     const page = Number(url.searchParams.get('page') ?? '1') // 1-base
     const size = Number(url.searchParams.get('size') ?? '20')
 
     let filtered = mockHospitals
     if (keyword) filtered = filtered.filter((h) => h.name.includes(keyword))
+    // 지역은 백엔드와 동일하게 주소 부분일치로 좁힌다.
+    if (region) filtered = filtered.filter((h) => h.address.includes(region))
     if (partnerOnly)
       filtered = filtered.filter((h) => h.partnershipStatus === 'PARTNER')
 
-    // 최초 진입은 제휴 우선 정렬 후 비제휴로 남은 자리를 채운다(SA v1.14).
+    // 거리순은 distanceKm 오름차순(좌표 미제공 시 null은 뒤로), 그 외는 제휴 우선(SA v1.14).
     // 복사본을 정렬해 원본(mockHospitals)을 변형하지 않는다.
-    filtered = [...filtered].sort(
-      (a, b) =>
-        (a.partnershipStatus === 'PARTNER' ? 0 : 1) -
-        (b.partnershipStatus === 'PARTNER' ? 0 : 1),
-    )
+    filtered =
+      sort === 'distance'
+        ? [...filtered].sort(
+            (a, b) =>
+              (a.distanceKm ?? Number.POSITIVE_INFINITY) -
+              (b.distanceKm ?? Number.POSITIVE_INFINITY),
+          )
+        : [...filtered].sort(
+            (a, b) =>
+              (a.partnershipStatus === 'PARTNER' ? 0 : 1) -
+              (b.partnershipStatus === 'PARTNER' ? 0 : 1),
+          )
 
     const totalElements = filtered.length
     const totalPages = Math.max(1, Math.ceil(totalElements / size))

@@ -28,6 +28,13 @@ const BUSINESS_LABEL: Record<string, string> = {
   CLOSED: '폐업',
 }
 
+// 지역 필터는 서버가 주소(도로명·지번) 부분일치로 처리하므로 시/도 축약형을 그대로 보낸다
+// ("서울"은 "서울특별시 …"·"서울 …" 둘 다 매칭). 시/군/구까지 좁히는 건 후속.
+const SIDO_OPTIONS = [
+  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
+  '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
+] as const
+
 export function HospitalSearchPage() {
   const [searchParams] = useSearchParams()
   const initialKeyword = searchParams.get('q') ?? ''
@@ -68,6 +75,53 @@ export function HospitalSearchPage() {
 
   const goToPage = (next: number) =>
     setParams((p) => ({ ...p, page: next }))
+
+  const region = params.region
+  const setRegion = (next?: string) =>
+    setParams((p) => ({ ...p, region: next, page: 1 }))
+
+  // 거리순 정렬은 현재 위치가 있어야 성립한다(서버가 좌표 없으면 이름순으로 되돌린다).
+  const distanceSort = params.sort === 'distance'
+  const [geoLocating, setGeoLocating] = useState(false)
+  const [geoError, setGeoError] = useState<string | null>(null)
+
+  const useNameSort = () => {
+    setGeoError(null)
+    setParams((p) => ({
+      ...p,
+      sort: undefined,
+      latitude: undefined,
+      longitude: undefined,
+      page: 1,
+    }))
+  }
+
+  const useDistanceSort = () => {
+    if (distanceSort) return
+    if (!('geolocation' in navigator)) {
+      setGeoError('이 브라우저에서는 현재 위치를 쓸 수 없습니다.')
+      return
+    }
+    setGeoLocating(true)
+    setGeoError(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeoLocating(false)
+        setParams((p) => ({
+          ...p,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          sort: 'distance',
+          page: 1,
+        }))
+      },
+      () => {
+        setGeoLocating(false)
+        setGeoError('위치 권한이 필요합니다. 권한을 허용한 뒤 다시 시도해 주세요.')
+      },
+      { timeout: 10_000 },
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -153,7 +207,40 @@ export function HospitalSearchPage() {
             제휴 병원만
           </FilterOption>
         </FilterDropdown>
+
+        <FilterDropdown label={region ?? '지역'} active={!!region}>
+          <FilterOption selected={!region} onClick={() => setRegion(undefined)}>
+            전체
+          </FilterOption>
+          {SIDO_OPTIONS.map((sido) => (
+            <FilterOption
+              key={sido}
+              selected={region === sido}
+              onClick={() => setRegion(region === sido ? undefined : sido)}
+            >
+              {sido}
+            </FilterOption>
+          ))}
+        </FilterDropdown>
+
+        <FilterDropdown
+          label={distanceSort ? '거리순' : '이름순'}
+          active={distanceSort}
+        >
+          <FilterOption selected={!distanceSort} onClick={useNameSort}>
+            이름순
+          </FilterOption>
+          <FilterOption selected={distanceSort} onClick={useDistanceSort}>
+            {geoLocating ? '현재 위치 확인 중…' : '거리순(내 위치 기준)'}
+          </FilterOption>
+        </FilterDropdown>
       </div>
+
+      {geoError && (
+        <p className="text-sm text-destructive" role="alert">
+          {geoError}
+        </p>
+      )}
 
       {/* 결과 리스트 — 카드를 누르면 그 자리에서 지도가 펼쳐진다(이동 X). "상세"만 이동. */}
       <div className="space-y-3">

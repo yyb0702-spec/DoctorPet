@@ -49,6 +49,8 @@ function latestSearchParams() {
   return calls[calls.length - 1]?.[0]
 }
 
+const getCurrentPosition = vi.fn()
+
 describe('HospitalSearchPage filters', () => {
   beforeEach(() => {
     vi.mocked(useHospitalSearch).mockReset()
@@ -59,6 +61,11 @@ describe('HospitalSearchPage filters', () => {
       isFetching: false,
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useHospitalSearch>)
+    getCurrentPosition.mockReset()
+    Object.defineProperty(navigator, 'geolocation', {
+      value: { getCurrentPosition },
+      configurable: true,
+    })
   })
 
   it('반려동물 필터가 supportedSpecies와 첫 페이지를 전달한다', async () => {
@@ -106,5 +113,51 @@ describe('HospitalSearchPage filters', () => {
         page: 1,
       })
     })
+  })
+
+  it('지역 필터가 시/도를 region으로 전달한다', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '지역' }))
+    await user.click(screen.getByRole('button', { name: '서울' }))
+
+    await waitFor(() => {
+      expect(latestSearchParams()).toMatchObject({ region: '서울', page: 1 })
+    })
+  })
+
+  it('거리순은 현재 위치를 받아 sort=distance와 좌표를 전달한다', async () => {
+    getCurrentPosition.mockImplementation((success) =>
+      success({ coords: { latitude: 37.5, longitude: 127.0 } }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '이름순' }))
+    await user.click(screen.getByRole('button', { name: /거리순/ }))
+
+    await waitFor(() => {
+      expect(latestSearchParams()).toMatchObject({
+        sort: 'distance',
+        latitude: 37.5,
+        longitude: 127.0,
+        page: 1,
+      })
+    })
+  })
+
+  it('위치 권한이 거부되면 거리순으로 바꾸지 않고 안내를 보여준다', async () => {
+    getCurrentPosition.mockImplementation((_success, error) => error())
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '이름순' }))
+    await user.click(screen.getByRole('button', { name: /거리순/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('위치 권한이 필요')
+    })
+    expect(latestSearchParams()?.sort).toBeUndefined()
   })
 })
