@@ -97,7 +97,8 @@ export function HospitalSearchPage() {
   }
 
   const useDistanceSort = () => {
-    if (distanceSort) return
+    // 이미 거리순이거나 위치를 받는 중이면 무시한다 — 연타 시 권한 프롬프트가 중복으로 뜨는 걸 막는다.
+    if (distanceSort || geoLocating) return
     if (!('geolocation' in navigator)) {
       setGeoError('이 브라우저에서는 현재 위치를 쓸 수 없습니다.')
       return
