@@ -106,6 +106,42 @@ class HospitalPaymentQueryRepositoryIntegrationTest {
         assertThat(second.isLast()).isTrue();
     }
 
+    @Test
+    @DisplayName("결제가 없는 예약은 목록에서 제외한다 — content·totalElements 모두 결제 기준으로만 센다")
+    void excludesReservationsWithoutPayment() {
+        // 결제가 붙은 예약 1건
+        persistReservationWithPayment(HOSPITAL_A, "결제있음", LocalDateTime.of(2026, 8, 15, 9, 0), "pay_has",
+                p -> p.markPaid("PG-HAS", LocalDateTime.of(2026, 8, 15, 10, 0)));
+        // 같은 병원의 결제 없는 예약 2건 — 결제 기준 조인이라 content·count 모두에서 빠져야 한다.
+        persistReservationWithoutPayment(HOSPITAL_A, "결제없음1", LocalDateTime.of(2026, 8, 16, 9, 0));
+        persistReservationWithoutPayment(HOSPITAL_A, "결제없음2", LocalDateTime.of(2026, 8, 17, 9, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<HospitalPaymentListItemResponse> page =
+                repository.findActivePaymentsByHospitalId(HOSPITAL_A, PageRequest.of(0, 10));
+
+        assertThat(page.getTotalElements()).isEqualTo(1L);
+        assertThat(page.getContent()).extracting(HospitalPaymentListItemResponse::petName)
+                .containsExactly("결제있음");
+    }
+
+    private void persistReservationWithoutPayment(
+            Long hospitalId,
+            String petName,
+            LocalDateTime startAt
+    ) {
+        ReservationSlot slot = ReservationSlot.create(hospitalId, startAt, startAt.plusMinutes(30));
+        entityManager.persist(slot);
+        entityManager.flush();
+
+        Reservation reservation = Reservation.request(
+                11L, 7L, hospitalId, slot.getId(), 3L, petName, "DOG", startAt.minusDays(1)
+        );
+        entityManager.persist(reservation);
+        entityManager.flush();
+    }
+
     private Payment persistReservationWithPayment(
             Long hospitalId,
             String petName,

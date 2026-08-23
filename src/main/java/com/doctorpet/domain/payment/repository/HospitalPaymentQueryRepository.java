@@ -61,10 +61,14 @@ public class HospitalPaymentQueryRepository {
                 .limit(pageable.getPageSize())
                 .fetch();
 
+        // count는 content와 동일한 조인 집합(reservationSlot 포함)을 태워 페이지 정합을 보장한다.
+        // 지금은 slot_id가 NOT NULL·슬롯 하드삭제가 없어 결과가 같지만, 슬롯이 optional로 바뀌어도
+        // content(INNER join)에서 빠지는 행이 totalElements에만 잡히는 미수금 누락을 막는다.
         Long total = queryFactory
                 .select(payment.count())
                 .from(payment)
                 .join(reservation).on(payment.reservationId.eq(reservation.id))
+                .join(reservationSlot).on(reservation.slotId.eq(reservationSlot.id))
                 .where(
                         reservation.hospitalId.eq(hospitalId),
                         payment.supersededAt.isNull()
