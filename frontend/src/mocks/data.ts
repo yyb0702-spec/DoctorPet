@@ -180,17 +180,26 @@ export function buildSlotLookup(hospitalId: number, date: string): HospitalSlotL
   return { selectedDate: date, dateAvailabilities, slots }
 }
 
+// Date의 로컬(브라우저=시연 기준) 구성요소를 오프셋 없는 "yyyy-MM-ddTHH:mm:ss"로 만든다.
+// 백엔드 LocalDateTime과 같은 형식이라, 화면이 문자열을 그대로 슬라이스해 표시해도 어긋나지 않는다.
+function naiveLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 // 예약 시연 시간 — 지금 시각(새벽 등)이 아니라 업무시간(hour:00)에 맞춘 dayOffset일차 슬롯.
+// toISOString()은 UTC Z로 바꿔 표시 슬라이스와 9시간 어긋나므로(리뷰 P2), 백엔드처럼 오프셋 없이 준다.
 function apptStart(dayOffset: number, hour: number): string {
   const d = new Date()
   d.setDate(d.getDate() + dayOffset)
   d.setHours(hour, 0, 0, 0)
-  return d.toISOString()
+  return naiveLocal(d)
 }
 function apptEnd(dayOffset: number, hour: number): string {
-  return new Date(
-    new Date(apptStart(dayOffset, hour)).getTime() + 1_800_000,
-  ).toISOString()
+  const d = new Date()
+  d.setDate(d.getDate() + dayOffset)
+  d.setHours(hour, 30, 0, 0)
+  return naiveLocal(d)
 }
 
 export const mockReservations: ReservationListItem[] = [
