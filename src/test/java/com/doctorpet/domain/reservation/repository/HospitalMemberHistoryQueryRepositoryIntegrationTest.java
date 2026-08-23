@@ -73,6 +73,49 @@ class HospitalMemberHistoryQueryRepositoryIntegrationTest {
         assertThat(noPayment.amount()).isNull();
     }
 
+    @Test
+    @DisplayName("결제가 대체(superseded)된 예약은 결제 필드가 null이다 — LEFT JOIN이 활성 결제만 붙인다")
+    void supersededPayment_yieldsNullPaymentFields() {
+        // 예약은 남아 있지만 붙어 있던 결제가 대체돼 활성 결제가 없는 상태.
+        // LEFT JOIN의 supersededAt IS NULL 조건이 대체된 결제를 걸러내야 예약 1행 + 결제 필드 null이 된다.
+        persistWithSupersededPayment(HOSPITAL_A, MEMBER, "초코", LocalDateTime.of(2026, 8, 18, 9, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<HospitalMemberHistoryItemResponse> page =
+                repository.findMemberHistory(HOSPITAL_A, MEMBER, PageRequest.of(0, 10));
+
+        assertThat(page.getTotalElements()).isEqualTo(1L);
+        HospitalMemberHistoryItemResponse row = page.getContent().get(0);
+        assertThat(row.reservedAt()).isEqualTo(LocalDateTime.of(2026, 8, 18, 9, 0));
+        assertThat(row.paymentId()).isNull();
+        assertThat(row.paymentStatus()).isNull();
+        assertThat(row.amount()).isNull();
+    }
+
+    private void persistWithSupersededPayment(
+            Long hospitalId,
+            Long memberId,
+            String petName,
+            LocalDateTime startAt
+    ) {
+        ReservationSlot slot = ReservationSlot.create(hospitalId, startAt, startAt.plusMinutes(30));
+        entityManager.persist(slot);
+        entityManager.flush();
+
+        Reservation reservation = Reservation.request(
+                memberId, 7L, hospitalId, slot.getId(), 3L, petName, "DOG", startAt.minusDays(1)
+        );
+        entityManager.persist(reservation);
+        entityManager.flush();
+
+        // supersede는 OFFLINE_REQUIRED·REFUNDED에서만 허용되므로 먼저 OFFLINE_REQUIRED로 전이한다.
+        Payment payment = Payment.pending(reservation.getId(), "pay_superseded", 3L, "VISA", "1234", 30_000);
+        payment.markOfflineRequired("SUPERSEDED_FIXTURE", 0);
+        payment.supersede(startAt.plusHours(1));
+        entityManager.persist(payment);
+    }
+
     private void persist(
             Long hospitalId,
             Long memberId,
