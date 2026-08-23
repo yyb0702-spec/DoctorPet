@@ -48,9 +48,13 @@ class HospitalPaymentQueryRepositoryIntegrationTest {
                 p -> p.markPaid("PG-A", LocalDateTime.of(2026, 8, 20, 10, 0))
         );
         // 자병원이지만 대체된(활성 아님) 결제 — 결과에서 빠져야 한다.
+        // supersede는 REFUNDED·OFFLINE_REQUIRED에서만 허용하므로 먼저 OFFLINE_REQUIRED로 전이한다.
         persistReservationWithPayment(
                 HOSPITAL_A, "나비", LocalDateTime.of(2026, 8, 21, 9, 0), "pay_a_superseded",
-                p -> p.supersede(LocalDateTime.of(2026, 8, 21, 10, 0))
+                p -> {
+                    p.markOfflineRequired("SUPERSEDED_FIXTURE", 0);
+                    p.supersede(LocalDateTime.of(2026, 8, 21, 10, 0));
+                }
         );
         // 타 병원 활성 결제 — 스코프 밖이라 빠져야 한다.
         persistReservationWithPayment(
