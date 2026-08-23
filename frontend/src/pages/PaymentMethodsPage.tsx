@@ -89,11 +89,13 @@ export function PaymentMethodsPage() {
 
   // 기본 변경 성공 안내는 잠시 뒤 자동으로 걷어낸다. React Query mutation의 isSuccess는
   // 다음 mutate/reset 전까지 계속 true라, 그대로 두면 안내 문구가 화면에 영구 잔류한다.
+  const defaultChanged = setDefaultMethod.isSuccess
+  const resetSetDefault = setDefaultMethod.reset
   useEffect(() => {
-    if (!setDefaultMethod.isSuccess) return
-    const timer = setTimeout(() => setDefaultMethod.reset(), 3000)
+    if (!defaultChanged) return
+    const timer = setTimeout(resetSetDefault, 3000)
     return () => clearTimeout(timer)
-  }, [setDefaultMethod.isSuccess, setDefaultMethod.reset])
+  }, [defaultChanged, resetSetDefault])
 
   const issueBillingKey = async (
     key: string,
