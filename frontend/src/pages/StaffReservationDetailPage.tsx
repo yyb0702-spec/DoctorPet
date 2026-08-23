@@ -15,6 +15,7 @@ import { staffPaymentApi } from '@/features/staffPayments/api'
 import { activePaymentId } from '@/features/payments/activePayment'
 import type { PaymentItemInput } from '@/features/staffPayments/types'
 import type { StaffReservationListItem } from '@/features/staffReservations/types'
+import { MemberHistorySection } from '@/features/staffMemberHistory/MemberHistorySection'
 import { ReservationStatusBadge, PaymentStatusBadge } from '@/components/common/StatusBadge'
 import { ReasonPrompt } from '@/components/common/ReasonPrompt'
 import { ReceiptDialog } from '@/components/common/ReceiptDialog'
@@ -400,6 +401,7 @@ export function StaffReservationDetailPage() {
             </span>{' '}
             (전 병원 기준)
           </p>
+          <MemberHistorySection reservationId={id} />
         </CardContent>
       </Card>
 
