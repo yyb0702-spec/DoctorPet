@@ -126,6 +126,38 @@ class HospitalPaymentQueryRepositoryIntegrationTest {
                 .containsExactly("결제있음");
     }
 
+    @Test
+    @DisplayName("활성 판정은 status가 아니라 superseded_at IS NULL이다 — OFFLINE_REQUIRED·REFUNDED 활성 결제도 조회된다")
+    void includesActiveNonPaidStatuses() {
+        // 활성(superseded_at IS NULL) OFFLINE_REQUIRED — 자동결제 실패로 현장 수납 대상이지만 아직 대체되지 않음.
+        persistReservationWithPayment(HOSPITAL_A, "미수금", LocalDateTime.of(2026, 8, 13, 9, 0), "pay_offreq",
+                p -> p.markOfflineRequired("NO_ACTIVE_METHOD", 3));
+        // 활성(superseded_at IS NULL) REFUNDED — 전액 환불됐지만 정정 재청구로 대체되기 전이라 여전히 활성.
+        persistReservationWithPayment(HOSPITAL_A, "환불", LocalDateTime.of(2026, 8, 14, 9, 0), "pay_refunded",
+                p -> {
+                    p.markPaid("PG-REF", LocalDateTime.of(2026, 8, 14, 10, 0));
+                    p.markRefunded(LocalDateTime.of(2026, 8, 14, 11, 0));
+                });
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<HospitalPaymentListItemResponse> page =
+                repository.findActivePaymentsByHospitalId(HOSPITAL_A, PageRequest.of(0, 10));
+
+        // status 필터가 실수로 들어가면(PAID만) 이 둘이 사라지므로 회귀를 잡는다.
+        assertThat(page.getTotalElements()).isEqualTo(2L);
+        assertThat(page.getContent()).extracting(HospitalPaymentListItemResponse::paymentStatus)
+                .containsExactlyInAnyOrder(PaymentStatus.OFFLINE_REQUIRED, PaymentStatus.REFUNDED);
+        HospitalPaymentListItemResponse offlineRequired = page.getContent().stream()
+                .filter(r -> r.paymentStatus() == PaymentStatus.OFFLINE_REQUIRED)
+                .findFirst().orElseThrow();
+        assertThat(offlineRequired.failedAt()).isNotNull(); // offline_required_at 매핑 확인
+        HospitalPaymentListItemResponse refunded = page.getContent().stream()
+                .filter(r -> r.paymentStatus() == PaymentStatus.REFUNDED)
+                .findFirst().orElseThrow();
+        assertThat(refunded.refundedAt()).isEqualTo(LocalDateTime.of(2026, 8, 14, 11, 0));
+    }
+
     private void persistReservationWithoutPayment(
             Long hospitalId,
             String petName,
