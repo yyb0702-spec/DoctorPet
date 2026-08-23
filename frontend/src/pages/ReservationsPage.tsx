@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ReservationStatus } from '@/types/enums'
-import { groupByDateKey } from '@/lib/seoulTime'
+import { groupByDateKey, naiveTimeLabel } from '@/lib/seoulTime'
 
 const PAGE_SIZE = 20
 
@@ -23,16 +23,11 @@ const STATUS_FILTERS = [
   { value: ReservationStatus.CANCELED, label: '취소' },
 ] as const
 
-function shortDate(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getMonth() + 1}.${d.getDate()}`
-}
-
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleString('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+// 오프셋 없는 시각 문자열에서 "M.D"를 그대로 읽는다. new Date로 파싱하면 브라우저 로컬 타임존으로
+// 밀려 그룹 헤더(날짜 부분 슬라이스)와 어긋나므로, 카드도 같은 문자열 기준으로 표시한다.
+function shortDate(dateTime: string): string {
+  const [, month, day] = dateTime.slice(0, 10).split('-').map(Number)
+  return `${month}.${day}`
 }
 
 export function ReservationsPage() {
@@ -50,8 +45,14 @@ export function ReservationsPage() {
   const petsById = new Map(
     (petsQuery.data ?? []).map((pet) => [pet.petId, pet]),
   )
-  // 불러온 페이지 안에서 날짜별로 묶어 최근 날짜부터 보여준다(오늘·내일·날짜 헤더).
-  const dateGroups = groupByDateKey(content, (r) => r.reservedAt, false)
+  // 불러온 페이지 안에서만 날짜별로 묶어 최근 날짜부터 보여준다(오늘·내일·날짜 헤더).
+  // 페이지 경계를 넘는 전체 순서는 서버 기본 정렬(reservedAt,desc)이 보장한다 — sort를 바꾸면
+  // 여기 표시 순서가 서버 페이징과 어긋날 수 있다.
+  const dateGroups = groupByDateKey(
+    content,
+    (r) => r.reservedAt,
+    /* ascending */ false,
+  )
 
   const setStatus = (status: string | undefined) =>
     setParams((p) => ({ ...p, status, page: 0 }))
@@ -97,7 +98,7 @@ export function ReservationsPage() {
                         {shortDate(r.reservedAt)}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {timeLabel(r.reservedAt)}
+                        {naiveTimeLabel(r.reservedAt)}
                       </span>
                     </div>
                     <div className="flex-1 space-y-0.5">

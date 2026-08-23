@@ -55,6 +55,28 @@ describe('groupByDateKey', () => {
     ])
     expect(groups[1].items.map((i) => i.id)).toEqual(['c', 'b'])
   })
+
+  it('빈 배열은 빈 그룹 목록을 준다', () => {
+    expect(
+      groupByDateKey<{ reservedAt: string }>(
+        [],
+        (i) => i.reservedAt,
+        false,
+        '2026-08-23',
+      ),
+    ).toEqual([])
+  })
+
+  it('todayKey를 주지 않아도 동작한다(기본값 주입)', () => {
+    const groups = groupByDateKey(
+      [{ reservedAt: '2026-08-20T09:00:00', id: 'x' }],
+      (i) => i.reservedAt,
+      false,
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].date).toBe('2026-08-20')
+    expect(groups[0].items.map((i) => i.id)).toEqual(['x'])
+  })
 })
 
 describe('parseSeoulDateTime', () => {
