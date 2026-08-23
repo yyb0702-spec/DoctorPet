@@ -12,6 +12,7 @@ import {
 } from '@/features/waitlist/hooks'
 import { usePets } from '@/features/pets/hooks'
 import { usePaymentMethods } from '@/features/payments/hooks'
+import { paymentMethodLabels } from '@/features/payments/methodLabel'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -90,6 +91,8 @@ function OfferAcceptForm({
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+  // 카드 정보가 없는 카카오페이 수단이 여럿이면 문구가 겹쳐 어느 걸 청구할지 못 고른다 → 겹칠 때만 등록 시각을 덧붙인다.
+  const methodLabels = paymentMethodLabels(methods)
   const canSubmit = petId != null && paymentMethodId != null
 
   if (petsQuery.isLoading || methodsQuery.isLoading) {
@@ -190,7 +193,7 @@ function OfferAcceptForm({
               variant={paymentMethodId === m.id ? 'default' : 'outline'}
               onClick={() => setPaymentMethodId(m.id)}
             >
-              {m.cardBrand ?? '카드'} ****{m.cardLast4 ?? '****'}
+              {methodLabels.get(m.id)}
             </Button>
           ))}
         </div>

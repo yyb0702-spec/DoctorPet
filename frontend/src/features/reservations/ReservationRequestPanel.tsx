@@ -6,6 +6,7 @@ import { todaySeoul, useHospitalSlots } from '@/features/hospitals/hooks'
 import { usePets } from '@/features/pets/hooks'
 import { PetAvatar } from '@/features/pets/PetAvatar'
 import { usePaymentMethods } from '@/features/payments/hooks'
+import { paymentMethodLabels } from '@/features/payments/methodLabel'
 import { useCreateReservation } from './hooks'
 import {
   useMyWaitlists,
@@ -95,6 +96,8 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
 
   const pets = petsQuery.data ?? []
   const methods = (methodsQuery.data ?? []).filter((m) => m.status === 'ACTIVE')
+  // 카드 정보가 없는 카카오페이 수단이 여럿이면 문구가 겹쳐 어느 걸 청구할지 못 고른다 → 겹칠 때만 등록 시각을 덧붙인다.
+  const methodLabels = paymentMethodLabels(methods)
   const myWaitlists = myWaitlistsQuery.data ?? []
 
   /*
@@ -332,7 +335,7 @@ export function ReservationRequestPanel({ hospitalId }: { hospitalId: number }) 
                   }
                   onClick={() => setPaymentMethodId(m.id)}
                 >
-                  {m.cardBrand ?? '카드'} ****{m.cardLast4 ?? '****'}
+                  {methodLabels.get(m.id)}
                   {m.isDefault && ' · 기본'}
                 </Button>
               ))}
