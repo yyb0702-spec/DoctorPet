@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -127,6 +127,19 @@ describe('HospitalSearchPage filters', () => {
     })
   })
 
+  it('충청·전라·경상계 도는 축약명 대신 정식 명칭을 region으로 전달한다', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '지역' }))
+    await user.click(screen.getByRole('button', { name: '충북' }))
+
+    await waitFor(() => {
+      // 서버는 주소 부분일치라 "충북"은 "충청북도" 주소에 안 걸린다 → 정식 명칭을 보내야 한다.
+      expect(latestSearchParams()).toMatchObject({ region: '충청북도', page: 1 })
+    })
+  })
+
   it('거리순은 현재 위치를 받아 sort=distance와 좌표를 전달한다', async () => {
     getCurrentPosition.mockImplementation((success) =>
       success({ coords: { latitude: 37.5, longitude: 127.0 } }),
@@ -145,6 +158,32 @@ describe('HospitalSearchPage filters', () => {
         page: 1,
       })
     })
+  })
+
+  it('위치 조회 중 이름순으로 되돌리면 늦게 온 콜백이 거리순을 강제하지 않는다', async () => {
+    // 콜백을 붙잡아 두고 나중에 수동으로 발화한다(홀더 객체로 둬 타입 narrowing을 피한다).
+    const held: {
+      success?: (pos: { coords: { latitude: number; longitude: number } }) => void
+    } = {}
+    getCurrentPosition.mockImplementation((success) => {
+      held.success = success
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '이름순' }))
+    await user.click(screen.getByRole('button', { name: /거리순/ })) // 위치 조회 시작(콜백 보류)
+    // 조회가 끝나기 전 사용자가 이름순으로 되돌린다(패널 안의 옵션을 특정).
+    await user.click(
+      within(screen.getByRole('group')).getByRole('button', { name: '이름순' }),
+    )
+    // 그 뒤 늦게 위치 콜백이 도착해도 거리순을 되살리면 안 된다.
+    held.success?.({ coords: { latitude: 37.5, longitude: 127.0 } })
+
+    await waitFor(() => {
+      expect(latestSearchParams()?.sort).toBeUndefined()
+    })
+    expect(latestSearchParams()?.latitude).toBeUndefined()
   })
 
   it('위치 권한이 거부되면 거리순으로 바꾸지 않고 안내를 보여준다', async () => {

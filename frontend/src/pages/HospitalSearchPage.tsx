@@ -1,6 +1,6 @@
 // 병원 검색 결과 (화면메모 A-5, 실연동 PR #67).
 // 서버 keyword 검색 + 필터 + 페이지네이션 + 거리·예약가능 배지.
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { MapPin, Search, ChevronDown } from 'lucide-react'
 import { useHospitalSearch } from '@/features/hospitals/hooks'
@@ -28,12 +28,29 @@ const BUSINESS_LABEL: Record<string, string> = {
   CLOSED: '폐업',
 }
 
-// 지역 필터는 서버가 주소(도로명·지번) 부분일치로 처리하므로 시/도 축약형을 그대로 보낸다
-// ("서울"은 "서울특별시 …"·"서울 …" 둘 다 매칭). 시/군/구까지 좁히는 건 후속.
-const SIDO_OPTIONS = [
-  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
-  '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
-] as const
+// 지역 필터: 화면엔 축약명을 보이되 서버엔 주소에 실제로 포함되는 정식 시·도명을 보낸다.
+// 서버가 도로명·지번 주소에 부분일치(containsIgnoreCase)시키므로, 광역시·특별자치시/도는
+// 축약명이 주소에 그대로 들어 있어 매칭되지만("서울"⊂"서울특별시"), "충청·전라·경상"계 도는
+// 정식 명칭이라야 매칭된다("충북"⊄"충청북도"). 시/군/구까지 좁히는 건 후속.
+const SIDO_OPTIONS: { label: string; value: string }[] = [
+  { label: '서울', value: '서울' },
+  { label: '부산', value: '부산' },
+  { label: '대구', value: '대구' },
+  { label: '인천', value: '인천' },
+  { label: '광주', value: '광주' },
+  { label: '대전', value: '대전' },
+  { label: '울산', value: '울산' },
+  { label: '세종', value: '세종' },
+  { label: '경기', value: '경기' },
+  { label: '강원', value: '강원' },
+  { label: '충북', value: '충청북도' },
+  { label: '충남', value: '충청남도' },
+  { label: '전북', value: '전북' },
+  { label: '전남', value: '전라남도' },
+  { label: '경북', value: '경상북도' },
+  { label: '경남', value: '경상남도' },
+  { label: '제주', value: '제주' },
+]
 
 export function HospitalSearchPage() {
   const [searchParams] = useSearchParams()
@@ -77,6 +94,8 @@ export function HospitalSearchPage() {
     setParams((p) => ({ ...p, page: next }))
 
   const region = params.region
+  // params.region은 서버로 보내는 값(정식 명칭)이라, 드롭다운엔 대응하는 축약 라벨을 되짚어 보인다.
+  const regionLabel = SIDO_OPTIONS.find((o) => o.value === region)?.label
   const setRegion = (next?: string) =>
     setParams((p) => ({ ...p, region: next, page: 1 }))
 
@@ -84,8 +103,13 @@ export function HospitalSearchPage() {
   const distanceSort = params.sort === 'distance'
   const [geoLocating, setGeoLocating] = useState(false)
   const [geoError, setGeoError] = useState<string | null>(null)
+  // 위치 조회 요청 세대. 조회 중 사용자가 이름순으로 되돌리면 세대를 올려, 늦게 도착한 콜백이
+  // 취소된 선택을 거리순으로 되살리지 못하게 한다(리뷰 P2).
+  const geoRequestRef = useRef(0)
 
   const useNameSort = () => {
+    geoRequestRef.current += 1 // 진행 중인 위치 조회 콜백을 무효화한다.
+    setGeoLocating(false)
     setGeoError(null)
     setParams((p) => ({
       ...p,
@@ -103,10 +127,13 @@ export function HospitalSearchPage() {
       setGeoError('이 브라우저에서는 현재 위치를 쓸 수 없습니다.')
       return
     }
+    const requestId = ++geoRequestRef.current
     setGeoLocating(true)
     setGeoError(null)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        // 이 조회 이후 사용자가 다른 정렬을 골랐으면(세대 불일치) 무시한다.
+        if (geoRequestRef.current !== requestId) return
         setGeoLocating(false)
         setParams((p) => ({
           ...p,
@@ -117,6 +144,7 @@ export function HospitalSearchPage() {
         }))
       },
       () => {
+        if (geoRequestRef.current !== requestId) return
         setGeoLocating(false)
         setGeoError('위치 권한이 필요합니다. 권한을 허용한 뒤 다시 시도해 주세요.')
       },
@@ -209,17 +237,19 @@ export function HospitalSearchPage() {
           </FilterOption>
         </FilterDropdown>
 
-        <FilterDropdown label={region ?? '지역'} active={!!region}>
+        <FilterDropdown label={regionLabel ?? '지역'} active={!!region}>
           <FilterOption selected={!region} onClick={() => setRegion(undefined)}>
             전체
           </FilterOption>
           {SIDO_OPTIONS.map((sido) => (
             <FilterOption
-              key={sido}
-              selected={region === sido}
-              onClick={() => setRegion(region === sido ? undefined : sido)}
+              key={sido.value}
+              selected={region === sido.value}
+              onClick={() =>
+                setRegion(region === sido.value ? undefined : sido.value)
+              }
             >
-              {sido}
+              {sido.label}
             </FilterOption>
           ))}
         </FilterDropdown>
