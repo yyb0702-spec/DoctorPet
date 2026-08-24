@@ -4,10 +4,13 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MapPin, AlertTriangle, Stethoscope, CheckCircle2 } from 'lucide-react'
 import { useAiConsultation } from '@/features/ai/hooks'
-import type { UrgencyLevel } from '@/features/ai/types'
+import type {
+  AiRecommendationEvidence,
+  UrgencyLevel,
+} from '@/features/ai/types'
 import { PetSpecies } from '@/types/enums'
 import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
-import { capabilityLabel } from '@/lib/capabilities'
+import { capabilityLabel, isKnownCapability } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
 
 const MAX = 1000
+const UNKNOWN_EVIDENCE_LABEL = '추천 근거 확인'
 
 const URGENCY: Record<UrgencyLevel, { label: string; tone: string }> = {
   LOW: {
@@ -30,6 +34,52 @@ const URGENCY: Record<UrgencyLevel, { label: string; tone: string }> = {
     label: '응급도 높음 · 서둘러 진료하세요',
     tone: 'bg-destructive/10 text-destructive border-destructive/30',
   },
+}
+
+function recommendationEvidenceLabel({
+  type,
+  value,
+}: AiRecommendationEvidence): string {
+  switch (type) {
+    case 'SUPPORTED_SPECIES':
+      return SPECIES_LABEL[value as PetSpecies]
+        ? `진료 가능 종: ${SPECIES_LABEL[value as PetSpecies]}`
+        : UNKNOWN_EVIDENCE_LABEL
+    case 'CAPABILITY':
+      return isKnownCapability(value)
+        ? `진료 역량: ${capabilityLabel(value)}`
+        : UNKNOWN_EVIDENCE_LABEL
+    case 'DISTANCE_KM':
+      return `거리 ${value}km`
+    case 'BUSINESS_STATUS':
+      switch (value) {
+        case 'OPEN':
+          return '정상 운영 중'
+        case 'CLOSED_TEMP':
+          return '임시 휴업'
+        case 'CLOSED':
+          return '폐업'
+        default:
+          return UNKNOWN_EVIDENCE_LABEL
+      }
+    case 'OPEN_NOW':
+      if (value === 'true') return '현재 진료 중'
+      if (value === 'false') return '현재 진료 종료'
+      return UNKNOWN_EVIDENCE_LABEL
+    case 'AVERAGE_RATING':
+      return `평균 평점 ${value}점`
+    case 'REVIEW_COUNT':
+      return `리뷰 ${value}건`
+    case 'POSITIVE_REVIEW_COUNT':
+      return `긍정 리뷰 ${value}건`
+    case 'NEUTRAL_REVIEW_COUNT':
+      return `보통 리뷰 ${value}건`
+    case 'NEGATIVE_REVIEW_COUNT':
+      return `부정 리뷰 ${value}건`
+    // 내부 reviewId는 추천 근거 검증용이므로 화면에 노출하지 않는다.
+    case 'REVIEW_EXCERPT_ID':
+      return '사용자 리뷰 참고'
+  }
 }
 
 export function AiConsultationPage() {
@@ -75,6 +125,15 @@ export function AiConsultationPage() {
   }
 
   const result = consult.data
+  const otherHospitals = result
+    ? result.hospitals.filter(
+        (hospital) =>
+          !result.recommendations.some(
+            (recommendation) =>
+              recommendation.hospital.hospitalId === hospital.hospitalId,
+          ),
+      )
+    : []
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 py-2">
@@ -152,7 +211,9 @@ export function AiConsultationPage() {
                 {coords ? '내 위치 적용됨' : '내 위치 사용'}
               </Button>
               {geoError && (
-                <span className="text-xs text-muted-foreground">{geoError}</span>
+                <span className="text-xs text-muted-foreground">
+                  {geoError}
+                </span>
               )}
             </div>
           </div>
@@ -249,59 +310,134 @@ export function AiConsultationPage() {
             </CardContent>
           </Card>
 
-          {/* 추천 병원 */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">맞는 병원</h2>
-              <Link
-                to="/hospitals"
-                className="text-sm text-primary hover:underline"
-              >
-                더 찾기
+          {/* 위치가 없어 맞춤 추천을 못 한 경우: 지역/위치 입력을 유도한다(locationRecommended보다 강한 신호). */}
+          {result.locationRequired && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              맞춤 병원 추천을 받으려면 지역이나 현재 위치가 필요해요. 위에서
+              지역을 입력하거나 “내 위치 쓰기”를 켜고 다시 상담해 주세요. 또는{' '}
+              <Link to="/hospitals" className="font-medium underline">
+                병원 검색에서 직접 찾아보세요.
               </Link>
-            </div>
-            {result.locationRecommended && !coords && (
-              <p className="rounded-md bg-accent p-3 text-xs text-accent-foreground">
-                위치를 입력하면 가까운 병원을 더 정확히 찾아드려요.
-              </p>
-            )}
-            {result.hospitals.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                조건에 맞는 병원을 찾지 못했어요. 병원 검색에서 직접 찾아보세요.
-              </p>
-            ) : (
+            </p>
+          )}
+
+          {/* AI 추천 병원 — AI가 선별한 맞춤 목록(이유·근거 포함). hospitals와 겹치는 병원은 아래에서 제외한다. */}
+          {result.recommendations.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-lg font-semibold">AI 추천 병원</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                {result.hospitals.map((h) => (
-                  <Card key={h.hospitalId}>
+                {result.recommendations.map((r) => (
+                  <Card
+                    key={r.hospital.hospitalId}
+                    className="border-primary/40"
+                  >
                     <CardContent className="space-y-2 p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
-                          to={`/hospitals/${h.hospitalId}`}
+                          to={`/hospitals/${r.hospital.hospitalId}`}
                           className="font-semibold hover:underline"
                         >
-                          {h.name}
+                          {r.hospital.name}
                         </Link>
-                        {h.reservationAvailable ? (
+                        <Badge variant="secondary">
+                          AI 추천 · {r.recommendationScore}/5
+                        </Badge>
+                        {r.hospital.reservationAvailable && (
                           <Badge variant="success">예약 가능</Badge>
-                        ) : (
-                          <Badge variant="muted">
-                            {h.partnershipBadge ?? '예약 불가'}
-                          </Badge>
                         )}
                       </div>
+                      {r.recommendationReason && (
+                        <p className="text-sm">{r.recommendationReason}</p>
+                      )}
+                      {r.evidence.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {r.evidence.map((e, i) => (
+                            <Badge key={`${e.type}-${i}`} variant="muted">
+                              {recommendationEvidenceLabel(e)}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       <p className="flex items-center gap-1 text-xs text-muted-foreground">
                         <MapPin className="h-3.5 w-3.5" />
-                        {h.address}
-                        {h.distanceKm != null && (
-                          <span className="ml-1">· {h.distanceKm}km</span>
+                        {r.hospital.address}
+                        {r.hospital.distanceKm != null && (
+                          <span className="ml-1">
+                            · {r.hospital.distanceKm}km
+                          </span>
                         )}
                       </p>
                     </CardContent>
                   </Card>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* 그 외/맞는 병원 — 추천에 오른 병원은 위에서 이미 보여줬으므로 제외한다. */}
+          {!result.locationRequired && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">
+                  {result.recommendations.length > 0
+                    ? '그 외 병원'
+                    : '맞는 병원'}
+                </h2>
+                <Link
+                  to="/hospitals"
+                  className="text-sm text-primary hover:underline"
+                >
+                  더 찾기
+                </Link>
+              </div>
+              {result.locationRecommended &&
+                !coords &&
+                !result.locationRequired && (
+                  <p className="rounded-md bg-accent p-3 text-xs text-accent-foreground">
+                    위치를 입력하면 가까운 병원을 더 정확히 찾아드려요.
+                  </p>
+                )}
+              {otherHospitals.length === 0 ? (
+                result.recommendations.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    조건에 맞는 병원을 찾지 못했어요. 병원 검색에서 직접
+                    찾아보세요.
+                  </p>
+                )
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {otherHospitals.map((h) => (
+                    <Card key={h.hospitalId}>
+                      <CardContent className="space-y-2 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            to={`/hospitals/${h.hospitalId}`}
+                            className="font-semibold hover:underline"
+                          >
+                            {h.name}
+                          </Link>
+                          {h.reservationAvailable ? (
+                            <Badge variant="success">예약 가능</Badge>
+                          ) : (
+                            <Badge variant="muted">
+                              {h.partnershipBadge ?? '예약 불가'}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {h.address}
+                          {h.distanceKm != null && (
+                            <span className="ml-1">· {h.distanceKm}km</span>
+                          )}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 면책 */}
           {result.disclaimer && (
