@@ -48,20 +48,32 @@ function OutstandingCard() {
     )
   }
 
-  if (outstanding.length === 0) return null
+  // 첫 100건에 미수금이 없어도 다음 페이지가 있으면 전체 미수금이 0건이라고 단정할 수 없다.
+  // 이 경우에도 카드로 범위를 밝혀 전체 결제 목록 확인을 유도한다.
+  if (outstanding.length === 0 && !truncated) return null
 
   return (
     <Card className="border-destructive">
       <CardHeader>
-        <CardTitle className="text-destructive">미수금 · 현장 수납 필요</CardTitle>
+        <CardTitle className="text-destructive">
+          {outstanding.length > 0
+            ? '미수금 · 현장 수납 필요'
+            : '미수금 현황 확인 필요'}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          자동 결제에 실패해 현장 수납이 필요한 결제가{' '}
-          <strong className="text-destructive">{outstanding.length}건</strong>{' '}
-          있어요.
-        </p>
-        {truncated && (
+        {outstanding.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            자동 결제에 실패해 현장 수납이 필요한 결제가{' '}
+            <strong className="text-destructive">{outstanding.length}건</strong>{' '}
+            있어요.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            최근 100건에서는 미수금을 확인하지 못했어요. 전체 목록에서 확인하세요.
+          </p>
+        )}
+        {truncated && outstanding.length > 0 && (
           <p className="text-xs text-muted-foreground">
             활성 결제가 100건을 넘어 최근 100건 기준으로 집계했어요. 전체는 결제
             관리에서 확인하세요.
