@@ -77,21 +77,27 @@ describe('StaffLayout', () => {
   })
 
   /*
-    진료시간·진료역량·임시휴진은 백엔드 API가 develop에 있으므로 HOSPITAL_OPS_BACKEND_READY
-    (결제·슬롯 화면용 플래그)와 무관하게 항상 노출해야 한다(PR #198). 누군가 플래그 분기를
-    정리하다 이 3종을 안으로 넣으면 메뉴가 사라지므로 여기서 고정한다.
+    운영 메뉴 5종은 모두 백엔드 API가 develop에 있어 항상 노출한다(진료시간·진료역량·임시휴진은
+    PR #198, 결제 관리는 #209). 슬롯 관리는 일 단위 임시휴진으로 대체하며 제거했다(PR #198 결정).
   */
   it.each([
     ['진료시간', '/staff/operating-hours'],
     ['진료역량', '/staff/capabilities'],
     ['임시휴진', '/staff/temporary-closures'],
-  ])('운영 메뉴 %s를 플래그와 무관하게 노출한다', (label, href) => {
+    ['결제 관리', '/staff/payments'],
+  ])('운영 메뉴 %s를 항상 노출한다', (label, href) => {
     renderStaffLayout()
 
     expect(screen.getByRole('link', { name: label })).toHaveAttribute(
       'href',
       href,
     )
+  })
+
+  it('제거한 슬롯 관리 메뉴는 노출하지 않는다', () => {
+    renderStaffLayout()
+
+    expect(screen.queryByRole('link', { name: '슬롯 관리' })).not.toBeInTheDocument()
   })
 
   it('기존 SSE 구독 훅을 그대로 쓰고 중복 연결을 만들지 않는다', async () => {

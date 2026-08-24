@@ -796,6 +796,54 @@ export const demoHandlers = [
     return ok(target)
   }),
 
+  // 병원 결제/미수금 목록 (SA §8-7, #209) — 자병원 예약의 활성 결제. 대시보드 미수금 카드·결제 관리 화면용.
+  http.get(`${BASE}/hospital/payments`, ({ request }) => {
+    const url = new URL(request.url)
+    const page = Number(url.searchParams.get('page') ?? '0')
+    const size = Number(url.searchParams.get('size') ?? '20')
+    const all = [
+      {
+        reservationId: 7001,
+        memberId: 2,
+        petId: 1,
+        petName: '초코',
+        reservedAt: `${shiftDateKey(todaySeoulKey(), -1)}T10:00:00`,
+        paymentId: 8701,
+        paymentStatus: 'OFFLINE_REQUIRED',
+        amount: 48000,
+        paidAt: null,
+        offlineSettledAt: null,
+        refundedAt: null,
+        failedAt: `${shiftDateKey(todaySeoulKey(), -1)}T10:30:00`,
+      },
+      {
+        reservationId: 7002,
+        memberId: 3,
+        petId: 2,
+        petName: '나비',
+        reservedAt: `${shiftDateKey(todaySeoulKey(), -3)}T14:00:00`,
+        paymentId: 8702,
+        paymentStatus: 'PAID',
+        amount: 32000,
+        paidAt: `${shiftDateKey(todaySeoulKey(), -3)}T14:20:00`,
+        offlineSettledAt: null,
+        refundedAt: null,
+        failedAt: null,
+      },
+    ]
+    const totalElements = all.length
+    const totalPages = Math.max(1, Math.ceil(totalElements / size))
+    return ok({
+      content: all.slice(page * size, page * size + size),
+      page,
+      size,
+      totalElements,
+      totalPages,
+      first: page === 0,
+      last: page >= totalPages - 1,
+    })
+  }),
+
   // --- JSON 영수증 (dev:mock 오프라인 전용) — 보호자·스태프 공통 빌더(위 receiptResolver) ---
   http.get(`${BASE}/payments/:paymentId/receipt`, receiptResolver),
   http.get(`${BASE}/hospital/payments/:paymentId/receipt`, receiptResolver),

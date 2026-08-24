@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom'
 import { useStaffReservations } from '@/features/staffReservations/hooks'
 import { groupByDate } from '@/features/staffReservations/schedule'
 import { useHospitalPayments } from '@/features/staffPayments/hooks'
-import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 import { naiveTimeLabel } from '@/lib/seoulTime'
 import { ReservationStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -17,12 +16,7 @@ const POLL_MS = 30_000
 
 /*
   미수금(자동 결제 실패 → 현장 수납 필요) 요약. 불러온 페이지 안에서 센다.
-
-  이 카드는 `GET /api/hospital/payments`에 의존하는데 그 목록 API가 아직 develop에 없다 —
-  그래서 저장소가 `HOSPITAL_OPS_BACKEND_READY=false`로 `/staff/payments` 라우트·메뉴를 막고 있다.
-  플래그를 무시하고 호출하면 실 환경에서 매번 404가 나고, 오류를 숨긴 탓에 카드가 조용히 사라지며
-  CTA는 등록되지 않은 경로를 가리킨다(PR #194 리뷰 P1). 그래서 호출부터 같은 플래그로 막고,
-  API·라우트가 준비되면 플래그 한 곳만 켜서 함께 살아나게 한다.
+  `GET /api/hospital/payments`(#209)가 develop에 있어 항상 호출하며, 미수금이 없으면 카드를 숨긴다.
 */
 function OutstandingCard() {
   const query = useHospitalPayments(0, 100)
@@ -65,8 +59,7 @@ export function StaffDashboardPage() {
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">운영 대시보드</h1>
 
-      {/* 결제 목록 API·라우트가 준비될 때까지 호출 자체를 하지 않는다(위 주석 참고). */}
-      {HOSPITAL_OPS_BACKEND_READY && <OutstandingCard />}
+      <OutstandingCard />
 
       <Card>
         <CardHeader>
