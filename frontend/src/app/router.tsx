@@ -4,7 +4,6 @@ import { AppLayout } from '@/components/common/AppLayout'
 import { StaffLayout } from '@/components/common/StaffLayout'
 import { ProtectedRoute } from '@/app/ProtectedRoute'
 import { StaffRoute } from '@/app/StaffRoute'
-import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
 import { SignupPage } from '@/pages/SignupPage'
@@ -29,7 +28,6 @@ import { StaffPaymentsPage } from '@/pages/StaffPaymentsPage'
 import { StaffOperatingHoursPage } from '@/pages/StaffOperatingHoursPage'
 import { StaffCapabilitiesPage } from '@/pages/StaffCapabilitiesPage'
 import { StaffTemporaryClosuresPage } from '@/pages/StaffTemporaryClosuresPage'
-import { StaffSlotsPage } from '@/pages/StaffSlotsPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 
 export const router = createBrowserRouter([
@@ -103,14 +101,9 @@ export const router = createBrowserRouter([
             path: '/staff/temporary-closures',
             element: <StaffTemporaryClosuresPage />,
           },
-          // 결제 관리·슬롯 관리는 백엔드 미착수 — 플래그가 켜질 때만 라우트를 등록해
-          // URL 직접 접근으로도 미구현 API 404에 도달하지 못하게 막는다(PR #127 리뷰).
-          ...(HOSPITAL_OPS_BACKEND_READY
-            ? [
-                { path: '/staff/payments', element: <StaffPaymentsPage /> },
-                { path: '/staff/slots', element: <StaffSlotsPage /> },
-              ]
-            : []),
+          // 결제 관리는 백엔드(GET /api/hospital/payments, #209)가 develop에 있어 항상 등록한다.
+          // 슬롯 관리 화면은 일 단위 임시휴진으로 대체하며 제거했다(PR #198 결정).
+          { path: '/staff/payments', element: <StaffPaymentsPage /> },
         ],
       },
     ],

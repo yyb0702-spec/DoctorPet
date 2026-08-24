@@ -39,4 +39,20 @@ describe('dev:mock 영수증 핸들러 — 보호자·스태프 두 경로', () 
     expect(staff.body.code).toBe('PAYMENT_013')
     expect(guardian.body.code).toBe('PAYMENT_013')
   })
+
+  it('결제 목록의 PAID 행도 스태프 영수증을 발급한다', async () => {
+    // 8702는 /staff/payments 전용 fixture다. 예약 상세 fixture만 찾으면 404가 되므로
+    // 목록과 영수증이 같은 상태원을 봐야 한다(PR #211 후속 리뷰).
+    const staff = await getReceipt('/api/hospital/payments/8702/receipt')
+
+    expect(staff.status).toBe(200)
+    expect(staff.body.data).toMatchObject({
+      paymentId: 8702,
+      reservationId: 7002,
+      petName: '나비',
+      status: 'PAID',
+      paymentChannel: 'BILLING_KEY',
+      totalAmount: 32000,
+    })
+  })
 })

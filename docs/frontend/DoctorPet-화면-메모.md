@@ -56,7 +56,7 @@
 
 로그인은 보호자와 **공용**이다(`/auth/login`, 별도 병원 로그인 화면 없음). 로그인 성공 후 `GET /api/members/me`의 `role`이 `HOSPITAL_STAFF`면 `/staff`로 리다이렉트하고, 좌측 사이드바형 전용 레이아웃(예약 관리·진료시간·진료역량·임시휴진)을 쓴다. 이하 화면은 `/api/hospital/**`(`ROLE_HOSPITAL_STAFF`) API를 그대로 소비한다.
 
-1. **운영 대시보드(`/staff`)** — 승인 대기 건수(`GET .../reservations?status=REQUESTED`의 `totalElements`)와 승인 대기 목록을 **날짜별로 묶어** 이른 시간부터 보여준다(PR #194). 정렬은 불러온 페이지 범위 안에서만 유효하다 — 목록 API가 `requestedAt DESC`로 페이지를 자르므로 화면에 그 사실을 문구로 밝힌다. "오늘 예약"·"대기 환자" 같은 날짜 집계 카드는 목록 API에 날짜 필터가 없어 **넣지 않는다**. 미수금(현장 수납 필요) 요약 카드는 코드는 있으나 병원 결제 목록 API(`GET /api/hospital/payments`)가 없어 `HOSPITAL_OPS_BACKEND_READY` 플래그로 꺼둔 상태다.
+1. **운영 대시보드(`/staff`)** — 승인 대기 건수(`GET .../reservations?status=REQUESTED`의 `totalElements`)와 승인 대기 목록을 **날짜별로 묶어** 이른 시간부터 보여준다(PR #194). 정렬은 불러온 페이지 범위 안에서만 유효하다 — 목록 API가 `requestedAt DESC`로 페이지를 자르므로 화면에 그 사실을 문구로 밝힌다. "오늘 예약"·"대기 환자" 같은 날짜 집계 카드는 목록 API에 날짜 필터가 없어 **넣지 않는다**. 미수금(현장 수납 필요) 요약 카드는 병원 결제 목록 API(`GET /api/hospital/payments`, #209)가 붙어 상시 노출한다 — 첫 100건 안에서 `OFFLINE_REQUIRED`를 세고, 다음 페이지가 없으면서 0건일 때만 숨긴다. 활성 결제가 100건을 넘고 첫 페이지에 미수금이 없으면 전체 결제 목록 확인 안내를 남겨, 뒤 페이지의 미수금을 0건으로 오인하지 않게 한다.
 2. **예약 요청 검토(`/staff/reservations`)** — 상태 탭(요청/확정/내원/진료중/진료완료/노쇼), 목록을 날짜별로 묶어(예정 상태는 이른 시간부터, 이력 상태는 최근부터) 보여주고 내원 시각이 지난 건은 지연 표시, 각 행에 예약자 이력 요약(`reservationHistory`), 요청 탭에서만 [승인]/[거절](사유 모달) 버튼. → approve/reject. 예약 시각은 오프셋 없는 `LocalDateTime`이라 Asia/Seoul 기준으로 해석한다(`lib/seoulTime`).
 3. **진료 상태 관리(`/staff/reservations/:id`)** — 현재 상태에 맞는 버튼만 활성화: CONFIRMED→[내원 확인], CHECKED_IN→[진료 시작], IN_TREATMENT→[진료 완료], CONFIRMED→[노쇼 확정](사유 모달), NO_SHOW→[노쇼 정정]. → check-in/start/complete/no-show/restore.
 4. **진료비 청구** — 같은 상세 페이지, TREATMENT_COMPLETED 상태에서 금액 입력 폼 노출. [청구]. → `POST .../{id}/payments`. 응답 `status`로 즉시 분기: `PAID`(완료 배지), `OFFLINE_REQUIRED`(현장 수납 유도), `PENDING`(정산 스케줄러가 나중에 확정 — 액션 버튼 없이 "확인 중" 안내 + 새로고침만 제공, 사람이 강제로 바꾸는 API 없음).
@@ -65,7 +65,9 @@
 7. **진료역량 관리(`/staff/capabilities`)** — 분류(진료 가능 종·검사·치료·장비)별 체크박스 19개, 선택 요약 배지, [진료역량 저장]. → `GET/PUT /api/hospital/capabilities`. PUT은 **전체 교체**라 체크를 푼 항목은 삭제된다는 것을 문구로 밝힌다. 라벨은 `lib/capabilities.ts`가 한 곳에서 관리하고, 저장된 값은 보호자 병원 검색 필터(`requiredCapabilities`)·병원 상세 태그와 같은 값이다. 폐업(`CLOSED`) 병원은 수정이 거부된다. 프론트 화이트리스트에 없는 값(서버에 먼저 추가된 항목)은 분류 그룹에 못 들어가므로 **"분류 미확인" 그룹에 따로 모아** 체크된 상태로 보여준다 — 그대로 두면 보존되고 체크를 풀면 삭제되므로, 값이 조용히 사라지거나 해제할 방법이 없어지는 일이 없다. 이 화면과 진료시간 화면은 **저장하지 않은 편집이 있으면 이탈을 막는다**(`lib/useUnsavedChangesWarning` — 사이드바·링크 이동은 react-router 7 `useBlocker`, 새로고침·탭 닫기는 `beforeunload`). 임시휴진은 편집 상태가 없어 제외한다.
 8. **임시휴진 관리(`/staff/temporary-closures`)** — 영업일 날짜 선택 + [임시휴진 등록]/[임시휴진 취소]. → `POST /api/hospital/temporary-closures`(201) · `DELETE .../{businessDate}`(204). 등록·취소 모두 **내일 이후 날짜만** 가능하고, **예약이 있는 날은 등록이 거부**된다(예약을 강제 취소하지 않는다). 취소 시 발행창(오늘+13일) 안이면 슬롯이 즉시 다시 만들어지고 그 밖은 발행 스케줄러가 도달할 때 반영된다. **목록 조회 API가 없어** 현재 걸린 휴진 전체는 표시하지 못하고, 이번 접속에서 처리한 내역만 보여준다(새로고침하면 사라진다는 안내 포함).
 
-**이번 구현에서 뺀 와이어프레임 요소**: 대시보드 날짜 집계 카드, 예약 카드의 증상/주소증 텍스트(엔티티에 없음), 결제 결과 화면의 `[PAID 처리]`/`[현장 결제 전환]` 수동 버튼(PENDING 강제 전이 API 없음), 독립된 환불·예외 목록 화면, 임시휴진 현황 목록(조회 API 없음), 슬롯 단위 휴진(`/api/hospital/slots*` 미구현), 병원 전체 결제 목록(`GET /api/hospital/payments` 미구현 — 대시보드 미수금 요약 카드가 같은 이유로 꺼져 있다). 필요해지면 백엔드에 별도 이슈로 제안한다.
+**이번 구현에서 뺀 와이어프레임 요소**: 대시보드 날짜 집계 카드, 예약 카드의 증상/주소증 텍스트(엔티티에 없음), 결제 결과 화면의 `[PAID 처리]`/`[현장 결제 전환]` 수동 버튼(PENDING 강제 전이 API 없음), 독립된 환불·예외 목록 화면, 임시휴진 현황 목록(조회 API 없음), **슬롯 단위 휴진 화면(제거 — 일 단위 임시휴진으로 대체, PR #198 결정)**. 필요해지면 백엔드에 별도 이슈로 제안한다.
+
+병원 결제 목록 API(`GET /api/hospital/payments`, #209)와 회원 진료·결제 이력(`GET /api/hospital/reservations/{id}/member-history`, #210)이 붙어, 결제 관리 화면·대시보드 미수금 카드·예약 상세의 회원 이력 섹션은 상시 노출한다(운영 화면 플래그 `HOSPITAL_OPS_BACKEND_READY`는 제거).
 
 ---
 

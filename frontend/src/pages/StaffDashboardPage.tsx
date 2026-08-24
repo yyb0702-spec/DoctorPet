@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom'
 import { useStaffReservations } from '@/features/staffReservations/hooks'
 import { groupByDate } from '@/features/staffReservations/schedule'
 import { useHospitalPayments } from '@/features/staffPayments/hooks'
-import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 import { naiveTimeLabel } from '@/lib/seoulTime'
 import { ReservationStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -17,33 +16,69 @@ const POLL_MS = 30_000
 
 /*
   미수금(자동 결제 실패 → 현장 수납 필요) 요약. 불러온 페이지 안에서 센다.
-
-  이 카드는 `GET /api/hospital/payments`에 의존하는데 그 목록 API가 아직 develop에 없다 —
-  그래서 저장소가 `HOSPITAL_OPS_BACKEND_READY=false`로 `/staff/payments` 라우트·메뉴를 막고 있다.
-  플래그를 무시하고 호출하면 실 환경에서 매번 404가 나고, 오류를 숨긴 탓에 카드가 조용히 사라지며
-  CTA는 등록되지 않은 경로를 가리킨다(PR #194 리뷰 P1). 그래서 호출부터 같은 플래그로 막고,
-  API·라우트가 준비되면 플래그 한 곳만 켜서 함께 살아나게 한다.
+  `GET /api/hospital/payments`(#209)가 develop에 있어 항상 호출한다. 로딩·미수금 0건이면 카드를
+  숨기되, 조회 실패는 숨기지 않고 재시도 배너를 띄운다 — 실장애로 미수금 경고가 조용히 사라지면
+  현장 수납을 놓치기 때문이다(플래그 시절 옛 주석이 지적했던 '오류를 숨긴 탓에 카드가 조용히 사라짐').
 */
 function OutstandingCard() {
-  const query = useHospitalPayments(0, 100)
+  // 미수금은 열어 둔 대시보드에도 새로 생기므로 30초마다 갱신한다(승인 대기 쿼리와 같은 주기).
+  const query = useHospitalPayments(0, 100, { refetchInterval: POLL_MS })
   const outstanding =
     query.data?.content.filter(
       (p) => p.paymentStatus === PaymentStatus.OFFLINE_REQUIRED,
     ) ?? []
+  // 병원 결제 API의 최대 size는 100이라 활성 결제가 100건을 넘으면 뒤 페이지 미수금이 집계에서 빠진다.
+  // 상태별 재조회가 없어 전량 집계는 불가하므로, 잘렸을 때 카드에 범위를 명시해 오해를 막는다.
+  const truncated = query.data ? !query.data.last : false
 
-  if (query.isLoading || query.isError || outstanding.length === 0) return null
+  if (query.isLoading) return null
+
+  if (query.isError) {
+    return (
+      <Card className="border-destructive/50">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <p className="text-sm text-muted-foreground">
+            미수금 현황을 불러오지 못했어요.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => query.refetch()}>
+            다시 시도
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // 첫 100건에 미수금이 없어도 다음 페이지가 있으면 전체 미수금이 0건이라고 단정할 수 없다.
+  // 이 경우에도 카드로 범위를 밝혀 전체 결제 목록 확인을 유도한다.
+  if (outstanding.length === 0 && !truncated) return null
 
   return (
     <Card className="border-destructive">
       <CardHeader>
-        <CardTitle className="text-destructive">미수금 · 현장 수납 필요</CardTitle>
+        <CardTitle className="text-destructive">
+          {outstanding.length > 0
+            ? '미수금 · 현장 수납 필요'
+            : '미수금 현황 확인 필요'}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          자동 결제에 실패해 현장 수납이 필요한 결제가{' '}
-          <strong className="text-destructive">{outstanding.length}건</strong>{' '}
-          있어요.
-        </p>
+        {outstanding.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            자동 결제에 실패해 현장 수납이 필요한 결제가{' '}
+            <strong className="text-destructive">{outstanding.length}건</strong>{' '}
+            있어요.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            최근 100건에서는 미수금을 확인하지 못했어요. 전체 목록에서 확인하세요.
+          </p>
+        )}
+        {truncated && outstanding.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            활성 결제가 100건을 넘어 최근 100건 기준으로 집계했어요. 전체는 결제
+            관리에서 확인하세요.
+          </p>
+        )}
         <Button variant="outline" asChild>
           <Link to="/staff/payments">결제 관리로</Link>
         </Button>
@@ -65,8 +100,7 @@ export function StaffDashboardPage() {
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">운영 대시보드</h1>
 
-      {/* 결제 목록 API·라우트가 준비될 때까지 호출 자체를 하지 않는다(위 주석 참고). */}
-      {HOSPITAL_OPS_BACKEND_READY && <OutstandingCard />}
+      <OutstandingCard />
 
       <Card>
         <CardHeader>
