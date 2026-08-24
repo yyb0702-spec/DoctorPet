@@ -656,6 +656,16 @@ export const demoHandlers = [
     })
     return ok({ updatedCount: unread.length })
   }),
+  // 전체 삭제 — 하드 삭제라 목록을 비우고 삭제 건수를 돌려준다(멱등: 두 번째 호출은 0건).
+  // 제약: 이 데모 목은 단일 보호자(demoMember.role === 'GUARDIAN')만 지원하므로 mockNotifications는 그 회원
+  // 한 명의 수신함이다 — 전역 splice가 곧 인증 수신자 삭제와 같은 의미다(모두 읽음·미읽음 개수 핸들러도 동일 전제).
+  // 실 백엔드는 인증 수신자(recipientType, recipientId)별 삭제이므로, 여기에 스태프/병원 수신 시나리오나 역할 전환을
+  // 추가한다면 이 핸들러를 recipient 기준 저장소로 분리해야 다른 수신자 알림까지 지우는 잘못된 동작을 재현하지 않는다(PR #213 리뷰 P2).
+  http.delete(`${BASE}/notifications`, () => {
+    const deletedCount = mockNotifications.length
+    mockNotifications.splice(0, mockNotifications.length)
+    return ok({ deletedCount })
+  }),
   http.patch(`${BASE}/notifications/:notificationId/read`, ({ params }) => {
     const target = mockNotifications.find(
       (n) => n.id === Number(params.notificationId),

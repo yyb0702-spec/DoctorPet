@@ -74,6 +74,14 @@ export function useNotifications() {
     },
   })
 
+  // 전체 삭제는 하드 삭제라 되돌릴 수 없다 — 호출부(벨)가 확인을 받은 뒤 부른다. 성공 시 목록·배지를 갱신한다.
+  const deleteAll = useMutation({
+    mutationFn: () => notificationApi.deleteAll(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.all })
+    },
+  })
+
   const notifications = query.data?.content ?? []
 
   return {
@@ -86,5 +94,7 @@ export function useNotifications() {
     markRead: markRead.mutate,
     markAllRead: markAllRead.mutate,
     isMarkingAllRead: markAllRead.isPending,
+    deleteAll: deleteAll.mutate,
+    isDeletingAll: deleteAll.isPending,
   }
 }

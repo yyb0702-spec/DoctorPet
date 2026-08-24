@@ -103,7 +103,7 @@ class StoringPaymentNotificationPublisherTest {
         publisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, AMOUNT);
 
         // 멱등은 createIfAbsent(존재 조회 후 저장)에 위임한다 — create가 아니라 createIfAbsent를 써야
-        // 정산 여러 사이클에도 결제당 1회만 남는다(실제 1회 저장은 통합 테스트에서 검증).
+        // 정산 여러 사이클과 전체 삭제 뒤에도 결제당 1회만 남는다(실제 저장·삭제 회귀는 통합 테스트에서 검증).
         verify(notificationService).createIfAbsent(
                 eq(GUARDIAN_ID),
                 eq(NotificationType.PAYMENT_PENDING),

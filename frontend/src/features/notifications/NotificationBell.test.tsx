@@ -24,6 +24,7 @@ vi.mock('./api', () => ({
     markRead: vi.fn(),
     getUnreadCount: vi.fn(),
     markAllRead: vi.fn(),
+    deleteAll: vi.fn(),
     issueTicket: vi.fn(),
   },
 }))
@@ -118,6 +119,8 @@ describe('NotificationBell', () => {
     vi.mocked(notificationApi.markRead).mockResolvedValue(undefined)
     vi.mocked(notificationApi.getUnreadCount).mockResolvedValue({ unreadCount: 1 })
     vi.mocked(notificationApi.markAllRead).mockResolvedValue({ updatedCount: 1 })
+    vi.mocked(notificationApi.deleteAll).mockResolvedValue({ deletedCount: 1 })
+    vi.mocked(notificationApi.deleteAll).mockClear()
     vi.mocked(subscribeToNotifications).mockClear()
     // 호출 이력은 테스트마다 초기화한다 — 누적되면 "호출되지 않아야 한다" 단언이 앞 테스트 때문에 깨진다.
     vi.mocked(notificationApi.markRead).mockClear()
@@ -133,6 +136,41 @@ describe('NotificationBell', () => {
 
     expect(screen.getByTestId('path')).toHaveTextContent('/reservations/42')
     expect(screen.getByTestId('screen')).toHaveTextContent('보호자 예약 상세')
+  })
+
+  it('"전체 삭제"는 두 단계 확인을 거쳐 deleteAll을 한 번만 호출한다', async () => {
+    const user = userEvent.setup()
+    renderBell()
+    await user.click(screen.getByRole('button', { name: '알림' }))
+
+    // 첫 클릭은 확인만 노출하고 아직 삭제하지 않는다(하드 삭제라 실수 방지).
+    await user.click(await screen.findByRole('button', { name: '전체 삭제' }))
+    expect(screen.getByText('삭제할까요?')).toBeInTheDocument()
+    expect(notificationApi.deleteAll).not.toHaveBeenCalled()
+
+    // 둘째 클릭이 실제 삭제를 부른다.
+    await user.click(screen.getByRole('button', { name: '삭제' }))
+    await waitFor(() =>
+      expect(notificationApi.deleteAll).toHaveBeenCalledTimes(1),
+    )
+  })
+
+  it('드롭다운을 닫았다 다시 열면 전체 삭제 확인 상태를 초기화해 두 단계를 다시 거친다', async () => {
+    const user = userEvent.setup()
+    renderBell()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    await user.click(await screen.findByRole('button', { name: '전체 삭제' }))
+    expect(screen.getByText('삭제할까요?')).toBeInTheDocument()
+
+    // 닫기는 현재 상호작용의 확인 상태까지 버린다.
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    expect(screen.queryByText('삭제할까요?')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    expect(await screen.findByRole('button', { name: '전체 삭제' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument()
+    expect(notificationApi.deleteAll).not.toHaveBeenCalled()
   })
 
   it('병원 스태프 알림의 예약 리소스를 누르면 실제로 열리는 /staff/reservations 목록으로 간다', async () => {

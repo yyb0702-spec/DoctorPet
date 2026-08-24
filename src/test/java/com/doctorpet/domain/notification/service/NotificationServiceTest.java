@@ -16,6 +16,7 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
 import com.doctorpet.domain.notification.push.NotificationCreatedEvent;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
+import com.doctorpet.domain.notification.repository.NotificationDeliveryMarkRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
 import java.time.Clock;
@@ -51,6 +52,9 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
 
     @Mock
+    private NotificationDeliveryMarkRepository notificationDeliveryMarkRepository;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     // createIfAbsent가 멱등 저장을 프록시(REQUIRES_NEW)로 위임할 때 쓰는 자기참조. 이 클래스의 다른 테스트는
@@ -63,7 +67,7 @@ class NotificationServiceTest {
     @BeforeEach
     void setUp() {
         notificationService = new NotificationService(
-                notificationRepository, FIXED_CLOCK, eventPublisher, selfProvider);
+                notificationRepository, notificationDeliveryMarkRepository, FIXED_CLOCK, eventPublisher, selfProvider);
     }
 
     @Test
@@ -185,6 +189,37 @@ class NotificationServiceTest {
         assertThat(notificationService.markAllRead(OWNER).updatedCount()).isZero();
         verify(notificationRepository).markAllReadForRecipient(
                 eq(NotificationRecipientType.MEMBER), eq(OWNER_ID), any());
+    }
+
+    @Test
+    @DisplayName("전체 삭제: 수신자로 하드 삭제를 위임하고 삭제 건수를 돌려준다")
+    void deleteAll_delegatesAndReturnsCount() {
+        given(notificationRepository.deleteAllForRecipient(
+                NotificationRecipientType.MEMBER, OWNER_ID)).willReturn(3);
+
+        assertThat(notificationService.deleteAll(OWNER).deletedCount()).isEqualTo(3);
+        verify(notificationRepository).deleteAllForRecipient(
+                NotificationRecipientType.MEMBER, OWNER_ID);
+    }
+
+    @Test
+    @DisplayName("전체 삭제: 삭제할 게 없으면 0건으로 멱등하다")
+    void deleteAll_isIdempotentWhenEmpty() {
+        given(notificationRepository.deleteAllForRecipient(
+                NotificationRecipientType.MEMBER, OWNER_ID)).willReturn(0);
+
+        assertThat(notificationService.deleteAll(OWNER).deletedCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("전체 삭제: 병원 수신은 병원 단위로 삭제한다(read-all과 같은 수신자 모델)")
+    void deleteAll_hospitalRecipient_deletesByHospital() {
+        given(notificationRepository.deleteAllForRecipient(
+                NotificationRecipientType.HOSPITAL, HOSPITAL_ID)).willReturn(5);
+
+        assertThat(notificationService.deleteAll(HOSPITAL).deletedCount()).isEqualTo(5);
+        verify(notificationRepository).deleteAllForRecipient(
+                NotificationRecipientType.HOSPITAL, HOSPITAL_ID);
     }
 
     @Test
