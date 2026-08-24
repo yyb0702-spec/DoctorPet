@@ -44,7 +44,10 @@ function result(
         hospital: recommendedHospital,
         recommendationScore: 5,
         recommendationReason: '필요한 진료 역량을 보유하고 있습니다.',
-        evidence: [{ type: 'CAPABILITY', value: '필요 진료역량 보유' }],
+        evidence: [
+          { type: 'CAPABILITY', value: 'XRAY' },
+          { type: 'REVIEW_EXCERPT_ID', value: '1024' },
+        ],
       },
     ],
     disclaimer: '',
@@ -82,7 +85,9 @@ describe('AiConsultationPage 추천 병원 표시', () => {
     expect(
       screen.getByText('필요한 진료 역량을 보유하고 있습니다.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('필요 진료역량 보유')).toBeInTheDocument()
+    expect(screen.getByText('진료 역량: 엑스레이')).toBeInTheDocument()
+    expect(screen.getByText('사용자 리뷰 참고')).toBeInTheDocument()
+    expect(screen.queryByText('1024')).not.toBeInTheDocument()
     expect(
       screen.getByRole('heading', { name: '그 외 병원' }),
     ).toBeInTheDocument()
@@ -90,7 +95,7 @@ describe('AiConsultationPage 추천 병원 표시', () => {
     expect(screen.getByText('행복동물병원')).toBeInTheDocument()
   })
 
-  it('위치가 필수인 응답에서는 검색 실패가 아니라 위치 입력 안내를 보여준다', () => {
+  it('위치가 필수인 응답에서는 위치 입력과 직접 검색 경로를 함께 안내한다', () => {
     renderPage(
       result({
         hospitals: [],
@@ -106,9 +111,7 @@ describe('AiConsultationPage 추천 병원 표시', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText(
-        '조건에 맞는 병원을 찾지 못했어요. 병원 검색에서 직접 찾아보세요.',
-      ),
-    ).not.toBeInTheDocument()
+      screen.getByRole('link', { name: '병원 검색에서 직접 찾아보세요.' }),
+    ).toHaveAttribute('href', '/hospitals')
   })
 })

@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MapPin, AlertTriangle, Stethoscope, CheckCircle2 } from 'lucide-react'
 import { useAiConsultation } from '@/features/ai/hooks'
-import type { UrgencyLevel } from '@/features/ai/types'
+import type {
+  AiRecommendationEvidence,
+  UrgencyLevel,
+} from '@/features/ai/types'
 import { PetSpecies } from '@/types/enums'
 import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
 import { capabilityLabel } from '@/lib/capabilities'
@@ -30,6 +33,37 @@ const URGENCY: Record<UrgencyLevel, { label: string; tone: string }> = {
     label: '응급도 높음 · 서둘러 진료하세요',
     tone: 'bg-destructive/10 text-destructive border-destructive/30',
   },
+}
+
+function recommendationEvidenceLabel({
+  type,
+  value,
+}: AiRecommendationEvidence): string {
+  switch (type) {
+    case 'SUPPORTED_SPECIES':
+      return `진료 가능 종: ${capabilityLabel(value)}`
+    case 'CAPABILITY':
+      return `진료 역량: ${capabilityLabel(value)}`
+    case 'DISTANCE_KM':
+      return `거리 ${value}km`
+    case 'BUSINESS_STATUS':
+      return value === 'OPEN' ? '정상 운영 중' : '운영 상태 확인'
+    case 'OPEN_NOW':
+      return value === 'true' ? '현재 진료 중' : '현재 진료 종료'
+    case 'AVERAGE_RATING':
+      return `평균 평점 ${value}점`
+    case 'REVIEW_COUNT':
+      return `리뷰 ${value}건`
+    case 'POSITIVE_REVIEW_COUNT':
+      return `긍정 리뷰 ${value}건`
+    case 'NEUTRAL_REVIEW_COUNT':
+      return `보통 리뷰 ${value}건`
+    case 'NEGATIVE_REVIEW_COUNT':
+      return `부정 리뷰 ${value}건`
+    // 내부 reviewId는 추천 근거 검증용이므로 화면에 노출하지 않는다.
+    case 'REVIEW_EXCERPT_ID':
+      return '사용자 리뷰 참고'
+  }
 }
 
 export function AiConsultationPage() {
@@ -264,7 +298,10 @@ export function AiConsultationPage() {
           {result.locationRequired && (
             <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               맞춤 병원 추천을 받으려면 지역이나 현재 위치가 필요해요. 위에서
-              지역을 입력하거나 “내 위치 쓰기”를 켜고 다시 상담해 주세요.
+              지역을 입력하거나 “내 위치 쓰기”를 켜고 다시 상담해 주세요. 또는{' '}
+              <Link to="/hospitals" className="font-medium underline">
+                병원 검색에서 직접 찾아보세요.
+              </Link>
             </p>
           )}
 
@@ -300,7 +337,7 @@ export function AiConsultationPage() {
                         <div className="flex flex-wrap gap-1">
                           {r.evidence.map((e, i) => (
                             <Badge key={`${e.type}-${i}`} variant="muted">
-                              {e.value}
+                              {recommendationEvidenceLabel(e)}
                             </Badge>
                           ))}
                         </div>
