@@ -52,8 +52,8 @@ public class StoringPaymentNotificationPublisher implements PaymentNotificationP
             int amount
     ) {
         // 정산이 오래 미확정(RECONCILE_STUCK)일 때의 "결제 확인 중" 안내. PAYMENT_RESULT와 다른 PAYMENT_PENDING
-        // 유형으로 저장하고, (수신자·PAYMENT_PENDING·PAYMENT·paymentId) 존재 여부를 멱등 마커로 써 알림 행이
-        // 존재하는 동안(전체 삭제 전까지) 결제당 1회만 남긴다.
+        // 유형으로 저장하고, 표시 행과 분리된 영속 멱등 마커로 결제당 1회만 남긴다. 전체 삭제는 표시 행만 지우므로
+        // 같은 PENDING 결제가 다음 정산 주기에 다시 나타나지 않는다.
         // 상태는 바꾸지 않고 안내만 추가한다(결제 상태 전이 로직 불변).
         notificationService.createIfAbsent(
                 guardianMemberId,

@@ -91,11 +91,8 @@ public class Notification extends BaseEntity {
     @Column(name = "resource_id")
     private Long resourceId;
 
-    // 멱등 발행 전용 중복 방지 키. createIfAbsent로 저장하는 알림에만 (type:resourceType:resourceId:memberId)로 채우고
-    // 일반 create는 null로 둔다. MySQL은 UNIQUE 인덱스에서 NULL을 서로 다르게 취급하므로, null인 일반 알림끼리는
-    // 충돌하지 않고(예: PAID 후 REFUNDED의 PAYMENT_RESULT 정상 중복 허용) 멱등 발행만 (수신자·유형·리소스)당 1건으로
-    // DB가 원자적으로 강제한다 — 존재조회→저장의 경합(락 밖 웹훅 vs 배치)에서도 중복 저장을 막는다. UNIQUE 제약은
-    // @Table.uniqueConstraints에 uk_notifications_dedup_key로 이름을 붙였다(중복 키 위반만 선별 흡수하기 위함).
+    // 과거 멱등 발행의 표시 행 키. 새 발행의 영속 보장은 notification_delivery_marks.dedup_key가 담당한다. 이 값은
+    // 구버전과의 blue/green 호환·기존 이력 백필을 위해 계속 저장하며, 전체 삭제로 사라져도 분리된 mark는 남는다.
     @Column(name = "dedup_key", length = 200)
     private String dedupKey;
 
@@ -137,7 +134,8 @@ public class Notification extends BaseEntity {
                 recipientType, recipientId, memberId, type, content, resourceType, resourceId, null);
     }
 
-    // 멱등 발행용 팩터리(PR #139). dedup_key(UNIQUE)로 같은 (수신자·유형·리소스)의 중복 저장을 DB가 원자적으로 막는다.
+    // 멱등 발행용 팩터리(PR #139). 표시 행의 dedup_key는 구버전 호환·백필용으로 함께 저장한다. 실제 영속
+    // 발행 보장은 notification_delivery_marks.dedup_key UNIQUE가 담당하므로, 표시 행을 전체 삭제해도 이력은 남는다.
     // 멱등 발행은 현재 회원 수신(결제 확인 중 PAYMENT_PENDING)만 쓰므로 recipient=(MEMBER, memberId)로 저장한다
     // (member_id도 함께 채워 하위호환 유지). 병원 수신 멱등 발행이 생기면 그때 recipient 기반으로 일반화한다.
     public static Notification createIdempotent(

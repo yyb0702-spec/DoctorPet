@@ -5,8 +5,6 @@ package com.doctorpet.domain.notification.repository;
 
 import com.doctorpet.domain.notification.entity.Notification;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
-import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
-import com.doctorpet.domain.notification.entity.status.NotificationType;
 import java.time.LocalDateTime;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,16 +27,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     // 미읽음 개수. 배지 표시용으로 목록을 페이징하지 않고 read_at NULL 건수만 센다(#134, 수신자 기준).
     long countByRecipientTypeAndRecipientIdAndReadAtIsNull(
             NotificationRecipientType recipientType, Long recipientId);
-
-    // 특정 리소스에 대해 같은 유형의 알림이 이미 저장됐는지 판별한다(PR #139). 결제 고도화 3.6에서 "결제 확인 중"
-    // 안내(RECONCILE_STUCK)의 멱등 빠른 경로로 쓴다 — 회원 수신(PAYMENT_PENDING)이라 member_id가 채워져 있어 이
-    // 조건으로 조회한다. 원자적 1건 보장은 dedup_key UNIQUE가 맡고, 이 조회는 흔한 반복 사이클을 값싸게 거른다.
-    boolean existsByMemberIdAndTypeAndResourceTypeAndResourceId(
-            Long memberId,
-            NotificationType type,
-            NotificationResourceType resourceType,
-            Long resourceId
-    );
 
     /*
       개별 알림 읽음 처리(#39)의 동시성 보호(PR #87 P2). Notification에는 @Version이 없어 findById 후 엔티티의

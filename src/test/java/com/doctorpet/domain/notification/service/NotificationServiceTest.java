@@ -16,6 +16,7 @@ import com.doctorpet.domain.notification.entity.status.NotificationType;
 import com.doctorpet.domain.notification.exception.NotificationErrorCode;
 import com.doctorpet.domain.notification.push.NotificationCreatedEvent;
 import com.doctorpet.domain.notification.repository.NotificationRepository;
+import com.doctorpet.domain.notification.repository.NotificationDeliveryMarkRepository;
 import com.doctorpet.global.exception.ServiceException;
 import com.doctorpet.global.time.TimePolicy;
 import java.time.Clock;
@@ -51,6 +52,9 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
 
     @Mock
+    private NotificationDeliveryMarkRepository notificationDeliveryMarkRepository;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     // createIfAbsent가 멱등 저장을 프록시(REQUIRES_NEW)로 위임할 때 쓰는 자기참조. 이 클래스의 다른 테스트는
@@ -63,7 +67,7 @@ class NotificationServiceTest {
     @BeforeEach
     void setUp() {
         notificationService = new NotificationService(
-                notificationRepository, FIXED_CLOCK, eventPublisher, selfProvider);
+                notificationRepository, notificationDeliveryMarkRepository, FIXED_CLOCK, eventPublisher, selfProvider);
     }
 
     @Test
