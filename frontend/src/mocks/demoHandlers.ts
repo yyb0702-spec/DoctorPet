@@ -721,6 +721,46 @@ export const demoHandlers = [
     })
   }),
 
+  // 병원 스태프 회원 진료·결제 이력 — 예약으로 회원을 해석해 자병원 이력만 페이지로 (SA §8-6).
+  http.get(`${BASE}/hospital/reservations/:reservationId/member-history`, ({ request }) => {
+    const url = new URL(request.url)
+    const page = Number(url.searchParams.get('page') ?? '0')
+    const size = Number(url.searchParams.get('size') ?? '20')
+    const all = [
+      {
+        reservationId: 9101,
+        reservedAt: `${shiftDateKey(todaySeoulKey(), -2)}T10:00:00`,
+        petName: '초코',
+        petSpecies: 'DOG',
+        reservationStatus: 'TREATMENT_COMPLETED',
+        paymentId: 8801,
+        paymentStatus: 'PAID',
+        amount: 45000,
+      },
+      {
+        reservationId: 9102,
+        reservedAt: `${shiftDateKey(todaySeoulKey(), -20)}T14:00:00`,
+        petName: '초코',
+        petSpecies: 'DOG',
+        reservationStatus: 'CANCELED',
+        paymentId: null,
+        paymentStatus: null,
+        amount: null,
+      },
+    ]
+    const totalElements = all.length
+    const totalPages = Math.max(1, Math.ceil(totalElements / size))
+    return ok({
+      content: all.slice(page * size, page * size + size),
+      page,
+      size,
+      totalElements,
+      totalPages,
+      first: page === 0,
+      last: page >= totalPages - 1,
+    })
+  }),
+
   // --- 병원 스태프 운영: 진료시간 (현재·예정 GET, PUT /hospital/operating-hours) ---
   http.get(`${BASE}/hospital/operating-hours`, () => ok(demoOperatingHours)),
   http.get(`${BASE}/hospital/operating-hours/scheduled`, () =>

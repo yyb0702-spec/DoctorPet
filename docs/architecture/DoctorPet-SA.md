@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.65 |
+| 문서 버전 | v1.66 |
 | 작성 기준일 | 2026-08-24 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
@@ -15,8 +15,10 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 > v1.63: PR #198 리뷰 반영 — 미래 발효 시간표 조회와 생성/수정 의도·대상 시간표 토큰 비교를 추가해, 미저장 편집 전환과 오래된 저장 요청이 예정 시간표를 덮어쓰지 않게 했다.
 >
 > v1.64: 병원 스태프 결제/미수금 대시보드용 병원 결제 목록 API(`GET /api/hospital/payments`)를 §8-7에 추가했다. 자병원 예약의 활성 결제(`superseded_at IS NULL`)만 슬롯 시작 시각 최근순으로 페이지 반환하는 읽기 전용 조회이며, 새 테이블·락·상태전이는 없다(프론트는 이미 구현돼 `HOSPITAL_OPS_BACKEND_READY` 플래그로 대기 중).
+>
+> v1.65: 병원 스태프의 회원 진료·결제 이력 조회 API(`GET /api/hospital/reservations/{reservationId}/member-history`)를 §8-6에 추가했다. 예약으로 회원을 해석해 자병원 예약을 활성 결제와 LEFT JOIN·슬롯 시작 시각 최근순으로 페이지 반환하는 읽기 전용 조회이며, 타 병원 예약은 404로 차단한다(새 테이블·락 없음).
 
-> v1.65: PR #211에서 병원 결제 목록 API가 병합된 뒤 프런트의 `HOSPITAL_OPS_BACKEND_READY` 플래그를 제거하고 결제 관리 화면·대시보드 미수금 카드를 상시 노출한 구현 상태를 반영했다. 슬롯 관리 화면은 일 단위 임시휴진으로 대체해 제거했다.
+> v1.66: PR #211에서 병원 결제 목록 API가 병합된 뒤 프런트의 `HOSPITAL_OPS_BACKEND_READY` 플래그를 제거하고 결제 관리 화면·대시보드 미수금 카드를 상시 노출한 구현 상태를 반영했다. 슬롯 관리 화면은 일 단위 임시휴진으로 대체해 제거했다.
 
 ---
 
@@ -830,6 +832,9 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 노쇼 수동 확정 | PATCH | /api/hospital/reservations/{reservationId}/no-show | CONFIRMED/NO_SHOW_PENDING → NO_SHOW (자동보다 우선) |
 | 노쇼 정정 | PATCH | /api/hospital/reservations/{reservationId}/restore | NO_SHOW → CHECKED_IN, 이력 append |
 | 확정 예약 병원 취소 | PATCH | /api/hospital/reservations/{reservationId}/cancel | CONFIRMED → HOSPITAL_CANCELED, 슬롯 반환·보호자 알림 |
+| 회원 진료·결제 이력 | GET | /api/hospital/reservations/{reservationId}/member-history | (예약으로 회원 해석, 자병원 이력만 페이지) |
+
+회원 진료·결제 이력 조회(`GET /api/hospital/reservations/{reservationId}/member-history`)는 예약 상세에서 그 회원이 **자병원에서** 남긴 예약을 슬롯 시작 시각 최근순으로 페이지 반환한다. 회원은 경로의 예약에서 해석하고 병원은 `@AuthenticationPrincipal`로만 해석하며, 예약이 자병원 것이 아니면 존재를 드러내지 않고 404로 끝낸다(타 병원 회원 이력 열람 차단). 각 행은 활성 결제(`superseded_at IS NULL`)를 LEFT JOIN해 결제 없는 예약도 포함하고, 응답 필드는 `reservationId·reservedAt(슬롯 시작)·petName·petSpecies(예약 스냅샷)·reservationStatus·paymentId·paymentStatus·amount`다. 영수증 노출 여부는 화면이 `paymentStatus`로 판단한다(PAID·OFFLINE_PAID·REFUNDED). 읽기 전용이라 새 테이블·락은 없다.
 
 보호자 예약 목록·상세의 진행 상태에는 `NO_SHOW_PENDING`을 포함해 대기 중임을 노출하고, 최종 `NO_SHOW` 전이에만 보호자 알림을 생성한다.
 
