@@ -9,7 +9,6 @@ import com.doctorpet.domain.notification.dto.response.NotificationReadAllRespons
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.doctorpet.domain.notification.entity.Notification;
-import com.doctorpet.domain.notification.entity.NotificationDeliveryMark;
 import com.doctorpet.domain.notification.entity.status.NotificationRecipientType;
 import com.doctorpet.domain.notification.entity.status.NotificationResourceType;
 import com.doctorpet.domain.notification.entity.status.NotificationType;
@@ -143,8 +142,9 @@ public class NotificationService {
         return message != null && message.toLowerCase(Locale.ROOT).contains(DELIVERY_MARK_DEDUP_KEY_CONSTRAINT);
     }
 
-    // 멱등 발행의 실제 저장. 표시 행과 분리된 delivery mark의 dedup_key(UNIQUE)로 동시 삽입을 원자적으로 1건으로 제한한다.
-    // mark와 알림은 같은 REQUIRES_NEW 트랜잭션이라 저장 실패 시 둘 다 롤백되고, 전체 삭제는 알림 행만 지워 mark는 남는다.
+    // 멱등 발행의 실제 저장. notifications BEFORE INSERT 트리거가 표시 행 저장과 같은 트랜잭션에서 delivery mark를 먼저
+    // INSERT하므로, mark의 dedup_key UNIQUE로 동시 삽입을 원자적으로 1건으로 제한한다. 이미 mark가 있으면 트리거의
+    // INSERT가 실패해 표시 행도 저장되지 않는다. 전체 삭제는 알림 행만 지워 mark는 남는다.
     // 바깥과 독립적으로 커밋·롤백하도록
     // REQUIRES_NEW로 열어, 유니크 충돌 롤백이 호출자 트랜잭션을 오염시키지 않게 한다(createIfAbsent의 catch가 흡수).
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -155,11 +155,9 @@ public class NotificationService {
             NotificationResourceType resourceType,
             Long resourceId
     ) {
-        String dedupKey = Notification.dedupKey(memberId, type, resourceType, resourceId);
-        notificationDeliveryMarkRepository.saveAndFlush(NotificationDeliveryMark.of(dedupKey));
         // createIdempotent는 recipient=(MEMBER, memberId)로 저장한다(고도화 3.10 수신자 모델). SSE 라우팅도 그
         // 수신자(회원)로 나가도록 recipient 기반 이벤트를 발행한다.
-        Notification saved = notificationRepository.save(
+        Notification saved = notificationRepository.saveAndFlush(
                 Notification.createIdempotent(memberId, type, content, resourceType, resourceId)
         );
         // 커밋 이후에만 실시간 전송하도록 이벤트를 등록한다(롤백 시 전송되지 않음, create와 동일).

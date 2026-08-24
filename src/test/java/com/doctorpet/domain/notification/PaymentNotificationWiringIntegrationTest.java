@@ -1,6 +1,7 @@
 package com.doctorpet.domain.notification;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.doctorpet.domain.notification.adapter.StoringPaymentNotificationPublisher;
 import com.doctorpet.domain.notification.entity.Notification;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -182,7 +184,24 @@ class PaymentNotificationWiringIntegrationTest {
     }
 
     @Test
-    @DisplayName("기존 dedup_key를 발행 마커로 백필하고 구버전 INSERT도 트리거로 동기화한다")
+    @DisplayName("전체 삭제 뒤 구버전 노드의 직접 INSERT도 delivery mark UNIQUE로 차단된다")
+    void deleteAll_blocksLegacyDirectInsert() {
+        paymentNotificationPublisher.publishPendingNotice(GUARDIAN_ID, RESERVATION_ID, PAYMENT_ID, 80_000);
+        assertThat(notificationService.deleteAll(NotificationRecipient.member(GUARDIAN_ID)).deletedCount()).isEqualTo(1);
+
+        // saveIdempotent를 거치지 않는 배포 전 노드의 notifications INSERT를 재현한다. BEFORE INSERT 트리거가
+        // 남아 있는 mark를 먼저 INSERT하려다 UNIQUE 위반으로 실패시켜, 삭제된 표시 행을 다시 만들지 않아야 한다.
+        assertThatThrownBy(() -> notificationRepository.saveAndFlush(Notification.createIdempotent(
+                GUARDIAN_ID, NotificationType.PAYMENT_PENDING, "구버전 결제 확인 중", NotificationResourceType.PAYMENT,
+                PAYMENT_ID)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(notificationRepository.findByRecipientTypeAndRecipientId(
+                NotificationRecipientType.MEMBER, GUARDIAN_ID, PageRequest.of(0, 10)).getContent()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("기존 dedup_key를 발행 마커로 백필하고 구버전 INSERT를 같은 마커로 선점한다")
     void deliveryMarkMigration_backfillsLegacyRowsAndTracksLegacyInserts() throws Exception {
         long firstPaymentId = System.nanoTime();
         long secondPaymentId = firstPaymentId + 1;
@@ -192,11 +211,12 @@ class PaymentNotificationWiringIntegrationTest {
                 GUARDIAN_ID, NotificationType.PAYMENT_PENDING, NotificationResourceType.PAYMENT, secondPaymentId);
 
         try {
-            // 구버전 배포 상태를 재현한다. mark 테이블은 아직 비어 있고, notifications INSERT가 mark에 전파되는
+            // 구버전 배포 상태를 재현한다. mark 테이블은 아직 비어 있고, notifications INSERT를 선점하는
             // 트리거·마이그레이션 기록도 없다. 첫 행은 트리거 설치 전이라 반드시 백필로만 복구돼야 한다.
             jdbcTemplate.execute("drop trigger if exists trg_notifications_delivery_mark");
+            jdbcTemplate.execute("drop trigger if exists trg_notifications_delivery_mark_before_insert");
             jdbcTemplate.update("delete from notification_delivery_marks where dedup_key in (?, ?)", firstDedupKey, secondDedupKey);
-            jdbcTemplate.update("delete from schema_migrations where migration_key = 'notification_delivery_marks_v1'");
+            jdbcTemplate.update("delete from schema_migrations where migration_key = 'notification_delivery_marks_v2'");
             notificationRepository.saveAndFlush(Notification.createIdempotent(
                     GUARDIAN_ID, NotificationType.PAYMENT_PENDING, "기존 결제 확인 중", NotificationResourceType.PAYMENT,
                     firstPaymentId));
@@ -212,7 +232,7 @@ class PaymentNotificationWiringIntegrationTest {
                        and is_nullable = 'NO'
                     """, Integer.class);
             assertThat(notNullColumns).isEqualTo(2);
-            // 설치된 AFTER INSERT 트리거는 아직 구버전이 쓴 새 notifications 행도 mark에 동기화한다.
+            // 설치된 BEFORE INSERT 트리거는 구버전이 쓴 새 notifications 행의 mark를 먼저 선점한다.
             notificationRepository.saveAndFlush(Notification.createIdempotent(
                     GUARDIAN_ID, NotificationType.PAYMENT_PENDING, "새 결제 확인 중", NotificationResourceType.PAYMENT,
                     secondPaymentId));

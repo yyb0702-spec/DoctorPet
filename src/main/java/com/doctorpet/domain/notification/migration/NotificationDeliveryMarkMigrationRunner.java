@@ -2,14 +2,15 @@ package com.doctorpet.domain.notification.migration;
 
 // 전체 삭제가 표시용 notifications 행만 지우고 PAYMENT_PENDING의 "결제당 1회" 발행 이력은 남기게 하는
 // expand 마이그레이션(PR #213 리뷰). 구버전은 notifications.dedup_key만 쓰므로, 새 mark 테이블을 만든 뒤
-// INSERT 트리거를 먼저 설치하고 기존 키를 백필한다. 트리거 설치 전의 좁은 창에 구버전이 넣은 행도 백필이 뒤에서
-// 흡수하고, 설치 후에는 blue/green 구버전 INSERT도 mark를 함께 남긴다.
+// BEFORE INSERT 트리거를 먼저 설치하고 기존 키를 백필한다. 트리거는 mark가 이미 있으면 구버전의 notifications
+// INSERT 자체를 UNIQUE 위반으로 중단해, 전체 삭제 뒤에도 구버전 노드가 같은 PAYMENT_PENDING을 되살리지 못하게 한다.
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -30,11 +31,12 @@ import org.springframework.stereotype.Component;
 )
 public class NotificationDeliveryMarkMigrationRunner implements ApplicationRunner {
 
-    static final String MIGRATION_KEY = "notification_delivery_marks_v1";
+    static final String MIGRATION_KEY = "notification_delivery_marks_v2";
     static final String TABLE = "notification_delivery_marks";
     static final String UNIQUE_INDEX = "uk_notification_delivery_marks_dedup_key";
-    static final String LEGACY_INSERT_TRIGGER = "trg_notifications_delivery_mark";
-    private static final String LOCK_NAME = "doctorpet:notification_delivery_marks_v1";
+    static final String IDEMPOTENCY_INSERT_TRIGGER = "trg_notifications_delivery_mark_before_insert";
+    private static final String LEGACY_INSERT_TRIGGER = "trg_notifications_delivery_mark";
+    private static final String LOCK_NAME = "doctorpet:notification_delivery_marks_v2";
     private static final int LOCK_TIMEOUT_SECONDS = 30;
 
     private final JdbcTemplate jdbcTemplate;
@@ -61,9 +63,11 @@ public class NotificationDeliveryMarkMigrationRunner implements ApplicationRunne
             return;
         }
 
-        // 구버전 INSERT를 먼저 받기 시작한 뒤 백필한다. 순서를 반대로 하면 백필 직후 들어온 구버전 알림이
-        // 삭제와 함께 유일한 발행 이력을 잃는 blue/green 창이 생긴다.
-        ensureLegacyInsertTrigger(connection);
+        // 구버전 INSERT를 먼저 막기 시작한 뒤 백필한다. 순서를 반대로 하면 백필 직후 들어온 구버전 알림이
+        // 삭제와 함께 유일한 발행 이력을 잃는 blue/green 창이 생긴다. 기존 v1 AFTER 트리거는 새 BEFORE
+        // 트리거가 설치된 뒤에만 제거하므로 전환 중 mark 기록이 끊기지 않는다.
+        ensureIdempotencyInsertTrigger(connection);
+        dropLegacyInsertTrigger(connection);
         int backfilled = backfillLegacyDedupKeys(connection);
         assertTargetSchema(connection);
         recordMigration(connection);
@@ -84,19 +88,25 @@ public class NotificationDeliveryMarkMigrationRunner implements ApplicationRunne
         }
     }
 
-    private void ensureLegacyInsertTrigger(Connection connection) throws SQLException {
-        if (triggerExists(connection, LEGACY_INSERT_TRIGGER)) {
+    private void ensureIdempotencyInsertTrigger(Connection connection) throws SQLException {
+        if (triggerExists(connection, IDEMPOTENCY_INSERT_TRIGGER)) {
             return;
         }
         try (Statement statement = connection.createStatement()) {
             statement.execute("""
-                    create trigger trg_notifications_delivery_mark
-                    after insert on notifications
+                    create trigger trg_notifications_delivery_mark_before_insert
+                    before insert on notifications
                     for each row
-                    insert ignore into notification_delivery_marks (dedup_key, created_at)
+                    insert into notification_delivery_marks (dedup_key, created_at)
                     select new.dedup_key, now(6)
                      where new.dedup_key is not null
                     """);
+        }
+    }
+
+    private void dropLegacyInsertTrigger(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("drop trigger if exists " + LEGACY_INSERT_TRIGGER);
         }
     }
 
@@ -121,8 +131,8 @@ public class NotificationDeliveryMarkMigrationRunner implements ApplicationRunne
         if (!notNullColumnExists(connection, "dedup_key") || !notNullColumnExists(connection, "created_at")) {
             throw new IllegalStateException(TABLE + "의 dedup_key·created_at NOT NULL 제약이 없습니다.");
         }
-        if (!triggerExists(connection, LEGACY_INSERT_TRIGGER)) {
-            throw new IllegalStateException("구버전 dedup_key 동기화 트리거가 없습니다.");
+        if (!idempotencyInsertTriggerExists(connection)) {
+            throw new IllegalStateException("구버전 재발행을 차단하는 BEFORE INSERT 트리거가 없습니다.");
         }
     }
 
@@ -208,6 +218,27 @@ public class NotificationDeliveryMarkMigrationRunner implements ApplicationRunne
             statement.setString(1, trigger);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() && resultSet.getInt(1) == 1;
+            }
+        }
+    }
+
+    private boolean idempotencyInsertTriggerExists(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select action_timing, action_statement
+                  from information_schema.triggers
+                 where trigger_schema = database() and trigger_name = ?
+                """)) {
+            statement.setString(1, IDEMPOTENCY_INSERT_TRIGGER);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return false;
+                }
+                String actionTiming = resultSet.getString("action_timing");
+                String actionStatement = resultSet.getString("action_statement");
+                return "BEFORE".equalsIgnoreCase(actionTiming)
+                        && actionStatement != null
+                        && actionStatement.toLowerCase(Locale.ROOT)
+                        .contains("insert into notification_delivery_marks");
             }
         }
     }
