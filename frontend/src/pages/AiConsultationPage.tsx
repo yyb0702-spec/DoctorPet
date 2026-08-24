@@ -9,7 +9,7 @@ import type {
   UrgencyLevel,
 } from '@/features/ai/types'
 import { PetSpecies } from '@/types/enums'
-import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
+import { SPECIES_ORDER, SPECIES_LABEL, speciesLabel } from '@/lib/species'
 import { capabilityLabel } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,7 +41,7 @@ function recommendationEvidenceLabel({
 }: AiRecommendationEvidence): string {
   switch (type) {
     case 'SUPPORTED_SPECIES':
-      return `진료 가능 종: ${capabilityLabel(value)}`
+      return `진료 가능 종: ${speciesLabel(value)}`
     case 'CAPABILITY':
       return `진료 역량: ${capabilityLabel(value)}`
     case 'DISTANCE_KM':

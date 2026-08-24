@@ -45,7 +45,10 @@ function result(
         recommendationScore: 5,
         recommendationReason: '필요한 진료 역량을 보유하고 있습니다.',
         evidence: [
+          { type: 'SUPPORTED_SPECIES', value: 'DOG' },
           { type: 'CAPABILITY', value: 'XRAY' },
+          { type: 'BUSINESS_STATUS', value: 'OPEN' },
+          { type: 'OPEN_NOW', value: 'true' },
           { type: 'REVIEW_EXCERPT_ID', value: '1024' },
         ],
       },
@@ -76,7 +79,7 @@ function renderPage(data: AiConsultationResult) {
 }
 
 describe('AiConsultationPage 추천 병원 표시', () => {
-  it('AI 추천과 추천 근거를 먼저 보여주고, 중복 병원은 그 외 목록에서 제외한다', () => {
+  it('AI 추천 근거의 실제 서버 값을 사용자용 라벨로 변환하고, 내부 리뷰 ID는 숨긴다', () => {
     renderPage(result())
 
     expect(
@@ -85,7 +88,10 @@ describe('AiConsultationPage 추천 병원 표시', () => {
     expect(
       screen.getByText('필요한 진료 역량을 보유하고 있습니다.'),
     ).toBeInTheDocument()
+    expect(screen.getByText('진료 가능 종: 강아지')).toBeInTheDocument()
     expect(screen.getByText('진료 역량: 엑스레이')).toBeInTheDocument()
+    expect(screen.getByText('정상 운영 중')).toBeInTheDocument()
+    expect(screen.getByText('현재 진료 중')).toBeInTheDocument()
     expect(screen.getByText('사용자 리뷰 참고')).toBeInTheDocument()
     expect(screen.queryByText('1024')).not.toBeInTheDocument()
     expect(
