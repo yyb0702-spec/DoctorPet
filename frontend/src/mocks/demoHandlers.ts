@@ -463,6 +463,7 @@ export const demoHandlers = [
   http.post(`${BASE}/ai/consultations`, async ({ request }) => {
     const body = (await request.json()) as {
       symptomText?: string
+      region?: string
       latitude?: number
     }
     const text = body.symptomText ?? ''
@@ -475,6 +476,21 @@ export const demoHandlers = [
     const partners = mockHospitals.filter(
       (h) => h.partnershipStatus === 'PARTNER',
     )
+    const hasLocation = body.latitude != null || Boolean(body.region?.trim())
+    const locationRequired = !emergency && !hasLocation
+    const recommendations = hasLocation
+      ? partners.slice(0, 2).map((h, i) => ({
+          hospital: h,
+          recommendationScore: 5 - i,
+          recommendationReason: emergency
+            ? '야간·응급 대응이 가능하고 필요한 진료 역량을 갖췄어요.'
+            : '증상에 맞는 진료 역량을 갖췄고 예약이 가능해요.',
+          evidence: [
+            { type: 'CAPABILITY' as const, value: '필요 진료역량 보유' },
+            { type: 'BUSINESS_STATUS' as const, value: '현재 진료 가능' },
+          ],
+        }))
+      : []
     return ok({
       structured: {
         possibleFocusAreas: emergency ? ['호흡기', '순환기'] : ['소화기'],
@@ -487,13 +503,15 @@ export const demoHandlers = [
         ],
         recommendVetVisit: urgencyLevel !== 'LOW',
       },
-      hospitals: partners,
+      hospitals: locationRequired ? [] : partners,
+      recommendations,
       disclaimer: '본 정보는 참고용이며 수의사의 진료를 대체하지 않습니다.',
       message: emergency
         ? '응급 가능성이 있어요. 가까운 병원에 바로 연락해 주세요.'
         : '아래 분석과 병원을 참고해 주세요.',
       fallback: false,
-      locationRecommended: body.latitude == null,
+      locationRequired,
+      locationRecommended: !hasLocation,
     })
   }),
   http.get(`${BASE}/members/me`, () => ok(demoMember)),
