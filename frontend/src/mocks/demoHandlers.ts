@@ -307,7 +307,7 @@ interface MockHospitalPayment {
   petName: string
   reservedAt: string
   paymentId: number
-  paymentStatus: string
+  paymentStatus: Receipt['status']
   amount: number
   paidAt: string | null
   offlineSettledAt: string | null
@@ -345,6 +345,39 @@ const demoHospitalPayments: MockHospitalPayment[] = [
     failedAt: null,
   },
 ]
+
+// 결제 목록 fixture는 예약 상세 결제 fixture와 별개다. 영수증도 이 배열을 먼저 조회해야
+// /staff/payments의 PAID·OFFLINE_PAID·REFUNDED 행이 dev:mock에서 404가 나지 않고,
+// 현장 수납·환불 mutation으로 바뀐 상태를 같은 객체에서 바로 읽는다.
+function hospitalPaymentReceipt(record: MockHospitalPayment): Receipt {
+  return {
+    paymentId: record.paymentId,
+    reservationId: record.reservationId,
+    hospitalId: 1,
+    guardianMemberId: record.memberId,
+    petId: record.petId,
+    petName: record.petName,
+    petSpecies: record.petId === 2 ? 'CAT' : 'DOG',
+    status: record.paymentStatus,
+    paymentChannel:
+      record.paymentStatus === 'OFFLINE_PAID' ? 'OFFLINE' : 'BILLING_KEY',
+    paidAt: record.paidAt,
+    offlineSettledAt: record.offlineSettledAt,
+    cardBrandSnapshot: null,
+    cardLast4Snapshot: null,
+    items: [
+      {
+        name: '진료비',
+        quantity: 1,
+        unitPrice: record.amount,
+        amount: record.amount,
+      },
+    ],
+    totalAmount: record.amount,
+    refundStatus: record.refundedAt ? 'COMPLETED' : null,
+    refundedAt: record.refundedAt,
+  }
+}
 
 const demoOperatingHours = {
   scheduleId: 1,
@@ -424,6 +457,16 @@ const demoWaitlistHospitalId: Record<number, number> = { 1: 1, 2: 2, 3: 1 }
 // (PaymentReceiptService) 목도 그대로 나눈다 — 한쪽으로 뭉개면 검증한 오류 처리가 실연동과 달라진다.
 const receiptResolver: HttpResponseResolver<{ paymentId: string }> = ({ params }) => {
   const paymentId = Number(params.paymentId)
+  const hospitalPayment = demoHospitalPayments.find(
+    (payment) => payment.paymentId === paymentId,
+  )
+  if (hospitalPayment) {
+    if (!RECEIPT_STATUSES.has(hospitalPayment.paymentStatus)) {
+      return fail('PAYMENT_013', '영수증을 발급할 수 있는 결제가 아닙니다.', 409)
+    }
+    return ok(hospitalPaymentReceipt(hospitalPayment))
+  }
+
   const record = Object.values(mockPaymentByReservation)
     .flat()
     .find((p) => p.paymentId === paymentId)
