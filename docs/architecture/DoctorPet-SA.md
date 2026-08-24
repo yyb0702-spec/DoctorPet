@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.65 |
+| 문서 버전 | v1.66 |
 | 작성 기준일 | 2026-08-21 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
@@ -17,6 +17,8 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 > v1.64: 병원 스태프 결제/미수금 대시보드용 병원 결제 목록 API(`GET /api/hospital/payments`)를 §8-7에 추가했다. 자병원 예약의 활성 결제(`superseded_at IS NULL`)만 슬롯 시작 시각 최근순으로 페이지 반환하는 읽기 전용 조회이며, 새 테이블·락·상태전이는 없다(프론트는 이미 구현돼 `HOSPITAL_OPS_BACKEND_READY` 플래그로 대기 중).
 >
 > v1.65: 병원 스태프의 회원 진료·결제 이력 조회 API(`GET /api/hospital/reservations/{reservationId}/member-history`)를 §8-6에 추가했다. 예약으로 회원을 해석해 자병원 예약을 활성 결제와 LEFT JOIN·슬롯 시작 시각 최근순으로 페이지 반환하는 읽기 전용 조회이며, 타 병원 예약은 404로 차단한다(새 테이블·락 없음).
+>
+> v1.66: 알림 전체 삭제 API(`DELETE /api/notifications`)를 §8-8에 추가했다. 수신자의 알림을 bulk DELETE로 하드 삭제하고 `{ deletedCount }`를 반환하는 멱등 연산이며(모두 읽음과 같은 수신자 모델·병원 단위 공유), 알림은 휘발성 UI 항목이라 소프트 삭제 컬럼을 두지 않는다. 되돌릴 수 없어 화면(알림 벨)이 두 단계 확인을 받는다. 새 테이블·락·상태전이는 없다.
 
 ---
 
@@ -899,11 +901,12 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 목록 조회 | GET | /api/notifications | 인증 |
 | 미읽음 개수 | GET | /api/notifications/unread-count | 인증 |
 | 모두 읽음 처리 | PATCH | /api/notifications/read-all | 인증 |
+| 전체 삭제 | DELETE | /api/notifications | 인증 |
 | 읽음 처리 | PATCH | /api/notifications/{notificationId}/read | 인증(수신자 본인) |
 
 네 엔드포인트 모두 호출자 recipient를 서버에서 해석해 동작한다(고도화 3.10) — 회원 principal은 (MEMBER, memberId), 병원 스태프 principal은 소속 (HOSPITAL, hospitalId)로 매핑하고(hospitalId는 요청값이 아니라 `MemberService.getMyInfo`로 해석), 회원은 자기 MEMBER 알림만·스태프는 자병원 HOSPITAL 알림만 조회·읽음할 수 있다(§4 notifications).
 
-  미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴).
+  미읽음 개수·모두 읽음은 정책·상태 머신 변경 없이 기존 `read_at`을 그대로 재사용하는 추가 엔드포인트다. 테이블·컬럼은 바뀌지 않으나, 미읽음 조회(`member_id = ? AND read_at IS NULL`)와 일괄 갱신 성능을 위해 `idx_notifications_member_read(member_id, read_at)` 복합 인덱스를 추가한다(§4 notifications). 수신자는 두 엔드포인트 모두 `@AuthenticationPrincipal`로만 식별한다. 미읽음 개수는 목록을 페이징하지 않고 `{ unreadCount }`만 반환해 배지 폴링이 전체 목록 조회를 대체하지 않게 한다. 모두 읽음은 `read_at IS NULL` 조건부 bulk UPDATE로 한 번에 처리하고 `{ updatedCount }`(갱신 건수)를 반환하며, 미읽음이 없으면 0건으로 멱등 200을 응답한다(개별 읽음 처리 `markReadIfUnread`와 동일한 조건부 UPDATE 패턴). 전체 삭제(`DELETE /api/notifications`)는 수신자(recipient)의 알림을 bulk DELETE로 **하드 삭제**하고 `{ deletedCount }`를 반환하며, 삭제할 게 없으면 0건으로 멱등 200을 응답한다. 알림은 감사 기록이 아니라 휘발성 UI 항목이라 소프트 삭제 컬럼을 두지 않는다(감사는 `reservation_histories`·`payments`가 담당). 수신자는 모두 읽음과 같은 모델이라 병원 수신은 병원 단위 공유 삭제이며(스태프 누구나 병원 알림 전체를 지운다), 되돌릴 수 없으므로 화면이 실행 전 확인을 받는다.
 
 ### 8-9. 예약 채팅
 

@@ -86,4 +86,21 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
             @Param("recipientId") Long recipientId,
             @Param("now") LocalDateTime now
     );
+
+    /*
+      전체 삭제. 수신자(recipient_type, recipient_id)의 알림을 하드 삭제한다 — 알림은 감사 기록이 아니라
+      휘발성 UI 항목이라 소프트 삭제 컬럼을 두지 않는다(감사는 reservation_histories·payments가 담당).
+      병원 수신은 병원 단위 공유라 read-all과 같은 모델로 병원 전체 알림을 지운다. 삭제 0건은 "이미 비어
+      있음"이므로 호출부가 멱등 처리한다.
+    */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from Notification n
+             where n.recipientType = :recipientType
+               and n.recipientId = :recipientId
+            """)
+    int deleteAllForRecipient(
+            @Param("recipientType") NotificationRecipientType recipientType,
+            @Param("recipientId") Long recipientId
+    );
 }

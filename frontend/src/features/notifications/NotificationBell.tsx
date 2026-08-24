@@ -59,6 +59,8 @@ function resourceLink(n: Notification, routes: ResourceRoutes): string | null {
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
+  // 전체 삭제는 하드 삭제라 되돌릴 수 없어 두 단계로 확인받는다(첫 클릭=확인 노출, 둘째 클릭=실행).
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const navigate = useNavigate()
   const me = useMe()
   const {
@@ -67,6 +69,8 @@ export function NotificationBell() {
     markRead,
     markAllRead,
     isMarkingAllRead,
+    deleteAll,
+    isDeletingAll,
     refetch,
   } = useNotifications()
 
@@ -114,20 +118,59 @@ export function NotificationBell() {
           <div className="flex items-center justify-between px-2 py-1">
             <p className="text-xs font-semibold text-muted-foreground">알림</p>
             {/*
-              배지 개수는 서버 집계라 드롭다운에 보이는 20건보다 많을 수 있다. 그래서 "모두 읽음"은
-              보이는 항목을 순회하지 않고 서버의 bulk UPDATE 한 번(PATCH /notifications/read-all)에 맡긴다.
+              배지 개수는 서버 집계라 드롭다운에 보이는 20건보다 많을 수 있다. "모두 읽음"·"전체 삭제"는
+              보이는 항목을 순회하지 않고 서버의 bulk 연산 한 번(PATCH read-all / DELETE)에 맡긴다.
+              전체 삭제는 하드 삭제라 두 단계로 확인받는다.
             */}
-            {unreadCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                disabled={isMarkingAllRead}
-                onClick={() => markAllRead()}
-              >
-                {isMarkingAllRead ? '처리 중…' : '모두 읽음'}
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={isMarkingAllRead}
+                  onClick={() => markAllRead()}
+                >
+                  {isMarkingAllRead ? '처리 중…' : '모두 읽음'}
+                </Button>
+              )}
+              {notifications.length > 0 &&
+                (confirmingDelete ? (
+                  <>
+                    <span className="text-xs text-muted-foreground">삭제할까요?</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-destructive"
+                      disabled={isDeletingAll}
+                      onClick={() =>
+                        deleteAll(undefined, {
+                          onSuccess: () => setConfirmingDelete(false),
+                        })
+                      }
+                    >
+                      {isDeletingAll ? '삭제 중…' : '삭제'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setConfirmingDelete(false)}
+                    >
+                      취소
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-destructive"
+                    onClick={() => setConfirmingDelete(true)}
+                  >
+                    전체 삭제
+                  </Button>
+                ))}
+            </div>
           </div>
           {notifications.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-muted-foreground">

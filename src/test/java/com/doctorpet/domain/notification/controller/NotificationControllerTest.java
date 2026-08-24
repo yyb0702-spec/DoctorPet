@@ -5,12 +5,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.doctorpet.domain.notification.dto.response.NotificationPageResponse;
+import com.doctorpet.domain.notification.dto.response.NotificationDeleteAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
@@ -170,6 +172,21 @@ class NotificationControllerTest {
                 .andExpect(jsonPath("$.data.updatedCount").value(4));
 
         verify(notificationService).markAllRead(MEMBER_RECIPIENT);
+    }
+
+    @Test
+    @DisplayName("전체 삭제: 200과 삭제 건수를 반환하고 해석된 수신자로 위임한다")
+    void deleteAll_returnsDeletedCount() throws Exception {
+        authenticateAs(MEMBER_ID, "GUARDIAN");
+        given(notificationService.deleteAll(MEMBER_RECIPIENT))
+                .willReturn(new NotificationDeleteAllResponse(3));
+
+        mockMvc.perform(delete("/api/notifications"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.deletedCount").value(3));
+
+        verify(notificationService).deleteAll(MEMBER_RECIPIENT);
     }
 
     @Test

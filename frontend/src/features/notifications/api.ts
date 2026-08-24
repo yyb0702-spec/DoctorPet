@@ -3,6 +3,7 @@ import { http } from '@/lib/api/client'
 import type { PageResponse } from '@/types/api'
 import type {
   Notification,
+  NotificationDeleteAllResult,
   NotificationReadAllResult,
   NotificationUnreadCount,
   SubscribeTicketResponse,
@@ -34,6 +35,9 @@ export const notificationApi = {
   // 모두 읽음(조건부 bulk UPDATE, 멱등). 갱신된 건수만 돌려준다.
   markAllRead: () =>
     http.patch<NotificationReadAllResult>('/notifications/read-all'),
+  // 전체 삭제(수신자 알림 하드 삭제, 멱등). 삭제된 건수만 돌려준다.
+  deleteAll: () =>
+    http.delete<NotificationDeleteAllResult>('/notifications'),
   // 실시간 구독용 1회성 티켓 발급(인증 필요). EventSource는 헤더를 못 실어 티켓으로 대신 식별한다.
   issueTicket: () =>
     http.post<SubscribeTicketResponse>('/notifications/subscribe-ticket'),

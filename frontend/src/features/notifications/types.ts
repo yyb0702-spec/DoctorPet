@@ -31,3 +31,8 @@ export interface NotificationUnreadCount {
 export interface NotificationReadAllResult {
   updatedCount: number
 }
+
+// DELETE /notifications 응답. 이번 요청에서 하드 삭제된 건수(멱등이라 0일 수 있다).
+export interface NotificationDeleteAllResult {
+  deletedCount: number
+}

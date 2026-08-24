@@ -155,6 +155,27 @@ class NotificationRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("전체 삭제: 인증 수신자 알림만 하드 삭제하고 타 수신자는 불변, 두 번째 호출은 0건(멱등)")
+    void deleteAllForRecipient_scopedAndIdempotent() {
+        notificationRepository.saveAndFlush(memberNotification(MEMBER_A, 1L));
+        notificationRepository.saveAndFlush(memberNotification(MEMBER_A, 2L));
+        notificationRepository.saveAndFlush(memberNotification(MEMBER_B, 3L));
+        entityManager.clear();
+
+        int deleted = notificationRepository.deleteAllForRecipient(MEMBER, MEMBER_A);
+        entityManager.clear();
+
+        assertThat(deleted).isEqualTo(2);
+        assertThat(notificationRepository.countByRecipientTypeAndRecipientIdAndReadAtIsNull(MEMBER, MEMBER_A)).isZero();
+        // 타 수신자(MEMBER_B) 알림은 그대로 남는다.
+        assertThat(notificationRepository.countByRecipientTypeAndRecipientIdAndReadAtIsNull(MEMBER, MEMBER_B))
+                .isEqualTo(1);
+
+        // 두 번째 호출은 삭제할 게 없어 0건(멱등).
+        assertThat(notificationRepository.deleteAllForRecipient(MEMBER, MEMBER_A)).isZero();
+    }
+
+    @Test
     @DisplayName("페이징: size보다 많은 알림이 있으면 페이지 메타(totalElements·totalPages)가 올바르다")
     void paging_returnsCorrectMeta() {
         notificationRepository.saveAndFlush(memberNotification(MEMBER_A, 1L));

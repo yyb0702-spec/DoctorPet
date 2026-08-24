@@ -535,6 +535,12 @@ export const demoHandlers = [
     })
     return ok({ updatedCount: unread.length })
   }),
+  // 전체 삭제 — 하드 삭제라 목록을 비우고 삭제 건수를 돌려준다(멱등: 두 번째 호출은 0건).
+  http.delete(`${BASE}/notifications`, () => {
+    const deletedCount = mockNotifications.length
+    mockNotifications.splice(0, mockNotifications.length)
+    return ok({ deletedCount })
+  }),
   http.patch(`${BASE}/notifications/:notificationId/read`, ({ params }) => {
     const target = mockNotifications.find(
       (n) => n.id === Number(params.notificationId),

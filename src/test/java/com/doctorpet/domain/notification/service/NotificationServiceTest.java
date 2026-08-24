@@ -188,6 +188,37 @@ class NotificationServiceTest {
     }
 
     @Test
+    @DisplayName("전체 삭제: 수신자로 하드 삭제를 위임하고 삭제 건수를 돌려준다")
+    void deleteAll_delegatesAndReturnsCount() {
+        given(notificationRepository.deleteAllForRecipient(
+                NotificationRecipientType.MEMBER, OWNER_ID)).willReturn(3);
+
+        assertThat(notificationService.deleteAll(OWNER).deletedCount()).isEqualTo(3);
+        verify(notificationRepository).deleteAllForRecipient(
+                NotificationRecipientType.MEMBER, OWNER_ID);
+    }
+
+    @Test
+    @DisplayName("전체 삭제: 삭제할 게 없으면 0건으로 멱등하다")
+    void deleteAll_isIdempotentWhenEmpty() {
+        given(notificationRepository.deleteAllForRecipient(
+                NotificationRecipientType.MEMBER, OWNER_ID)).willReturn(0);
+
+        assertThat(notificationService.deleteAll(OWNER).deletedCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("전체 삭제: 병원 수신은 병원 단위로 삭제한다(read-all과 같은 수신자 모델)")
+    void deleteAll_hospitalRecipient_deletesByHospital() {
+        given(notificationRepository.deleteAllForRecipient(
+                NotificationRecipientType.HOSPITAL, HOSPITAL_ID)).willReturn(5);
+
+        assertThat(notificationService.deleteAll(HOSPITAL).deletedCount()).isEqualTo(5);
+        verify(notificationRepository).deleteAllForRecipient(
+                NotificationRecipientType.HOSPITAL, HOSPITAL_ID);
+    }
+
+    @Test
     @DisplayName("목록 조회: isRead=null이면 전체를, 최신순(createdAt desc)으로 조회한다")
     void getMyNotifications_all() {
         given(notificationRepository.findByRecipientTypeAndRecipientId(

@@ -4,6 +4,7 @@ package com.doctorpet.domain.notification.service;
 // 읽음 처리 시 수신자 소유권을 서버에서 재검증한다(다른 수신자 알림 접근 403, 없음 404 — 회원↔병원 격리).
 
 import com.doctorpet.domain.notification.dto.response.NotificationPageResponse;
+import com.doctorpet.domain.notification.dto.response.NotificationDeleteAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationReadAllResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationResponse;
 import com.doctorpet.domain.notification.dto.response.NotificationUnreadCountResponse;
@@ -198,6 +199,15 @@ public class NotificationService {
         int updated = notificationRepository.markAllReadForRecipient(
                 recipient.type(), recipient.id(), LocalDateTime.now(clock));
         return NotificationReadAllResponse.of(updated);
+    }
+
+    // 수신자의 알림을 모두 하드 삭제한다. 없으면 0건을 반환하고 멱등하다. 병원 수신은 병원 단위 공유이므로
+    // 한 스태프의 전체 삭제가 그 병원 알림 전체를 지운다(read-all과 같은 수신자 모델).
+    @Transactional
+    public NotificationDeleteAllResponse deleteAll(NotificationRecipient recipient) {
+        int deleted = notificationRepository.deleteAllForRecipient(
+                recipient.type(), recipient.id());
+        return NotificationDeleteAllResponse.of(deleted);
     }
 
     // 개별 알림을 읽음 처리한다. 존재하지 않으면 404, 수신자의 알림이 아니면 403. 이미 읽은 알림이면 read_at 유지(멱등 200).
