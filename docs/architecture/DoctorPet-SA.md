@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 제품명 | DoctorPet |
-| 문서 버전 | v1.63 |
+| 문서 버전 | v1.64 |
 | 작성 기준일 | 2026-08-21 |
 | 상위 근거 | PRD, 정책 정리본, 코드 컨벤션 (버전은 각 문서 헤더 참조) |
 
@@ -13,6 +13,8 @@ PRD가 정의한 요구사항을 구현 가능한 설계로 확정한다(ERD·AP
 > v1.63: PortOne 모바일 빌링키가 프런트 URL·히스토리·접근 로그에 노출되던 경로를 제거했다. 보호자가 `POST /api/payment-methods/billing-key-issues`로 서버 발급 Redis 1회성 `issueId`를 받고, 모바일은 서버 콜백이 PortOne 단건 조회의 발급 건 `issueId` 일치까지 검증·암호화 저장한 뒤 원문 없는 결과 URL로만 302한다. PC iframe 결과도 인증된 issue 전용 완료 API로 보내며 동일 검증을 거친다.
 
 > v1.63: PR #198 리뷰 반영 — 미래 발효 시간표 조회와 생성/수정 의도·대상 시간표 토큰 비교를 추가해, 미저장 편집 전환과 오래된 저장 요청이 예정 시간표를 덮어쓰지 않게 했다.
+>
+> v1.64: 병원 스태프 결제/미수금 대시보드용 병원 결제 목록 API(`GET /api/hospital/payments`)를 §8-7에 추가했다. 자병원 예약의 활성 결제(`superseded_at IS NULL`)만 슬롯 시작 시각 최근순으로 페이지 반환하는 읽기 전용 조회이며, 새 테이블·락·상태전이는 없다(프론트는 이미 구현돼 `HOSPITAL_OPS_BACKEND_READY` 플래그로 대기 중).
 
 ---
 
@@ -861,10 +863,13 @@ DB 상태는 `OPEN`, `RESERVED` 그대로 유지하고 응답의 `availabilitySt
 | 정정 재청구 | POST | /api/hospital/reservations/{reservationId}/payments/correction | 병원 스태프(자병원) |
 | 결제 내역 조회 | GET | /api/reservations/{reservationId}/payments | 보호자(본인) |
 | 결제 내역 조회(병원) | GET | /api/hospital/reservations/{reservationId}/payments | 병원 스태프(자병원) |
+| 병원 결제 목록 조회 | GET | /api/hospital/payments | 병원 스태프(자병원) |
 | 영수증 조회 | GET | /api/payments/{paymentId}/receipt | 보호자(본인) |
 | 영수증 조회(병원) | GET | /api/hospital/payments/{paymentId}/receipt | 병원 스태프(자병원) |
 | 오프라인 정산 | PATCH | /api/hospital/payments/{paymentId}/offline-settle | 병원 스태프(자병원) |
 | 결제 웹훅(확장) | POST | /api/payments/webhook | 서명 검증 |
+
+병원 결제 목록 조회(`GET /api/hospital/payments`)는 병원 스태프 결제/미수금 대시보드용으로, 인증 스태프의 자병원 예약에 붙은 **활성 결제(`superseded_at IS NULL`)만** 페이지로 반환한다(병원은 요청 값이 아니라 `@AuthenticationPrincipal`로만 해석한다). 결제 기준 조인이라 결제 없는 예약과 대체된 과거 결제는 빠지고, 예약 슬롯 시작 시각(진료 예약 시각) 최근순으로 정렬한다. 응답 필드는 `reservationId·memberId·petId·petName(예약 스냅샷)·reservedAt(슬롯 시작)·paymentId·paymentStatus·amount·paidAt·offlineSettledAt·refundedAt·failedAt(offline_required_at)`이며, 상태 필터는 페이지 정합성 때문에 서버에 두지 않고 화면이 불러온 페이지 안에서 건다(미수금은 `OFFLINE_REQUIRED`로 센다). 읽기 전용 조회라 새 테이블·락은 없다.
 
 결제수단 등록은 카드 인증 후 빌링키를 발급·암호화 저장한다(금액 이동 없음). 먼저 인증 보호자가 발급 시도를 만들면 서버는 Redis에 회원 ID를 10분 TTL·GET+DEL 1회성으로 저장하고 난수 `issueId`와 API 콜백 주소만 반환한다. 모바일 콜백은 비인증으로 허용하되, URL의 `issueId`를 소비한 뒤 **PortOne 단건 조회가 돌려준 발급 건 `issueId`가 서버 `issueId`와 같은지**(PortOne `issueId`는 발급 건별 ID다 — 고객사 상수 `merchantId`가 아니다) 및 발급 회원을 검증해야 저장한다. 콜백은 원문 빌링키를 프런트로 전달하지 않고 원문 없는 결과 URL로만 302하며, 프록시 access log도 이 콜백 URI를 기록하지 않는다. PC iframe은 SDK 결과를 인증된 완료 API body로 보내되 같은 1회성·`issueId` 검증을 적용한다. 조회·삭제는 본인 소유만 대상이며, 삭제는 물리 삭제가 아니라 소프트 삭제(`status=DELETED`)로 처리해 청구 이력·FK를 보존한다(§4-2). 동일 회원의 결제수단 중복 등록은 허용한다(빌링키는 IV가 매번 다른 암호문으로 저장돼 값 비교가 무의미하며, 청구는 예약에 확정된 결제수단으로만 하므로 중복 자체가 청구를 왜곡하지 않는다).
 
