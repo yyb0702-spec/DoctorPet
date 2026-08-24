@@ -289,6 +289,96 @@ function mockDateKey(offsetDays: number): string {
   return shiftDateKey(todaySeoulKey(), offsetDays)
 }
 
+// 백엔드 LocalDateTime 형식("yyyy-MM-ddTHH:mm:ss", Asia/Seoul)으로 현재 시각을 만든다.
+// sv-SE 로케일이 "yyyy-MM-dd HH:mm:ss"를 주므로 공백만 T로 바꾼다.
+function naiveNowSeoul(): string {
+  return new Date()
+    .toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' })
+    .replace(' ', 'T')
+}
+
+// --- 병원 결제/미수금 목록 in-memory 저장소 ---
+// GET 목록과 현장 수납·환불 mutation이 같은 상태를 공유한다. dev:mock에서 버튼을 눌러도
+// 목록이 실제로 갱신되도록, 고정 배열을 매 요청 재생성하지 않고 이 배열을 직접 수정한다.
+interface MockHospitalPayment {
+  reservationId: number
+  memberId: number
+  petId: number
+  petName: string
+  reservedAt: string
+  paymentId: number
+  paymentStatus: Receipt['status']
+  amount: number
+  paidAt: string | null
+  offlineSettledAt: string | null
+  refundedAt: string | null
+  failedAt: string | null
+}
+
+const demoHospitalPayments: MockHospitalPayment[] = [
+  {
+    reservationId: 7001,
+    memberId: 2,
+    petId: 1,
+    petName: '초코',
+    reservedAt: `${mockDateKey(-1)}T10:00:00`,
+    paymentId: 8701,
+    paymentStatus: 'OFFLINE_REQUIRED',
+    amount: 48000,
+    paidAt: null,
+    offlineSettledAt: null,
+    refundedAt: null,
+    failedAt: `${mockDateKey(-1)}T10:30:00`,
+  },
+  {
+    reservationId: 7002,
+    memberId: 3,
+    petId: 2,
+    petName: '나비',
+    reservedAt: `${mockDateKey(-3)}T14:00:00`,
+    paymentId: 8702,
+    paymentStatus: 'PAID',
+    amount: 32000,
+    paidAt: `${mockDateKey(-3)}T14:20:00`,
+    offlineSettledAt: null,
+    refundedAt: null,
+    failedAt: null,
+  },
+]
+
+// 결제 목록 fixture는 예약 상세 결제 fixture와 별개다. 영수증도 이 배열을 먼저 조회해야
+// /staff/payments의 PAID·OFFLINE_PAID·REFUNDED 행이 dev:mock에서 404가 나지 않고,
+// 현장 수납·환불 mutation으로 바뀐 상태를 같은 객체에서 바로 읽는다.
+function hospitalPaymentReceipt(record: MockHospitalPayment): Receipt {
+  return {
+    paymentId: record.paymentId,
+    reservationId: record.reservationId,
+    hospitalId: 1,
+    guardianMemberId: record.memberId,
+    petId: record.petId,
+    petName: record.petName,
+    petSpecies: record.petId === 2 ? 'CAT' : 'DOG',
+    status: record.paymentStatus,
+    paymentChannel:
+      record.paymentStatus === 'OFFLINE_PAID' ? 'OFFLINE' : 'BILLING_KEY',
+    paidAt: record.paidAt,
+    offlineSettledAt: record.offlineSettledAt,
+    cardBrandSnapshot: null,
+    cardLast4Snapshot: null,
+    items: [
+      {
+        name: '진료비',
+        quantity: 1,
+        unitPrice: record.amount,
+        amount: record.amount,
+      },
+    ],
+    totalAmount: record.amount,
+    refundStatus: record.refundedAt ? 'COMPLETED' : null,
+    refundedAt: record.refundedAt,
+  }
+}
+
 const demoOperatingHours = {
   scheduleId: 1,
   updatedAt: '2026-01-01T00:00:00',
@@ -367,6 +457,16 @@ const demoWaitlistHospitalId: Record<number, number> = { 1: 1, 2: 2, 3: 1 }
 // (PaymentReceiptService) 목도 그대로 나눈다 — 한쪽으로 뭉개면 검증한 오류 처리가 실연동과 달라진다.
 const receiptResolver: HttpResponseResolver<{ paymentId: string }> = ({ params }) => {
   const paymentId = Number(params.paymentId)
+  const hospitalPayment = demoHospitalPayments.find(
+    (payment) => payment.paymentId === paymentId,
+  )
+  if (hospitalPayment) {
+    if (!RECEIPT_STATUSES.has(hospitalPayment.paymentStatus)) {
+      return fail('PAYMENT_013', '영수증을 발급할 수 있는 결제가 아닙니다.', 409)
+    }
+    return ok(hospitalPaymentReceipt(hospitalPayment))
+  }
+
   const record = Object.values(mockPaymentByReservation)
     .flat()
     .find((p) => p.paymentId === paymentId)
@@ -833,6 +933,53 @@ export const demoHandlers = [
     demoMethods.forEach((m) => {
       m.isDefault = m.id === id
     })
+    return ok(target)
+  }),
+
+  // 병원 결제/미수금 목록 (SA §8-7, #209) — 자병원 예약의 활성 결제. 대시보드 미수금 카드·결제 관리 화면용.
+  http.get(`${BASE}/hospital/payments`, ({ request }) => {
+    const url = new URL(request.url)
+    const page = Number(url.searchParams.get('page') ?? '0')
+    const size = Number(url.searchParams.get('size') ?? '20')
+    const totalElements = demoHospitalPayments.length
+    const totalPages = Math.max(1, Math.ceil(totalElements / size))
+    return ok({
+      content: demoHospitalPayments.slice(page * size, page * size + size),
+      page,
+      size,
+      totalElements,
+      totalPages,
+      first: page === 0,
+      last: page >= totalPages - 1,
+    })
+  }),
+
+  // 현장 수납 완료 (#36) — 전제 OFFLINE_REQUIRED. 공유 fixture를 갱신해 목록에 즉시 반영한다.
+  http.patch(`${BASE}/hospital/payments/:paymentId/offline-settle`, ({ params }) => {
+    const target = demoHospitalPayments.find(
+      (p) => p.paymentId === Number(params.paymentId),
+    )
+    if (!target) return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+    if (target.paymentStatus !== 'OFFLINE_REQUIRED') {
+      return fail('PAYMENT_006', '오프라인 정산이 가능한 상태가 아닙니다.', 409)
+    }
+    target.paymentStatus = 'OFFLINE_PAID'
+    target.offlineSettledAt = naiveNowSeoul()
+    return ok(target)
+  }),
+
+  // 전액 환불 (#37) — 전제 PAID. 이미 REFUNDED면 멱등 200. 공유 fixture를 갱신한다.
+  http.post(`${BASE}/hospital/payments/:paymentId/refund`, ({ params }) => {
+    const target = demoHospitalPayments.find(
+      (p) => p.paymentId === Number(params.paymentId),
+    )
+    if (!target) return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+    if (target.paymentStatus === 'REFUNDED') return ok(target)
+    if (target.paymentStatus !== 'PAID') {
+      return fail('PAYMENT_008', '환불이 가능한 상태가 아닙니다.', 409)
+    }
+    target.paymentStatus = 'REFUNDED'
+    target.refundedAt = naiveNowSeoul()
     return ok(target)
   }),
 

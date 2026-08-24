@@ -2,7 +2,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   CalendarCheck,
-  CalendarClock,
   CalendarOff,
   Clock,
   CreditCard,
@@ -16,25 +15,16 @@ import { useMe } from '@/features/members/hooks'
 import { useHospitalDetail } from '@/features/hospitals/hooks'
 import { useLogout } from '@/features/auth/hooks'
 import { NotificationBell } from '@/features/notifications/NotificationBell'
-import { HOSPITAL_OPS_BACKEND_READY } from '@/app/featureFlags'
 
-// 결제 관리(GET /api/hospital/payments)·슬롯 관리(GET/PATCH /api/hospital/slots*)는
-// 백엔드 미착수라 메뉴·라우트를 HOSPITAL_OPS_BACKEND_READY 플래그로 함께 껐다 켠다
-// (router.tsx도 같은 플래그를 본다). 메뉴만 숨기고 라우트를 남겨두면 URL 직접
-// 접근으로 미구현 API 404에 도달하므로 한 곳에서 제어한다(PR #127 리뷰).
+// 운영 화면 5종은 모두 백엔드 API가 develop에 있어 항상 노출한다. 슬롯 관리 화면은 일 단위
+// 임시휴진으로 대체하며 제거했다(PR #198 결정). 결제 관리는 GET /api/hospital/payments(#209).
 const NAV = [
   { to: '/staff', label: '대시보드', icon: LayoutDashboard, end: true },
   { to: '/staff/reservations', label: '예약 관리', icon: CalendarCheck },
-  // 진료시간·진료역량·임시휴진은 백엔드 API가 이미 있으므로 위 플래그와 무관하게 항상 노출한다.
   { to: '/staff/operating-hours', label: '진료시간', icon: Clock },
   { to: '/staff/capabilities', label: '진료역량', icon: Stethoscope },
   { to: '/staff/temporary-closures', label: '임시휴진', icon: CalendarOff },
-  ...(HOSPITAL_OPS_BACKEND_READY
-    ? [
-        { to: '/staff/payments', label: '결제 관리', icon: CreditCard },
-        { to: '/staff/slots', label: '슬롯 관리', icon: CalendarClock },
-      ]
-    : []),
+  { to: '/staff/payments', label: '결제 관리', icon: CreditCard },
 ]
 
 export function StaffLayout() {

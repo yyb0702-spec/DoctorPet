@@ -12,10 +12,17 @@ export const staffPaymentKeys = {
     ['staff', 'reservations', reservationId, 'payment-items'] as const,
 }
 
-export function useHospitalPayments(page = 0, size = 20) {
+// 대시보드 미수금 카드는 스태프 조작 없이도(정산 스케줄러가 OFFLINE_REQUIRED를 만들면) 새 미수금이
+// 생기므로 refetchInterval로 주기 갱신을 켠다. 결제 관리 화면은 폴링이 필요 없어 기본은 끈다.
+export function useHospitalPayments(
+  page = 0,
+  size = 20,
+  options?: { refetchInterval?: number },
+) {
   return useQuery({
     queryKey: staffPaymentKeys.dashboard(page, size),
     queryFn: () => staffPaymentApi.listHospitalPayments(page, size),
+    refetchInterval: options?.refetchInterval,
   })
 }
 
