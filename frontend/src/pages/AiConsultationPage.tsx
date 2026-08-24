@@ -9,8 +9,8 @@ import type {
   UrgencyLevel,
 } from '@/features/ai/types'
 import { PetSpecies } from '@/types/enums'
-import { SPECIES_ORDER, SPECIES_LABEL, speciesLabel } from '@/lib/species'
-import { capabilityLabel } from '@/lib/capabilities'
+import { SPECIES_ORDER, SPECIES_LABEL } from '@/lib/species'
+import { capabilityLabel, isKnownCapability } from '@/lib/capabilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/error'
 
 const MAX = 1000
+const UNKNOWN_EVIDENCE_LABEL = '추천 근거 확인'
 
 const URGENCY: Record<UrgencyLevel, { label: string; tone: string }> = {
   LOW: {
@@ -41,15 +42,30 @@ function recommendationEvidenceLabel({
 }: AiRecommendationEvidence): string {
   switch (type) {
     case 'SUPPORTED_SPECIES':
-      return `진료 가능 종: ${speciesLabel(value)}`
+      return SPECIES_LABEL[value as PetSpecies]
+        ? `진료 가능 종: ${SPECIES_LABEL[value as PetSpecies]}`
+        : UNKNOWN_EVIDENCE_LABEL
     case 'CAPABILITY':
-      return `진료 역량: ${capabilityLabel(value)}`
+      return isKnownCapability(value)
+        ? `진료 역량: ${capabilityLabel(value)}`
+        : UNKNOWN_EVIDENCE_LABEL
     case 'DISTANCE_KM':
       return `거리 ${value}km`
     case 'BUSINESS_STATUS':
-      return value === 'OPEN' ? '정상 운영 중' : '운영 상태 확인'
+      switch (value) {
+        case 'OPEN':
+          return '정상 운영 중'
+        case 'CLOSED_TEMP':
+          return '임시 휴업'
+        case 'CLOSED':
+          return '폐업'
+        default:
+          return UNKNOWN_EVIDENCE_LABEL
+      }
     case 'OPEN_NOW':
-      return value === 'true' ? '현재 진료 중' : '현재 진료 종료'
+      if (value === 'true') return '현재 진료 중'
+      if (value === 'false') return '현재 진료 종료'
+      return UNKNOWN_EVIDENCE_LABEL
     case 'AVERAGE_RATING':
       return `평균 평점 ${value}점`
     case 'REVIEW_COUNT':

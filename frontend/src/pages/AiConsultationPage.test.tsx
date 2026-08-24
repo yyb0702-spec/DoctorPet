@@ -101,6 +101,28 @@ describe('AiConsultationPage 추천 병원 표시', () => {
     expect(screen.getByText('행복동물병원')).toBeInTheDocument()
   })
 
+  it('알 수 없는 축종·진료 역량 코드는 노출하지 않고 일반 안내로 치환한다', () => {
+    renderPage(
+      result({
+        recommendations: [
+          {
+            hospital: recommendedHospital,
+            recommendationScore: 5,
+            recommendationReason: '병원의 실제 정보를 바탕으로 추천했습니다.',
+            evidence: [
+              { type: 'SUPPORTED_SPECIES', value: 'INTERNAL_SPECIES' },
+              { type: 'CAPABILITY', value: 'PRIVATE_CAPABILITY' },
+            ],
+          },
+        ],
+      }),
+    )
+
+    expect(screen.getAllByText('추천 근거 확인')).toHaveLength(2)
+    expect(screen.queryByText('INTERNAL_SPECIES')).not.toBeInTheDocument()
+    expect(screen.queryByText('PRIVATE_CAPABILITY')).not.toBeInTheDocument()
+  })
+
   it('위치가 필수인 응답에서는 위치 입력과 직접 검색 경로를 함께 안내한다', () => {
     renderPage(
       result({
