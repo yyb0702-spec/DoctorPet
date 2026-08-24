@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ReservationStatus } from '@/types/enums'
+import { groupByDateKey, naiveTimeLabel } from '@/lib/seoulTime'
 
 const PAGE_SIZE = 20
 
@@ -22,16 +23,11 @@ const STATUS_FILTERS = [
   { value: ReservationStatus.CANCELED, label: '취소' },
 ] as const
 
-function shortDate(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getMonth() + 1}.${d.getDate()}`
-}
-
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleString('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+// 오프셋 없는 시각 문자열에서 "M.D"를 그대로 읽는다. new Date로 파싱하면 브라우저 로컬 타임존으로
+// 밀려 그룹 헤더(날짜 부분 슬라이스)와 어긋나므로, 카드도 같은 문자열 기준으로 표시한다.
+function shortDate(dateTime: string): string {
+  const [, month, day] = dateTime.slice(0, 10).split('-').map(Number)
+  return `${month}.${day}`
 }
 
 export function ReservationsPage() {
@@ -46,7 +42,17 @@ export function ReservationsPage() {
   const petsQuery = usePets()
 
   const content = data?.content ?? []
-  const petsById = new Map((petsQuery.data ?? []).map((pet) => [pet.petId, pet]))
+  const petsById = new Map(
+    (petsQuery.data ?? []).map((pet) => [pet.petId, pet]),
+  )
+  // 불러온 페이지 안에서만 날짜별로 묶어 최근 날짜부터 보여준다(오늘·내일·날짜 헤더).
+  // 페이지 경계를 넘는 전체 순서는 서버 기본 정렬(reservedAt,desc)이 보장한다 — sort를 바꾸면
+  // 여기 표시 순서가 서버 페이징과 어긋날 수 있다.
+  const dateGroups = groupByDateKey(
+    content,
+    (r) => r.reservedAt,
+    /* ascending */ false,
+  )
 
   const setStatus = (status: string | undefined) =>
     setParams((p) => ({ ...p, status, page: 0 }))
@@ -77,40 +83,51 @@ export function ReservationsPage() {
         <EmptyState message="예약 내역이 없습니다." />
       )}
 
-      <div className="grid gap-3">
-        {content.map((r) => (
-          <Card key={r.reservationId}>
-            <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex flex-col items-center rounded-lg bg-primary/5 px-3 py-2 text-center">
-                <span className="text-lg font-bold text-primary">
-                  {shortDate(r.reservedAt)}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {timeLabel(r.reservedAt)}
-                </span>
-              </div>
-              <div className="flex-1 space-y-0.5">
-                <p className="font-semibold">{r.hospitalName}</p>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <PetAvatar
-                    name={r.petName}
-                    imageUrl={petsById.get(r.petId)?.imageUrl}
-                    className="h-7 w-7"
-                  />
-                  <span>{r.petName}</span>
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <ReservationProgressBadge
-                  progressStatus={r.progressStatus}
-                  paymentStatus={r.paymentStatus}
-                />
-                <Button asChild size="sm" variant="outline">
-                  <Link to={`/reservations/${r.reservationId}`}>상세 보기</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+      <div className="space-y-5">
+        {dateGroups.map((group) => (
+          <div key={group.date} className="space-y-2">
+            <h2 className="text-sm font-semibold text-muted-foreground">
+              {group.label}
+            </h2>
+            <div className="grid gap-3">
+              {group.items.map((r) => (
+                <Card key={r.reservationId}>
+                  <CardContent className="flex items-center gap-4 p-5">
+                    <div className="flex flex-col items-center rounded-lg bg-primary/5 px-3 py-2 text-center">
+                      <span className="text-lg font-bold text-primary">
+                        {shortDate(r.reservedAt)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {naiveTimeLabel(r.reservedAt)}
+                      </span>
+                    </div>
+                    <div className="flex-1 space-y-0.5">
+                      <p className="font-semibold">{r.hospitalName}</p>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <PetAvatar
+                          name={r.petName}
+                          imageUrl={petsById.get(r.petId)?.imageUrl}
+                          className="h-7 w-7"
+                        />
+                        <span>{r.petName}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <ReservationProgressBadge
+                        progressStatus={r.progressStatus}
+                        paymentStatus={r.paymentStatus}
+                      />
+                      <Button asChild size="sm" variant="outline">
+                        <Link to={`/reservations/${r.reservationId}`}>
+                          상세 보기
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 

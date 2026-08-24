@@ -9,9 +9,10 @@
 import type { StaffReservationListItem } from './types'
 import { ReservationStatus } from '@/types/enums'
 import {
+  groupByDateKey,
   parseSeoulDateTime,
-  relativeDateKeyLabel,
   todaySeoulKey,
+  type DatedGroup,
 } from '@/lib/seoulTime'
 
 // 다가오는(예정) 상태 — 이른 시간부터 보여준다. 그 외(이력) 상태는 최근부터.
@@ -27,43 +28,18 @@ export function isUpcomingStatus(status: ReservationStatus): boolean {
   return UPCOMING_STATUSES.includes(status)
 }
 
-// reservedAt("yyyy-MM-ddTHH:mm:ss", 타임존 없음)의 날짜 부분만 그룹 키로 쓴다 — Date 파싱의
-// 타임존 흔들림 없이 안정적이다.
-function dateKey(reservedAt: string): string {
-  return reservedAt.slice(0, 10)
-}
-
-export interface DateGroup {
-  date: string // yyyy-MM-dd
-  label: string // "오늘"·"내일"·"8월 19일 (수)"
-  items: StaffReservationListItem[]
-}
+// 스태프 목록 그룹 타입. 공용 groupByDateKey의 DatedGroup을 예약 항목으로 특수화한 별칭이다.
+export type DateGroup = DatedGroup<StaffReservationListItem>
 
 // 예약 시각으로 정렬한 뒤 날짜별로 묶는다. ascending=true면 이른 시간부터.
+// 공용 groupByDateKey에 reservedAt 접근자를 넘긴 얇은 래퍼다 — 정렬·그룹핑 로직은 lib/seoulTime 한 곳에만 둔다.
 // 정렬 범위는 넘겨받은 배열(=현재 페이지)뿐이다. 파일 상단 주석의 한계를 참고.
 export function groupByDate(
   items: StaffReservationListItem[],
   ascending: boolean,
   todayKey: string = todaySeoulKey(),
 ): DateGroup[] {
-  const sorted = [...items].sort((a, b) => {
-    const cmp = a.reservedAt.localeCompare(b.reservedAt)
-    return ascending ? cmp : -cmp
-  })
-
-  const groups: DateGroup[] = []
-  const indexByKey = new Map<string, number>()
-  for (const item of sorted) {
-    const key = dateKey(item.reservedAt)
-    let idx = indexByKey.get(key)
-    if (idx === undefined) {
-      idx = groups.length
-      indexByKey.set(key, idx)
-      groups.push({ date: key, label: relativeDateKeyLabel(key, todayKey), items: [] })
-    }
-    groups[idx].items.push(item)
-  }
-  return groups
+  return groupByDateKey(items, (item) => item.reservedAt, ascending, todayKey)
 }
 
 /*
