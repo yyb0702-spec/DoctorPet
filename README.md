@@ -167,7 +167,7 @@ flowchart LR
 
 | 구분 | 기술 |
 | --- | --- |
-| Backend | Java 17, Spring Boot, Spring MVC, Spring Security |
+| Backend | Java 17, Spring Boot 4.1.0, Spring MVC, Spring Security |
 | Data | Spring Data JPA, QueryDSL, MySQL 8, Redis(Lettuce) |
 | Auth | JWT Access/Refresh Token |
 | Realtime | SSE, native WebSocket, STOMP, Spring SimpleBroker |
