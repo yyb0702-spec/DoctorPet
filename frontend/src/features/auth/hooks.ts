@@ -13,9 +13,13 @@ export function useSignup() {
 
 export function useLogin() {
   const signIn = useAuthStore((s) => s.signIn)
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: LoginInput) => authApi.login(input),
     onSuccess: (tokens) => {
+      // 병원 검색의 favorite처럼 인증 주체별로 달라지는 응답을 비로그인 캐시에서 재사용하지 않는다.
+      // mutation observer까지 지우는 clear() 대신 쿼리만 제거해야 호출부의 역할 조회·화면 이동 성공 콜백이 유지된다.
+      queryClient.removeQueries()
       signIn(tokens.accessToken, tokens.refreshToken)
     },
   })

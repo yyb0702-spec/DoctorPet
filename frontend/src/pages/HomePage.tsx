@@ -11,8 +11,10 @@ import { useHospitalSearch } from '@/features/hospitals/hooks'
 export function HomePage() {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
-  // 추천 병원은 검색 기본 목록(제휴 우선) 상위 3곳을 노출한다.
-  const { data: page } = useHospitalSearch({ page: 1, size: 3 })
+  // 추천 병원은 검색 초기 목록(제휴 우선)의 상위 3곳을 노출한다. 백엔드는 필터 없는 초기 목록이
+  // size=20일 때만 제휴 우선 정렬을 태우므로(HospitalService.isInitialListing), size=3으로 요청하면
+  // 이름순으로 떨어진다. size=20으로 받아 검색 페이지와 캐시를 공유하고, 화면에서 앞 3곳만 자른다.
+  const { data: page } = useHospitalSearch({ page: 1, size: 20 })
   const hospitals = page?.content
 
   const handleSearch = () => {
