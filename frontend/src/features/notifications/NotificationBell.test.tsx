@@ -155,6 +155,24 @@ describe('NotificationBell', () => {
     )
   })
 
+  it('드롭다운을 닫았다 다시 열면 전체 삭제 확인 상태를 초기화해 두 단계를 다시 거친다', async () => {
+    const user = userEvent.setup()
+    renderBell()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    await user.click(await screen.findByRole('button', { name: '전체 삭제' }))
+    expect(screen.getByText('삭제할까요?')).toBeInTheDocument()
+
+    // 닫기는 현재 상호작용의 확인 상태까지 버린다.
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    expect(screen.queryByText('삭제할까요?')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '알림' }))
+    expect(await screen.findByRole('button', { name: '전체 삭제' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument()
+    expect(notificationApi.deleteAll).not.toHaveBeenCalled()
+  })
+
   it('병원 스태프 알림의 예약 리소스를 누르면 실제로 열리는 /staff/reservations 목록으로 간다', async () => {
     useMeMock.mockReturnValue({ data: { role: MemberRole.HOSPITAL_STAFF } })
     renderBell()

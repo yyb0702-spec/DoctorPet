@@ -89,9 +89,26 @@ export function NotificationBell() {
     if (!n.isRead) markRead(n.id)
     const link = routes && resourceLink(n, routes)
     if (link) {
-      setOpen(false)
+      closeDropdown()
       navigate(link)
     }
+  }
+
+  // 하드 삭제 확인은 현재 드롭다운을 연 상호작용에서만 유효하다. 닫은 뒤에도 확인 상태를 보존하면 다음에
+  // 다시 열었을 때 한 번의 클릭으로 삭제가 실행되므로, 모든 닫힘 경로에서 함께 초기화한다(PR #213 P2).
+  const closeDropdown = () => {
+    setOpen(false)
+    setConfirmingDelete(false)
+  }
+
+  const toggleDropdown = () => {
+    if (open) {
+      closeDropdown()
+      return
+    }
+    // 목록은 주기 폴링을 하지 않으므로(useNotifications 주석) 열 때 한 번 최신을 받는다.
+    refetch()
+    setOpen(true)
   }
 
   return (
@@ -100,11 +117,7 @@ export function NotificationBell() {
         variant="ghost"
         size="icon"
         aria-label="알림"
-        onClick={() => {
-          // 목록은 주기 폴링을 하지 않으므로(useNotifications 주석) 열 때 한 번 최신을 받는다.
-          if (!open) refetch()
-          setOpen((v) => !v)
-        }}
+        onClick={toggleDropdown}
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
