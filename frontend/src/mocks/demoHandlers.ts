@@ -188,6 +188,8 @@ const demoPets: Pet[] = [
 ]
 
 // 결제수단 in-memory 저장소.
+// 카카오페이 등 간편결제 빌링키는 cardBrand·cardLast4가 비어 올 수 있어(실서버가 그렇게 준다)
+// 화면에 전부 "카드 ****"로 똑같이 뜬다 — 여러 개 등록 시 구분이 안 되는 실제 상황을 시드로 재현한다.
 let demoMethods: PaymentMethod[] = [
   {
     id: 1,
@@ -196,10 +198,26 @@ let demoMethods: PaymentMethod[] = [
     status: 'ACTIVE',
     // 회원별 활성 기본 결제수단은 최대 1건(PR #152). 첫 수단을 기본으로 시드한다.
     isDefault: true,
+    createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+  },
+  {
+    id: 2,
+    cardBrand: null,
+    cardLast4: null,
+    status: 'ACTIVE',
+    isDefault: false,
+    createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+  },
+  {
+    id: 3,
+    cardBrand: null,
+    cardLast4: null,
+    status: 'ACTIVE',
+    isDefault: false,
     createdAt: new Date(Date.now() - 86_400_000).toISOString(),
   },
 ]
-let methodSeq = 2
+let methodSeq = 4
 let reservationSeq = 6000
 
 // 병원 후기 in-memory 저장소 (dev:mock 오프라인 전용). 병원 상세의 평균 평점·후기 수는

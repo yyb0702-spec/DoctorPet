@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   dateKeyLabel,
+  groupByDateKey,
   naiveDateTimeLabel,
   naiveTimeLabel,
   parseSeoulDateTime,
@@ -9,6 +10,74 @@ import {
   shiftDateKey,
   todaySeoulKey,
 } from './seoulTime'
+
+describe('groupByDateKey', () => {
+  const items = [
+    { reservedAt: '2026-08-20T15:00:00', id: 'a' },
+    { reservedAt: '2026-08-23T11:00:00', id: 'b' },
+    { reservedAt: '2026-08-23T10:00:00', id: 'c' },
+    { reservedAt: '2026-08-24T14:00:00', id: 'd' },
+  ]
+
+  it('최근 날짜부터(내림차순) 묶고 같은 날은 한 그룹에 넣으며 오늘·내일 라벨을 쓴다', () => {
+    const groups = groupByDateKey(
+      items,
+      (i) => i.reservedAt,
+      false,
+      '2026-08-23',
+    )
+
+    expect(groups.map((g) => g.date)).toEqual([
+      '2026-08-24',
+      '2026-08-23',
+      '2026-08-20',
+    ])
+    expect(groups.map((g) => g.label)).toEqual([
+      '내일',
+      '오늘',
+      '8월 20일 (목)',
+    ])
+    // 같은 날(8-23)은 한 그룹, 내림차순이라 늦은 시각(11:00=b)이 앞.
+    expect(groups[1].items.map((i) => i.id)).toEqual(['b', 'c'])
+  })
+
+  it('ascending=true면 이른 날짜부터 묶는다', () => {
+    const groups = groupByDateKey(
+      items,
+      (i) => i.reservedAt,
+      true,
+      '2026-08-23',
+    )
+    expect(groups.map((g) => g.date)).toEqual([
+      '2026-08-20',
+      '2026-08-23',
+      '2026-08-24',
+    ])
+    expect(groups[1].items.map((i) => i.id)).toEqual(['c', 'b'])
+  })
+
+  it('빈 배열은 빈 그룹 목록을 준다', () => {
+    expect(
+      groupByDateKey<{ reservedAt: string }>(
+        [],
+        (i) => i.reservedAt,
+        false,
+        '2026-08-23',
+      ),
+    ).toEqual([])
+  })
+
+  it('todayKey를 주지 않아도 동작한다(기본값 주입)', () => {
+    const groups = groupByDateKey(
+      [{ reservedAt: '2026-08-20T09:00:00', id: 'x' }],
+      (i) => i.reservedAt,
+      false,
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].date).toBe('2026-08-20')
+    expect(groups[0].items.map((i) => i.id)).toEqual(['x'])
+  })
+})
 
 describe('parseSeoulDateTime', () => {
   /*
@@ -53,7 +122,9 @@ describe('shiftDateKey', () => {
 describe('naive 라벨', () => {
   it('시각 문자열을 파싱하지 않고 그대로 읽는다', () => {
     expect(naiveTimeLabel('2026-08-20T09:05:00')).toBe('09:05')
-    expect(naiveDateTimeLabel('2026-08-20T09:05:00')).toBe('2026년 8월 20일 09:05')
+    expect(naiveDateTimeLabel('2026-08-20T09:05:00')).toBe(
+      '2026년 8월 20일 09:05',
+    )
   })
 
   it('소수점 초가 있어도 같은 라벨을 만든다', () => {

@@ -58,6 +58,47 @@ export function relativeDateKeyLabel(
   })
 }
 
+export interface DatedGroup<T> {
+  date: string // yyyy-MM-dd
+  label: string // "오늘"·"내일"·"8월 19일 (수)"
+  items: T[]
+}
+
+/**
+ * 시각 문자열을 가진 항목들을 날짜별로 묶는다. 시각 문자열의 날짜 부분(앞 10자)만 그룹 키로 써
+ * 타임존 흔들림 없이 안정적으로 묶고, 헤더는 상대 표기(오늘·내일·날짜)로 만든다.
+ * ascending=true면 이른 날짜부터, false면 최근 날짜부터. 정렬 범위는 넘겨받은 배열뿐이다.
+ */
+export function groupByDateKey<T>(
+  items: T[],
+  toDateTime: (item: T) => string,
+  ascending: boolean,
+  todayKey: string = todaySeoulKey(),
+): DatedGroup<T>[] {
+  const sorted = [...items].sort((a, b) => {
+    const cmp = toDateTime(a).localeCompare(toDateTime(b))
+    return ascending ? cmp : -cmp
+  })
+
+  const groups: DatedGroup<T>[] = []
+  const indexByKey = new Map<string, number>()
+  for (const item of sorted) {
+    const key = toDateTime(item).slice(0, 10)
+    let idx = indexByKey.get(key)
+    if (idx === undefined) {
+      idx = groups.length
+      indexByKey.set(key, idx)
+      groups.push({
+        date: key,
+        label: relativeDateKeyLabel(key, todayKey),
+        items: [],
+      })
+    }
+    groups[idx].items.push(item)
+  }
+  return groups
+}
+
 // 백엔드 LocalDateTime 형식("yyyy-MM-ddTHH:mm" 이상, 소수점 초는 있을 수 있음).
 // 형식이 다르면 슬라이스가 엉뚱한 값을 만들어 시각이 조용히 사라지므로, 먼저 확인하고 아니면 원문을 준다.
 const NAIVE_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
