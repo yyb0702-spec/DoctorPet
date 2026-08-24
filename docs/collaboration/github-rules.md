@@ -1,0 +1,233 @@
+# DoctorPet 깃허브 규칙 (팀 합의 정본)
+
+## 0. 핵심 규칙 요약
+
+- `main`에는 바로 병합하지 않는다. `feature/도메인명` → `develop`으로 병합해 통합·검증하고, **배포 시점에만** `develop` → `main`을 반영한다.
+- 각 기능 작업은 `feature/도메인명` 브랜치에서 진행한다.
+- PR merge는 **2명 이상 승인** 시 가능하며, 승인 조건이 충족되면 **팀원 누구나** merge 할 수 있다(특정 인물 고정 아님).
+- PR 작성자는 본인 PR을 직접 merge하지 않는다.
+- **예외:** 문서 버전 승격 bookkeeping 커밋(`scripts/promote_docs.py` 산출물)은 `develop`에 직접 push할 수 있다(2인 승인·PR 예외). 조건·근거는 §3 "문서 버전 승격 예외".
+
+## 1. 브랜치 구조
+
+| 브랜치 | 역할 | 병합 대상 |
+| --- | --- | --- |
+| `main` | 배포 기준 브랜치. 배포 시점에만 `develop`을 병합받음 | — |
+| `develop` | 기능 통합·검증 브랜치 | `main` (배포 시점) |
+| `feature/도메인명` | 도메인별 기능 개발 | `develop` |
+
+### 브랜치 트리
+
+```
+main
+  develop
+    ├── feature/member
+    ├── feature/pet
+    ├── feature/hospital
+    ├── feature/search
+    ├── feature/reservation
+    ├── feature/payment
+    ├── feature/ai
+    ├── feature/notification
+    └── feature/publicdata
+```
+
+### 작업 흐름
+
+1. `develop`에서 `feature/도메인명` 브랜치를 딴다.
+2. 기능 개발 후 `develop`으로 PR을 올린다.
+3. 팀원이 코드 리뷰 후 2명 이상 승인되면, 팀원 누구나 merge 한다.
+4. 배포 시점에 `develop` → `main` PR을 별도로 올려 병합한다.
+
+### 브랜치 네이밍 컨벤션
+
+- 소문자와 슬래시(`/`)만 사용
+- `feature/도메인명` 형식 (예: `feature/member`, `feature/reservation`) — 기능명 접미사는 붙이지 않는다.
+- 도메인명은 패키지 구조(`member, pet, hospital, search, reservation, payment, ai, notification, publicdata`)를 그대로 따른다.
+- **병렬 작업 예외**: 같은 도메인 이슈가 동시에 2명 이상에게 배정되면 **전원이 각자** `feature/도메인명-작업키`를 만든다(예: `feature/reservation-cancel`, `feature/reservation-noshow`). 접미사 없는 `feature/도메인명`은 단독 작업일 때만 쓴다. 브랜치 생성 전 `git fetch`로 같은 도메인 브랜치가 원격에 이미 있는지 확인하고, 있으면 만든 사람과 협의한다.
+
+## 2. 커밋 컨벤션
+
+```
+feat: 제목
+
+세부 구현 사항: body 생략 가능
+```
+
+| 타입 | 설명 | 예시 |
+| --- | --- | --- |
+| `feat` | 새로운 기능 추가 | `feat: 로그인 페이지 구현` |
+| `fix` | 버그 수정 | `fix: 비밀번호 유효성 검사 오류 수정` |
+| `docs` | 문서 수정(README 등) | `docs: API 명세서 업데이트` |
+| `style` | 코드 포맷팅, 세미콜론 누락 등(기능 변경 없음) | `style: 들여쓰기 정리` |
+| `refactor` | 코드 리팩토링(기능 변경 없음) | `refactor: 유저 서비스 함수 분리` |
+| `test` | 테스트 코드 추가·수정 | `test: 로그인 유닛 테스트 추가` |
+| `chore` | 빌드 설정, 패키지 관리 등 기타 | `chore: eslint 설정 추가` |
+| `remove` | 파일·코드 삭제 | `remove: 사용하지 않는 컴포넌트 삭제` |
+| `build` | Gradle 의존성·빌드 설정 변경 | |
+| `rename` | 파일·폴더 이동 또는 이름 변경 | |
+
+**제목 규칙**: 한국어로 통일 · 50자 이내 · 마침표 없음 · 명령문/현재형(`추가한다` ❌ → `추가` ✅)
+
+**좋은 예시**
+
+```
+feat: 회원가입 이메일 인증 기능 추가
+
+- 이메일 인증 코드 발송 API 연동
+- 인증 코드 만료 시간 5분으로 설정
+- 인증 완료 시 가입 처리 로직 구현
+```
+
+**나쁜 예시**: `수정함`, `ㅇㅇ`, `asdfasdf`, `고침`, `작업중`
+
+## 3. Pull Request 컨벤션
+
+### PR 제목 형식
+
+```
+[타입] 작업 내용 요약
+```
+
+예: `[feat] 예약 승인 API 구현`, `[fix] 결제 재시도 로직 오류 수정`, `[refactor] 예약 서비스 책임 분리`, `[docs] API 명세서 수정`
+
+### PR 템플릿
+
+```markdown
+## 개요
+
+<!-- 이번 PR에서 무엇을 변경했는지 2~4문장으로 요약해주세요. -->
+
+
+## 작업 내용
+
+### 도메인 / 기능명
+
+- 주요 변경 내용
+
+**수정 파일**
+
+- `파일명.java`
+
+---
+
+### Test
+
+- 추가하거나 수정한 테스트 클래스
+- 검증한 정상 및 예외 케이스
+
+**수정 파일**
+
+- `테스트파일명.java`
+
+---
+
+### Docs
+
+- 추가하거나 수정한 문서
+
+**수정 파일**
+
+- `문서파일명.md`
+
+
+## 변경 유형
+
+- [ ] feat
+- [ ] fix
+- [ ] refactor
+- [ ] docs
+- [ ] test
+- [ ] chore
+
+
+## 주요 검증 내용
+
+<!-- 이번 PR에서 특히 중요하게 검토해야 하는 흐름을 작성해주세요. -->
+
+### 검증 기록 (docs/testing/verification-guide.md 양식)
+
+<!-- 결과는 PASS / FAIL / PARTIAL / BLOCKED 중 하나. 실행하지 않은 검증은 아래 미검증 항목에 적어주세요. -->
+
+| Level | 실행한 명령 | 결과 | 확인한 것 | 아직 모르는 것 |
+|---|---|---|---|---|
+| | | | | |
+
+**미검증 항목**
+
+-
+
+
+## 테스트
+
+- `테스트클래스명` — 테스트 케이스 설명
+- 직접 확인 — API 동작 확인 / 예외 응답 확인 / 로그 출력 확인
+
+
+## AI 사용 내역
+
+| 항목 | 사용 도구 | AI 제안 내용 | 실제 적용 내용 |
+|---|---|---|---|
+| 예: 기능 구조 검토 | Claude Code | 구현 방식 제안 | 실제 코드에 맞게 일부 반영 |
+| 예: 테스트 케이스 도출 | Claude Code | 정상 및 예외 케이스 제안 | 필요한 케이스만 선별 적용 |
+| 예: 문서 초안 작성 | Claude Code | ADR 또는 PR 설명 초안 제안 | 프로젝트 상황에 맞게 수정 적용 |
+
+
+## 체크리스트
+
+- [ ] PR 대상 브랜치가 `develop`인지 확인했습니다.
+- [ ] 요구사항에 맞게 기능이 동작하는지 확인했습니다.
+- [ ] 불필요한 코드와 디버깅 코드가 없는지 확인했습니다.
+- [ ] 테스트를 실행하거나 직접 동작을 확인했습니다.
+- [ ] 커밋 메시지 컨벤션을 준수했습니다.
+- [ ] AI 사용 내역을 작성했습니다.
+
+
+## 관련 이슈
+
+<!-- 연결할 Issue 번호를 작성해주세요. 병합 시 Issue를 닫으려면 Closes #번호를 사용하세요. -->
+
+Closes #
+
+
+## 비고
+
+<!-- 이번 PR에 포함하지 않은 내용, 추후 개선 사항, 리뷰 시 중점 확인할 내용을 작성해주세요. -->
+```
+
+### PR 제출 전 체크리스트
+
+- [ ] 로컬 환경에서 정상 실행 확인
+- [ ] 테스트 코드 실행 완료
+- [ ] `./gradlew build` 성공 확인
+- [ ] 불필요한 코드 및 주석 제거
+- [ ] 충돌(Conflict) 여부 확인
+- [ ] API 동작 테스트 완료
+
+### PR 승인 규칙
+
+- PR 작성자는 본인 PR을 직접 merge하지 않는다.
+- **2명 이상**의 Approve를 받은 후 merge한다.
+- 리뷰 의견 반영 후 merge한다.
+- 승인 조건이 충족되면 **팀원 누구나** merge할 수 있다(특정 인물 고정 아님).
+
+### 문서 버전 승격 예외 (직접 push 허용)
+
+> 승격 절차·git 명령·조건의 **정본은 이 절 한 곳**이다. `docs/enhancement/README.md` 규칙 1과 `scripts/promote_docs.py` docstring은 여기를 가리키기만 한다 — 명령을 다시 적어 복제하지 말 것(한 사본만 갱신돼 어긋난 리뷰 지적이 있었다).
+
+정본 문서(SA·PRD)의 **버전 헤더·`> 변경 이력`·경량본 버전 참조 동기**는 모든 승격이 동시에 건드리는 단일 전역 상태라, feature PR에서 하면 병렬 PR끼리 반드시 충돌한다(배경은 `docs/enhancement/README.md` 규칙 1). 그래서 이 bookkeeping은 feature PR에서 빼고, **아래 조건을 모두 만족할 때 `develop`에 직접 push할 수 있다**(2인 승인·PR 예외).
+
+- feature PR이 `develop`에 merge된 **직후**, 그 merge를 수행한 사람이 최신 `develop`에서 실행한다.
+- 커밋은 `scripts/promote_docs.py`를 **`--commit`으로 실행**해 만든다. `--commit`은 파일을 쓰기 전에 clean 워킹트리를 강제하고 산출 파일만 명시적으로 stage하므로, 승격과 무관한 tracked 변경이 섞이거나(→ PR 없이 develop 반영) 유실되지 않는다. `git commit -am`으로 직접 커밋하지 않는다(무관한 변경까지 커밋됨).
+- `python scripts/harness_check.py` PASS를 만족해야 한다(`--commit`이 커밋 전에 자동 실행하며, FAIL이면 커밋하지 않는다).
+- 결과 커밋은 버전 헤더·변경 이력·경량본 버전 참조 동기 **외 다른 변경을 담지 않는다**(위 `--commit`이 보장).
+- **push가 거부되면**(다른 승격이 먼저 오른 경우) 로컬 승격 커밋을 merge/rebase로 합치지 말고 **폐기한 뒤 최신 `develop`에서 재실행**한다: `git fetch origin develop` → `git diff --name-only origin/develop...HEAD`로 승격 파일(SA/PRD/경량본)만 있는지 확인 → **`git status --porcelain`이 비어 있는지 확인**(아래 주의) → `git reset --hard origin/develop` → `promote_docs.py ... --commit` 재실행 → push. 로컬 커밋을 pull·merge로 합치면 버전 헤더와 한 줄 변경 이력이 다시 충돌하므로 반드시 폐기·재생성한다. `--commit`이 clean tree를 강제하므로 폐기 대상 커밋에는 승격 파일만 들어 있어 `reset --hard`가 무관한 커밋을 지우지 않는다.
+  - **주의(리뷰 지적 P1):** `git diff --name-only origin/develop...HEAD`는 **커밋 간** 변경만 보여 주므로, 승격 커밋을 만든 뒤 새로 생긴 **미커밋(uncommitted) tracked 변경**은 드러나지 않는다. 그대로 `git reset --hard`를 하면 그 미커밋 작업까지 삭제된다. 그래서 `reset --hard` **전에 반드시 `git status --porcelain`이 비어 있는지** 확인하고, 비어 있지 않으면 먼저 `git stash` 또는 별도 커밋으로 정리한 뒤 진행한다(`promote_docs.py` 상단 복구 절차와 동일).
+
+근거: 이 커밋은 스크립트가 만든 기계적 산출물이고 harness_check로 검증되며 설계 판단이 없어 코드 리뷰가 더할 것이 없다. 또 `develop`으로의 push는 git이 직렬화하므로 승격끼리 충돌하지 않는다 — 별도 승격 PR로 하면 동시 두 PR이 같은 다음 번호를 계산해 충돌이 재발하지만, 직접 push는 뒤선 작업자가 위 "폐기·재생성"으로 최신 상태에서 다음 번호를 다시 계산하므로 헤더·이력 충돌이 남지 않는다. 더 견고한 자동화(merge 직후 단일 CI job이 실행·commit)는 후속 과제로 둔다.
+
+## 4. 코드 리뷰 규칙
+
+- 리뷰 코멘트는 건설적으로 작성한다(비난 금지).
+- Approve 없이 본인이 직접 merge하지 않는다.
+- 하나의 PR은 하나의 기능 또는 하나의 버그 수정에 집중한다.

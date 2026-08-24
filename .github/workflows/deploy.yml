@@ -1,0 +1,600 @@
+name: Deploy
+
+# CI(Build and Test) 워크플로가 develop 브랜치에서 성공적으로 끝난 뒤에만 배포한다(리뷰 지적
+# P1) — 이전에는 CI와 별개로 push 이벤트에서 바로 트리거돼서, 같은 커밋의 테스트가 실패해도
+# 이미지 빌드(테스트를 스킵하는 `gradlew bootJar -x test`)만 성공하면 배포가 그대로 진행되는
+# 문제가 있었다. workflow_run으로 CI 완료를 기다리고 conclusion이 success일 때만 진행한다.
+#
+# main이 아니라 develop을 기준으로 쓰는 이유: 이 프로젝트는 develop이 실질적인 최신 개발
+# 브랜치이고, main은 아직 정식 릴리스 시점(develop -> main)에만 갱신되는 상태라 지금 당장은
+# main 기준으로 두면 배포가 전혀 안 돈다. 나중에 main 릴리스 절차가 자리잡으면 다시 검토할 것.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch:
+
+# 배포가 겹쳐 돌면(연속 push 등) 서버 상태가 꼬일 수 있어 직렬화한다(리뷰 지적 P1). 진행 중인
+# 배포를 취소하지 않고 대기열에 세워 순서대로 처리한다.
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build and push image to GHCR
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      sha: ${{ steps.resolve_sha.outputs.sha }}
+
+    steps:
+      - name: Resolve deploy SHA
+        id: resolve_sha
+        run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve_sha.outputs.sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # buildx가 있어야 아래 cache-from/cache-to(type=gha)를 쓸 수 있다(CI 최적화) —
+      # build-push-action이 자동으로 만들어주기도 하지만, GHA 캐시 백엔드를 명시적으로 쓰려면
+      # 빌더를 직접 준비해두는 쪽이 더 안정적이다(공식 문서 권장 패턴).
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # latest 태그는 여기서 갱신하지 않는다(리뷰 지적 P2) — workflow_run 완료 순서가
+          # 보장되지 않아, 오래된 커밋의 빌드·푸시가 최신 커밋보다 늦게 끝나면 latest가
+          # 실제로는 더 과거 이미지를 가리키게 될 수 있다. EC2는 항상 SHA 태그로만 배포하므로
+          # latest 태그 자체가 필요 없다 — 로컬 개발도 build: .로 직접 빌드해 image 이름만
+          # 로컬 태그로 쓰는 것이라 GHCR의 latest 태그 존재 여부와 무관하다.
+          tags: ghcr.io/yyb0702-spec/doctorpet:${{ steps.resolve_sha.outputs.sha }}
+          # 매 배포마다 Dockerfile의 의존성 레이어(`RUN ./gradlew dependencies`)부터 소스
+          # 컴파일까지 전부 처음부터 다시 하고 있었다(CI 최적화) — 이 파이프라인엔 그때까지
+          # Docker 레이어 캐시를 다음 실행까지 들고 갈 저장소가 전혀 없었다. GitHub Actions
+          # 캐시 백엔드에 레이어를 저장·복원하면, build.gradle이 안 바뀐 배포에서는 의존성
+          # 다운로드 레이어가 캐시에서 그대로 복원돼 그만큼 건너뛴다. mode=max로 중간
+          # 스테이지(build 스테이지)의 레이어까지 전부 캐시 대상에 포함한다 — 기본값(min)은
+          # 최종 이미지에 실제로 남는 레이어만 캐시해서, 이 Dockerfile처럼 멀티스테이지로
+          # 빌드 스테이지 산출물(JAR)만 런타임 이미지로 복사하는 구조에서는 정작 시간이 오래
+          # 걸리는 build 스테이지(의존성 다운로드·컴파일)가 캐시되지 않는다.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      # EC2의 SSH(22)를 상시 0.0.0.0/0으로 열어두지 않는다(리뷰 지적 P1) — 이미 만들어둔
+      # EC2_HOST/EC2_USERNAME/EC2_SSH_KEY/GHCR_READ_TOKEN 시크릿을 그대로 쓰기 위해
+      # self-hosted runner 대신, 배포가 실행되는 이 짧은 구간에만 GitHub Actions 러너의
+      # 현재 공인 IP를 보안 그룹에 임시로 허용하고 배포가 끝나면(성공/실패 무관) 회수하는
+      # 방식을 쓴다. AWS 자격증명은 이 보안 그룹의 ingress 규칙 추가/삭제만 가능한 최소
+      # 권한 IAM 사용자를 별도로 만들어 사용한다.
+      - name: Configure AWS credentials (SG 임시 허용용)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_DEPLOY_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Resolve runner public IP
+        id: runner_ip
+        run: echo "cidr=$(curl -s https://checkip.amazonaws.com)/32" >> "$GITHUB_OUTPUT"
+
+      - name: Authorize runner IP for SSH (temporary)
+        run: |
+          # revoke가 실패했던 이전 실행이 있으면 같은 CIDR 규칙이 이미 남아있을 수 있다
+          # (리뷰 지적 P2) — 그대로 authorize하면 InvalidPermission.Duplicate로 이 스텝이
+          # 실패한다. 먼저 같은 CIDR을 (있으면) 지우고 나서 새로 추가해 항상 idempotent하게
+          # 만든다. 규칙이 원래 없어서 나는 에러는 무시한다.
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 \
+            --cidr "${{ steps.runner_ip.outputs.cidr }}" 2>/dev/null || true
+
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 \
+            --cidr "${{ steps.runner_ip.outputs.cidr }}"
+
+      - name: SSH into EC2 and redeploy
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_SHA: ${{ needs.build-and-push.outputs.sha }}
+          GHCR_READ_USERNAME: ${{ github.repository_owner }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DEPLOY_SHA,GHCR_READ_USERNAME,GHCR_READ_TOKEN
+          script: |
+            set -e
+            cd ~/DoctorPet
+
+            # app-green은 profiles: ["green"]이라 기본적으로 비활성 프로파일이다. up/pull은
+            # 서비스명을 명시하면 프로파일과 무관하게 동작한다고 Compose 문서에 명시돼 있지만,
+            # ps/stop/rm까지 동일하게 보장되는지는 Compose 버전마다 실제로 달라 알려진 버그
+            # 리포트도 있다(리뷰 지적) — 헬스체크 폴링의 `docker compose ps -q app-green`이
+            # 프로파일 때문에 빈 문자열을 반환하면 green이 실제로 healthy여도 배포가 매번
+            # 실패한다. green 프로파일을 스크립트 전체에서 항상 활성화해 이 경우 자체를
+            # 없앤다 — 이 스크립트는 어디서도 대상을 지정하지 않은 `docker compose up -d`를
+            # 쓰지 않으므로(위 무중단 배포 문서 7절 원칙), 프로파일을 활성화해도 green이
+            # 의도치 않게 기동되지는 않는다.
+            export COMPOSE_PROFILES=green
+
+            # EC2가 GHCR private 패키지를 pull할 수 있도록 로그인한다(리뷰 지적 P1) — 빌드
+            # 잡은 러너에서 GITHUB_TOKEN으로 로그인하지만, 그건 러너 세션일 뿐 이 EC2 SSH
+            # 세션과는 무관하다. read:packages 권한만 있는 PAT를 GHCR_READ_TOKEN 시크릿으로
+            # 등록해서 쓴다.
+            echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_READ_USERNAME" --password-stdin
+
+            git fetch origin "$DEPLOY_SHA"
+
+            PREV_SHA="$(cat .last_deployed_sha 2>/dev/null || true)"
+
+            # notifications.type/resource_type VARCHAR 전환은 2단계다(PR #199 리뷰 P1).
+            # 먼저 기존 ENUM 러너 셋이 VARCHAR에서 no-op하도록 만든 호환 준비 버전을 배포하고,
+            # 그 다음에만 VARCHAR 전환 이미지를 올린다. 전환 후 롤백도 그 호환 준비 버전까지만
+            # 허용한다 — 더 오래된 이미지는 VARCHAR를 ENUM으로 되돌리거나 ENUM 전용 검증에서
+            # 부팅에 실패한다. 새 색이 healthy 전에 실패하면 기존 색을 유지하는 blue/green
+            # 경로라 아래 검사는 적용되지 않는다.
+            NOTIFICATION_VARCHAR_RUNNER="src/main/java/com/doctorpet/domain/notification/migration/NotificationTypeVarcharMigrationRunner.java"
+            NOTIFICATION_VARCHAR_COMPATIBILITY_MARKER="src/main/resources/META-INF/doctorpet/notification-varchar-rollback-compatible-v1"
+            if git cat-file -e "$DEPLOY_SHA:$NOTIFICATION_VARCHAR_RUNNER" 2>/dev/null \
+              && { [ -z "$PREV_SHA" ] \
+                || ! git cat-file -e "$PREV_SHA:$NOTIFICATION_VARCHAR_COMPATIBILITY_MARKER" 2>/dev/null; }; then
+              echo "::error::notifications 유형 VARCHAR 전환 전에는 호환 준비 버전이 활성 상태여야 합니다. 먼저 기존 ENUM 러너가 VARCHAR에서 no-op하는 호환 버전을 배포하고 .last_deployed_sha에 기록된 뒤 다시 시도하세요."
+              exit 1
+            fi
+            if [ -n "$PREV_SHA" ] && [ "$DEPLOY_SHA" != "$PREV_SHA" ] \
+              && git cat-file -e "$PREV_SHA:$NOTIFICATION_VARCHAR_RUNNER" 2>/dev/null \
+              && ! git cat-file -e "$DEPLOY_SHA:$NOTIFICATION_VARCHAR_COMPATIBILITY_MARKER" 2>/dev/null; then
+              echo "::error::현재 배포는 notifications 유형 VARCHAR 전환 이후 버전입니다. 롤백 대상은 VARCHAR 호환 준비 마커를 가진 버전이어야 합니다. 그보다 오래된 ENUM 전용 이미지는 재기동할 수 없습니다."
+              exit 1
+            fi
+
+            # workflow_run은 CI 완료 순서를 보장하지 않는다 — 느리게 끝난 이전 커밋의 배포가
+            # 나중에 도착하면, 이미 배포된 최신 SHA 위에 오래된 SHA를 덮어쓸 수 있다. 이번
+            # DEPLOY_SHA가 이미 배포된 커밋보다 진짜 오래된 조상일 때만 건너뛴다(리뷰 지적 P2)
+            # — git merge-base --is-ancestor는 커밋을 자기 자신의 조상으로도 취급하므로,
+            # DEPLOY_SHA == PREV_SHA(같은 커밋 재배포/복구)인 경우까지 스킵되지 않도록 동일
+            # SHA는 명시적으로 제외한다. .last_deployed_sha는 "현재 활성 색이 돌리는 SHA"를
+            # 뜻하며 blue/green 전환 후에도 이 의미 그대로 갱신한다(무중단 배포 문서 5절).
+            if [ -n "$PREV_SHA" ] && [ "$DEPLOY_SHA" != "$PREV_SHA" ] \
+               && git merge-base --is-ancestor "$DEPLOY_SHA" "$PREV_SHA" 2>/dev/null; then
+              echo "이미 더 최신 커밋($PREV_SHA)이 배포되어 있어 $DEPLOY_SHA 배포를 건너뜁니다."
+              exit 0
+            fi
+
+            # 서버 ~/DoctorPet에 추적 파일(예: docker-compose.yml)의 커밋되지 않은 로컬 수정이
+            # 남아 있으면 아래 git checkout --detach가 그 변경을 덮어쓰길 거부해 배포 전체가
+            # 실패한다 — 실제로 이 문제로 연속된 배포(#57~#60)가 매번 같은 이유로 막혔다.
+            # 이 파이프라인의 설계 원칙은 "서버의 추적 파일 상태는 항상 git이 결정한다"는 것
+            # (바로 아래 주석 참고) — .active_color 같은 gitignore 대상 상태 파일만 서버 로컬
+            # 상태를 갖고, 추적 파일에 남은 로컬 수정은 실수(SSH로 직접 테스트하며 임시로 고친
+            # 뒤 git에 반영하는 걸 깜빡한 경우 등)로 보고 배포가 매번 그 자리에서 영구히 막히지
+            # 않도록 자동으로 되돌린다. 완전히 조용히 버리면 같은 실수가 반복돼도 못 알아채므로,
+            # 무엇을 버리는지 로그에 남긴 뒤 버린다 — git reset --hard는 추적 파일만 되돌리고
+            # gitignore 대상(untracked) 파일은 건드리지 않는다.
+            #
+            # (리뷰 지적 P1 반영) 이 diff의 내용(라인 단위 원문)을 그대로 로그에 남기면 안 된다 —
+            # 운영자가 장애를 진단하며 docker-compose.yml 등 추적 파일에 JWT_SECRET, PortOne
+            # 인증정보, DB 접속정보 같은 값을 임시로 직접 써 넣었을 가능성이 있고, 이 파이프라인이
+            # 자동 복구하려는 대상이 정확히 그런 "서버 로컬 수동 수정" 상황이므로 실제 발생
+            # 가능성이 낮지 않다. 그런 값은 GitHub Secret이 아니라 서버에만 있던 값이라 Actions
+            # 로그 마스킹 대상도 아니고, 로그는 저장소 접근 권한이 있는 사람이면 누구나 볼 수 있어
+            # 그대로 노출하면 운영 자격증명 유출로 이어진다. 그래서 원문(git diff) 대신 무엇이
+            # 바뀌었는지만 알 수 있는 파일명·변경량(git status --short, git diff --stat)만
+            # 로그에 남긴다 — diff 원문이 필요하면 운영자가 서버에 직접 접속해 확인하면 된다.
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "::warning::~/DoctorPet에 커밋되지 않은 로컬 변경이 있어 배포 전에 되돌립니다. 실제로 필요한 변경이었다면 git으로 커밋해 반영해 주세요. 민감정보가 로그에 남지 않도록 diff 원문 대신 변경 파일명·변경량만 남깁니다 — 원문이 필요하면 서버에 직접 접속해 확인해 주세요."
+              git status --short
+              git diff --stat
+              git diff --cached --stat
+              git reset --hard HEAD
+            fi
+
+            # 이미지와 Compose 설정을 같은 커밋으로 고정한다(리뷰 지적 P1) — git pull로 실행
+            # 시점의 최신 develop을 쓰면, CI를 통과한 이미지(SHA A)와 그 사이 develop에 병합된
+            # 최신 docker-compose.yml(SHA B)이 조합돼 환경변수·포트·서비스 구조가 어긋난 채로
+            # 배포될 수 있다. detached HEAD로 정확히 DEPLOY_SHA 시점의 파일을 사용한다.
+            #
+            # .active_color·.last_deployed_sha·nginx/conf.d/upstream-active.conf는 git으로
+            # 추적하지 않는다(.gitignore) — 이 checkout이 서버의 실제 컷오버 상태를 되돌리지
+            # 않는다.
+            git checkout --detach "$DEPLOY_SHA"
+
+            # ElastiCache 컷오버 안전장치(PR #170 재검토 지적 P1) — 옛 로컬 redis 컨테이너가
+            # 아직 떠 있는데 앱은 이미 다른(ElastiCache 등) 엔드포인트를 보고 있는 상태에서,
+            # 옛 컨테이너 안에 세션·인증 관련 키가 하나라도 남아 있으면 배포를 여기서 중단한다.
+            # 이 값들은 옛 저장소에만 있고 새 저장소로 자동 이관되지 않는다("이 환경엔 키가
+            # 없었다"는 1회 관찰만으로는 재사용 가능한 배포 절차의 안전성이 보장되지 않는다는
+            # 지적을 그대로 받아들인다). 옛 컨테이너가 이미 제거됐거나(docker compose ps -q
+            # redis가 빈 값) .env에 SPRING_DATA_REDIS_HOST를 아예 안 채워 로컬 redis를 계속
+            # 쓰는 중이면(로컬 개발 등) 이 블록은 검사할 게 없어 아무 일도 하지 않는다 — 옛
+            # 컨테이너를 실제로 내리고 나면(운영 조치, 무중단배포 문서 7절) 이 검사도 영구히
+            # no-op이 된다.
+            #
+            # 검사 대상 키는 두 그룹으로 나뉜다(재재검토 지적 P1/P2 반영) — 그룹별로 남아있을
+            # 때의 실질 영향과 대안 조치가 달라 안내 메시지도 따로 낸다.
+            #   세션·인증 그룹: refresh:*(Refresh Token) · refresh-fence:*(재발급 락의 펜싱
+            #     카운터 — RefreshTokenRepository. 이 카운터가 옛 값 그대로 새 저장소에서
+            #     0부터 다시 시작하면, 이미 더 최신 락이 발급된 상태였던 클라이언트가 옛
+            #     펜싱 값과 비교돼 계속 REISSUE_IN_PROGRESS(409)로 재발급에 실패할 수 있다) ·
+            #     withdrawn:*(탈퇴 익명화 마커) · at-blacklist:*(로그아웃/탈퇴 액세스 토큰
+            #     블랙리스트). 이 넷은 전부 JWT 기반 인증과 엮여 있어, TTL 보존 이관 대신
+            #     JWT_SECRET을 회전해 기존 Access/Refresh Token을 전부 폐기하는 것도 대안이
+            #     될 수 있다 — 유효한 토큰 자체가 없어지면 이 키들이 없어도 문제가 안 된다.
+            #   인증 링크 그룹: email-verify:* · pwd-reset:* · pwd-reset-active:*
+            #     (MemberTokenRepository). 이건 JWT가 아니라 서버가 발급한 별도 토큰이라
+            #     JWT_SECRET 회전으로는 무효화되지 않는다 — TTL 보존 이관이 안 되면 발송된
+            #     이메일 인증·비밀번호 재설정 링크가 조용히 끊기므로, 이관하지 않을 거면
+            #     최소한 영향받는 사용자에게 재발송 안내가 필요하다.
+            #
+            # redis-cli 실행 자체가 실패해도(옛 컨테이너가 응답 불가 상태 등) "키 없음(0건)"
+            # 으로 오인해 통과시키지 않는다(재재검토 지적 P1) — 예전에는 `docker compose exec
+            # ... | wc -l`처럼 파이프로 바로 이어, redis-cli가 실패해도 마지막 커맨드(wc -l)는
+            # 빈 입력에 대해 정상 종료(0건)해버려 검사 실패가 통과로 둔갑했다. 커맨드 치환
+            # ($(...))으로 한 번에 캡처해 그 종료 코드를 직접 확인하는 방식으로 바꿔, 검사 자체가
+            # 실패하면(파이프에 가려지지 않고) 배포도 fail-closed로 중단시킨다.
+            scan_redis_key_count() {
+              local pattern="$1"
+              local output
+              if ! output="$(docker compose exec -T redis redis-cli --scan --pattern "$pattern" 2>&1)"; then
+                echo "::error::옛 로컬 redis 컨테이너에서 '$pattern' 키 검사 명령 실행 자체가 실패했습니다 — 안전하게 배포를 중단합니다. 출력: $output" >&2
+                return 1
+              fi
+              if [ -z "$output" ]; then
+                echo 0
+              else
+                printf '%s\n' "$output" | wc -l | tr -d '[:space:]'
+              fi
+            }
+
+            OLD_REDIS_CONTAINER="$(docker compose ps -q redis 2>/dev/null || true)"
+            CURRENT_REDIS_HOST="$(grep -E '^SPRING_DATA_REDIS_HOST=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+            if [ -n "$OLD_REDIS_CONTAINER" ] && [ -n "$CURRENT_REDIS_HOST" ] && [ "$CURRENT_REDIS_HOST" != "redis" ]; then
+              SESSION_KEYS_FOUND=0
+              for KEY_PATTERN in 'refresh:*' 'refresh-fence:*' 'withdrawn:*' 'at-blacklist:*'; do
+                KEY_COUNT="$(scan_redis_key_count "$KEY_PATTERN")" || exit 1
+                if [ "$KEY_COUNT" -gt 0 ] 2>/dev/null; then
+                  echo "::error::옛 로컬 redis 컨테이너에 '$KEY_PATTERN' 키가 ${KEY_COUNT}건 남아 있습니다."
+                  SESSION_KEYS_FOUND=1
+                fi
+              done
+
+              VERIFICATION_KEYS_FOUND=0
+              for KEY_PATTERN in 'email-verify:*' 'pwd-reset:*' 'pwd-reset-active:*'; do
+                KEY_COUNT="$(scan_redis_key_count "$KEY_PATTERN")" || exit 1
+                if [ "$KEY_COUNT" -gt 0 ] 2>/dev/null; then
+                  echo "::error::옛 로컬 redis 컨테이너에 '$KEY_PATTERN' 키가 ${KEY_COUNT}건 남아 있습니다."
+                  VERIFICATION_KEYS_FOUND=1
+                fi
+              done
+
+              if [ "$SESSION_KEYS_FOUND" -eq 1 ] || [ "$VERIFICATION_KEYS_FOUND" -eq 1 ]; then
+                if [ "$SESSION_KEYS_FOUND" -eq 1 ]; then
+                  echo "::error::세션·인증 키(refresh/refresh-fence/withdrawn/at-blacklist)가 옛 redis에 남아 있어 배포를 중단합니다. TTL을 보존해 새 저장소로 이관하고 위 건수가 0이 되는 것을 확인하거나, JWT_SECRET을 회전해 기존 Access/Refresh Token을 전부 폐기한 뒤 재시도하세요(docs/architecture/DoctorPet-무중단배포.md 7절 참고)."
+                fi
+                if [ "$VERIFICATION_KEYS_FOUND" -eq 1 ]; then
+                  echo "::error::이메일 인증·비밀번호 재설정 키(email-verify/pwd-reset/pwd-reset-active)가 옛 redis에 남아 있어 배포를 중단합니다. 이 키들은 JWT_SECRET 회전으로는 무효화되지 않습니다 — TTL을 보존해 새 저장소로 이관하거나, 이관하지 않을 경우 영향받는 사용자에게 링크 만료·재발송 절차를 안내하세요."
+                fi
+                exit 1
+              fi
+            fi
+
+            # 무중단 배포(blue/green) — docs/architecture/DoctorPet-무중단배포.md 참고.
+            # .active_color가 없으면 이 서버에서의 최초 배포로 보고 blue를 그대로 대상으로
+            # 삼는다(컷오버할 기존 색이 없으므로).
+            #
+            # FIRST_DEPLOY는 반드시 ACTIVE_COLOR(.active_color 존재 여부)만으로 판단한다
+            # (리뷰 지적) — 예전에는 nginx/conf.d/upstream-active.conf 파일 존재 여부로
+            # 판단했는데, 최초 배포 시도가 이 파일을 만든 뒤 이미지 pull이나 헬스체크
+            # 단계에서 실패하면 .active_color는 끝내 못 쓴 채로 파일만 남는다. 다음 재시도에서
+            # 파일 존재만 보고 FIRST_DEPLOY=false로 오판하면, 아직 app-blue가 없는데도 nginx를
+            # 먼저 올려 "host not found in upstream"으로 똑같이 실패한다. ACTIVE_COLOR는
+            # 실제 컷오버가 성공해야만(맨 아래) 쓰이므로 이 신호는 재시도에도 항상 정확하다.
+            ACTIVE_COLOR="$(cat .active_color 2>/dev/null || true)"
+            if [ -z "$ACTIVE_COLOR" ]; then
+              TARGET_COLOR="blue"
+              FIRST_DEPLOY=true
+            elif [ "$ACTIVE_COLOR" = "blue" ]; then
+              TARGET_COLOR="green"
+              FIRST_DEPLOY=false
+            else
+              TARGET_COLOR="blue"
+              FIRST_DEPLOY=false
+            fi
+
+            # nginx가 최초로 뜰 때 읽을 업스트림 설정이 아직 없으면 만든다(최초 배포 전용
+            # 경로, 재시도에도 안전한 idempotent 생성일 뿐 FIRST_DEPLOY 판단에는 관여하지
+            # 않는다) — 이후 배포에서는 이미 파일이 있어 이 블록은 아무 일도 하지 않는다.
+            # heredoc 대신 printf를 쓴다 — 이 script 블록은 YAML 리터럴 블록이라 heredoc
+            # 종료 구분자에 들여쓰기가 섞이면(bash는 구분자 줄에 공백이 있으면 종료로 인식하지
+            # 않는다) 스크립트 전체가 깨질 수 있어, 애초에 그 위험이 없는 방식을 쓴다.
+            mkdir -p nginx/conf.d
+            if [ ! -f nginx/conf.d/upstream-active.conf ]; then
+              printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
+            fi
+
+            # mysql에 이어 redis도 여기서 뺐다(ElastiCache 이관 완료, 이슈 #169 — docker-compose.yml의
+            # SPRING_DATA_REDIS_* 주석 참고) — 로컬 redis 컨테이너는 더 이상 이 파이프라인이
+            # 관리하는 "필수 인프라"가 아니다. 이유는 mysql 때와 같다: SPRING_DATA_REDIS_HOST가
+            # EC2 `.env`에서 ElastiCache 엔드포인트를 가리키게 되면 앱은 로컬 redis를 전혀 안
+            # 쓰는데, 이 줄에 계속 남겨두면 `set -e` 아래 필수 statement가 안 쓰는 서비스의
+            # 기동·헬스체크 실패로 배포 전체를 막을 수 있다. docker-compose.yml의 redis 서비스
+            # 정의 자체는 로컬 개발용으로 남겨뒀다 — 삭제가 아니라 "배포 파이프라인이 더 이상
+            # 관리하지 않는다"는 뜻이다.
+            #
+            # mysql·redis가 둘 다 빠지면서 이 단계에 남는 "필수 인프라"가 없어졌다 — 남은 건
+            # nginx뿐인데, nginx는 원래도 FIRST_DEPLOY에서 제외되는 조건부 대상이었지 상시
+            # 필수 인프라가 아니었다(대상 앱의 upstream이 아직 없어 설정 로드가 실패할 수
+            # 있어서). 그래서 예전처럼 FIRST_DEPLOY 분기에 `docker compose up -d --wait
+            # --wait-timeout 120 redis`처럼 서비스명을 하나라도 남겨두는 구조를 그대로 mysql/
+            # redis 자리만 지우면, FIRST_DEPLOY 분기가 서비스명 없는 `docker compose up -d`가
+            # 돼버린다 — 이건 docker-compose.yml 상단 주석·무중단 배포 문서 7절이 명시적으로
+            # 금지하는 "대상 미지정 up -d"(전체 서비스 기동, app-blue/green까지 건드릴 수 있음)
+            # 패턴과 정확히 같아진다. 그래서 이 단계 자체를 "nginx만 조건부로 올린다"로
+            # 재구성했다 — FIRST_DEPLOY면 아무것도 안 하고, 아니면 nginx만 올린다.
+            #
+            # 모니터링(prometheus/grafana)은 별도 파일(docker-compose.monitoring.yml)로
+            # 분리해 아래에서 독립적으로 기동한다(재리뷰 지적 P1) — app-blue/green 존재 여부와
+            # 무관하게 항상 기동 가능하다는 성질은 그대로라 FIRST_DEPLOY/이후 배포 구분 없이
+            # 매번 시도한다.
+            #
+            # nginx에 --wait와 --wait-timeout을 붙인다(리뷰 지적 P2, 재리뷰 지적 P2로 타임아웃
+            # 보강) — nginx는 여전히 healthcheck가 없어 running 상태까지만 확인된다. 타임아웃
+            # 없이 --wait만 쓰면 끝내 running이 안 될 때 이 SSH 액션 자체의 타임아웃까지 매달릴
+            # 수 있어 상한을 둔다.
+            if [ "$FIRST_DEPLOY" != "true" ]; then
+              docker compose up -d --wait --wait-timeout 120 nginx
+            fi
+
+            # 모니터링 스택(Prometheus+Grafana)은 별도 파일로 분리했다(재리뷰 지적 P1,
+            # docker-compose.monitoring.yml 참고) — 여기서 실패해도 경고만 남기고 앱
+            # 배포(컷오버)는 계속 진행한다. nginx·app-blue/green과 달리 상시 보조 서비스라는
+            # PR 원칙(아래 회전 단계의 else 분기와 동일)이 이 기동 단계에도 일관되게
+            # 적용되도록 한 것이다 — 재리뷰 지적 P2: 이전에는 이 줄이 위 if의 조건절이
+            # 아니라 본문 안의 평문 statement라 set -e 보호를 못 받아서, 이미지 pull
+            # 실패나 healthcheck 플레이크 하나로 앱 컷오버까지 통째로 막혔다.
+            docker compose -p doctorpet-monitoring -f docker-compose.monitoring.yml up -d --wait --wait-timeout 120 prometheus grafana \
+              || echo "::warning::모니터링 스택(Prometheus/Grafana) 기동에 실패했습니다 — 앱 배포는 계속 진행합니다. 수동 확인: docker compose -p doctorpet-monitoring -f docker-compose.monitoring.yml ps"
+
+            # Grafana admin 비밀번호 1회성 회전(리뷰 지적 P1) — GF_SECURITY_ADMIN_PASSWORD는
+            # Grafana가 내부 admin 계정을 "처음" 만들 때만 적용된다. fail-closed(:?)로 바꾸기
+            # 전 버전이 이 서버에서 한 번이라도 떠서 공개 fallback 문자열로 grafana-data
+            # 볼륨을 이미 초기화했다면, .env를 이번에 채워도 이미 만들어진 admin 비밀번호는
+            # 저절로 바뀌지 않는다 — grafana-cli로 명시적으로 재설정해야 한다.
+            # .grafana_admin_password_rotated 마커 파일(.active_color와 동일한 패턴, git
+            # 비추적, EC2 로컬)로 서버당 딱 한 번만 실행되게 한다. 이미 fail-closed로만
+            # 부트스트랩된 신규 서버에서 실행해도 같은 값으로 다시 설정할 뿐이라 안전하다.
+            if [ ! -f .grafana_admin_password_rotated ]; then
+              # 이 스크립트는 맨 위 set -e 아래에서 실행된다 — printenv, grafana-cli reset,
+              # --force-recreate 재기동을 각각 낱개 statement로 두면 그중 하나만 실패해도
+              # set -e가 그 즉시 스크립트 전체를 끝내버려, 아래 else의 경고 분기에 도달하지
+              # 못한 채 앱 배포(컷오버)까지 통째로 중단된다(리뷰 지적 P2, 실제로 그랬다).
+              # set -e는 if/&&/|| 조건절 안의 명령은 실패해도 즉시 종료시키지 않으므로,
+              # 아래 네 단계(현재 목표 비밀번호 조회 → grafana-cli 재설정 → 재기동 →
+              # 재기동 뒤 그 비밀번호로 실제 로그인되는지 API 검증. reset-admin-password
+              # 자체는 내부 오류가 있어도 항상 0을 반환할 수 있어 종료 코드를 신뢰하지
+              # 않고 이 마지막 API 검증으로 실제 적용 여부를 확인한다. 재기동이 필요한
+              # 이유는 재설정 직후 재기동 없이는 이전 비밀번호로도 로그인되는 사례가
+              # 보고돼 있어서다, grafana/grafana#61196)를 하나의 && 체인으로 묶어 if의
+              # 조건절 전체로 삼는다 — 넷 중 하나라도 실패하면 체인 전체가 실패로
+              # 평가돼 아래 else로만 분기하고, 스크립트는 계속 진행된다.
+              # 비밀번호가 호스트 ps에 평문 인자로 노출되는 걸 최소화한다(재리뷰 지적 P2).
+              # curl은 -K -(stdin에서 설정을 읽는 옵션)로 우회할 수 있고, 그 값을 만드는
+              # printf는 bash 내장 명령이라 별도 프로세스를 만들지 않으므로 그 인자도 ps에
+              # 안 남는다. grafana-cli admin reset-admin-password는 비밀번호를 인자로만
+              # 받고 stdin을 지원하지 않아 그 한 줄만은 argv 노출이 남는다 — 이 EC2는
+              # 배포 파이프라인과 팀 SSH 키만 접근 가능한 단일 테넌트라 위험은 낮지만
+              # 완전히 없앨 수는 없어 잔존 위험으로 문서화한다.
+              if GRAFANA_TARGET_PASSWORD="$(docker compose -p doctorpet-monitoring -f docker-compose.monitoring.yml exec -T grafana printenv GF_SECURITY_ADMIN_PASSWORD)" \
+                  && docker compose -p doctorpet-monitoring -f docker-compose.monitoring.yml exec -T grafana grafana-cli admin reset-admin-password "$GRAFANA_TARGET_PASSWORD" \
+                  && docker compose -p doctorpet-monitoring -f docker-compose.monitoring.yml up -d --wait --wait-timeout 120 --force-recreate grafana \
+                  && [ "$(printf 'user = "admin:%s"\n' "$GRAFANA_TARGET_PASSWORD" | curl -s -o /dev/null -w '%{http_code}' -K - http://localhost:3000/api/org)" = "200" ]; then
+                echo "rotated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .grafana_admin_password_rotated
+                echo "Grafana admin 비밀번호를 .env의 GRAFANA_ADMIN_PASSWORD로 재설정하고 검증했습니다."
+              else
+                # Grafana는 nginx·app-blue/green과 달리 상시 보조 서비스라, 이 검증
+                # 실패만으로 배포 전체(앱 컷오버)를 막지는 않는다 — 마커를 남기지 않아
+                # 다음 배포에서 다시 시도되고, GitHub Actions 요약에 경고로 남는다.
+                echo "::warning::Grafana admin 비밀번호 재설정/검증에 실패했습니다 — 마커를 남기지 않고 다음 배포에서 재시도합니다. 수동 확인: docker compose -p doctorpet-monitoring -f docker-compose.monitoring.yml exec grafana grafana-cli admin reset-admin-password <값>"
+              fi
+            fi
+
+            # latest가 아니라 이번에 빌드된 정확한 SHA 이미지를 대상 색에만 지정해서 띄운다
+            # (리뷰 지적 P1과 동일한 이유) — 활성 색은 새 이미지를 pull·재시작하지 않으므로
+            # 이 시점까지 운영 트래픽은 그대로 기존 색이 받는다.
+            if [ "$TARGET_COLOR" = "blue" ]; then
+              export APP_BLUE_IMAGE_TAG="$DEPLOY_SHA"
+            else
+              export APP_GREEN_IMAGE_TAG="$DEPLOY_SHA"
+            fi
+            docker compose pull "app-$TARGET_COLOR"
+            docker compose up -d --no-deps "app-$TARGET_COLOR"
+
+            # docker compose up -d 성공은 "컨테이너가 시작 요청됐다"는 뜻일 뿐 애플리케이션이
+            # 정상 기동했다는 보장이 아니다(리뷰 지적 P1). Dockerfile의 HEALTHCHECK가 판단하는
+            # healthy 상태를 대상 색 컨테이너에서 직접 폴링해서 확인한다. 컨테이너 이름을
+            # 하드코딩하지 않고(리뷰 지적 P3) compose가 실제로 만든 컨테이너 ID를 조회해서
+            # 쓴다 — 디렉터리명/COMPOSE_PROJECT_NAME이 바뀌어도 안전하다.
+            ATTEMPTS=0
+            MAX_ATTEMPTS=18
+            until [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "app-$TARGET_COLOR")" 2>/dev/null)" = "healthy" ]; do
+              ATTEMPTS=$((ATTEMPTS + 1))
+              if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+                # target 색만 정리하고 nginx·활성 색(ACTIVE_COLOR)은 전혀 건드리지 않는다 —
+                # 운영 트래픽은 이 실패한 배포 시도를 겪지 않는다. 기존의 "이전 SHA로 능동
+                # 재배포" 롤백보다 훨씬 단순하고 안전하다(무중단 배포 문서 4-3절).
+                echo "새 색($TARGET_COLOR, $DEPLOY_SHA)이 제한 시간 내 healthy 상태가 되지 않아 배포를 중단합니다. 활성 색(${ACTIVE_COLOR:-없음, 최초 배포})은 그대로입니다."
+                # 실패 직후 컨테이너를 바로 rm -f해버리면 왜 healthy가 안 됐는지 확인할 유일한
+                # 단서(앱 로그)까지 같이 사라진다 — 그동안 이 타임아웃이 반복돼도 원인을 추정만
+                # 해왔던 이유가 이것이다. 정리 전에 로그와 마지막 헬스 상태를 GitHub Actions
+                # 요약에 남겨, 다음 실패부터는 콜드 이미지 pull·리소스 경합·실제 앱 오류 중
+                # 무엇 때문인지 바로 알 수 있게 한다.
+                echo "::group::app-$TARGET_COLOR 컨테이너 로그(최근 200줄, 정리 전 마지막 캡처)"
+                docker compose logs --no-color --tail 200 "app-$TARGET_COLOR" 2>&1 \
+                  || echo "로그 조회 자체가 실패했습니다."
+                echo "::endgroup::"
+                echo "app-$TARGET_COLOR 마지막 헬스 상태: $(docker inspect -f '{{json .State.Health}}' "$(docker compose ps -q "app-$TARGET_COLOR")" 2>/dev/null || echo '조회 실패')"
+                docker compose stop "app-$TARGET_COLOR" 2>/dev/null || true
+                docker compose rm -f "app-$TARGET_COLOR" 2>/dev/null || true
+                exit 1
+              fi
+              sleep 10
+            done
+
+            # 1회성 마이그레이션 — 이 변경 이전에는 app 컨테이너가 호스트 포트 8080을 직접
+            # 게시하고 있었다. app-$TARGET_COLOR는 호스트 포트를 게시하지 않으므로 옛 app
+            # 컨테이너가 아직 8080을 물고 있는 채로도 방금 위에서 문제없이 기동·healthy까지
+            # 확인했다 — 그래서 이 정리를 여기, 대상 앱이 이미 healthy인 시점으로 미룬다
+            # (리뷰 지적 P2, 다운타임 단축). 예전처럼 헬스체크보다 먼저 정리하면 "옛 app 정지
+            # ~ 새 app pull·기동·헬스체크 통과"까지 8080이 통째로 비어, 다운타임이 이미지
+            # pull·부팅 시간만큼 불필요하게 길어진다. 이제는 옛 app을 내리고 nginx만 올리면
+            # 되므로 다운타임이 nginx 기동 시간(수 초) 수준으로 줄어든다.
+            #
+            # 여기서는 stop만 하고 rm은 nginx가 실제로 8080을 정상 서비스하는 것까지 확인한
+            # 뒤로 미룬다(리뷰 지적 P1) — 곧바로 rm까지 해버리면, 뒤이은 nginx 기동이나 설정
+            # 검증이 실패해 set -e로 스크립트가 끝났을 때 8080을 서비스하는 컨테이너가 하나도
+            # 남지 않는다(app-blue/green은 호스트 포트를 게시하지 않는다). docker compose가
+            # 아니라 원시 docker 명령으로 "8080을 게시 중이면서 이름에 app이 들어간" 컨테이너를
+            # 찾는다 — app-blue/app-green은 이 필터에 절대 걸리지 않고, 이후 배포에서는 옛 app
+            # 컨테이너 자체가 없어 이 블록은 항상 아무 일도 하지 않는다(멱등).
+            OLD_APP_CONTAINER="$(docker ps -q --filter "publish=8080" --filter "name=app")"
+            if [ -n "$OLD_APP_CONTAINER" ]; then
+              echo "이전 단일 app 컨테이너가 8080을 게시 중이라 우선 정지합니다(1회성 마이그레이션): $OLD_APP_CONTAINER"
+              docker stop "$OLD_APP_CONTAINER"
+            fi
+
+            # nginx 기동·설정 검증·reload 중 하나라도 실패하면 호출하는 공통 복구 루틴
+            # (리뷰 지적 P1 2건) — ① 업스트림 설정 백업이 있으면 원래 값으로 되돌리고 nginx에
+            # 다시 반영해, 디스크 설정과 실제 서비스 중인 색이 어긋난 채 남지 않게 한다(다음
+            # nginx 재시작 때 검증 안 된 target으로 조용히 튀는 것을 막는다). ② 최초 배포에서
+            # 정지만 해 둔 옛 단일 app 컨테이너가 있으면 되살려 8080이 계속 비어 있지 않게
+            # 한다 — 이게 없으면 최초 배포에서 nginx가 못 뜨는 순간 전체 서비스가 수동 복구
+            # 전까지 중단된다.
+            #
+            # target(app-$TARGET_COLOR) 컨테이너는 여기서 정리하지 않는다(리뷰 지적 P3) —
+            # 여기로 오는 실패는 전부 nginx 쪽 문제이지 target 자체는 이미 pull·기동·헬스체크
+            # (최대 180초)까지 통과한 정상 상태다. 지워버리면 다음 재시도에서 이 시간을 통째로
+            # 반복해야 한다. 어차피 nginx가 아직 target을 보게 컷오버되지 않았으니(이 함수가
+            # 실행되는 시점은 항상 reload 성공 이전) target이 계속 떠 있어도 트래픽에는
+            # 영향이 없고, 다음 재시도가 healthcheck를 사실상 즉시 통과하며 이어받는다.
+            abort_cutover() {
+              echo "$1 — 배포를 중단하고 이전 상태로 복구합니다(target은 정리하지 않고 다음 재시도가 이어받습니다)."
+              if [ -f nginx/conf.d/upstream-active.conf.bak ]; then
+                mv nginx/conf.d/upstream-active.conf.bak nginx/conf.d/upstream-active.conf
+                docker compose exec -T nginx nginx -s reload 2>/dev/null || true
+              fi
+              if [ -n "$OLD_APP_CONTAINER" ]; then
+                echo "이전 단일 app 컨테이너($OLD_APP_CONTAINER)를 다시 시작해 8080 서비스를 복구합니다."
+                docker start "$OLD_APP_CONTAINER"
+              fi
+              exit 1
+            }
+
+            # FIRST_DEPLOY는 대상 앱이 healthy로 확인되고(위) 옛 app 컨테이너를 정지한 지금에서야
+            # nginx를 올린다(리뷰 지적) — 이 시점에는 nginx/conf.d/upstream-active.conf가 가리키는
+            # app-$TARGET_COLOR가 실제로 떠 있어 정적 upstream 호스트 해석이 실패하지 않고,
+            # 8080도 옛 app이 반납한 뒤라 포트 충돌이 없다. 이 기동 자체가 실패하면(되돌릴 이전
+            # nginx 상태가 없으므로 설정 복구는 필요 없다) abort_cutover가 옛 app을 되살린다.
+            if [ "$FIRST_DEPLOY" = "true" ]; then
+              docker compose up -d --no-deps nginx || abort_cutover "nginx 기동 실패"
+            fi
+
+            # 컷오버 — nginx가 대상 색을 보게 설정을 바꾸고 reload한다. -t로 문법 검증을 먼저
+            # 하지 않고 reload하면, 설정이 잘못됐을 때 nginx가 기존 워커를 유지한 채 조용히
+            # 실패해 "컷오버 안 됨"을 스크립트가 놓칠 수 있다(무중단 배포 문서 7절). 덮어쓰기
+            # 전에 이전 값을 백업해 둔다(리뷰 지적 P1) — 검증·reload가 실패하면 지금 워커는
+            # 그레이스풀하게 이전 색을 계속 쓰고 있어도 디스크 설정은 target을 가리키는 채로
+            # 남는데, 그 상태로 nginx가 재시작되면(호스트 재부팅 등) 검증 안 된 target으로
+            # 조용히 전환되고 다음 배포가 실제 활성 컨테이너를 다시 만들며 다운타임을 만든다.
+            cp nginx/conf.d/upstream-active.conf nginx/conf.d/upstream-active.conf.bak
+            printf 'upstream app_upstream {\n    server app-%s:8080;\n    keepalive 16;\n}\n' "$TARGET_COLOR" > nginx/conf.d/upstream-active.conf
+            docker compose exec -T nginx nginx -t || abort_cutover "nginx 설정 검증 실패"
+            docker compose exec -T nginx nginx -s reload || abort_cutover "nginx reload 실패"
+
+            # reload 성공 = 실제 트래픽이 이미 TARGET_COLOR로 넘어간 시점이다(리뷰 지적 P1).
+            # 상태 파일을 다른 어떤 후처리보다도 먼저, reload 성공 직후 갱신한다 — 예전에는
+            # 이 아래의 백업 파일 삭제·옛 단일 app 컨테이너 최종 제거를 먼저 실행했는데, 그중
+            # 하나라도 실패해 set -e로 스크립트가 끝나 버리면 실제 활성 색(TARGET_COLOR)과
+            # 상태 파일(.active_color)이 어긋난 채로 남는다. 그러면 다음 배포가 지금 서비스
+            # 중인 색을 "비활성 색"으로 오인해 대상으로 삼아 재생성하면서, 멀쩡히 트래픽을
+            # 받던 컨테이너를 내렸다 올리는 동안 다운타임이 생길 수 있다.
+            echo "$DEPLOY_SHA" > .last_deployed_sha
+            echo "$TARGET_COLOR" > .active_color
+
+            # 상태 기록 이후의 후처리(백업 파일 삭제, 옛 단일 app 컨테이너 최종 제거, 이전
+            # 색 정지)는 실패해도 배포 자체를 실패 처리하지 않는다(리뷰 지적 P1) — 상태
+            # 파일은 이미 정확하게 기록됐으므로, 여기서 어느 하나가 실패해 스크립트가 일찍
+            # 끝나도 다음 배포의 판단에는 영향이 없다. 실패는 로그만 남기고 수동 점검으로
+            # 넘긴다.
+            rm -f nginx/conf.d/upstream-active.conf.bak \
+              || echo "경고: 업스트림 백업 파일(nginx/conf.d/upstream-active.conf.bak) 삭제에 실패했습니다. 다음 배포 시 정리해 주세요."
+
+            # 여기까지 왔다는 건 nginx가 target 색을 정상적으로 서비스한다는 뜻이다 — 이제야
+            # 옛 단일 app 컨테이너를 최종 제거한다(리뷰 지적 P1, 위에서 정지만 해 둔 이유).
+            if [ -n "$OLD_APP_CONTAINER" ]; then
+              echo "nginx가 대상 색을 정상 서비스하는 것을 확인해 이전 단일 app 컨테이너를 최종 정리합니다: $OLD_APP_CONTAINER"
+              docker rm "$OLD_APP_CONTAINER" \
+                || echo "경고: 이전 단일 app 컨테이너($OLD_APP_CONTAINER) 최종 제거에 실패했습니다. 상태 파일은 이미 $TARGET_COLOR로 기록되어 배포는 정상 완료된 것으로 처리합니다 — 수동으로 컨테이너를 정리해 주세요."
+            fi
+
+            # reload는 그레이스풀해서 이미 연결된 요청은 이전 업스트림(ACTIVE_COLOR)으로 마저
+            # 처리된다 — 그 요청들이 끝날 시간을 짧게 준 뒤에만 이전 색을 정지한다. 최초
+            # 배포라 ACTIVE_COLOR가 없으면 정지할 대상 자체가 없다. 상태 파일은 이미 위에서
+            # 갱신했으므로, 이 정지가 실패해도(리뷰 지적 — set -e로 배포 자체를 실패 처리하지
+            # 않는다) 활성 색 판단은 계속 정확하다 — 실패는 로그만 남기고 다음 배포나 수동
+            # 점검에서 정리하면 되는 부차적인 문제로 취급한다.
+            #
+            # 이 5초는 "이미 끝났을 요청을 위한 여유"일 뿐, 실제 안전장치가 아니다(리뷰 지적 P1,
+            # PR #136) — 결제·AI 상담처럼 5초를 넘기는 요청은 예전에는 이 sleep이 끝나자마자
+            # docker compose stop이 컨테이너를 그대로 끊어버렸다. 지금은 애플리케이션이
+            # server.shutdown: graceful로 SIGTERM을 받아도 진행 중인 요청을
+            # spring.lifecycle.timeout-per-shutdown-phase(30초)까지 마저 처리하고, 아래
+            # docker compose stop이 보내는 SIGTERM 이후에도 docker-compose.yml의
+            # stop_grace_period(35초)가 그 30초보다 여유 있게 기다려주므로, 실제 드레인은
+            # 이 sleep이 아니라 그 두 설정이 보장한다.
+            if [ -n "$ACTIVE_COLOR" ]; then
+              sleep 5
+              # stop이지 rm이 아니다 — 컨테이너를 지우지 않고 정지만 해서 다음 배포 때 같은
+              # 서비스를 그대로 재사용한다(재생성 오버헤드를 줄인다).
+              docker compose stop "app-$ACTIVE_COLOR" \
+                || echo "경고: 이전 색($ACTIVE_COLOR) 정지에 실패했습니다. 활성 색은 이미 $TARGET_COLOR로 기록되어 배포는 정상 완료된 것으로 처리합니다 — $ACTIVE_COLOR 컨테이너 상태를 수동으로 확인해 주세요."
+            fi
+
+            docker image prune -f
+
+      # 배포 성공/실패와 무관하게 임시로 허용했던 러너 IP는 반드시 회수한다(리뷰 지적 P1) —
+      # 여기서 실패하면 보안 그룹에 열린 IP가 그대로 남으므로 always()로 강제 실행한다.
+      - name: Revoke runner IP for SSH
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 \
+            --cidr "${{ steps.runner_ip.outputs.cidr }}"

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  // tests/ 는 Node API로 저장소 파일을 읽는 계약 가드다. 앱 소스(tsconfig.app.json)에는
+  // Node 타입을 노출하지 않으려고 이 프로젝트에 둔다.
+  "include": ["vite.config.ts", "tests"]
+}

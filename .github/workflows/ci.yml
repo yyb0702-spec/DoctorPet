@@ -1,0 +1,231 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+    # 문서 전용 변경은 CI 스킵 (Harness Check 워크플로가 담당)
+    # 주의: 이 워크플로를 required check로 지정하면 스킵된 PR이 merge 블록된다 — 그때는 이 필터를 제거할 것
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+jobs:
+  lint-workflows:
+    name: Lint GitHub Actions Workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # deploy.yml의 script 블록 들여쓰기가 한 줄만 깨져 YAML 파싱 자체가 실패했던 사고(RDS 이관
+      # PR 재검토 지적 P1)를 재발 방지한다. actionlint는 워크플로 YAML 문법뿐 아니라 embedded
+      # shell(run/script)도 shellcheck로 함께 검사한다. 공식 Docker 이미지(rhysd/actionlint
+      # README 안내)를 그대로 쓰면 서드파티 마켓플레이스 액션을 새로 신뢰하지 않고도 적용할 수
+      # 있다. deploy.yml 하나만이 아니라 .github/workflows/ 전체가 대상이다 — actionlint의
+      # 기본 동작이고, 같은 실수가 ci.yml 등 다른 워크플로에서 재발해도 여기서 걸러진다.
+      - name: actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+
+  # CI 최적화 — 기존엔 Level 1~3 테스트 218개가 전부 이 잡 하나에서 직렬로 돌았다. 실제로 통합
+  # 테스트(*IntegrationTest, MySQL·Redis 필요)는 82개뿐이고 나머지 136개(Level 1/2)는 인프라가
+  # 전혀 필요 없다는 걸 클래스명 규칙으로 확인했다(build.gradle의 unitTest/integrationTest 태스크
+  # 참고). 이 잡은 그 136개만 담당한다 — MySQL·Redis 컨테이너를 아예 안 띄워서 그 기동·헬스체크
+  # 대기 시간도 함께 줄어든다. 아래 build-integration 잡과 GitHub Actions가 병렬로 돌려주므로
+  # 전체 대기 시간은 (설정 시간 + 둘 중 더 오래 걸리는 쪽)에 가까워진다.
+  build-unit:
+    name: Build and Test (Level 1/2, 빠름)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Unit/slice test backend
+        # MySQL·Redis 컨테이너가 없다 — 이 잡의 테스트 대상(Level 1/2)은 실제로 필요 없기
+        # 때문이다. 접속 정보(SPRING_DATASOURCE_*/SPRING_DATA_REDIS_*)는 그래도 넣어둔다 —
+        # 만약 분류가 잘못된 테스트(실제로는 DB·Redis가 필요한데 *IntegrationTest로 이름을
+        # 안 지은 것)가 이 잡에 섞여 있으면, 값 자체가 없어서 나는 모호한 에러보다 "connection
+        # refused"로 명확하게 실패해 어느 테스트를 다시 분류해야 하는지 바로 드러난다.
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: root
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: "6379"
+          JWT_SECRET: ci-only-test-secret-not-for-production-0123456789abcdefghijklmnop
+          JWT_ACCESS_TOKEN_EXPIRATION: "3600000"
+          JWT_REFRESH_TOKEN_EXPIRATION: "1209600000"
+          PAYMENT_GATEWAY: fake
+          PAYMENT_BILLING_KEY_ENC_KEY: FFDmh/xNGzjn5MhiTKV8pb22xCSKjMvsJ5aXTDFSi5w=
+          MAIL_PROVIDER: fake
+          MAIL_VERIFICATION_BASE_URL: http://localhost:8080/api/auth/verify-email
+          MAIL_PASSWORD_RESET_BASE_URL: http://localhost:3000/reset-password
+          MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED: "false"
+          RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED: "false"
+          AI_GATEWAY: fake
+          IMAGE_STORAGE_PROVIDER: fake
+        run: ./gradlew unitTest
+
+      - name: Verify build & packaging (bootJar)
+        # unitTest/integrationTest 태스크로의 분리(위 참고)는 Gradle의 기본 build/check
+        # 생명주기를 더 이상 타지 않는다는 뜻이다 — 테스트만 통과하고 bootJar 패키징 자체가
+        # 깨지는 변경(예: 의존성 충돌, 리소스 처리 오류)이 있어도 이 CI를 그대로 통과해,
+        # Deploy 워크플로의 Docker 빌드(./gradlew bootJar --no-daemon -x test, Dockerfile
+        # 18번 줄)에서야 처음 발견될 수 있다(리뷰 지적 P1). 테스트는 위에서 이미 각각 실행했으니
+        # -x test로 다시 돌리지 않고, Dockerfile과 동일한 패키징 결과만 여기서 재확인한다.
+        run: ./gradlew build -x test
+
+  build-integration:
+    name: Build and Test (Level 3, MySQL·Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    # Level 3(DB·동시성) 통합 테스트용 인프라 — 테스트는 localhost:3306/6379 기준
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: doctorpet
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 30s
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Integration test backend
+        # application.yaml의 active profile(local) 설정 파일은 gitignore 대상이라 CI에 없다.
+        # 환경변수로 profile을 덮어쓰고 services 컨테이너·테스트용 JWT 값을 주입한다.
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/doctorpet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: root
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: "6379"
+          JWT_SECRET: ci-only-test-secret-not-for-production-0123456789abcdefghijklmnop
+          JWT_ACCESS_TOKEN_EXPIRATION: "3600000"
+          JWT_REFRESH_TOKEN_EXPIRATION: "1209600000"
+          # 결제수단(#33) — 전체 컨텍스트 로딩에 게이트웨이 빈과 빌링키 암호화 키가 필요하다.
+          # 테스트는 Fake 게이트웨이를 쓰고, enc-key는 CI 전용 랜덤 키다(운영 금지).
+          PAYMENT_GATEWAY: fake
+          PAYMENT_BILLING_KEY_ENC_KEY: FFDmh/xNGzjn5MhiTKV8pb22xCSKjMvsJ5aXTDFSi5w=
+          # 이메일 인증/비밀번호 재설정 — 전체 컨텍스트 로딩에 메일 게이트웨이 빈과
+          # base-url 설정이 필요하다. 테스트는 Fake 게이트웨이를 쓴다.
+          MAIL_PROVIDER: fake
+          MAIL_VERIFICATION_BASE_URL: http://localhost:8080/api/auth/verify-email
+          MAIL_PASSWORD_RESET_BASE_URL: http://localhost:3000/reset-password
+          # email_verified 백필 러너(리뷰 지적 P1 대응)는 실제 ApplicationRunner 빈이라, 이걸
+          # 켜두면 CI에서 전체 컨텍스트를 로드하는 모든 @SpringBootTest가 부팅될 때마다 자동
+          # 실행돼 공유 MySQL 컨테이너에 schema_migrations 마커를 영구히 남긴다. 그러면 이
+          # 러너를 직접 검증하는 EmailVerifiedBackfillRunnerIntegrationTest가 "마커가 아직
+          # 없는" 상태를 전제로 한 테스트를 실행하지 못해 실패한다. CI 기본값은 꺼두고, 그
+          # 테스트 클래스에서만 @TestPropertySource로 다시 켠다.
+          MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED: "false"
+          # UNIQUE 마이그레이션은 전용 실제 MySQL 테스트에서 스키마를 직접 재현한다.
+          RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED: "false"
+          # 실제 LLM 제공자 미선정 단계이므로 CI에서는 테스트용 Fake Gateway를 명시한다.
+          AI_GATEWAY: fake
+          # 반려동물 프로필 이미지 업로드(S3ImageStorageGateway) — 전체 컨텍스트 로딩에
+          # ImageStorageGateway 빈이 필요하다. 테스트는 Fake 게이트웨이를 쓴다.
+          IMAGE_STORAGE_PROVIDER: fake
+        run: ./gradlew integrationTest
+
+  frontend:
+    name: Frontend Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

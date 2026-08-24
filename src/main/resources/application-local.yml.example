@@ -1,0 +1,88 @@
+# 이 파일을 복사해서 application-local.yml로 만들고, 실제 값으로 채워서 사용하세요.
+# application-local.yml은 .gitignore에 등록되어 있어 커밋되지 않습니다.
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/smartcare?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: root
+    password: your_password_here
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+jwt:
+  secret: change-this-to-a-long-random-base64-secret-at-least-256-bits
+  access-token-expiration: 3600000       # 1시간 (ms)
+  refresh-token-expiration: 1209600000   # 14일 (ms)
+
+# 결제 게이트웨이 선택
+# payment.gateway를 명시해야 게이트웨이 빈이 등록됩니다(미설정 시 어떤 게이트웨이도 안 뜸 = fail-safe).
+#   fake    : 외부 연동 없이 로컬/테스트 (approve가 PAID 반환 — 운영 금지)
+#   portone : PortOne V2 실연동 (base-url·api-secret·store-id 필수, 커밋 금지)
+payment:
+  gateway: fake
+  # 빌링키 암호화 키(AES-256-GCM). Base64로 인코딩된 256-bit(32-byte) 랜덤 키.
+  # 실제 키는 env/시크릿으로 주입하고 커밋하지 않는다(이슈 #33, AGENTS 보안).
+  # 예: openssl rand -base64 32
+
+  billing-key:
+    enc-key: change-this-to-a-base64-encoded-256-bit-key
+  portone:
+    base-url: https://api.portone.io      # 실연동 시 확정
+    api-secret: change-this-portone-api-secret   # 콘솔 식별코드·API Keys → V2 API에서 발급(커밋 금지)
+    store-id: change-this-store-id         # 콘솔 상점아이디(store-...)
+    channel-key: change-this-channel-key   # 결제(정기결제) 채널의 채널 키(channel-key-...) — 빌링키 결제 대상 채널
+    # 모바일 인증 콜백 완료 뒤 이동할 프런트 주소. 빌링키 원문은 절대 이 URL에 붙지 않는다.
+    billing-key-result-url: http://localhost:5173/payment-methods
+    webhook-secret: change-this-webhook-secret   # 결제알림(Webhook)에서 발급한 시크릿 — 웹훅 서명 검증용(#48, 커밋 금지)
+    connect-timeout-ms: 2000               # 연결 타임아웃
+    read-timeout-ms: 60000                 # 읽기 타임아웃 — PortOne V2 권장 최소 60초(PG·원천사 지연 대비)
+    max-retry: 3                           # 재시도 유효 오류 최대 재시도(SA §9-4)
+    backoff-initial-ms: 500                # 지수 백오프 초기 대기 (500ms → 1s → 2s)
+
+# AI Gateway 구현체 선택
+#   fake  : 외부 LLM을 호출하지 않는 로컬/테스트용 구현체
+#   openai: OpenAI Responses API + searchNearbyVets Tool Calling
+ai:
+  gateway: fake
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+
+# 이메일 발송 - 이메일 인증(회원가입)·비밀번호 재설정(백로그 P2)
+# payment.gateway와 동일한 fail-safe 패턴: mail.provider를 명시해야 발송기 빈이 등록됩니다
+# (미설정 시 어떤 발송기도 안 뜸 = fail-safe).
+#   fake : 실제 발송 없이 로그로만 남김(로컬/테스트 — 콘솔에서 인증·재설정 링크 확인 가능)
+#   smtp : 실제 SMTP 연동(운영용, host/username/password 필수, 커밋 금지)
+mail:
+  provider: fake
+  from: noreply@doctorpet.example
+  # 이메일 인증 링크. 프론트엔드가 아직 없어 백엔드 엔드포인트를 직접 가리킨다(임시) —
+  # 프론트가 확정되면 프론트의 인증 완료 페이지 URL로 바꾸고, 그 페이지가 이 API를 호출해야 한다.
+  verification:
+    base-url: http://localhost:8080/api/auth/verify-email
+  # 비밀번호 재설정 링크. 새 비밀번호 입력이 필요해 처음부터 프론트 페이지를 가정한다(URL 미정 — 임시값).
+  password-reset:
+    base-url: http://localhost:3000/reset-password
+  smtp:
+    host: smtp.gmail.com
+    port: 587
+    username: change-this-to-your-smtp-username
+    password: change-this-to-your-smtp-app-password
+
+# 반려동물 프로필 이미지 업로드(presigned URL, S3ImageStorageGateway)
+# payment.gateway와 동일한 fail-safe 패턴: image.storage.provider를 명시해야 게이트웨이 빈이
+# 등록됩니다(미설정 시 어떤 게이트웨이도 안 뜸 = fail-safe).
+#   fake : 실제 S3를 호출하지 않고 로그로만 남김(로컬/테스트 — 반환된 uploadUrl로는 실제 업로드 안 됨)
+#   s3   : 실제 S3 presigned URL 발급(운영용, bucket·region 필수, 커밋 금지)
+# AWS 자격 증명은 여기 두지 않는다 — SDK 기본 체인(환경 변수 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY,
+# 또는 IAM 역할)을 그대로 쓴다(AGENTS 보안).
+image:
+  storage:
+    provider: fake
+    s3:
+      bucket: change-this-to-your-bucket-name
+      region: ap-northeast-2
+      presign-ttl-seconds: 300

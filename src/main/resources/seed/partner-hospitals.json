@@ -1,0 +1,3741 @@
+[ {
+  "localGovernmentCode" : "3130000",
+  "managementNumber" : "313000001020160002",
+  "hospitalName" : "24시 산들산들 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "OPHTHALMIC_CARE", "REHABILITATION", "ONCOLOGY_CARE", "CT", "MRI", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "3130000",
+  "managementNumber" : "313000001020010004",
+  "hospitalName" : "C.T.종합동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "3130000",
+  "managementNumber" : "313000001020130006",
+  "hospitalName" : "공덕 건강한 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3130000",
+  "managementNumber" : "313000001020140007",
+  "hospitalName" : "굿모닝 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "3130000",
+  "managementNumber" : "313000001020260004",
+  "hospitalName" : "시그널 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3000000",
+  "managementNumber" : "300000001020170001",
+  "hospitalName" : "경희궁 바른 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3010000",
+  "managementNumber" : "301000001020000002",
+  "hospitalName" : "남산동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "REHABILITATION" ]
+}, {
+  "localGovernmentCode" : "3020000",
+  "managementNumber" : "302000001020160002",
+  "hospitalName" : "24시 시유동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3030000",
+  "managementNumber" : "303000001020070002",
+  "hospitalName" : "24시센트럴동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE", "CT" ]
+}, {
+  "localGovernmentCode" : "3040000",
+  "managementNumber" : "304000001020250002",
+  "hospitalName" : "Severance AMC",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "MRI" ]
+}, {
+  "localGovernmentCode" : "3050000",
+  "managementNumber" : "305000001020220001",
+  "hospitalName" : "24시 동대문 루시드 동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "OPHTHALMIC_CARE", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "3060000",
+  "managementNumber" : "306000001020020003",
+  "hospitalName" : "금란동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3070000",
+  "managementNumber" : "307000001020080004",
+  "hospitalName" : "24시 애니동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION" ]
+}, {
+  "localGovernmentCode" : "3080000",
+  "managementNumber" : "308000001020170001",
+  "hospitalName" : "24시 수유 바른펫 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "3090000",
+  "managementNumber" : "309000001020230001",
+  "hospitalName" : "24시 딜라이트 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3100000",
+  "managementNumber" : "310000001020180005",
+  "hospitalName" : "24시 우리 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3110000",
+  "managementNumber" : "311000001020130001",
+  "hospitalName" : "24시스마트동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE", "CT" ]
+}, {
+  "localGovernmentCode" : "3120000",
+  "managementNumber" : "312000001020110003",
+  "hospitalName" : "가재울봉쥬르동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3140000",
+  "managementNumber" : "314000001020230004",
+  "hospitalName" : "24시 로운동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "REHABILITATION", "MRI" ]
+}, {
+  "localGovernmentCode" : "3150000",
+  "managementNumber" : "315000001020150001",
+  "hospitalName" : "24시 강서 젠틀리동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "3740000",
+  "managementNumber" : "374000001020200007",
+  "hospitalName" : "24시 당신의 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE", "OPHTHALMIC_CARE", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "3780000",
+  "managementNumber" : "378000001020160003",
+  "hospitalName" : "24시 폴 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3820000",
+  "managementNumber" : "382000001020220001",
+  "hospitalName" : "24시 해든동물의료센터 민락점",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3830000",
+  "managementNumber" : "383000001020250001",
+  "hospitalName" : "24시 이오동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3860000",
+  "managementNumber" : "386000001020000001",
+  "hospitalName" : "24시 아이동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION", "CT" ]
+}, {
+  "localGovernmentCode" : "3900000",
+  "managementNumber" : "390000001020250001",
+  "hospitalName" : "24시 다시 봄 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3910000",
+  "managementNumber" : "391000001020240002",
+  "hospitalName" : "24시 고덕동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3920000",
+  "managementNumber" : "392000001020240001",
+  "hospitalName" : "Dr루아동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "MRI" ]
+}, {
+  "localGovernmentCode" : "3930000",
+  "managementNumber" : "393000001020070002",
+  "hospitalName" : "24시 아프리카동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3940000",
+  "managementNumber" : "394000001020160004",
+  "hospitalName" : "24시 나음동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3970000",
+  "managementNumber" : "397000001020220001",
+  "hospitalName" : "과천우주동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "OPHTHALMIC_CARE", "REHABILITATION", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "3980000",
+  "managementNumber" : "398000001020170003",
+  "hospitalName" : "24시 더케어 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "3990000",
+  "managementNumber" : "399000001020230002",
+  "hospitalName" : "24시 공감365동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE", "CT" ]
+}, {
+  "localGovernmentCode" : "4000000",
+  "managementNumber" : "400000001020250001",
+  "hospitalName" : "24시하나린동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "4010000",
+  "managementNumber" : "401000001020200004",
+  "hospitalName" : "24시 위드유 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3491000",
+  "managementNumber" : "349100001020260001",
+  "hospitalName" : "24시 이은동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE", "OPHTHALMIC_CARE", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3501000",
+  "managementNumber" : "350100001019941001",
+  "hospitalName" : "경동동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION", "MRI" ]
+}, {
+  "localGovernmentCode" : "3510500",
+  "managementNumber" : "351000001020030001",
+  "hospitalName" : "24시 건국 본 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "3520000",
+  "managementNumber" : "352000001020230002",
+  "hospitalName" : "24시 송도 온 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3530000",
+  "managementNumber" : "353000001020200002",
+  "hospitalName" : "24시 루센트동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "3250000",
+  "managementNumber" : "325000001019960001",
+  "hospitalName" : "고동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE", "OPHTHALMIC_CARE", "CT", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "3260000",
+  "managementNumber" : "326000001020180001",
+  "hospitalName" : "가온동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3270000",
+  "managementNumber" : "327000001020200001",
+  "hospitalName" : "구구동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "REHABILITATION", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3280000",
+  "managementNumber" : "328000001020040001",
+  "hospitalName" : "센트럴종합동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "3290000",
+  "managementNumber" : "329000001020210001",
+  "hospitalName" : "24시 온동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3300000",
+  "managementNumber" : "330000001020210002",
+  "hospitalName" : "24시 리본동물영상센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "OPHTHALMIC_CARE", "MRI" ]
+}, {
+  "localGovernmentCode" : "3310000",
+  "managementNumber" : "331000001020000001",
+  "hospitalName" : "25시 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3410000",
+  "managementNumber" : "341000001020220003",
+  "hospitalName" : "남산연합동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3420000",
+  "managementNumber" : "342000001020040003",
+  "hospitalName" : "21세기종합동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION", "CT" ]
+}, {
+  "localGovernmentCode" : "3430000",
+  "managementNumber" : "343000001020210002",
+  "hospitalName" : "24시알파동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "3440000",
+  "managementNumber" : "344000001019810002",
+  "hospitalName" : "남부동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "OPHTHALMIC_CARE", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "3450000",
+  "managementNumber" : "345000001020030004",
+  "hospitalName" : "가나동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "3640000",
+  "managementNumber" : "364000001020250001",
+  "hospitalName" : "가람 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3650000",
+  "managementNumber" : "365000001020000001",
+  "hospitalName" : "굿모닝동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "3660000",
+  "managementNumber" : "366000001020210002",
+  "hospitalName" : "24시도안동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "REHABILITATION", "MRI" ]
+}, {
+  "localGovernmentCode" : "3670000",
+  "managementNumber" : "367000001020190001",
+  "hospitalName" : "24시 성심동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "3680000",
+  "managementNumber" : "368000001020040001",
+  "hospitalName" : "고려동물종합병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE", "ONCOLOGY_CARE", "CT" ]
+}, {
+  "localGovernmentCode" : "3690000",
+  "managementNumber" : "369000001020100001",
+  "hospitalName" : "닥터강동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "3700000",
+  "managementNumber" : "370000001020050001",
+  "hospitalName" : "강남동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "3710000",
+  "managementNumber" : "371000001020240001",
+  "hospitalName" : "다정동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "5690000",
+  "managementNumber" : "569000001020180001",
+  "hospitalName" : "고운동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "OPHTHALMIC_CARE", "REHABILITATION", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "5690000",
+  "managementNumber" : "569000001020200004",
+  "hospitalName" : "나눔 양한방동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "4181000",
+  "managementNumber" : "418000001020120001",
+  "hospitalName" : "AK동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "4191000",
+  "managementNumber" : "419000001019880001",
+  "hospitalName" : "강원동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "ONCOLOGY_CARE", "MRI" ]
+}, {
+  "localGovernmentCode" : "4201000",
+  "managementNumber" : "420000001020190001",
+  "hospitalName" : "24시보듬동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE", "CT" ]
+}, {
+  "localGovernmentCode" : "4211000",
+  "managementNumber" : "421000001020030001",
+  "hospitalName" : "동해동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "4390000",
+  "managementNumber" : "439000001020040001",
+  "hospitalName" : "가인동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "REHABILITATION" ]
+}, {
+  "localGovernmentCode" : "4400000",
+  "managementNumber" : "440000001020230001",
+  "hospitalName" : "강민동물병원(출장진료전문병원)",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "4420000",
+  "managementNumber" : "442000001020080001",
+  "hospitalName" : "E 동물의료원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE" ]
+}, {
+  "localGovernmentCode" : "4430000",
+  "managementNumber" : "443000001020120001",
+  "hospitalName" : "고려동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "4490000",
+  "managementNumber" : "565000001020150004",
+  "hospitalName" : "가온동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "OPHTHALMIC_CARE", "ONCOLOGY_CARE", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "4500000",
+  "managementNumber" : "450000001020030016",
+  "hospitalName" : "강북종합",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "4510000",
+  "managementNumber" : "451000001019910001",
+  "hospitalName" : "김동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION", "CT", "MRI" ]
+}, {
+  "localGovernmentCode" : "4520000",
+  "managementNumber" : "452000001020250008",
+  "hospitalName" : "24시 리엔동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "4530000",
+  "managementNumber" : "453000001020250001",
+  "hospitalName" : "24시 서산 올 동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "4641000",
+  "managementNumber" : "464100001020170002",
+  "hospitalName" : "24시 올리몰스 동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "4671000",
+  "managementNumber" : "467100001020080001",
+  "hospitalName" : "KP 양계연구소",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE" ]
+}, {
+  "localGovernmentCode" : "4681000",
+  "managementNumber" : "468100001020000001",
+  "hospitalName" : "고려동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "4691000",
+  "managementNumber" : "469100001020120002",
+  "hospitalName" : "국가독성과학연구소 전북첨단바이오연구본부 부속 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "REHABILITATION" ]
+}, {
+  "localGovernmentCode" : "5780000",
+  "managementNumber" : "578000001020010001",
+  "hospitalName" : "21세기동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "5785000",
+  "managementNumber" : "578500001020170002",
+  "hospitalName" : "늘사랑 양한방 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE", "OPHTHALMIC_CARE", "CT", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "5790000",
+  "managementNumber" : "579000001020200002",
+  "hospitalName" : "그레이스 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "MRI" ]
+}, {
+  "localGovernmentCode" : "5795000",
+  "managementNumber" : "579500001020240001",
+  "hospitalName" : "YS동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "5800000",
+  "managementNumber" : "580000001020230001",
+  "hospitalName" : "강남동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "5805000",
+  "managementNumber" : "580500001020210001",
+  "hospitalName" : "24시노아동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "5810000",
+  "managementNumber" : "581000001020070002",
+  "hospitalName" : "Dr.남동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "5815000",
+  "managementNumber" : "581500001020240001",
+  "hospitalName" : "24시김승현외과동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "5820000",
+  "managementNumber" : "582000001020190002",
+  "hospitalName" : "24시블루밍동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "5020000",
+  "managementNumber" : "502000001020230001",
+  "hospitalName" : "24시 포항 이음동물의료센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND", "ORTHOPEDIC_CARE", "CT" ]
+}, {
+  "localGovernmentCode" : "5050000",
+  "managementNumber" : "505000001020020002",
+  "hospitalName" : "가람동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE" ]
+}, {
+  "localGovernmentCode" : "5060000",
+  "managementNumber" : "506000001019980001",
+  "hospitalName" : "가람가축병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "TUESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "THURSDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "FRIDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SATURDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      },
+      "SUNDAY" : {
+        "openTime" : "00:00",
+        "closeTime" : "23:59"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : true,
+    "emergency" : true
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "OPHTHALMIC_CARE", "REHABILITATION", "MRI", "ENDOSCOPE" ]
+}, {
+  "localGovernmentCode" : "5070000",
+  "managementNumber" : "507000001020170002",
+  "hospitalName" : "BAC 바른동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "5080000",
+  "managementNumber" : "508000001019920001",
+  "hospitalName" : "가나동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ORTHOPEDIC_CARE" ]
+}, {
+  "localGovernmentCode" : "5310000",
+  "managementNumber" : "531000001020220003",
+  "hospitalName" : "KB동물병원(출장진료전문)",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE" ]
+}, {
+  "localGovernmentCode" : "5330000",
+  "managementNumber" : "533000001020180001",
+  "hospitalName" : "on동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "FERRET", "ULTRASOUND" ]
+}, {
+  "localGovernmentCode" : "5340000",
+  "managementNumber" : "534000001020210001",
+  "hospitalName" : "겨울나는나비 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "REPTILE", "OPHTHALMIC_CARE" ]
+}, {
+  "localGovernmentCode" : "5350000",
+  "managementNumber" : "535000001019950003",
+  "hospitalName" : "강 동물병원(산업동물출장진료 동물병원)",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : false,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "BIRD", "ULTRASOUND", "DENTAL_CARE", "ORTHOPEDIC_CARE", "REHABILITATION", "CT" ]
+}, {
+  "localGovernmentCode" : "5360000",
+  "managementNumber" : "536000001020020001",
+  "hospitalName" : "가야동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "RABBIT" ]
+}, {
+  "localGovernmentCode" : "6510000",
+  "managementNumber" : "651000001019971001",
+  "hospitalName" : "KRA 렛츠런파크제주 동물병원",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : true,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "HAMSTER", "ULTRASOUND", "ONCOLOGY_CARE" ]
+}, {
+  "localGovernmentCode" : "6520000",
+  "managementNumber" : "652000001020250001",
+  "hospitalName" : "AVC반려동물메디컬센터",
+  "detail" : {
+    "openHours" : {
+      "MONDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "TUESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "WEDNESDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "THURSDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "FRIDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      },
+      "SATURDAY" : {
+        "openTime" : "09:00",
+        "closeTime" : "19:00"
+      }
+    },
+    "surgeryAvailable" : false,
+    "hospitalizationAvailable" : true,
+    "nightCare" : false,
+    "emergency" : false
+  },
+  "capabilities" : [ "DOG", "CAT", "BLOOD_TEST", "XRAY", "GUINEA_PIG", "DENTAL_CARE", "MRI" ]
+} ]

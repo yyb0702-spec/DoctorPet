@@ -1,3 +1,271 @@
 spring:
   application:
-    name: SmartCareProject
+    name: DoctorPet
+  profiles:
+    active: local
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # Graceful shutdown 유예 시간(무중단 배포 리뷰 지적 P1, PR #136) — 아래 server.shutdown: graceful과
+  # 짝을 이룬다. blue/green 컷오버 시 배포 스크립트가 이전 색 컨테이너에 docker compose stop
+  # (SIGTERM)을 보내는데, 이 설정이 없으면 Spring Boot 기본값(IMMEDIATE)이 진행 중인 요청을 기다리지
+  # 않고 즉시 끊는다 — 결제·AI 상담처럼 오래 걸리는 요청이 컷오버 순간과 겹치면 그대로 끊길 수
+  # 있었다. 이 값은 docker-compose.yml의 app-blue/app-green stop_grace_period(35s)보다 짧게 둬서,
+  # Docker가 SIGKILL을 보내기 전에 Spring Boot가 스스로 정리를 마치도록 한다.
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  # Redis 커맨드 타임아웃(ElastiCache PR 재검토 지적 P1) — 값을 안 주면 Lettuce 기본값 60초가
+  # 그대로 적용된다(LettuceClientConfigurationBuilder). 로컬 컨테이너 Redis는 loopback이라 죽으면
+  # 즉시 connection refused로 끝나 이게 문제가 안 됐지만, ElastiCache(ENI 경유 + TLS 핸드셰이크 +
+  # 보안그룹 + 유지관리 창)로 옮기면서 "즉시 거부" 대신 "조용히 블랙홀"(SG 규칙 오변경, 노드 교체
+  # 중 상태 등)이 현실적인 실패 모드가 됐다. JwtAuthenticationFilter는 인증된 모든 요청마다 Redis
+  # hasKey를 2번 호출하는데(RefreshTokenRepository의 탈퇴·로그아웃 블랙리스트 조회, fail-closed라
+  # 예외 처리 자체는 그대로 둔다), 커맨드 타임아웃이 60초면 그 요청들이 톰캣 스레드를 60초씩 붙잡아
+  # 기본 200 스레드가 수 초 만에 고갈될 수 있고, Dockerfile의 HEALTHCHECK(curl -f .../actuator/health,
+  # --timeout=5s)도 RedisHealthIndicator 때문에 같이 막혀 컨테이너가 unhealthy로 떨어질 수 있다.
+  # connect-timeout은 커넥션 자체를 맺는 단계(TLS 핸드셰이크 포함)라 커맨드 타임아웃보다 짧게 둔다.
+  data:
+    redis:
+      timeout: 2s
+      connect-timeout: 1s
+
+server:
+  # 무중단 배포 컷오버 시 진행 중인 요청을 끝까지 처리하고 나서 종료한다(리뷰 지적 P1, PR #136) —
+  # 기본값 IMMEDIATE는 SIGTERM을 받는 즉시 연결을 끊어, 결제·AI 상담처럼 오래 걸리는 요청이
+  # blue/green 컷오버 타이밍과 겹치면 강제로 끊겨 "무중단 배포"가 실제로는 무중단이 아니게 된다.
+  # graceful은 새 요청은 즉시 거부하되(nginx가 이미 새 색으로 트래픽을 넘긴 뒤라 새 요청이 들어올
+  # 일도 없다), 이미 들어온 요청은 spring.lifecycle.timeout-per-shutdown-phase까지 마저 처리한
+  # 뒤 종료한다.
+  shutdown: graceful
+  # CORS same-origin 오판 방지(PR 리뷰 지적 P1) — nginx는 X-Forwarded-Proto를 이미 보내고
+  # 있지만(nginx/nginx.conf), 이 설정이 없으면 Spring이 그 헤더를 신뢰하지 않고 자신이 리스닝
+  # 중인 프로토콜(내부 http)을 그대로 요청의 scheme으로 본다. 그 결과 TLS를 종단한 nginx 뒤에서
+  # 브라우저가 보낸 Origin(https://...)과 Spring이 인식하는 자신의 scheme(http)이 어긋나,
+  # Spring의 CorsUtils.isCorsRequest()가 진짜 same-origin 요청까지 cross-origin으로 오판해
+  # cors.allowed-origins가 비어 있으면(기본값) 403으로 거부해버린다. framework로 설정하면
+  # X-Forwarded-Proto/Host/Port를 반영해 Spring이 실제 외부에서 보이는 scheme·host·port를
+  # 정확히 인식한다.
+  forward-headers-strategy: framework
+
+# 브라우저 프론트엔드용 CORS 허용 오리진(기능 구멍 점검 대응, CorsConfig 참고. 아래 CorsConfig의
+# 클래스 주석 — 별도 CorsProperties 빈은 두지 않고 이 값을 SecurityConfig가 @Value로 직접 읽는다).
+# frontend/(이미 develop에 있음, vite dev 서버가 /api를 백엔드로 프록시)가 실제로 API를 호출하므로
+# 기본값을 그 로컬 개발 오리진으로 채워뒀다 — 운영 배포에서는 CORS_ALLOWED_ORIGINS 환경변수로
+# 실제 프론트 도메인(예: https://app.doctorpet.example)으로 반드시 덮어써야 한다. 비워두면
+# (환경변수를 아예 안 준 경우) 어떤 오리진도 허용하지 않는다(fail-closed) — 위 forward-headers-
+# strategy와 별개로, Origin이 진짜로 다른 오리진(포트가 다른 로컬 프론트 dev 서버 등)이면 이
+# allowed-origins에 명시적으로 들어있어야만 허용된다.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+
+# 진료비 청구 공통 설정(이슈 #34). 비밀값이 아니므로 모든 실행 환경 공통으로 둔다.
+# 절대 상한은 코드 상수가 아니라 설정값으로 둬 배포 없이 상향 가능하게 한다(SA §9-4).
+payment:
+  # 모바일 PortOne 콜백은 백엔드가 처리한 뒤 빌링키 없이 이 주소로 302한다.
+  portone:
+    billing-key-result-url: ${PAYMENT_PORTONE_BILLING_KEY_RESULT_URL:http://localhost:5173/payment-methods}
+  charge:
+    max-amount: 3000000        # 진료비 절대 상한(원)
+    max-retry: 3               # 재시도 유효 실패 최대 재시도 횟수(SA §9-4 확정)
+    backoff-initial-ms: 500    # 지수 백오프 초기 대기(500 → 1000 → 2000)
+    retry-backoff-deadline-ms: 3500  # 재시도 백오프 누적 대기 상한(ms, #85). HTTP 스레드 점유 상한 — 기본 백오프 3회 누적(500+1000+2000)과 동일해 기본 동작 불변. backoff-initial-ms·max-retry 상향 시 함께 올릴 것
+  # 결제 정산 스케줄러(이슈 #35, SA §9-7). 값은 정책 미확정분이라 배포 없이 조정 가능하게 설정으로 둔다.
+  reconcile:
+    interval-ms: 300000        # 실행 주기 5분(SA §9-7)
+    stale-after-ms: 120000     # 이 시간 이상 PENDING인 결제만 대상(방금 청구된 건 제외)
+    batch-size: 100            # 한 배치 처리 최대 건수
+    max-attempts: 10           # 재조회 소진 임계 — 초과여도 불확실하면 RECONCILE_STUCK로 PENDING 유지(자동 OFFLINE 전환 금지, 운영자 확인)
+  # 진료비 환불(이슈 #37). 비밀값이 아니라 모든 실행 환경 공통으로 둔다.
+  refund:
+    # REQUESTED 선점을 "멈춘 것"으로 보고 회수하기까지의 시간(ms). 짧으면 진행 중인 PG 취소를 가로채고,
+    # 길면 앱이 죽어 멈춘 환불의 복구가 늦어진다. PG 취소 왕복보다 충분히 길게 2분으로 둔다.
+    claim-stale-after-ms: 120000
+
+# 공공데이터 OpenAPI의 공개 설정은 모든 실행 환경이 공통으로 사용합니다.
+public-data:
+  animal-hospital:
+    base-url: https://apis.data.go.kr/1741000/animal_hospitals
+    service-key: ${PUBLIC_DATA_SERVICE_KEY:}
+    seed-enabled: ${PUBLIC_DATA_SEED_ENABLED:false}
+    refresh-enabled: ${PUBLIC_DATA_REFRESH_ENABLED:true}
+    refresh-cron: ${PUBLIC_DATA_REFRESH_CRON:0 0 3 * * *}
+    refresh-max-attempts: ${PUBLIC_DATA_REFRESH_MAX_ATTEMPTS:3}
+    refresh-retry-delay: ${PUBLIC_DATA_REFRESH_RETRY_DELAY:5m}
+    page-size: 100
+    connect-timeout: 3s
+    read-timeout: 10s
+    source-crs: EPSG:5174
+
+hospital:
+  slot-generation:
+    cron: ${HOSPITAL_SLOT_GENERATION_CRON:0 5 0 * * *}
+  # 병원 컬럼 보정과 검색 인덱스를 DB 잠금·개별 마커로 순서대로 적용한다.
+  schema-migration:
+    enabled: ${HOSPITAL_SCHEMA_MIGRATION_ENABLED:true}
+    lock-timeout-seconds: ${HOSPITAL_SCHEMA_MIGRATION_LOCK_TIMEOUT_SECONDS:30}
+  # 기존 제휴 병원의 상세 운영시간을 최초 운영 스케줄로 한 번만 옮긴다.
+  # schema_migrations 마커와 DB 잠금으로 재실행과 다중 인스턴스 중복을 막는다.
+  operating-schedule-migration:
+    enabled: ${HOSPITAL_OPERATING_SCHEDULE_MIGRATION_ENABLED:true}
+  search:
+    cache-ttl: ${HOSPITAL_SEARCH_CACHE_TTL:10m}
+
+ai:
+  openai:
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    api-key: ${OPENAI_API_KEY:}
+    model: ${OPENAI_MODEL:gpt-4.1-mini}
+    prompt-version: ${OPENAI_PROMPT_VERSION:doctorpet-ai-v8}
+    connect-timeout-ms: ${OPENAI_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${OPENAI_READ_TIMEOUT_MS:10000}
+    circuit-breaker-failure-threshold: ${OPENAI_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
+    circuit-breaker-open-ms: ${OPENAI_CIRCUIT_BREAKER_OPEN_MS:30000}
+  rate-limit:
+    authenticated-per-minute: ${AI_RATE_LIMIT_AUTHENTICATED_PER_MINUTE:5}
+    anonymous-per-minute: ${AI_RATE_LIMIT_ANONYMOUS_PER_MINUTE:3}
+    anonymous-per-day: ${AI_RATE_LIMIT_ANONYMOUS_PER_DAY:30}
+    minute-window: ${AI_RATE_LIMIT_MINUTE_WINDOW:1m}
+    trusted-proxies: ${AI_RATE_LIMIT_TRUSTED_PROXIES:}
+  retention:
+    symptom-text-days: ${AI_SYMPTOM_TEXT_RETENTION_DAYS:30}
+    cron: ${AI_SYMPTOM_TEXT_RETENTION_CRON:0 0 3 * * *}
+
+# email_verified 컬럼 추가로 인한 기존 회원 백필(리뷰 지적 P1) — 기본값 true로 두어 배포 시
+# 끄는 걸 잊어서 전원 로그인 차단되는 사고를 방지한다. 마커(schema_migrations)로 1회만
+# 실행되므로 계속 켜둬도 안전하다.
+member:
+  email-verified-backfill:
+    enabled: ${MEMBER_EMAIL_VERIFIED_BACKFILL_ENABLED:true}
+
+# 회원가입·이메일 인증 재발송·비밀번호 재설정 요청 IP 기준 rate limit(기능 구멍 점검 대응) —
+# 셋 다 비인증 상태에서 임의의 이메일로 메일을 발송시킬 수 있어 메일 폭탄·발송 한도 소진으로
+# 이어질 수 있었다. ai.rate-limit과 같은 이유로 도메인별로 분리한다(AuthRateLimitProperties
+# 참고). trusted-proxies는 이 프로젝트의 고정 토폴로지(nginx가 유일한 리버스 프록시)를 반영해
+# 기본값을 "nginx"로 미리 채워둔다 — ai.rate-limit.trusted-proxies와 달리 이 값을 비워두는
+# 환경변수를 배포 파이프라인에 별도로 추가할 필요가 없다.
+auth:
+  rate-limit:
+    signup-per-ip-per-window: ${AUTH_RATE_LIMIT_SIGNUP_PER_IP_PER_WINDOW:5}
+    verify-email-resend-per-ip-per-window: ${AUTH_RATE_LIMIT_VERIFY_EMAIL_RESEND_PER_IP_PER_WINDOW:5}
+    password-reset-request-per-ip-per-window: ${AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST_PER_IP_PER_WINDOW:5}
+    window: ${AUTH_RATE_LIMIT_WINDOW:1h}
+    trusted-proxies: ${AUTH_RATE_LIMIT_TRUSTED_PROXIES:nginx}
+
+# 기존 chat_messages에 멱등 재전송 키를 안전하게 추가한다. Hibernate보다 먼저 nullable 추가·UUID
+# 백필·UNIQUE·NOT NULL 순서로 적용하며, 배포 중 구버전 INSERT는 트리거가 UUID를 채운다.
+chat:
+  client-message-id-migration:
+    enabled: ${CHAT_CLIENT_MESSAGE_ID_MIGRATION_ENABLED:true}
+
+# 배포 헬스체크(CI/CD MVP) + 관측성 지표(이슈 #105). health 외에 prometheus만 추가로 노출한다 —
+# env, beans 등 나머지 엔드포인트는 민감정보를 노출할 수 있어 명시적으로 켜지 않는 한 노출하지
+# 않는다. show-details는 never로 둔다 — DB 종류·Redis 버전·디스크 경로 같은 내부 구성 정보가
+# 노출되는 걸 막는다(리뷰 지적 P2). UP/DOWN 집계 상태와 HTTP 상태 코드만으로도 배포 스크립트가
+# 정상 기동 여부를 판정하는 데는 지장이 없다.
+#
+# management.server.port를 앱 포트(8080)와 분리한다(이슈 #105) — mysql·redis와 같은 방식으로,
+# docker-compose가 이 포트를 호스트에 게시하지 않아 컨테이너 내부(또는 같은 compose 네트워크)
+# 에서만 접근 가능하다. 별도 인증 없이도 인터넷에서 지표·헬스체크가 직접 보이지 않는다.
+# Dockerfile의 HEALTHCHECK도 이 포트를 쓰도록 함께 바꿨다(컨테이너 "내부" 호출이라 호스트
+# 게시 여부와 무관하게 그대로 동작한다).
+#
+# 다만 관리 포트만 확인하면 "관리 컨텍스트는 살아있지만 정작 8080이 새 연결을 못 받는" 상태를
+# 놓칠 수 있다(2차 리뷰 지적, Spring Boot 공식 문서도 별도 관리 포트의 이 위험을 명시한다).
+# readiness 헬스 그룹(기본 자동 활성화)을 additional-path로 메인 서버 포트(8080)의 /healthz에도
+# 노출해, Dockerfile HEALTHCHECK가 관리 포트뿐 아니라 앱 포트 자체의 응답 가능 여부도 함께 검사할
+# 수 있게 한다. /healthz는 SecurityConfig 메인 체인에서 permitAll로 열어둔다.
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          additional-path: server:/healthz
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# API 문서화(이슈 #105). 기본값은 꺼둔다(fail-safe) — docker/prod로 배포된 서버는 인터넷에
+# 노출돼 있어, 기본으로 켜두면 병원 스태프 운영 API를 포함한 전체 API 스펙이 누구에게나
+# 공개된다. local 프로파일에서만 파일 맨 끝의 프로파일 전용 블록으로 다시 켠다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+reservation:
+  waitlist:
+    offer-validity-minutes: ${RESERVATION_WAITLIST_OFFER_VALIDITY_MINUTES:10}
+    expiration-interval-ms: ${RESERVATION_WAITLIST_EXPIRATION_INTERVAL_MS:60000}
+    expiration-initial-delay-ms: ${RESERVATION_WAITLIST_EXPIRATION_INITIAL_DELAY_MS:60000}
+    expiration-batch-size: ${RESERVATION_WAITLIST_EXPIRATION_BATCH_SIZE:100}
+    # 여러 인스턴스가 같은 만료 대상을 중복 처리하지 않도록 MySQL named lock을 사용한다.
+    # 기본값 0은 다른 인스턴스가 실행 중이면 기다리지 않고 다음 주기에 재시도한다.
+    expiration-lock-wait-seconds: ${RESERVATION_WAITLIST_EXPIRATION_LOCK_WAIT_SECONDS:0}
+  # 대기열 테이블은 Hibernate ddl-auto가 아니라 선행 마이그레이션 러너가 생성·검증한다.
+  waitlist-migration:
+    enabled: ${RESERVATION_WAITLIST_MIGRATION_ENABLED:true}
+  slot-business-date-migration:
+    enabled: ${RESERVATION_SLOT_BUSINESS_DATE_MIGRATION_ENABLED:true}
+  no-show:
+    interval-ms: ${RESERVATION_NO_SHOW_INTERVAL_MS:60000}
+    initial-delay-ms: ${RESERVATION_NO_SHOW_INITIAL_DELAY_MS:60000}
+    grace-minutes: ${RESERVATION_NO_SHOW_GRACE_MINUTES:10}
+    pending-grace-minutes: ${RESERVATION_NO_SHOW_PENDING_GRACE_MINUTES:5}
+    batch-size: ${RESERVATION_NO_SHOW_BATCH_SIZE:100}
+    max-scanned-per-run: ${RESERVATION_NO_SHOW_MAX_SCANNED_PER_RUN:1000}
+    max-attempts: ${RESERVATION_NO_SHOW_MAX_ATTEMPTS:2}
+    lock-wait-seconds: ${RESERVATION_NO_SHOW_LOCK_WAIT_SECONDS:0}
+  no-show-index-migration:
+    enabled: ${RESERVATION_NO_SHOW_INDEX_MIGRATION_ENABLED:true}
+  no-show-pending-migration:
+    enabled: ${RESERVATION_NO_SHOW_PENDING_MIGRATION_ENABLED:true}
+  event-unique-migration:
+    enabled: ${RESERVATION_EVENT_UNIQUE_MIGRATION_ENABLED:true}
+  # 기존 예약을 승인 마감 공식으로 백필한 뒤 NOT NULL·조회 인덱스를 적용한다.
+  # schema_migrations 마커와 DB 잠금으로 최초 배포에서 한 번만 실행한다.
+  approval-deadline-migration:
+    enabled: ${RESERVATION_APPROVAL_DEADLINE_MIGRATION_ENABLED:true}
+  approval-timeout:
+    interval-ms: ${RESERVATION_APPROVAL_TIMEOUT_INTERVAL_MS:60000}
+    initial-delay-ms: ${RESERVATION_APPROVAL_TIMEOUT_INITIAL_DELAY_MS:60000}
+    batch-size: ${RESERVATION_APPROVAL_TIMEOUT_BATCH_SIZE:100}
+    max-scanned-per-run: ${RESERVATION_APPROVAL_TIMEOUT_MAX_SCANNED_PER_RUN:1000}
+    max-attempts: ${RESERVATION_APPROVAL_TIMEOUT_MAX_ATTEMPTS:2}
+    failure-retry-delay-ms: ${RESERVATION_APPROVAL_TIMEOUT_FAILURE_RETRY_DELAY_MS:60000}
+    lock-wait-seconds: ${RESERVATION_APPROVAL_TIMEOUT_LOCK_WAIT_SECONDS:0}
+
+# local 프로파일에서만 Swagger UI/OpenAPI 문서를 켠다(이슈 #105) — 위 공통 블록의 기본값(꺼짐)을
+# 이 프로파일에서만 덮어쓴다. spring.profiles.active 기본값이 local이므로(파일 맨 위), 별도
+# SPRING_PROFILES_ACTIVE 지정 없이 로컬에서 뜨면 이 블록이 자동으로 적용된다.
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

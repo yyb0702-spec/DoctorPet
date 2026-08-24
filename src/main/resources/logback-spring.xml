@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  로깅 설정. 기본은 Spring Boot 기본 콘솔 로깅을 그대로 쓴다(defaults.xml·console-appender.xml 포함).
+  추가로 "청구 감사 로그"만 전용 롤링 파일에도 남긴다.
+
+  이유(PR #91 P1): 감사 로그는 컨테이너 표준출력(stdout)에만 남았는데, 배포는 매 이미지마다
+  `docker compose up -d`(remove-orphans)로 앱 컨테이너를 교체하므로 이전 컨테이너의 stdout 로그가
+  사라진다. 그러면 "탈취 계정의 과다 청구를 사후 추적"한다는 감사 로그의 목적이 배포 후 깨진다.
+  전용 파일을 마운트된 볼륨(docker-compose의 payment-audit-logs)에 남기면 컨테이너 교체에도 보존된다.
+  별도 감사 테이블(DDL·보존 정책)은 정책 결정 대상이라 그대로 유예하고, 그 전까지의 영속 수집소로
+  이 파일 appender를 쓴다. 보존 기간(maxHistory)은 정책 확정 전 MVP 잠정값이다.
+
+  파일 appender는 실제 배포(docker·prod 프로파일)에서만 켠다 — 로컬·테스트는 콘솔만 써 파일을
+  만들지 않는다. 감사 로그는 콘솔에도 계속 남으므로(additivity) 개발 중에도 그대로 보인다.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- 감사 로그 디렉터리. 기본 logs는 컨테이너 WORKDIR(/app) 기준 /app/logs로, 이 경로에 볼륨을 마운트한다. -->
+    <springProperty name="AUDIT_LOG_DIR" source="audit.log.dir" defaultValue="logs"/>
+
+    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${AUDIT_LOG_DIR}/payment-audit.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${AUDIT_LOG_DIR}/payment-audit.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <!-- 보존 90일은 감사 보존 정책 확정 전 잠정값이다(정책 결정 시 조정). -->
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <springProfile name="docker,prod">
+        <logger name="com.doctorpet.domain.payment.audit" level="INFO" additivity="true">
+            <appender-ref ref="AUDIT_FILE"/>
+        </logger>
+    </springProfile>
+</configuration>

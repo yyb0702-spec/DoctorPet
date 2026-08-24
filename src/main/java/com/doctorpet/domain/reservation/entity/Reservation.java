@@ -1,0 +1,223 @@
+package com.doctorpet.domain.reservation.entity;
+
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.global.entity.BaseEntity;
+import com.doctorpet.global.exception.ServiceException;
+import java.time.LocalDateTime;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Table(
+        name = "reservations",
+        indexes = @Index(
+                name = "idx_reservations_status_slot",
+                columnList = "status, slot_id"
+        )
+)
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class Reservation extends BaseEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "member_id", nullable = false)
+    private Long memberId;
+
+    @Column(name = "pet_id", nullable = false)
+    private Long petId;
+
+    @Column(name = "hospital_id", nullable = false)
+    private Long hospitalId;
+
+    @Column(name = "slot_id", nullable = false)
+    private Long slotId;
+
+    @Column(name = "payment_method_id", nullable = false)
+    private Long paymentMethodId;
+
+    @Column(name = "pet_name_snapshot", nullable = false, length = 255)
+    private String petNameSnapshot;
+
+    @Column(name = "pet_species_snapshot", nullable = false, length = 10)
+    private String petSpeciesSnapshot;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private ReservationStatus status;
+
+    @Column(name = "reject_reason", length = 255)
+    private String rejectReason;
+
+    @Column(name = "requested_at", nullable = false, updatable = false)
+    private LocalDateTime requestedAt;
+
+    @Column(name = "confirmed_at")
+    private LocalDateTime confirmedAt;
+
+    @Column(name = "canceled_at")
+    private LocalDateTime canceledAt;
+
+    @Column(name = "hospital_cancel_reason", length = 255)
+    private String hospitalCancelReason;
+
+    @Column(name = "hospital_canceled_at")
+    private LocalDateTime hospitalCanceledAt;
+
+    /*
+     * 기존 행 백필 전에 Hibernate가 nullable 컬럼을 먼저 추가해야 한다. DB의 NOT NULL과
+     * 조회 인덱스는 ReservationApprovalDeadlineMigrationRunner가 백필 후 적용·검증한다.
+     */
+    @Column(name = "approval_deadline_at")
+    private LocalDateTime approvalDeadlineAt;
+
+    /** 타임아웃 처리 실패 시 다음 재시도 전까지 조회를 미루는 시각. */
+    @Column(name = "approval_timeout_next_retry_at")
+    private LocalDateTime approvalTimeoutNextRetryAt;
+
+    @Column(name = "no_show_at")
+    private LocalDateTime noShowAt;
+
+    @Column(name = "no_show_pending_at")
+    private LocalDateTime noShowPendingAt;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
+    public void markReviewed(LocalDateTime reviewedAt) {
+        this.reviewedAt = reviewedAt;
+    }
+
+    public void resetReviewed() {
+        this.reviewedAt = null;
+    }
+
+    private Reservation(
+            Long memberId,
+            Long petId,
+            Long hospitalId,
+            Long slotId,
+            Long paymentMethodId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot,
+            LocalDateTime requestedAt,
+            LocalDateTime approvalDeadlineAt
+    ) {
+        this.memberId = memberId;
+        this.petId = petId;
+        this.hospitalId = hospitalId;
+        this.slotId = slotId;
+        this.paymentMethodId = paymentMethodId;
+        this.petNameSnapshot = petNameSnapshot;
+        this.petSpeciesSnapshot = petSpeciesSnapshot;
+        this.status = ReservationStatus.REQUESTED;
+        this.requestedAt = requestedAt;
+        this.approvalDeadlineAt = approvalDeadlineAt;
+    }
+
+    /**
+     * 레거시 테스트·마이그레이션 호환용 팩토리다. 실제 예약 생성은 슬롯 시작 시각을 받는
+     * {@link #request(Long, Long, Long, Long, Long, String, String, LocalDateTime, LocalDateTime)}
+     * 를 사용한다.
+     */
+    @Deprecated(forRemoval = false)
+    public static Reservation request(
+            Long memberId,
+            Long petId,
+            Long hospitalId,
+            Long slotId,
+            Long paymentMethodId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot,
+            LocalDateTime requestedAt
+    ) {
+        // 슬롯 시작 시각을 알 수 없는 호환 경로도 동일한 min(requested+1h, slot-2h) 공식을 사용한다.
+        return request(
+                memberId,
+                petId,
+                hospitalId,
+                slotId,
+                paymentMethodId,
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                requestedAt,
+                requestedAt.plusHours(3)
+        );
+    }
+
+    /**
+     * 승인 마감 시각을 예약 생성 시 확정한다.
+     * 마감은 요청 후 1시간과 예약 시작 2시간 전 중 더 이른 시각이다.
+     */
+    public static Reservation request(
+            Long memberId,
+            Long petId,
+            Long hospitalId,
+            Long slotId,
+            Long paymentMethodId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot,
+            LocalDateTime requestedAt,
+            LocalDateTime slotStartAt
+    ) {
+        LocalDateTime requestDeadline = requestedAt.plusHours(1);
+        LocalDateTime slotDeadline = slotStartAt.minusHours(2);
+        LocalDateTime approvalDeadlineAt = requestDeadline.isBefore(slotDeadline)
+                ? requestDeadline
+                : slotDeadline;
+
+        return new Reservation(
+                memberId,
+                petId,
+                hospitalId,
+                slotId,
+                paymentMethodId,
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                requestedAt,
+                approvalDeadlineAt
+        );
+    }
+
+    public void markNoShow(LocalDateTime now) {
+        validateStatus(ReservationStatus.CONFIRMED);
+        this.status = ReservationStatus.NO_SHOW;
+        this.noShowAt = now;
+    }
+
+    public void restoreNoShow() {
+        validateStatus(ReservationStatus.NO_SHOW);
+        this.status = ReservationStatus.CHECKED_IN;
+    }
+
+    public boolean isOwnedBy(Long memberId) {
+        return this.memberId.equals(memberId);
+    }
+
+    /** 진료 전인 REQUESTED·CONFIRMED 예약만 결제수단을 다시 지정할 수 있다. */
+    public void changePaymentMethod(Long paymentMethodId) {
+        if (status != ReservationStatus.REQUESTED && status != ReservationStatus.CONFIRMED) {
+            throw new ServiceException(ReservationErrorCode.PAYMENT_METHOD_CHANGE_NOT_ALLOWED);
+        }
+        this.paymentMethodId = paymentMethodId;
+    }
+
+    private void validateStatus(ReservationStatus expectedStatus) {
+        if (this.status != expectedStatus) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+    }
+}

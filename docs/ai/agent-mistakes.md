@@ -1,0 +1,25 @@
+# 반복 실수 기록
+
+AI(또는 사람)가 잘못 제안한 내용, 잘못된 이유, 수정 방식을 기록한다. 다음 작업의 계획 단계에서 이 표를 확인해 같은 실수를 반복하지 않는다.
+
+| 날짜 | 실수 | 수정 |
+| --- | --- | --- |
+| 2026-08-03 | 정산 단계에 새 불확실 결제 사유 `RECONCILE_AMOUNT_MISMATCH`(PG가 PAID지만 금액·pgId 불일치)를 도입하면서 `PaymentRepository.findReconcileTargets`의 제외 목록에는 넣지 않아, 이미 청구됐을 수 있는 결제가 다음 배치에서 재조회→OFFLINE 전환되어 이중결제 위험이 남았다(PR #81 후속 리뷰). | 불확실 결제 사유를 새로 만들면 `findReconcileTargets`의 `failureReason not in (...)` 제외 목록에 반드시 함께 추가한다. `reconcileTargets_excludeUncertainPaidReasons` 통합 테스트에 새 사유 케이스를 넣어 재선택되지 않음을 검증한다. |
+| 2026-08-03 | 정산 소진 정책을 `임계 초과 시 OFFLINE_REQUIRED 전환`에서 `RECONCILE_STUCK로 PENDING 유지`로 바꾸면서 구현만 고치고 `PaymentReconcileService` 클래스 주석·`application.yaml`의 `max-attempts` 주석·PR 본문 설명은 옛 정책 그대로 두어 문서-구현이 어긋났다(PR #81 후속 리뷰). | 상태 전이·안전 정책(특히 자동 현장수납 전환 여부)을 바꾸면 코드와 함께 관련 주석(클래스 Javadoc·설정 파일 주석)과 PR 본문 설명을 같은 커밋에서 갱신한다. |
+| 2026-08-13 | 정책만 확정하고 구현은 뒤로 미루는 문서 PR에서 `계약 확정, 구현 후속`·`코드상 아직 불가` 같은 **시간이 지나면 거짓이 되는 서술**을 AGENTS·SA·Context Router에 넣고, 그것을 지울 책임을 어느 완료 기준에도 적지 않았다(PR #157 리뷰). 구현 PR이 코드만 반영하면 기능은 있는데 문서는 미구현이라고 말하는 상태가 되어 다음 작업자가 재구현·차단하게 된다. | 문서에 시간 의존 표기를 넣으면 **같은 PR에서 그 표기를 지울 조건과 위치를 완료 기준에 명시**한다(고도화 델타 문서의 "완료 기준" 절에 파일·절 목록으로 적는다). 정책 정본화 PR과 구현 PR이 분리될 때는 특히 필수다. |
+| 2026-08-13 | "청구 선기록 이후 항목 수정 금지" 같은 금지 규칙을 문서에 쓰면서 **강제 수단(락·조건부 UPDATE)을 적지 않아** 구현자가 check-then-act(존재 조회 후 수정)로 만들 수 있게 뒀다. 셀프 재청구와 오프라인 정산이 같은 결제를 동시에 확정하는 경합의 승자 규칙도 비어 있어 이중 수납 경로가 문서상 열려 있었다(PR #157 리뷰). | 문서에 금지·유일성 규칙을 쓸 때는 **무엇이 그것을 강제하는지**(행 락·조건부 UPDATE 조건절·DB 제약)를 같은 문장에 적는다. 상태를 바꾸는 경로가 둘 이상이면 승자 규칙과 패자의 응답 코드를 명시한다. STRICT 신호(AGENTS.md)에 해당하는 정책이면 문서 단계에서도 이 항목을 채운다. |
+| 2026-08-14 | 정책 문서에 "초안 항목에 `payment_id`를 스탬프한 다음 `payments`를 선기록한다"는 순서를 적었으나, `Payment.id`가 IDENTITY라 INSERT 전에는 스탬프할 id가 없어 **구현이 불가능한 계약**이었다(PR #157 리뷰). 같은 문서의 "정정 재청구 시 새 초안 항목을 작성한다"도 초안 게이트가 `exists(reservation_id)`라 결제 행이 남아 있으면 성립하지 않았다. | 문서에 순서·게이트를 규정할 때는 **채번 방식·제약·기존 검사 조건을 코드로 확인**한 뒤 적는다. 순서는 번호로 못박고 왜 그 순서여야 하는지(예: IDENTITY라 INSERT가 먼저)를 함께 남긴다. `exists(...)` 류 게이트를 바꿔야 하는 후속 작업이 있으면 **교체 대상 위치를 전부 열거**한다(한 곳만 적으면 나머지가 막힌다). |
+| 2026-08-18 | 고도화 델타 문서(`docs/enhancement/알림.md`)에 새 알림 유형 `RESERVATION_REQUESTED`를 정의·구현하면서 **정본 SA §4 `notifications.type` 열거와 DB설계 경량본의 같은 셀을 갱신하지 않았다**(PR #174 자가검토). 이 저장소는 `docs/enhancement/`가 델타 레이어라 SA가 동결이라고 읽히지만, 실제 관례는 **구현 PR에서 SA §4로 승격**하는 것이다(v1.53 `PAYMENT_PENDING`, v1.56 recipient 모델, PR #152 결제수단 인덱스·마커 키). 같은 누락이 PR #139에서 이미 P2로 지적된 적이 있고, 이번에 그때 놓친 `RESERVATION_WAITLIST_OFFERED`까지 두 문서에 빠져 있는 것을 함께 발견했다. | enum 값·인덱스·`schema_migrations` 마커 키를 새로 만들면 **같은 PR에서 세 곳을 grep으로 모아 함께 갱신한다** — ① 코드(enum·`@Index`·러너), ② SA §4 해당 테이블(타입 열거·인덱스명·마커 키)과 버전 헤더·변경 이력, ③ `docs/lightweight/` 사본(DB설계 경량본의 같은 셀 + 4개 경량본의 정본 참조 버전). 확인 명령: `grep -rn "<새 값>" docs/ src/main`으로 코드에만 있고 문서에 없는 상태를 잡고, `python scripts/harness_check.py`로 정본 버전 참조 정합을 확인한다(harness_check는 **열거 누락은 잡지 못한다** — 링크·버전만 본다). |
+| 2026-08-21 | `notifications.type`을 VARCHAR로 전환하면서(이슈 #176) 알림 도메인의 ENUM 확장 러너 2개만 정리하고, **예약 도메인의 `ReservationHospitalCanceledStatusMigrationRunner`가 같은 컬럼을 자기 하드코딩 ENUM으로 교체·검증하는 것**을 놓쳤다. 클래스명에 notification이 없어 러너 이름으로 grep했을 때 걸리지 않았고, 전환 후 첫 부팅이 그 러너의 검증에서 `notifications.type enum에 PAYMENT_PENDING과 RESERVATION_HOSPITAL_CANCELED가 올바르게 반영되지 않았습니다`로 죽었다. 그 러너의 목표 ENUM에는 나중에 추가된 `RESERVATION_REQUESTED`가 없어, 조건이 맞는 DB에서는 그 값을 지우거나 부팅을 깨뜨리는 지뢰이기도 했다(알림 도메인 러너들의 `@DependsOn` 체인은 다른 도메인이라 덮지 못한다). | 테이블·컬럼의 물리 타입이나 제약을 바꿀 때는 **러너 클래스명이 아니라 테이블·컬럼 이름으로 저장소 전체를 grep**한다 — `grep -rn "<테이블명>\|<컬럼명>" src/main src/test`. 도메인 경계와 무관하게 같은 컬럼을 만지는 마이그레이션이 있을 수 있고, 특히 `information_schema`로 타입을 검사하는 assert는 타입이 바뀌면 그대로 부팅 실패가 된다. 확인은 로컬 `bootRun`으로 실기동까지 한다(컴파일·단위 테스트로는 드러나지 않는다). |
+| 2026-08-21 | 알림 유형 컬럼을 VARCHAR로 전환하면서(이슈 #176) **Hibernate가 VARCHAR enum 컬럼에 함께 만드는 CHECK 제약(`check (type in ('NO_SHOW',…))`)을 놓쳤다** — ENUM을 없앴는데 CHECK가 같은 역할을 이어받아 값 추가마다 DDL이 필요한 상태가 그대로 남았고(실패만 MySQL 1265 → 3819로 이름이 바뀐다), CI에서 2건이 깨졌다. 로컬에서 못 잡은 이유가 핵심이다 — 이 CHECK는 **새로 생성되는 테이블에만** 붙고 `ddl-auto=update`는 기존 테이블에 CHECK를 추가하지 않으므로, ENUM 시절에 만들어진 오래된 개발 DB로 통합 테스트를 돌리면 전부 통과한다. 빈 DB 부팅 검증은 했지만 `SHOW COLUMNS`로 컬럼 타입만 보고 제약은 조회하지 않았고, 통합 테스트는 기존 DB로만 돌렸다. | 스키마(특히 컬럼 타입·제약)를 바꾸면 **빈 DB로도 통합 테스트를 한 번 돌린다** — `CREATE DATABASE`로 빈 스키마를 만들고 `SPRING_DATASOURCE_URL`만 바꿔 `integrationTest`를 실행하면 CI와 같은 조건이다(CI는 매 실행 빈 DB). 빈 DB 부팅 확인은 컬럼 타입만 보지 말고 제약까지 조회한다 — `information_schema.TABLE_CONSTRAINTS` + `CHECK_CONSTRAINTS`를 테이블 단위로 덤프한다. 제약 이름은 MySQL이 `<table>_chk_N`으로 자동 부여해 순서에 따라 달라지므로 하드코딩하지 말고 CHECK 절이 참조하는 컬럼으로 대상을 고른다. `@Column(columnDefinition = ...)`으로는 이 CHECK가 억제되지 않는다(실측). |
+
+## 기록 조건
+
+다음을 모두 만족할 때만 기록한다.
+
+- 같은 실수가 다음 작업에서도 반복될 가능성이 있다.
+- 원인과 수정 방식이 확인되었다 (재현 가능한 실제 실패 — Issue/PR 번호나 확인 명령 포함).
+- 나중에 읽는 사람이 바로 피할 수 있는 구체적 내용이다.
+
+단순한 추측, 한 번뿐인 일시적 환경 오류, 이미 문서에 충분히 적힌 일반 규칙은 기록하지 않는다.
+

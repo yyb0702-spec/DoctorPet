@@ -1,0 +1,1168 @@
+package com.doctorpet.domain.hospital.service;
+
+import com.doctorpet.domain.hospital.dto.response.HospitalDetailResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSummaryResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSearchPageResponse;
+import com.doctorpet.domain.hospital.dto.response.HospitalSearchResponse;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCachedPage;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCacheLookupResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchResult;
+import com.doctorpet.domain.hospital.dto.query.HospitalResponseMetrics;
+import com.doctorpet.domain.hospital.entity.BusinessStatus;
+import com.doctorpet.domain.hospital.entity.CapabilityType;
+import com.doctorpet.domain.hospital.entity.CapabilityValue;
+import com.doctorpet.domain.hospital.entity.Hospital;
+import com.doctorpet.domain.hospital.entity.HospitalCapability;
+import com.doctorpet.domain.hospital.entity.HospitalDetail;
+import com.doctorpet.domain.hospital.entity.HospitalTemporaryClosure;
+import com.doctorpet.domain.hospital.entity.PartnershipStatus;
+import com.doctorpet.domain.hospital.exception.HospitalErrorCode;
+import com.doctorpet.domain.hospital.model.DailyOperatingHours;
+import com.doctorpet.domain.hospital.model.CapabilityMatchMode;
+import com.doctorpet.domain.hospital.model.HospitalSearchSort;
+import com.doctorpet.domain.hospital.repository.HospitalCapabilityRepository;
+import com.doctorpet.domain.hospital.repository.HospitalDetailRepository;
+import com.doctorpet.domain.hospital.repository.HospitalRepository;
+import com.doctorpet.domain.hospital.repository.HospitalSearchCacheRepository;
+import com.doctorpet.domain.hospital.repository.HospitalTemporaryClosureRepository;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCandidate;
+import com.doctorpet.domain.hospital.dto.query.HospitalSearchCondition;
+import com.doctorpet.domain.review.dto.response.ReviewRatingSummary;
+import com.doctorpet.domain.review.service.ReviewQueryService;
+import com.doctorpet.global.exception.CommonErrorCode;
+import com.doctorpet.global.exception.ServiceException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class HospitalService {
+
+    private static final int POST_PROCESSING_BATCH_SIZE = 200;
+
+    private final HospitalRepository hospitalRepository;
+    private final HospitalDetailRepository hospitalDetailRepository;
+    private final HospitalCapabilityRepository hospitalCapabilityRepository;
+    private final HospitalSearchCacheRepository hospitalSearchCacheRepository;
+    private final HospitalTemporaryClosureRepository temporaryClosureRepository;
+    private final HospitalFavoriteService hospitalFavoriteService;
+    private final ReviewQueryService reviewQueryService;
+
+    @Transactional(readOnly = true)
+    public boolean exists(Long hospitalId) {
+        return hospitalRepository.existsById(hospitalId);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, List<CapabilityValue>> getCapabilitiesByHospitalIds(
+            Collection<Long> hospitalIds
+    ) {
+        List<Long> distinctHospitalIds = hospitalIds.stream()
+                .distinct()
+                .toList();
+        if (distinctHospitalIds.isEmpty()) {
+            return Map.of();
+        }
+        return hospitalCapabilityRepository.findAllByHospitalIdIn(distinctHospitalIds).stream()
+                .collect(Collectors.groupingBy(
+                        capability -> capability.getHospital().getId(),
+                        Collectors.mapping(
+                                HospitalCapability::getCapabilityValue,
+                                Collectors.toUnmodifiableList()
+                        )
+                ));
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalDetailResponse getHospitalDetail(Long hospitalId) {
+        return getHospitalDetail(hospitalId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalDetailResponse getHospitalDetail(
+            Long hospitalId,
+            Long memberId
+    ) {
+        Hospital hospital = hospitalRepository.findById(hospitalId)
+                .orElseThrow(() -> new ServiceException(HospitalErrorCode.HOSPITAL_NOT_FOUND));
+        ReviewRatingSummary ratingSummary = reviewQueryService.getRatingSummary(hospitalId);
+
+        boolean favorite = memberId != null
+                && hospitalFavoriteService.findFavoriteHospitalIds(
+                        memberId,
+                        List.of(hospitalId)
+                ).contains(hospitalId);
+
+        if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER) {
+            return HospitalDetailResponse.from(
+                    hospital,
+                    null,
+                    null,
+                    null,
+                    ratingSummary,
+                    HospitalResponseMetrics.unavailable()
+            ).withFavorite(favorite);
+        }
+
+        HospitalDetail detail = hospitalDetailRepository.findByHospital(hospital)
+                .orElseThrow(() -> {
+                    log.error(
+                            "제휴 병원의 상세정보가 없습니다. hospitalId={}",
+                            hospitalId
+                    );
+                    return new ServiceException(
+                            HospitalErrorCode.HOSPITAL_DETAIL_NOT_FOUND
+                    );
+                });
+
+        List<HospitalCapability> capabilities = hospitalCapabilityRepository.findAllByHospital(hospital);
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        Set<LocalDate> closureDates = temporaryClosureRepository.findClosures(
+                        List.of(hospitalId),
+                        List.of(now.toLocalDate(), now.toLocalDate().minusDays(1))
+                ).stream()
+                .map(HospitalTemporaryClosure::getBusinessDate)
+                .collect(java.util.stream.Collectors.toSet());
+
+        return HospitalDetailResponse.from(
+                hospital,
+                detail,
+                capabilities,
+                calculateOpenNow(
+                        hospital.getBusinessStatus(),
+                        detail.getOpenHours(),
+                        closureDates,
+                        now
+                ),
+                ratingSummary,
+                HospitalResponseMetrics.unavailable()
+        ).withFavorite(favorite);
+    }
+
+    /**
+     * 예약 목록처럼 여러 병원의 표시용 이름이 필요한 도메인을 위한 배치 조회 계약.
+     */
+    @Transactional(readOnly = true)
+    public List<HospitalSummaryResponse> getHospitalSummaries(
+            Collection<Long> hospitalIds
+    ) {
+        return hospitalRepository.findAllById(hospitalIds).stream()
+                .map(HospitalSummaryResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isReservationSlotLookupAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findById(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        return hospital.getPartnershipStatus() == PartnershipStatus.PARTNER
+                && hospital.getBusinessStatus() == BusinessStatus.OPEN;
+    }
+
+    @Transactional
+    public void assertReservationRequestAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findByIdForUpdate(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER
+                || hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            throw new ServiceException(
+                    HospitalErrorCode.HOSPITAL_RESERVATION_NOT_AVAILABLE
+            );
+        }
+    }
+
+    @Transactional
+    public void assertReservationApprovalAvailable(Long hospitalId) {
+        Hospital hospital = hospitalRepository.findByIdForUpdate(hospitalId)
+                .orElseThrow(() -> new ServiceException(
+                        HospitalErrorCode.HOSPITAL_NOT_FOUND
+                ));
+
+        if (hospital.getPartnershipStatus() != PartnershipStatus.PARTNER
+                || hospital.getBusinessStatus() != BusinessStatus.OPEN) {
+            throw new ServiceException(
+                    HospitalErrorCode.HOSPITAL_RESERVATION_APPROVAL_NOT_AVAILABLE
+            );
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalSearchPageResponse hospitalSearch(
+            String keyword,
+            String region,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            List<String> requiredCapabilities,
+            List<String> supportedSpecies,
+            Boolean surgery,
+            Boolean hospitalization,
+            Boolean nightCare,
+            Boolean emergency,
+            boolean partnerOnly,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
+    ) {
+        return hospitalSearch(
+                null,
+                keyword,
+                region,
+                latitude,
+                longitude,
+                radiusKm,
+                requiredCapabilities,
+                supportedSpecies,
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
+                partnerOnly,
+                openNowOnly,
+                page,
+                size,
+                sort
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalSearchPageResponse hospitalSearch(
+            Long memberId,
+            String keyword,
+            String region,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            List<String> requiredCapabilities,
+            List<String> supportedSpecies,
+            Boolean surgery,
+            Boolean hospitalization,
+            Boolean nightCare,
+            Boolean emergency,
+            boolean partnerOnly,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort
+    ) {
+        // 위치 조건은 위도·경도가 함께 있어야 하며, 반경은 좌표가 있을 때만 사용할 수 있습니다.
+        validateLocationCondition(latitude, longitude, radiusKm);
+
+        // 외부 문자열을 병원 검색 공통 정렬 타입으로 변환하고 지원하지 않는 값은 거부합니다.
+        HospitalSearchSort normalizedSort = normalizeSort(sort, latitude, longitude);
+
+        // Service에서 검증·변환한 검색 조건만 Repository에 전달합니다.
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                keyword,
+                region,
+                latitude,
+                longitude,
+                radiusKm,
+                parseCapabilities(requiredCapabilities),
+                parseSupportedSpecies(supportedSpecies),
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
+                partnerOnly
+        );
+
+        boolean initialListing = isInitialListing(
+                condition,
+                openNowOnly,
+                size,
+                normalizedSort
+        );
+
+        if (radiusKm != null) {
+            return withFavorites(memberId, searchWithPostProcessing(
+                    condition,
+                    latitude,
+                    longitude,
+                    radiusKm,
+                    openNowOnly,
+                    page,
+                    size,
+                    normalizedSort
+            ));
+        }
+
+        if (openNowOnly) {
+            return withFavorites(memberId, searchOpenNowWithBoundedPaging(
+                    condition,
+                    latitude,
+                    longitude,
+                    page,
+                    size,
+                    normalizedSort
+            ));
+        }
+
+        if (normalizedSort == HospitalSearchSort.DISTANCE) {
+            return withFavorites(memberId, searchDistanceWithDatabasePaging(
+                    condition,
+                    latitude,
+                    longitude,
+                    page,
+                    size
+            ));
+        }
+
+        return withFavorites(memberId, searchWithDatabasePaging(
+                condition,
+                latitude,
+                longitude,
+                page,
+                size,
+                initialListing,
+                initialListing && page == 1
+        ));
+    }
+
+    @Transactional(readOnly = true)
+    public HospitalSearchPageResponse hospitalSearchWithCapabilityMatchMode(
+            Long memberId,
+            String keyword,
+            String region,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            List<String> requiredCapabilities,
+            List<String> supportedSpecies,
+            Boolean surgery,
+            Boolean hospitalization,
+            Boolean nightCare,
+            Boolean emergency,
+            boolean partnerOnly,
+            boolean openNowOnly,
+            int page,
+            int size,
+            String sort,
+            CapabilityMatchMode capabilityMatchMode
+    ) {
+        validateLocationCondition(latitude, longitude, radiusKm);
+        HospitalSearchSort normalizedSort = normalizeSort(sort, latitude, longitude);
+        HospitalSearchCondition condition = new HospitalSearchCondition(
+                keyword,
+                region,
+                latitude,
+                longitude,
+                radiusKm,
+                parseCapabilities(requiredCapabilities),
+                parseSupportedSpecies(supportedSpecies),
+                surgery,
+                hospitalization,
+                nightCare,
+                emergency,
+                partnerOnly
+        );
+
+        return withFavorites(memberId, searchWithPostProcessing(
+                condition,
+                latitude,
+                longitude,
+                radiusKm,
+                openNowOnly,
+                page,
+                size,
+                normalizedSort,
+                capabilityMatchMode
+        ));
+    }
+
+    private HospitalSearchPageResponse withFavorites(
+            Long memberId,
+            HospitalSearchPageResponse response
+    ) {
+        if (memberId == null || response.content().isEmpty()) {
+            return response;
+        }
+
+        Set<Long> favoriteHospitalIds =
+                hospitalFavoriteService.findFavoriteHospitalIds(
+                        memberId,
+                        response.content().stream()
+                                .map(HospitalSearchResponse::hospitalId)
+                                .toList()
+                );
+
+        List<HospitalSearchResponse> content = response.content().stream()
+                .map(hospital -> hospital.withFavorite(
+                        favoriteHospitalIds.contains(hospital.hospitalId())
+                ))
+                .toList();
+
+        return new HospitalSearchPageResponse(
+                content,
+                response.page(),
+                response.size(),
+                response.totalElements(),
+                response.totalPages(),
+                response.first(),
+                response.last()
+        );
+    }
+
+    private HospitalSearchPageResponse searchWithDatabasePaging(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size,
+            boolean partnerFirst,
+            boolean cacheTarget
+    ) {
+        if (cacheTarget) {
+            HospitalSearchCacheLookupResult cacheLookup =
+                    hospitalSearchCacheRepository.findInitialPage();
+
+            return cacheLookup.cachedPageOptional()
+                    .map(cachedPage -> toPageResponse(
+                            cachedPage,
+                            latitude,
+                            longitude,
+                            page,
+                            size
+                    ))
+                    .orElseGet(() -> searchAndCacheInitialPage(
+                            condition,
+                            latitude,
+                            longitude,
+                            page,
+                            size,
+                            partnerFirst,
+                            cacheLookup.canWrite()
+                    ));
+        }
+
+        long totalElements = hospitalRepository.count(condition);
+        int totalPages = calculateTotalPages(totalElements, size);
+
+        long offset = (long) (page - 1) * size;
+        List<HospitalSearchResponse> content =
+                totalElements == 0 || page > totalPages
+                ? List.of()
+                : toSearchResults(searchPageCandidates(
+                                condition,
+                                offset,
+                                size,
+                                partnerFirst
+                        ), latitude, longitude).stream()
+                        .map(this::toSearchResponse)
+                        .toList();
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private List<HospitalSearchCandidate> searchPageCandidates(
+            HospitalSearchCondition condition,
+            long offset,
+            int size,
+            boolean partnerFirst
+    ) {
+        if (partnerFirst) {
+            return hospitalRepository.searchPartnerFirstPage(
+                    condition,
+                    offset,
+                    size
+            );
+        }
+
+        return hospitalRepository.searchPage(condition, offset, size);
+    }
+
+    private HospitalSearchPageResponse searchAndCacheInitialPage(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size,
+            boolean partnerFirst,
+            boolean cacheWritable
+    ) {
+        long totalElements = hospitalRepository.count(condition);
+        List<HospitalSearchCandidate> candidates = totalElements == 0
+                ? List.of()
+                : searchPageCandidates(
+                        condition,
+                        0,
+                        size,
+                        partnerFirst
+                );
+        HospitalSearchCachedPage cachedPage = new HospitalSearchCachedPage(
+                candidates,
+                totalElements
+        );
+
+        if (cacheWritable) {
+            hospitalSearchCacheRepository.saveInitialPage(cachedPage);
+        }
+
+        return toPageResponse(
+                cachedPage,
+                latitude,
+                longitude,
+                page,
+                size
+        );
+    }
+
+    private HospitalSearchPageResponse toPageResponse(
+            HospitalSearchCachedPage cachedPage,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size
+    ) {
+        long totalElements = cachedPage.totalElements();
+        int totalPages = calculateTotalPages(totalElements, size);
+        List<HospitalSearchResponse> content = toSearchResults(
+                        cachedPage.content(), latitude, longitude
+                ).stream()
+                .map(this::toSearchResponse)
+                .toList();
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private boolean isInitialListing(
+            HospitalSearchCondition condition,
+            boolean openNowOnly,
+            int size,
+            HospitalSearchSort sort
+    ) {
+        return condition.keyword() == null
+                && condition.region() == null
+                && condition.latitude() == null
+                && condition.longitude() == null
+                && condition.radiusKm() == null
+                && condition.requiredCapabilities().isEmpty()
+                && condition.supportedSpecies().isEmpty()
+                && condition.surgery() == null
+                && condition.hospitalization() == null
+                && condition.nightCare() == null
+                && condition.emergency() == null
+                && !condition.partnerOnly()
+                && !openNowOnly
+                && size == 20
+                && sort == HospitalSearchSort.NAME;
+    }
+
+    private HospitalSearchPageResponse searchWithPostProcessing(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            boolean openNowOnly,
+            int page,
+            int size,
+            HospitalSearchSort sort
+    ) {
+        return searchWithPostProcessing(
+                condition,
+                latitude,
+                longitude,
+                radiusKm,
+                openNowOnly,
+                page,
+                size,
+                sort,
+                CapabilityMatchMode.ALL
+        );
+    }
+
+    private HospitalSearchPageResponse searchWithPostProcessing(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm,
+            boolean openNowOnly,
+            int page,
+            int size,
+            HospitalSearchSort sort,
+            CapabilityMatchMode capabilityMatchMode
+    ) {
+        List<HospitalSearchResponse> searchedHospitals =
+                toSearchResults(
+                        hospitalRepository.searchAll(condition, capabilityMatchMode),
+                        latitude,
+                        longitude
+                ).stream()
+                        .filter(result ->
+                                isWithinRadius(
+                                        result.preciseDistanceKm(),
+                                        radiusKm
+                                ))
+                        .filter(result ->
+                                !openNowOnly || Boolean.TRUE.equals(
+                                        result.openNow()
+                                ))
+                        .sorted(resolveSearchResultComparator(sort))
+                        .map(this::toSearchResponse)
+                        .toList();
+
+        long totalElements = searchedHospitals.size();
+        int totalPages = calculateTotalPages(totalElements, size);
+
+        long fromIndex = (long) (page - 1) * size;
+        if (fromIndex >= searchedHospitals.size()) {
+            return HospitalSearchPageResponse.of(
+                    List.of(),
+                    page,
+                    size,
+                    totalElements,
+                    totalPages
+            );
+        }
+
+        long toIndex = Math.min(
+                fromIndex + size,
+                (long) searchedHospitals.size()
+        );
+
+        return HospitalSearchPageResponse.of(
+                searchedHospitals.subList(
+                        (int) fromIndex,
+                        (int) toIndex
+                ),
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private HospitalSearchPageResponse searchDistanceWithDatabasePaging(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size
+    ) {
+        long totalElements = hospitalRepository.count(condition);
+        int totalPages = calculateTotalPages(totalElements, size);
+        long offset = (long) (page - 1) * size;
+
+        List<HospitalSearchResponse> content =
+                totalElements == 0 || page > totalPages
+                        ? List.of()
+                        : toSearchResults(hospitalRepository.searchDistancePage(
+                                        condition,
+                                        latitude,
+                                        longitude,
+                                        offset,
+                                        size
+                                ), latitude, longitude).stream()
+                                .map(this::toSearchResponse)
+                                .toList();
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                totalElements,
+                totalPages
+        );
+    }
+
+    private HospitalSearchPageResponse searchOpenNowWithBoundedPaging(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            int page,
+            int size,
+            HospitalSearchSort sort
+    ) {
+        long requestedFrom = (long) (page - 1) * size;
+        long matchingCount = 0;
+        long candidateOffset = 0;
+        List<HospitalSearchResponse> content = new ArrayList<>(size);
+
+        while (true) {
+            List<HospitalSearchCandidate> candidates =
+                    searchPostProcessingBatch(
+                            condition,
+                            latitude,
+                            longitude,
+                            sort,
+                            candidateOffset
+                    );
+
+            if (candidates.isEmpty()) {
+                break;
+            }
+
+            for (HospitalSearchResult result : toSearchResults(
+                    candidates, latitude, longitude
+            )) {
+                if (!Boolean.TRUE.equals(result.openNow())) {
+                    continue;
+                }
+
+                if (matchingCount >= requestedFrom
+                        && content.size() < size) {
+                    content.add(toSearchResponse(result));
+                }
+                matchingCount++;
+            }
+
+            candidateOffset += candidates.size();
+            if (candidates.size() < POST_PROCESSING_BATCH_SIZE) {
+                break;
+            }
+        }
+
+        return HospitalSearchPageResponse.of(
+                content,
+                page,
+                size,
+                matchingCount,
+                calculateTotalPages(matchingCount, size)
+        );
+    }
+
+    private List<HospitalSearchCandidate> searchPostProcessingBatch(
+            HospitalSearchCondition condition,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            HospitalSearchSort sort,
+            long offset
+    ) {
+        if (sort == HospitalSearchSort.DISTANCE) {
+            return hospitalRepository.searchDistancePage(
+                    condition,
+                    latitude,
+                    longitude,
+                    offset,
+                    POST_PROCESSING_BATCH_SIZE
+            );
+        }
+
+        return hospitalRepository.searchPage(
+                condition,
+                offset,
+                POST_PROCESSING_BATCH_SIZE
+        );
+    }
+
+    private int calculateTotalPages(
+            long totalElements,
+            int size
+    ) {
+        // 데이터가 한 건이라도 남으면 별도 페이지가 필요하므로 나눗셈 결과를 올림합니다.
+        return totalElements == 0
+                ? 0
+                : (int) Math.ceil((double) totalElements / size);
+    }
+
+    private List<CapabilityValue> parseCapabilities(
+            List<String> capabilities
+    ) {
+        if (capabilities == null || capabilities.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            // 대소문자와 앞뒤 공백을 정리한 뒤 문자열을 CapabilityValue enum으로 변환합니다.
+            return capabilities.stream()
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .map(value -> CapabilityValue.valueOf(
+                            value.toUpperCase(Locale.ROOT)
+                    ))
+                    .distinct()
+                    .toList();
+        } catch (IllegalArgumentException exception) {
+            // enum에 존재하지 않는 역량 문자열은 잘못된 검색 조건으로 처리합니다.
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private List<CapabilityValue> parseSupportedSpecies(
+            List<String> supportedSpecies
+    ) {
+        if (supportedSpecies == null || supportedSpecies.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            return supportedSpecies.stream()
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .map(value -> CapabilityValue.valueOf(
+                            value.toUpperCase(Locale.ROOT)
+                    ))
+                    .peek(value -> {
+                        if (value.getType() != CapabilityType.SPECIES) {
+                            throw new IllegalArgumentException();
+                        }
+                    })
+                    .distinct()
+                    .toList();
+        } catch (IllegalArgumentException exception) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private HospitalSearchResult toSearchResult(
+            HospitalSearchCandidate candidate,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            Set<LocalDate> closureDates,
+            LocalDateTime now
+    ) {
+        BigDecimal preciseDistanceKm = calculatePreciseDistanceKm(
+                latitude,
+                longitude,
+                candidate.latitude(),
+                candidate.longitude()
+        );
+
+        return new HospitalSearchResult(
+                candidate,
+                preciseDistanceKm,
+                resolveOpenNow(candidate, closureDates, now)
+        );
+    }
+
+    private List<HospitalSearchResult> toSearchResults(
+            List<HospitalSearchCandidate> candidates,
+            BigDecimal latitude,
+            BigDecimal longitude
+    ) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        Map<Long, Set<LocalDate>> closureDatesByHospital =
+                findClosureDatesByHospital(candidates, now.toLocalDate());
+
+        return candidates.stream()
+                .map(candidate -> toSearchResult(
+                        candidate,
+                        latitude,
+                        longitude,
+                        closureDatesByHospital.getOrDefault(
+                                candidate.hospitalId(),
+                                Set.of()
+                        ),
+                        now
+                ))
+                .toList();
+    }
+
+    private Map<Long, Set<LocalDate>> findClosureDatesByHospital(
+            List<HospitalSearchCandidate> candidates,
+            LocalDate today
+    ) {
+        List<Long> partnerHospitalIds = candidates.stream()
+                .filter(candidate -> candidate.partnershipStatus()
+                        == PartnershipStatus.PARTNER)
+                .map(HospitalSearchCandidate::hospitalId)
+                .distinct()
+                .toList();
+        if (partnerHospitalIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, Set<LocalDate>> closureDatesByHospital = new HashMap<>();
+        for (HospitalTemporaryClosure closure
+                : temporaryClosureRepository.findClosures(
+                        partnerHospitalIds,
+                        List.of(today, today.minusDays(1))
+                )) {
+            closureDatesByHospital.computeIfAbsent(
+                    closure.getHospital().getId(),
+                    ignored -> new HashSet<>()
+            ).add(closure.getBusinessDate());
+        }
+        return closureDatesByHospital;
+    }
+
+    private HospitalSearchResponse toSearchResponse(
+            HospitalSearchResult result
+    ) {
+        return HospitalSearchResponse.from(
+                result.candidate(),
+                roundDistanceKm(result.preciseDistanceKm()),
+                result.openNow()
+        );
+    }
+
+    private Boolean resolveOpenNow(
+            HospitalSearchCandidate candidate,
+            Set<LocalDate> closureDates,
+            LocalDateTime now
+    ) {
+        // 비제휴 병원은 운영시간 데이터가 없으므로 현재 영업 여부를 null로 반환합니다.
+        if (candidate.partnershipStatus() != PartnershipStatus.PARTNER) {
+            return null;
+        }
+
+        return candidate.openHours() != null
+                && calculateOpenNow(
+                        candidate.businessStatus(),
+                        candidate.openHours(),
+                        closureDates,
+                        now
+                );
+    }
+
+    private void validateLocationCondition(
+            BigDecimal latitude,
+            BigDecimal longitude,
+            BigDecimal radiusKm
+    ) {
+        boolean hasLatitude = latitude != null;
+        boolean hasLongitude = longitude != null;
+
+        // 위도·경도 중 하나만 있거나, 기준 좌표 없이 반경만 있으면 거리를 계산할 수 없습니다.
+        if (hasLatitude != hasLongitude
+                || (radiusKm != null && !hasLatitude)) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+    }
+
+    private HospitalSearchSort normalizeSort(
+            String sort,
+            BigDecimal latitude,
+            BigDecimal longitude
+    ) {
+        HospitalSearchSort normalizedSort;
+        try {
+            normalizedSort = HospitalSearchSort.from(sort);
+        } catch (IllegalArgumentException exception) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+
+        // 거리순 정렬은 사용자 위치가 있어야 병원별 거리를 계산할 수 있습니다.
+        if (normalizedSort == HospitalSearchSort.DISTANCE
+                && (latitude == null || longitude == null)) {
+            throw new ServiceException(
+                    CommonErrorCode.VALIDATION_FAILED
+            );
+        }
+
+        return normalizedSort;
+    }
+
+    private boolean isWithinRadius(
+            BigDecimal preciseDistanceKm,
+            BigDecimal radiusKm
+    ) {
+        // 반경 조건이 없으면 거리와 관계없이 모든 병원을 통과시킵니다.
+        if (radiusKm == null) {
+            return true;
+        }
+
+        // 응답용 반올림 전 정밀 거리를 비교해 반경 밖 후보가 포함되지 않게 합니다.
+        return preciseDistanceKm != null
+                && preciseDistanceKm.compareTo(radiusKm) <= 0;
+    }
+
+    private Comparator<HospitalSearchResult> resolveSearchResultComparator(
+            HospitalSearchSort sort
+    ) {
+        // 같은 이름의 병원도 항상 일정한 순서로 나오도록 hospitalId를 보조 정렬 기준으로 사용합니다.
+        Comparator<HospitalSearchResult> nameComparator =
+                Comparator.comparing(
+                                (HospitalSearchResult result) ->
+                                        result.candidate().name(),
+                                Comparator.nullsLast(
+                                        String.CASE_INSENSITIVE_ORDER
+                                )
+                        )
+                        .thenComparing(
+                                result -> result.candidate().hospitalId()
+                        );
+
+        if (sort == HospitalSearchSort.DISTANCE) {
+            // 반올림 전 거리가 같으면 이름과 ID 순서로 결과를 고정합니다.
+            return Comparator.comparing(
+                            HospitalSearchResult::preciseDistanceKm,
+                            Comparator.nullsLast(
+                                    Comparator.naturalOrder()
+                            )
+                    )
+                    .thenComparing(nameComparator);
+        }
+
+        return nameComparator;
+    }
+
+    private BigDecimal calculatePreciseDistanceKm(
+            BigDecimal userLatitude,
+            BigDecimal userLongitude,
+            BigDecimal hospitalLatitude,
+            BigDecimal hospitalLongitude
+    ) {
+        if (userLatitude == null
+                || userLongitude == null
+                || hospitalLatitude == null
+                || hospitalLongitude == null) {
+            return null;
+        }
+
+        // 하버사인 공식으로 지구 표면을 따른 두 좌표 사이의 직선거리를 계산합니다.
+        final double earthRadiusKm = 6371.0088;
+        double latitudeDistance = Math.toRadians(
+                hospitalLatitude.doubleValue()
+                        - userLatitude.doubleValue()
+        );
+        double longitudeDistance = Math.toRadians(
+                hospitalLongitude.doubleValue()
+                        - userLongitude.doubleValue()
+        );
+        double userLatitudeRadians = Math.toRadians(
+                userLatitude.doubleValue()
+        );
+        double hospitalLatitudeRadians = Math.toRadians(
+                hospitalLatitude.doubleValue()
+        );
+
+        double haversine =
+                Math.sin(latitudeDistance / 2)
+                        * Math.sin(latitudeDistance / 2)
+                        + Math.cos(userLatitudeRadians)
+                        * Math.cos(hospitalLatitudeRadians)
+                        * Math.sin(longitudeDistance / 2)
+                        * Math.sin(longitudeDistance / 2);
+
+        double distance = earthRadiusKm
+                * 2
+                * Math.atan2(
+                        Math.sqrt(haversine),
+                        Math.sqrt(1 - haversine)
+                );
+
+        return BigDecimal.valueOf(distance);
+    }
+
+    private BigDecimal roundDistanceKm(BigDecimal preciseDistanceKm) {
+        return preciseDistanceKm == null
+                ? null
+                : preciseDistanceKm.setScale(1, RoundingMode.HALF_UP);
+    }
+
+    private boolean calculateOpenNow(
+            BusinessStatus businessStatus,
+            Map<DayOfWeek, DailyOperatingHours> openHours,
+            Set<LocalDate> closureDates,
+            LocalDateTime now
+    ) {
+        if (businessStatus != BusinessStatus.OPEN) {
+            return false;
+        }
+
+        DayOfWeek today = now.getDayOfWeek();
+        LocalTime currentTime = now.toLocalTime();
+        var todayHours = openHours.get(today);
+
+        // 오늘 일정은 당일 시작 시각 이후 구간만 판단합니다.
+        // 예: 화요일 20:00~02:00은 화요일 01:00이 아니라 20:00부터 적용됩니다.
+        if (isOpenDuringTodayHours(todayHours, currentTime)) {
+            return !closureDates.contains(now.toLocalDate());
+        }
+
+        // 자정 이후에는 전날 시작한 심야영업이 이어질 수 있으므로 전날 일정도 확인합니다.
+        // 예: 월요일 20:00~02:00이면 화요일 01:00에도 영업 중입니다.
+        DayOfWeek yesterday = today.minus(1);
+        var yesterdayHours = openHours.get(yesterday);
+
+        return isOpenAfterMidnight(yesterdayHours, currentTime)
+                && !closureDates.contains(now.toLocalDate().minusDays(1));
+    }
+
+    private boolean isOpenDuringTodayHours(
+            DailyOperatingHours operatingHours,
+            LocalTime currentTime
+    ) {
+        if (operatingHours == null) {
+            return false;
+        }
+
+        LocalTime openTime = operatingHours.openTime();
+        LocalTime closeTime = operatingHours.closeTime();
+
+        if (openTime.equals(closeTime)) {
+            return false;
+        }
+
+        // 일반 영업은 시작 시각을 포함하고 종료 시각은 포함하지 않습니다.
+        if (openTime.isBefore(closeTime)) {
+            return !currentTime.isBefore(openTime)
+                    && currentTime.isBefore(closeTime);
+        }
+
+        // 자정을 넘는 오늘 영업은 오늘 시작 시각 이후 구간만 여기서 판단합니다.
+        // 자정 이후 종료 시각 이전 구간은 isOpenAfterMidnight에서 전날 일정으로 판단합니다.
+        return !currentTime.isBefore(openTime);
+    }
+
+    private boolean isOpenAfterMidnight(
+            DailyOperatingHours operatingHours,
+            LocalTime currentTime
+    ) {
+        if (operatingHours == null) {
+            return false;
+        }
+
+        LocalTime openTime = operatingHours.openTime();
+        LocalTime closeTime = operatingHours.closeTime();
+
+        // 시작 시각이 종료 시각보다 늦은 일정만 자정을 넘는 영업입니다.
+        // 종료 시각 정각부터는 영업이 끝난 것으로 처리합니다.
+        return openTime.isAfter(closeTime)
+                && currentTime.isBefore(closeTime);
+    }
+}

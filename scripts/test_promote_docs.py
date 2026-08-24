@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""promote_docs.py 회귀 테스트 — 임시 문서 트리로 승격 동작을 고정한다.
+
+CI가 promote_docs.py를 한 번도 실행하지 않아, SA·PRD 동시 승격·마이너 자릿수 경계·
+특수문자 엔트리·헤더 누락·--dry-run 파일 불변 같은 핵심 동작이 깨져도 못 잡던
+사각지대를 막는다(리뷰 지적). 실제 정본을 건드리지 않도록 tmp 디렉터리를 대상으로 한다.
+
+실행: python -m unittest discover -s scripts -p "test_*.py"
+"""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import promote_docs as pd
+
+SA_DOC = (
+    "| 문서 버전 | v1.51 |\n\n"
+    "> 변경 이력 — v1.50: 첫째. v1.51: 둘째.\n\n"
+    "본문.\n"
+)
+PRD_DOC = (
+    "| 문서 버전 | v3.24 |\n\n"
+    "> 변경 이력 — v3.23: 가. v3.24: 나.\n\n"
+    "본문.\n"
+)
+LW_DOC = (
+    "| 제품 요구사항 | `docs/product/DoctorPet-PRD.md` v3.24 |\n"
+    "| 시스템 설계·ERD·API·상태 머신 | `docs/architecture/DoctorPet-SA.md` v1.51, REST API는 §8 |\n"
+)
+
+
+class PromoteDocsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "docs/architecture").mkdir(parents=True)
+        (self.tmp / "docs/product").mkdir(parents=True)
+        (self.tmp / "docs/lightweight").mkdir(parents=True)
+        self.sa = self.tmp / "docs/architecture/DoctorPet-SA.md"
+        self.prd = self.tmp / "docs/product/DoctorPet-PRD.md"
+        self.lw = self.tmp / "docs/lightweight/DB-경량본.md"
+        self.readme = self.tmp / "docs/lightweight/README.md"
+        self.sa.write_text(SA_DOC, encoding="utf-8")
+        self.prd.write_text(PRD_DOC, encoding="utf-8")
+        self.lw.write_text(LW_DOC, encoding="utf-8")
+        self.readme.write_text("경량본은 건드리지 않는다.\n", encoding="utf-8")
+
+        # 모듈 전역을 임시 트리로 교체(ROOT은 요약 출력의 relative_to 기준)
+        self._orig = (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness)
+        pd.ROOT = self.tmp
+        pd.SA = self.sa
+        pd.PRD = self.prd
+        pd.LIGHTWEIGHT_DIR = self.tmp / "docs/lightweight"
+        pd._run_harness = lambda: 0  # 실제 harness_check는 여기서 검증 대상 아님
+
+    def tearDown(self):
+        (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness) = self._orig
+
+    def _run(self, *argv: str) -> int:
+        old = sys.argv
+        sys.argv = ["promote_docs.py", *argv]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return pd.main()
+        finally:
+            sys.argv = old
+
+    # --- 단위: _next_version 경계 ---
+    def test_next_version_minor_increment(self):
+        self.assertEqual(pd._next_version("| 문서 버전 | v1.51 |", "SA"),
+                         ("v1.51", "v1.52"))
+
+    def test_next_version_double_digit_boundary(self):
+        # v1.9 → v1.10 (문자열 정렬이 아니라 정수 +1)
+        self.assertEqual(pd._next_version("| 문서 버전 | v1.9 |", "SA"),
+                         ("v1.9", "v1.10"))
+
+    def test_next_version_missing_header_raises(self):
+        with self.assertRaises(pd.PromoteError):
+            pd._next_version("헤더가 없는 문서", "SA")
+
+    # --- SA 단독 승격 ---
+    def test_sa_bump(self):
+        rc = self._run("--sa", "테스트 항목")
+        self.assertEqual(rc, 0)
+        sa = self.sa.read_text(encoding="utf-8")
+        self.assertIn("| 문서 버전 | v1.52 |", sa)
+        self.assertIn("v1.52: 테스트 항목.", sa)  # 마침표 자동 부착
+        lw = self.lw.read_text(encoding="utf-8")
+        # 경량본 SA 참조 동기 + 트레일링 텍스트 보존
+        self.assertIn("`docs/architecture/DoctorPet-SA.md` v1.52, REST API는 §8", lw)
+        # PRD 참조는 그대로
+        self.assertIn("`docs/product/DoctorPet-PRD.md` v3.24", lw)
+
+    # --- SA·PRD 동시 승격 (한쪽이 다른 쪽을 덮지 않아야) ---
+    def test_sa_and_prd_together(self):
+        rc = self._run("--sa", "에스에이.", "--prd", "피알디.")
+        self.assertEqual(rc, 0)
+        self.assertIn("| 문서 버전 | v1.52 |", self.sa.read_text(encoding="utf-8"))
+        self.assertIn("| 문서 버전 | v3.25 |", self.prd.read_text(encoding="utf-8"))
+        lw = self.lw.read_text(encoding="utf-8")
+        self.assertIn("`docs/architecture/DoctorPet-SA.md` v1.52, REST API는 §8", lw)
+        self.assertIn("`docs/product/DoctorPet-PRD.md` v3.25", lw)
+
+    # --- 특수문자·백슬래시 엔트리도 안전 (re.sub 치환 파손 없음) ---
+    def test_special_char_entry(self):
+        entry = r"백슬래시 \g<1> 와 $1 와 `코드` 포함."
+        rc = self._run("--sa", entry)
+        self.assertEqual(rc, 0)
+        sa = self.sa.read_text(encoding="utf-8")
+        self.assertIn(f"v1.52: {entry}", sa)  # 원문 그대로 보존
+
+    # --- 마침표 중복 부착 안 함 ---
+    def test_period_not_doubled(self):
+        self._run("--sa", "이미 마침표로 끝난다.")
+        sa = self.sa.read_text(encoding="utf-8")
+        self.assertIn("v1.52: 이미 마침표로 끝난다.", sa)
+        self.assertNotIn("끝난다..", sa)
+
+    # --- --dry-run 은 파일을 바꾸지 않는다 ---
+    def test_dry_run_is_immutable(self):
+        before = (self.sa.read_text(encoding="utf-8"),
+                  self.prd.read_text(encoding="utf-8"),
+                  self.lw.read_text(encoding="utf-8"))
+        rc = self._run("--dry-run", "--sa", "미리보기", "--prd", "미리보기")
+        self.assertEqual(rc, 0)
+        after = (self.sa.read_text(encoding="utf-8"),
+                 self.prd.read_text(encoding="utf-8"),
+                 self.lw.read_text(encoding="utf-8"))
+        self.assertEqual(before, after)
+
+    # --- 인자 없으면 에러 종료 ---
+    def test_no_target_errors(self):
+        with self.assertRaises(SystemExit) as cm:
+            self._run()  # --sa/--prd 없음
+        self.assertNotEqual(cm.exception.code, 0)
+
+    # --- 헤더 없는 정본이면 실패(rc=1), 조용히 통과 안 함 ---
+    def test_missing_header_returns_error(self):
+        self.sa.write_text("헤더도 변경 이력도 없다.\n", encoding="utf-8")
+        rc = self._run("--sa", "항목")
+        self.assertEqual(rc, 1)
+        # 실패 시 파일을 쓰지 않았는지(경량본 불변)
+        self.assertIn("v1.51, REST API는 §8", self.lw.read_text(encoding="utf-8"))
+
+    # --- 헤더는 있지만 '> 변경 이력' 줄이 없으면 실패(rc=1), 파일 불변 ---
+    def test_missing_changelog_returns_error(self):
+        self.sa.write_text("| 문서 버전 | v1.51 |\n\n본문만 있고 변경 이력 줄이 없다.\n",
+                           encoding="utf-8")
+        rc = self._run("--sa", "항목")
+        self.assertEqual(rc, 1)
+        # 헤더 치환은 메모리에서만 일어났고 실제 파일은 안 써야 한다
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+        self.assertIn("v1.51, REST API는 §8", self.lw.read_text(encoding="utf-8"))
+
+    # --- 엔트리 검증: 개행·빈 문자열 거부(한 줄 이력 보장) ---
+    def test_entry_with_newline_rejected(self):
+        rc = self._run("--sa", "첫째 줄\n둘째 줄")
+        self.assertEqual(rc, 1)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_entry_with_cr_rejected(self):
+        self.assertEqual(self._run("--sa", "캐리지리턴\r포함"), 1)
+
+    def test_entry_empty_rejected(self):
+        self.assertEqual(self._run("--sa", "   "), 1)
+
+    def test_validate_entry_unit(self):
+        with self.assertRaises(pd.PromoteError):
+            pd._validate_entry("a\nb", "SA")
+        with self.assertRaises(pd.PromoteError):
+            pd._validate_entry("   ", "SA")
+        pd._validate_entry("정상 한 줄.", "SA")  # 예외 없어야 한다
+
+    # --- 검증기 부재 시 성공(0)이 아니라 실패(1)여야 한다(리뷰 지적 P2) ---
+    def test_run_harness_fails_when_checker_missing(self):
+        # setUp이 _run_harness를 스텁으로 바꿔뒀으므로, 원본을 복원해 실제 동작을 검증한다.
+        # pd.ROOT는 이미 scripts/harness_check.py가 없는 tmp 트리다. main()과 달리 여기서는 stdout이
+        # UTF-8로 reconfigure되지 않았으므로(Windows 콘솔 cp949), 출력은 버리고 리턴값만 본다.
+        real_run_harness = self._orig[4]
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = real_run_harness()
+        self.assertEqual(result, 1)
+
+
+class PromoteCommitTest(unittest.TestCase):
+    """--commit: develop 브랜치·origin/develop 동기·clean tree 강제 + 산출 파일만 stage.
+
+    실제 로컬 git 저장소 + bare remote를 만들어 fetch·rev-parse가 진짜로 동작하는
+    상태에서 검증한다(리뷰 지적 — 브랜치·원격 동기 검사가 스텁이면 회귀를 못 잡는다).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.remote = Path(tempfile.mkdtemp())
+        (self.tmp / "docs/architecture").mkdir(parents=True)
+        (self.tmp / "docs/product").mkdir(parents=True)
+        (self.tmp / "docs/lightweight").mkdir(parents=True)
+        self.sa = self.tmp / "docs/architecture/DoctorPet-SA.md"
+        self.prd = self.tmp / "docs/product/DoctorPet-PRD.md"
+        self.lw = self.tmp / "docs/lightweight/DB-경량본.md"
+        self.other = self.tmp / "docs/unrelated.md"
+        self.sa.write_text(SA_DOC, encoding="utf-8")
+        self.prd.write_text(PRD_DOC, encoding="utf-8")
+        self.lw.write_text(LW_DOC, encoding="utf-8")
+        self.other.write_text("무관한 파일.\n", encoding="utf-8")
+
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+
+        self._g("init", "-q", "-b", "develop")
+        self._g("config", "user.email", "t@example.com")
+        self._g("config", "user.name", "test")
+        self._g("config", "core.quotepath", "false")  # 한글 경로를 따옴표 없이 출력
+        self._g("add", "-A")
+        self._g("commit", "-qm", "init")
+        self._g("remote", "add", "origin", str(self.remote))
+        self._g("push", "-q", "origin", "develop")
+
+        self._orig = (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness)
+        pd.ROOT = self.tmp
+        pd.SA = self.sa
+        pd.PRD = self.prd
+        pd.LIGHTWEIGHT_DIR = self.tmp / "docs/lightweight"
+        pd._run_harness = lambda: 0
+
+    def tearDown(self):
+        (pd.ROOT, pd.SA, pd.PRD, pd.LIGHTWEIGHT_DIR, pd._run_harness) = self._orig
+
+    def _g(self, *a: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.tmp), *a],
+                              capture_output=True, text=True, encoding="utf-8")
+
+    def _run(self, *argv: str) -> int:
+        old = sys.argv
+        sys.argv = ["promote_docs.py", *argv]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return pd.main()
+        finally:
+            sys.argv = old
+
+    def test_commit_stages_only_promotion_files(self):
+        rc = self._run("--sa", "승격 테스트.", "--commit")
+        self.assertEqual(rc, 0)
+        files = self._g("show", "--name-only", "--pretty=format:", "HEAD").stdout.split()
+        self.assertIn("docs/architecture/DoctorPet-SA.md", files)
+        self.assertIn("docs/lightweight/DB-경량본.md", files)
+        self.assertNotIn("docs/unrelated.md", files)  # 무관한 파일은 안 들어감
+        self.assertEqual(self._g("status", "--porcelain").stdout.strip(), "")  # 다시 clean
+
+    def test_commit_refuses_dirty_tree(self):
+        self.other.write_text("승격과 무관하게 수정됨.\n", encoding="utf-8")
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        # 커밋도 안 생기고, 정본 파일도 안 써짐(쓰기 전에 거부)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_with_dry_run_is_arg_error(self):
+        with self.assertRaises(SystemExit) as cm:
+            self._run("--sa", "x", "--commit", "--dry-run")
+        self.assertNotEqual(cm.exception.code, 0)
+
+    def test_commit_reverts_written_files_on_harness_failure(self):
+        # --commit + harness FAIL이면, 방금 쓴 산출 파일을 되돌려 워킹트리를 다시 clean으로 복구해야 한다
+        # (안 그러면 이후 push 거부 복구 절차의 reset --hard가 그 편집을 지울 위험).
+        pd._run_harness = lambda: 1  # 검증 실패 강제
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)  # 커밋 없음
+        self.assertEqual(self._g("status", "--porcelain").stdout.strip(), "")       # 워킹트리 clean 복구
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))  # 버전도 원복
+
+    # --- 브랜치·원격 동기 검사 (리뷰 지적 P1) ---
+
+    def test_commit_refuses_non_develop_branch(self):
+        # feature 브랜치에서 --commit하면 developer가 아니라 이 검사가 막아야 한다.
+        self._g("checkout", "-q", "-b", "feature/x")
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_refuses_when_local_has_unrelated_commit_ahead_of_origin(self):
+        # develop 위에 승격과 무관한 로컬 커밋이 있으면(origin/develop과 어긋남) 거부해야 한다 —
+        # 안 그러면 그 커밋이 승격 push에 실려 PR 없이 develop에 반영된다(리뷰가 지적한 시나리오).
+        (self.tmp / "docs/side-note.md").write_text("무관한 커밋.\n", encoding="utf-8")
+        self._g("add", "-A")
+        self._g("commit", "-qm", "unrelated local commit")
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_refuses_when_local_is_behind_origin_develop(self):
+        # origin/develop이 로컬보다 앞서 있으면(다른 승격이 먼저 push) 거부해야 한다. 스크립트가
+        # 내부에서 fetch하므로, 실행 전 사람이 fetch했는지와 무관하게 stale 상태를 스스로 잡아야 한다.
+        other_clone = Path(tempfile.mkdtemp())
+        # bare remote의 symbolic HEAD는 여전히 기본 브랜치(master 등)를 가리키므로 develop을
+        # 명시해 체크아웃한다(그 기본 브랜치는 애초에 존재하지 않아 checkout이 조용히 실패한다).
+        subprocess.run(["git", "clone", "-q", "--branch", "develop", str(self.remote), str(other_clone)],
+                       check=True)
+        (other_clone / "extra.md").write_text("다른 사람이 먼저 승격.\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(other_clone), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(other_clone), "-c", "user.email=o@example.com",
+                        "-c", "user.name=other", "commit", "-qm", "other promotion"], check=True)
+        subprocess.run(["git", "-C", str(other_clone), "push", "-q", "origin", "develop"], check=True)
+
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_succeeds_on_develop_synced_with_origin(self):
+        # 양성 케이스: develop 브랜치 + origin/develop과 정확히 일치 + clean tree면 통과한다.
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 0)
+        self.assertIn("| 문서 버전 | v1.52 |", self.sa.read_text(encoding="utf-8"))
+
+    def test_commit_refuses_when_harness_checker_missing(self):
+        # setUp의 _run_harness 스텁을 걷어내 실제 동작으로 --commit 전체 흐름을 검증한다(리뷰 지적 P2).
+        # self.tmp에는 scripts/harness_check.py가 없으므로 검증기 부재 상태다.
+        pd._run_harness = self._orig[4]
+        head_before = self._g("rev-parse", "HEAD").stdout.strip()
+        rc = self._run("--sa", "승격.", "--commit")
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._g("rev-parse", "HEAD").stdout.strip(), head_before)
+        self.assertIn("| 문서 버전 | v1.51 |", self.sa.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

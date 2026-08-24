@@ -1,0 +1,445 @@
+package com.doctorpet.domain.reservation.service;
+
+import com.doctorpet.domain.reservation.dto.request.ReservationListCondition;
+import com.doctorpet.domain.reservation.dto.request.ReservationRequest;
+import com.doctorpet.domain.reservation.dto.request.ReservationSlotCreateCommand;
+import com.doctorpet.domain.reservation.dto.query.ReservationSlotQueryResult;
+import com.doctorpet.domain.reservation.dto.response.ReservationResponse;
+import com.doctorpet.domain.reservation.entity.Reservation;
+import com.doctorpet.domain.reservation.entity.ReservationSlot;
+import com.doctorpet.domain.reservation.entity.status.ReservationStatus;
+import com.doctorpet.domain.reservation.entity.status.ReservationSlotStatus;
+import com.doctorpet.domain.reservation.exception.ReservationErrorCode;
+import com.doctorpet.domain.reservation.exception.SlotErrorCode;
+import com.doctorpet.domain.reservation.lock.ReservationLockStrategy;
+import com.doctorpet.domain.reservation.repository.ReservationRepository;
+import com.doctorpet.domain.reservation.repository.ReservationSlotRepository;
+import com.doctorpet.global.exception.CommonErrorCode;
+import com.doctorpet.global.exception.ServiceException;
+import java.util.List;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static com.doctorpet.domain.reservation.policy.ReservationPolicy.LEAD_TIME;
+import static com.doctorpet.global.time.TimePolicy.SEOUL_ZONE_ID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class ReservationService {
+
+    private static final int MAX_PAGE_SIZE = 100;
+
+    private final ReservationRepository reservationRepository;
+    private final ReservationSlotRepository reservationSlotRepository;
+    private final ReservationLockStrategy reservationLockStrategy;
+    private final ReservationSlotReleaseService reservationSlotReleaseService;
+
+    /*
+      회원 탈퇴 전 활성 예약(CONFIRMED·NO_SHOW_PENDING·CHECKED_IN) 보유 여부 확인용(SA §6-3, 부록A 확정).
+      다른 도메인(Member)은 이 Service를 경유해서만 호출한다 — ReservationRepository를
+      직접 참조하지 않는다(구현 가드레일).
+     */
+    public boolean hasActiveReservation(Long memberId) {
+        return reservationRepository.existsByMemberIdAndStatusIn(
+                memberId,
+                List.of(
+                        ReservationStatus.CONFIRMED,
+                        ReservationStatus.NO_SHOW_PENDING,
+                        ReservationStatus.CHECKED_IN
+                )
+        );
+    }
+
+    public boolean exists(Long reservationId) {
+        return reservationRepository.existsById(reservationId);
+    }
+
+    public Optional<Long> findHospitalIdForOwner(Long reservationId, Long memberId) {
+        return reservationRepository.findByIdAndMemberId(reservationId, memberId)
+                .map(Reservation::getHospitalId);
+    }
+
+    public boolean isReviewed(Long reservationId) {
+        return reservationRepository.findById(reservationId)
+                .map(Reservation::getReviewedAt)
+                .isPresent();
+    }
+
+    @Transactional
+    public int claimReviewOpportunity(
+            Long reservationId,
+            Long memberId,
+            LocalDateTime reviewedAt
+    ) {
+        return reservationRepository.claimReviewOpportunity(
+                reservationId,
+                memberId,
+                reviewedAt
+        );
+    }
+
+    @Transactional
+    public void resetReviewed(Long reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ServiceException(CommonErrorCode.NOT_FOUND));
+        reservation.resetReviewed();
+    }
+
+    /**
+     * 예약 생성에 필요한 슬롯 점유·리드타임·예약 저장만 담당한다.
+     * 회원·반려동물·결제수단 검증과 스냅샷 생성은 ReservationApplicationService가 수행한다.
+     */
+    public List<ReservationSlotQueryResult> findSlots(
+            Long hospitalId,
+            LocalDateTime rangeStart,
+            LocalDateTime rangeEnd
+    ) {
+        return reservationSlotRepository
+                .findSlotsInRange(
+                        hospitalId,
+                        rangeStart,
+                        rangeEnd
+                )
+                .stream()
+                .map(ReservationSlotQueryResult::from)
+                .toList();
+    }
+
+    public Optional<LocalDate> findLatestReservedBusinessDate(
+            Long hospitalId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        return reservationSlotRepository.findLatestReservedBusinessDate(
+                hospitalId,
+                fromDate,
+                toDate,
+                fromDate.atStartOfDay(),
+                toDate.plusDays(2).atStartOfDay()
+        );
+    }
+
+    @Transactional
+    public boolean removeOpenSlotsIfNoReservation(
+            Long hospitalId,
+            LocalDate businessDate
+    ) {
+        List<ReservationSlot> slots = reservationSlotRepository
+                .findBusinessDateSlotsForUpdate(hospitalId, businessDate);
+        boolean hasReservedSlot = slots.stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            return false;
+        }
+
+        int deletedSlotCount = reservationSlotRepository.deleteOpenSlots(
+                hospitalId,
+                businessDate
+        );
+        return deletedSlotCount == slots.size();
+    }
+
+    @Transactional
+    public int createOpenSlots(
+            Long hospitalId,
+            LocalDate businessDate,
+            List<ReservationSlotCreateCommand> commands
+    ) {
+        Set<LocalDateTime> existingStartTimes = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate)
+                .stream()
+                .map(ReservationSlot::getStartAt)
+                .collect(Collectors.toSet());
+        List<ReservationSlot> slots = commands.stream()
+                .filter(command -> !existingStartTimes.contains(command.startAt()))
+                .map(command -> ReservationSlot.create(
+                        hospitalId,
+                        command.startAt(),
+                        command.endAt(),
+                        businessDate
+                ))
+                .toList();
+
+        reservationSlotRepository.saveAll(slots);
+        return slots.size();
+    }
+
+    @Transactional
+    public void lockOpenSlotsForReplacement(
+            Long hospitalId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        boolean hasReservedSlot = reservationSlotRepository
+                .findBusinessDateSlotsInRangeForUpdate(
+                        hospitalId,
+                        fromDate,
+                        toDate,
+                        fromDate.atStartOfDay(),
+                        toDate.plusDays(2).atStartOfDay()
+                )
+                .stream()
+                .anyMatch(slot -> slot.getStatus() == ReservationSlotStatus.RESERVED);
+        if (hasReservedSlot) {
+            throw new ServiceException(SlotErrorCode.ALREADY_RESERVED);
+        }
+    }
+
+    @Transactional
+    public int replaceOpenSlots(
+            Long hospitalId,
+            LocalDate businessDate,
+            List<ReservationSlotCreateCommand> commands
+    ) {
+        List<ReservationSlot> existingSlots = reservationSlotRepository
+                .findBusinessDateSlots(hospitalId, businessDate);
+        int deletedSlotCount = reservationSlotRepository.deleteOpenSlots(
+                hospitalId,
+                businessDate
+        );
+        if (deletedSlotCount != existingSlots.size()) {
+            throw new ServiceException(SlotErrorCode.ALREADY_RESERVED);
+        }
+
+        List<ReservationSlot> replacementSlots = commands.stream()
+                .map(command -> ReservationSlot.create(
+                        hospitalId,
+                        command.startAt(),
+                        command.endAt(),
+                        businessDate
+                ))
+                .toList();
+        reservationSlotRepository.saveAll(replacementSlots);
+        return replacementSlots.size();
+    }
+
+    @Transactional
+    public ReservationResponse request(
+            Long memberId,
+            ReservationRequest request,
+            String petNameSnapshot,
+            String petSpeciesSnapshot
+    ) {
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+
+        ReservationSlot slot = findSlot(request.slotId());
+        if (slot.getStartAt().isBefore(now.plus(LEAD_TIME))) {
+            throw new ServiceException(ReservationErrorCode.LEAD_TIME_VIOLATION);
+        }
+
+        slot = reservationLockStrategy.reserve(request.slotId());
+
+        Reservation reservation = Reservation.request(
+                memberId,
+                request.petId(),
+                slot.getHospitalId(),
+                slot.getId(),
+                request.paymentMethodId(),
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                now,
+                slot.getStartAt()
+        );
+
+        return ReservationResponse.from(reservationRepository.save(reservation));
+    }
+
+    /**
+     * 유효한 승급 제안을 수락한 보호자의 REQUESTED 예약을 만든다.
+     * 슬롯은 OFFERED 동안 이미 RESERVED이므로 다시 reserve()하지 않는다.
+     */
+    @Transactional
+    public ReservationResponse requestFromWaitlist(
+            Long memberId,
+            Long petId,
+            Long paymentMethodId,
+            Long slotId,
+            String petNameSnapshot,
+            String petSpeciesSnapshot
+    ) {
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+        ReservationSlot slot = findSlot(slotId);
+        if (slot.getStartAt().isBefore(now.plus(LEAD_TIME))) {
+            throw new ServiceException(ReservationErrorCode.LEAD_TIME_VIOLATION);
+        }
+        if (slot.getStatus() != ReservationSlotStatus.RESERVED) {
+            throw new ServiceException(SlotErrorCode.INVALID_STATUS);
+        }
+
+        Reservation reservation = Reservation.request(
+                memberId,
+                petId,
+                slot.getHospitalId(),
+                slotId,
+                paymentMethodId,
+                petNameSnapshot,
+                petSpeciesSnapshot,
+                now,
+                slot.getStartAt()
+        );
+        return ReservationResponse.from(reservationRepository.save(reservation));
+    }
+
+    @Transactional
+    public void cancel(Long memberId, Long reservationId) {
+        LocalDateTime now = LocalDateTime.now(SEOUL_ZONE_ID);
+
+        // 상세 조회와 동일하게, 존재하는 타인 예약은 FORBIDDEN으로 구분한다.
+        Reservation reservation = findMyReservation(memberId, reservationId);
+
+        ReservationSlot slot = findSlot(reservation.getSlotId());
+        if (now.isAfter(slot.getStartAt().minusHours(2))) {
+            throw new ServiceException(ReservationErrorCode.CANCEL_DEADLINE_PASSED);
+        }
+
+        int updated = reservationRepository.cancelIfAllowed(
+                reservationId,
+                memberId,
+                ReservationStatus.REQUESTED,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.CANCELED,
+                now
+        );
+        if (updated == 0) {
+            throw new ServiceException(ReservationErrorCode.INVALID_STATUS);
+        }
+
+        reservationSlotReleaseService.release(slot.getId());
+    }
+
+    public Reservation findMyReservation(Long memberId, Long reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ServiceException(
+                        ReservationErrorCode.RESERVATION_NOT_FOUND
+                ));
+        if (!reservation.isOwnedBy(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+        return reservation;
+    }
+
+    /**
+     * 채팅 메시지 저장이 예약 종료 조건부 UPDATE와 같은 예약 행에서 직렬화되도록 쓴다.
+     * 채팅 도메인은 Repository를 직접 참조하지 않고 이 Service를 통해 예약을 얻는다.
+     */
+    public Reservation findReservationForChatForUpdate(Long reservationId) {
+        return reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new ServiceException(
+                        ReservationErrorCode.RESERVATION_NOT_FOUND
+                ));
+    }
+
+    public Reservation findReservationForChat(Long reservationId) {
+        return reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ServiceException(
+                        ReservationErrorCode.RESERVATION_NOT_FOUND
+                ));
+    }
+
+    /** 결제수단 재지정과 청구 선기록을 같은 예약 행 락으로 직렬화한다. */
+    public Reservation findMyReservationForUpdate(Long memberId, Long reservationId) {
+        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new ServiceException(ReservationErrorCode.RESERVATION_NOT_FOUND));
+        if (!reservation.isOwnedBy(memberId)) {
+            throw new ServiceException(CommonErrorCode.FORBIDDEN);
+        }
+        return reservation;
+    }
+
+    public Page<Reservation> findMyReservations(
+            Long memberId,
+            ReservationListCondition condition
+    ) {
+        validatePage(condition);
+        validateDateRange(condition.from(), condition.to());
+
+        ReservationStatus status = parseStatus(condition.status());
+        Sort.Direction direction = parseSort(condition.sort());
+        LocalDateTime fromAt = startOfDay(condition.from());
+        LocalDateTime toExclusive = startOfNextDay(condition.to());
+        PageRequest pageRequest = PageRequest.of(
+                condition.page(),
+                condition.size()
+        );
+
+        return reservationRepository.findMyReservations(
+                memberId,
+                status,
+                fromAt,
+                toExclusive,
+                direction,
+                pageRequest
+        );
+    }
+
+    public ReservationSlot findSlot(Long slotId) {
+        return reservationSlotRepository.findById(slotId)
+                .orElseThrow(() -> new ServiceException(SlotErrorCode.SLOT_NOT_FOUND));
+    }
+
+    public List<ReservationSlot> findSlots(Collection<Long> slotIds) {
+        return reservationSlotRepository.findAllById(slotIds);
+    }
+
+    private void validatePage(ReservationListCondition condition) {
+        if (condition.page() < 0
+                || condition.size() < 1
+                || condition.size() > MAX_PAGE_SIZE) {
+            throw new ServiceException(CommonErrorCode.VALIDATION_FAILED);
+        }
+    }
+
+    private void validateDateRange(LocalDate from, LocalDate to) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new ServiceException(ReservationErrorCode.INVALID_DATE_RANGE);
+        }
+    }
+
+    private ReservationStatus parseStatus(String status) {
+        if (status == null) {
+            return null;
+        }
+
+        try {
+            return ReservationStatus.valueOf(status);
+        } catch (IllegalArgumentException exception) {
+            throw new ServiceException(ReservationErrorCode.INVALID_FILTER_STATUS);
+        }
+    }
+
+    private Sort.Direction parseSort(String sort) {
+        // reservedAt은 예약 요청 시각(requestedAt)이 아니라 진료 예약 슬롯의 startAt을 의미한다.
+        String resolvedSort = sort == null ? "reservedAt,desc" : sort.trim();
+        String[] parts = resolvedSort.split(",", -1);
+
+        if (parts.length != 2 || !"reservedAt".equals(parts[0].trim())) {
+            throw new ServiceException(ReservationErrorCode.INVALID_SORT);
+        }
+
+        try {
+            return Sort.Direction.fromString(parts[1].trim());
+        } catch (IllegalArgumentException exception) {
+            throw new ServiceException(ReservationErrorCode.INVALID_SORT);
+        }
+    }
+
+    private LocalDateTime startOfDay(LocalDate date) {
+        return date == null ? null : date.atStartOfDay();
+    }
+
+    private LocalDateTime startOfNextDay(LocalDate date) {
+        return date == null ? null : date.plusDays(1).atStartOfDay();
+    }
+}
