@@ -16,7 +16,9 @@ const POLL_MS = 30_000
 
 /*
   미수금(자동 결제 실패 → 현장 수납 필요) 요약. 불러온 페이지 안에서 센다.
-  `GET /api/hospital/payments`(#209)가 develop에 있어 항상 호출하며, 미수금이 없으면 카드를 숨긴다.
+  `GET /api/hospital/payments`(#209)가 develop에 있어 항상 호출한다. 로딩·미수금 0건이면 카드를
+  숨기되, 조회 실패는 숨기지 않고 재시도 배너를 띄운다 — 실장애로 미수금 경고가 조용히 사라지면
+  현장 수납을 놓치기 때문이다(플래그 시절 옛 주석이 지적했던 '오류를 숨긴 탓에 카드가 조용히 사라짐').
 */
 function OutstandingCard() {
   const query = useHospitalPayments(0, 100)
@@ -25,7 +27,24 @@ function OutstandingCard() {
       (p) => p.paymentStatus === PaymentStatus.OFFLINE_REQUIRED,
     ) ?? []
 
-  if (query.isLoading || query.isError || outstanding.length === 0) return null
+  if (query.isLoading) return null
+
+  if (query.isError) {
+    return (
+      <Card className="border-destructive/50">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <p className="text-sm text-muted-foreground">
+            미수금 현황을 불러오지 못했어요.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => query.refetch()}>
+            다시 시도
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (outstanding.length === 0) return null
 
   return (
     <Card className="border-destructive">

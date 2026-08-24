@@ -2,8 +2,10 @@
 import type { PaymentStatus } from '@/types/enums'
 import type { PaymentChargeResult } from '@/features/payments/types'
 
-// 병원 결제/환불 대시보드 목록 항목(GET /api/hospital/payments). 진료 완료 예약 기준이며,
-// 아직 청구 전이면 paymentId 이하 필드가 전부 null이다.
+// 병원 결제/환불 대시보드 목록 항목(GET /api/hospital/payments, SA §8-7 v1.64).
+// 자병원 예약의 '활성 결제(superseded_at IS NULL)'만 반환하므로 결제가 붙은 행만 온다 —
+// paymentId·paymentStatus·amount는 항상 채워지고, paidAt·offlineSettledAt·refundedAt·failedAt만
+// 결제 상태에 따라 null이다. 식별자 필드를 nullable로 둔 것은 응답 방어용이며 '청구 전' 행 계약이 아니다.
 export interface HospitalPaymentListItem {
   reservationId: number
   memberId: number
