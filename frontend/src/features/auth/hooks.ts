@@ -13,9 +13,13 @@ export function useSignup() {
 
 export function useLogin() {
   const signIn = useAuthStore((s) => s.signIn)
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: LoginInput) => authApi.login(input),
     onSuccess: (tokens) => {
+      // 병원 검색의 favorite처럼 인증 주체별로 달라지는 응답을 비로그인 캐시에서 재사용하지 않는다.
+      // 로그아웃과 같은 경계에서 캐시를 비워, 다른 계정으로 로그인해도 이전 사용자 데이터가 남지 않게 한다.
+      queryClient.clear()
       signIn(tokens.accessToken, tokens.refreshToken)
     },
   })
