@@ -13,9 +13,9 @@ import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
 import { PaymentStatus } from '@/types/enums'
 
+// 이 목록은 활성 결제가 붙은 행만 온다(SA §8-7 v1.64) — '청구 전' 예약은 여기 없고 예약 관리에서 청구한다.
 const FILTERS = [
   { key: 'ALL', label: '전체' },
-  { key: 'UNBILLED', label: '청구 전' },
   { key: PaymentStatus.PENDING, label: '결제 진행중' },
   { key: PaymentStatus.OFFLINE_REQUIRED, label: '현장 수납 필요' },
   { key: PaymentStatus.PAID, label: '결제 완료' },
@@ -54,15 +54,10 @@ function PaymentRow({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="font-semibold">{item.petName}</span>
-            {item.paymentStatus ? (
-              <PaymentStatusBadge status={item.paymentStatus} />
-            ) : (
-              <span className="text-xs text-muted-foreground">청구 전</span>
-            )}
+            <PaymentStatusBadge status={item.paymentStatus} />
           </div>
           <p className="text-sm text-muted-foreground">
-            진료 {fmt(item.reservedAt)}
-            {item.amount != null && ` · ${item.amount.toLocaleString('ko-KR')}원`}
+            진료 {fmt(item.reservedAt)} · {item.amount.toLocaleString('ko-KR')}원
           </p>
           {item.paidAt && (
             <p className="text-xs text-muted-foreground">결제 완료 · {fmt(item.paidAt)}</p>
@@ -77,7 +72,7 @@ function PaymentRow({
           )}
         </div>
 
-        {item.paymentStatus === PaymentStatus.OFFLINE_REQUIRED && item.paymentId != null && (
+        {item.paymentStatus === PaymentStatus.OFFLINE_REQUIRED && (
           <div className="space-y-1">
             {settleOffline.isError && (
               <p className="text-sm text-destructive">{errorMessage(settleOffline.error)}</p>
@@ -85,14 +80,14 @@ function PaymentRow({
             <Button
               size="sm"
               disabled={settleOffline.isPending}
-              onClick={() => settleOffline.mutate(item.paymentId as number)}
+              onClick={() => settleOffline.mutate(item.paymentId)}
             >
               {settleOffline.isPending ? '처리 중…' : '현장 수납 완료'}
             </Button>
           </div>
         )}
 
-        {item.paymentStatus === PaymentStatus.PAID && item.paymentId != null && (
+        {item.paymentStatus === PaymentStatus.PAID && (
           <ReasonPrompt
             triggerLabel="전액 환불"
             triggerVariant="destructive"
@@ -101,22 +96,20 @@ function PaymentRow({
             pending={refund.isPending}
             errorMessage={refund.isError ? errorMessage(refund.error) : undefined}
             onConfirm={(reason) =>
-              refund.mutate({ paymentId: item.paymentId as number, reason })
+              refund.mutate({ paymentId: item.paymentId, reason })
             }
           />
         )}
 
-        {item.paymentStatus != null &&
-          RECEIPT_STATUSES.includes(item.paymentStatus) &&
-          item.paymentId != null && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onOpenReceipt(item.paymentId as number)}
-            >
-              영수증
-            </Button>
-          )}
+        {RECEIPT_STATUSES.includes(item.paymentStatus) && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onOpenReceipt(item.paymentId)}
+          >
+            영수증
+          </Button>
+        )}
       </CardContent>
     </Card>
   )
@@ -131,7 +124,6 @@ export function StaffPaymentsPage() {
   const items = query.data?.content ?? []
   const filtered = items.filter((item) => {
     if (filter === 'ALL') return true
-    if (filter === 'UNBILLED') return item.paymentStatus == null
     return item.paymentStatus === filter
   })
 
