@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { EmptyState, ErrorState, PageLoader } from '@/components/common/States'
 import { ApiError } from '@/lib/api/error'
+import { naiveDateTimeLabel } from '@/lib/seoulTime'
 import { PaymentStatus } from '@/types/enums'
 
 // 이 목록은 활성 결제가 붙은 행만 온다(SA §8-7 v1.64) — '청구 전' 예약은 여기 없고 예약 관리에서 청구한다.
@@ -22,10 +23,6 @@ const FILTERS = [
   { key: PaymentStatus.OFFLINE_PAID, label: '현장 수납 완료' },
   { key: PaymentStatus.REFUNDED, label: '환불 완료' },
 ] as const
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('ko-KR')
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : '처리에 실패했습니다.'
@@ -57,18 +54,23 @@ function PaymentRow({
             <PaymentStatusBadge status={item.paymentStatus} />
           </div>
           <p className="text-sm text-muted-foreground">
-            진료 {fmt(item.reservedAt)} · {item.amount.toLocaleString('ko-KR')}원
+            진료 {naiveDateTimeLabel(item.reservedAt)} ·{' '}
+            {item.amount.toLocaleString('ko-KR')}원
           </p>
           {item.paidAt && (
-            <p className="text-xs text-muted-foreground">결제 완료 · {fmt(item.paidAt)}</p>
+            <p className="text-xs text-muted-foreground">
+              결제 완료 · {naiveDateTimeLabel(item.paidAt)}
+            </p>
           )}
           {item.offlineSettledAt && (
             <p className="text-xs text-muted-foreground">
-              현장 수납 완료 · {fmt(item.offlineSettledAt)}
+              현장 수납 완료 · {naiveDateTimeLabel(item.offlineSettledAt)}
             </p>
           )}
           {item.refundedAt && (
-            <p className="text-xs text-muted-foreground">환불 완료 · {fmt(item.refundedAt)}</p>
+            <p className="text-xs text-muted-foreground">
+              환불 완료 · {naiveDateTimeLabel(item.refundedAt)}
+            </p>
           )}
         </div>
 

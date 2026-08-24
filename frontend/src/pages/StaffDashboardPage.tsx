@@ -21,11 +21,15 @@ const POLL_MS = 30_000
   현장 수납을 놓치기 때문이다(플래그 시절 옛 주석이 지적했던 '오류를 숨긴 탓에 카드가 조용히 사라짐').
 */
 function OutstandingCard() {
-  const query = useHospitalPayments(0, 100)
+  // 미수금은 열어 둔 대시보드에도 새로 생기므로 30초마다 갱신한다(승인 대기 쿼리와 같은 주기).
+  const query = useHospitalPayments(0, 100, { refetchInterval: POLL_MS })
   const outstanding =
     query.data?.content.filter(
       (p) => p.paymentStatus === PaymentStatus.OFFLINE_REQUIRED,
     ) ?? []
+  // 병원 결제 API의 최대 size는 100이라 활성 결제가 100건을 넘으면 뒤 페이지 미수금이 집계에서 빠진다.
+  // 상태별 재조회가 없어 전량 집계는 불가하므로, 잘렸을 때 카드에 범위를 명시해 오해를 막는다.
+  const truncated = query.data ? !query.data.last : false
 
   if (query.isLoading) return null
 
@@ -57,6 +61,12 @@ function OutstandingCard() {
           <strong className="text-destructive">{outstanding.length}건</strong>{' '}
           있어요.
         </p>
+        {truncated && (
+          <p className="text-xs text-muted-foreground">
+            활성 결제가 100건을 넘어 최근 100건 기준으로 집계했어요. 전체는 결제
+            관리에서 확인하세요.
+          </p>
+        )}
         <Button variant="outline" asChild>
           <Link to="/staff/payments">결제 관리로</Link>
         </Button>

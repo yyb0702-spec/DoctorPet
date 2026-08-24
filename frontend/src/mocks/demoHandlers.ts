@@ -289,6 +289,63 @@ function mockDateKey(offsetDays: number): string {
   return shiftDateKey(todaySeoulKey(), offsetDays)
 }
 
+// 백엔드 LocalDateTime 형식("yyyy-MM-ddTHH:mm:ss", Asia/Seoul)으로 현재 시각을 만든다.
+// sv-SE 로케일이 "yyyy-MM-dd HH:mm:ss"를 주므로 공백만 T로 바꾼다.
+function naiveNowSeoul(): string {
+  return new Date()
+    .toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' })
+    .replace(' ', 'T')
+}
+
+// --- 병원 결제/미수금 목록 in-memory 저장소 ---
+// GET 목록과 현장 수납·환불 mutation이 같은 상태를 공유한다. dev:mock에서 버튼을 눌러도
+// 목록이 실제로 갱신되도록, 고정 배열을 매 요청 재생성하지 않고 이 배열을 직접 수정한다.
+interface MockHospitalPayment {
+  reservationId: number
+  memberId: number
+  petId: number
+  petName: string
+  reservedAt: string
+  paymentId: number
+  paymentStatus: string
+  amount: number
+  paidAt: string | null
+  offlineSettledAt: string | null
+  refundedAt: string | null
+  failedAt: string | null
+}
+
+const demoHospitalPayments: MockHospitalPayment[] = [
+  {
+    reservationId: 7001,
+    memberId: 2,
+    petId: 1,
+    petName: '초코',
+    reservedAt: `${mockDateKey(-1)}T10:00:00`,
+    paymentId: 8701,
+    paymentStatus: 'OFFLINE_REQUIRED',
+    amount: 48000,
+    paidAt: null,
+    offlineSettledAt: null,
+    refundedAt: null,
+    failedAt: `${mockDateKey(-1)}T10:30:00`,
+  },
+  {
+    reservationId: 7002,
+    memberId: 3,
+    petId: 2,
+    petName: '나비',
+    reservedAt: `${mockDateKey(-3)}T14:00:00`,
+    paymentId: 8702,
+    paymentStatus: 'PAID',
+    amount: 32000,
+    paidAt: `${mockDateKey(-3)}T14:20:00`,
+    offlineSettledAt: null,
+    refundedAt: null,
+    failedAt: null,
+  },
+]
+
 const demoOperatingHours = {
   scheduleId: 1,
   updatedAt: '2026-01-01T00:00:00',
@@ -801,40 +858,10 @@ export const demoHandlers = [
     const url = new URL(request.url)
     const page = Number(url.searchParams.get('page') ?? '0')
     const size = Number(url.searchParams.get('size') ?? '20')
-    const all = [
-      {
-        reservationId: 7001,
-        memberId: 2,
-        petId: 1,
-        petName: '초코',
-        reservedAt: `${shiftDateKey(todaySeoulKey(), -1)}T10:00:00`,
-        paymentId: 8701,
-        paymentStatus: 'OFFLINE_REQUIRED',
-        amount: 48000,
-        paidAt: null,
-        offlineSettledAt: null,
-        refundedAt: null,
-        failedAt: `${shiftDateKey(todaySeoulKey(), -1)}T10:30:00`,
-      },
-      {
-        reservationId: 7002,
-        memberId: 3,
-        petId: 2,
-        petName: '나비',
-        reservedAt: `${shiftDateKey(todaySeoulKey(), -3)}T14:00:00`,
-        paymentId: 8702,
-        paymentStatus: 'PAID',
-        amount: 32000,
-        paidAt: `${shiftDateKey(todaySeoulKey(), -3)}T14:20:00`,
-        offlineSettledAt: null,
-        refundedAt: null,
-        failedAt: null,
-      },
-    ]
-    const totalElements = all.length
+    const totalElements = demoHospitalPayments.length
     const totalPages = Math.max(1, Math.ceil(totalElements / size))
     return ok({
-      content: all.slice(page * size, page * size + size),
+      content: demoHospitalPayments.slice(page * size, page * size + size),
       page,
       size,
       totalElements,
@@ -842,6 +869,35 @@ export const demoHandlers = [
       first: page === 0,
       last: page >= totalPages - 1,
     })
+  }),
+
+  // 현장 수납 완료 (#36) — 전제 OFFLINE_REQUIRED. 공유 fixture를 갱신해 목록에 즉시 반영한다.
+  http.patch(`${BASE}/hospital/payments/:paymentId/offline-settle`, ({ params }) => {
+    const target = demoHospitalPayments.find(
+      (p) => p.paymentId === Number(params.paymentId),
+    )
+    if (!target) return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+    if (target.paymentStatus !== 'OFFLINE_REQUIRED') {
+      return fail('PAYMENT_006', '오프라인 정산이 가능한 상태가 아닙니다.', 409)
+    }
+    target.paymentStatus = 'OFFLINE_PAID'
+    target.offlineSettledAt = naiveNowSeoul()
+    return ok(target)
+  }),
+
+  // 전액 환불 (#37) — 전제 PAID. 이미 REFUNDED면 멱등 200. 공유 fixture를 갱신한다.
+  http.post(`${BASE}/hospital/payments/:paymentId/refund`, ({ params }) => {
+    const target = demoHospitalPayments.find(
+      (p) => p.paymentId === Number(params.paymentId),
+    )
+    if (!target) return fail('PAYMENT_005', '결제 정보를 찾을 수 없습니다.', 404)
+    if (target.paymentStatus === 'REFUNDED') return ok(target)
+    if (target.paymentStatus !== 'PAID') {
+      return fail('PAYMENT_008', '환불이 가능한 상태가 아닙니다.', 409)
+    }
+    target.paymentStatus = 'REFUNDED'
+    target.refundedAt = naiveNowSeoul()
+    return ok(target)
   }),
 
   // --- JSON 영수증 (dev:mock 오프라인 전용) — 보호자·스태프 공통 빌더(위 receiptResolver) ---
