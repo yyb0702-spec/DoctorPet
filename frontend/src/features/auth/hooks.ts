@@ -18,8 +18,8 @@ export function useLogin() {
     mutationFn: (input: LoginInput) => authApi.login(input),
     onSuccess: (tokens) => {
       // 병원 검색의 favorite처럼 인증 주체별로 달라지는 응답을 비로그인 캐시에서 재사용하지 않는다.
-      // 로그아웃과 같은 경계에서 캐시를 비워, 다른 계정으로 로그인해도 이전 사용자 데이터가 남지 않게 한다.
-      queryClient.clear()
+      // mutation observer까지 지우는 clear() 대신 쿼리만 제거해야 호출부의 역할 조회·화면 이동 성공 콜백이 유지된다.
+      queryClient.removeQueries()
       signIn(tokens.accessToken, tokens.refreshToken)
     },
   })
