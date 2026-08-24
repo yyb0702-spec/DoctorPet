@@ -195,7 +195,8 @@ public class PaymentReconcileService {
     // 결제 행 락(findByIdForUpdate) 아래 처리해 "현재도 PENDING인지 확인"과 "안내 저장" 사이의 경합을 없앤다(PR #139
     // 리뷰 P1) — 그 사이 다른 경로가 PAID/OFFLINE로 확정했다면 락을 잡고 다시 읽었을 때 PENDING이 아니므로 발행하지
     // 않고, 완료를 확정하는 조건부 UPDATE(WHERE id=..., PENDING→...)는 같은 행 락에 직렬화되어 완료 알림 뒤에 뒤늦은
-    // 안내가 저장되지 않는다. 반복 사이클·동시 발행의 결제당 1건은 dedup_key UNIQUE가 보장한다. 발행 실패는 격리한다 —
+    // 안내가 저장되지 않는다. 반복 사이클·동시 발행의 삭제 전 결제당 1건은 dedup_key UNIQUE가 보장한다. 전체 삭제 후
+    // 결제가 여전히 PENDING이면 안내는 다음 주기에 1회 재발행될 수 있다. 발행 실패는 격리한다 —
     // 정산 상태는 이미 확정(유지)됐다. public+@Transactional은 self 프록시 호출로 트랜잭션 경계를 적용하기 위함이다.
     @Transactional
     public void publishStuckNoticeIfPending(Long paymentId) {

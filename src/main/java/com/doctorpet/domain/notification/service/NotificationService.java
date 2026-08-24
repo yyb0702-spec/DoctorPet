@@ -91,7 +91,8 @@ public class NotificationService {
         return saved;
     }
 
-    // 같은 (수신자·유형·리소스)의 알림을 결제당 1건으로만 남기는 멱등 발행(PR #139). 결제 고도화 3.6의 "결제 확인 중"
+    // 같은 (수신자·유형·리소스)의 알림을 알림 행이 존재하는 동안(전체 삭제 전까지) 결제당 1건으로만 남기는
+    // 멱등 발행(PR #139). 결제 고도화 3.6의 "결제 확인 중"
     // 안내에 쓴다(회원 수신). 존재 조회는 반복 사이클의 흔한 경우를 값싸게 걸러내는 빠른 경로일 뿐 원자적 보장은 아니다 —
     // 락 밖 경로(웹훅 단건 트리거)가 배치와 동시에 같은 결제를 처리하면 둘 다 "없음"을 읽을 수 있다. 최종 보장은 dedup_key
     // UNIQUE 제약(uk_notifications_dedup_key)이 하며, 동시 삽입 중 진 트랜잭션은 그 제약 위반으로 떨어지므로 "이미
@@ -119,7 +120,7 @@ public class NotificationService {
             if (!isDedupKeyViolation(e)) {
                 throw e; // 다른 무결성 오류(NOT NULL·길이·FK 등)는 무음 유실하지 않고 전파한다.
             }
-            // 동시 호출이 먼저 같은 dedup_key(uk_notifications_dedup_key)를 저장함 — 결제당 1건 계약을 지키기 위해
+            // 동시 호출이 먼저 같은 dedup_key(uk_notifications_dedup_key)를 저장함 — 삭제 전 결제당 1건 계약을 지키기 위해
             // 이 중복 키 위반만 이미 처리된 것으로 간주해 삼킨다.
         }
     }

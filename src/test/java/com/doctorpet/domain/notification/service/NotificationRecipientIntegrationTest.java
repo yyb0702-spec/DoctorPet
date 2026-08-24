@@ -131,10 +131,38 @@ class NotificationRecipientIntegrationTest {
         assertThat(notificationRepository.findById(m1).orElseThrow().isRead()).isFalse();
     }
 
+    @Test
+    @DisplayName("전체 삭제: 병원 수신자 알림만 하드 삭제하고 다른 병원·회원 알림은 불변, 두 번째 호출은 0건(멱등)")
+    void deleteAll_isScopedToHospitalRecipient() {
+        // 병원 A/B와 회원 알림을 함께 저장해, (HOSPITAL, A) 전체 삭제가 병원 A만 지우는 병원 단위 격리를 실 DB로 검증한다.
+        long hospitalIdB = hospitalId + 1; // base+2 — 유일값이라 공유 DB의 다른 병원과 섞이지 않는다.
+        createHospitalNotification("병원 A 예약 요청 1");
+        createHospitalNotification("병원 A 예약 요청 2");
+        Long hospitalBNotificationId = createHospitalNotificationForHospital(hospitalIdB, "병원 B 예약 요청").getId();
+        Long memberNotificationId = createMemberNotification("결제 완료").getId();
+
+        int deleted = notificationService.deleteAll(NotificationRecipient.hospital(hospitalId)).deletedCount();
+
+        assertThat(deleted).isEqualTo(2);
+        // 병원 A 알림은 모두 사라진다.
+        assertThat(notificationService.getMyNotifications(NotificationRecipient.hospital(hospitalId), null, 0, 20)
+                .content()).isEmpty();
+        // 다른 병원(B)과 회원 수신 알림은 그대로 남는다.
+        assertThat(notificationRepository.findById(hospitalBNotificationId)).isPresent();
+        assertThat(notificationRepository.findById(memberNotificationId)).isPresent();
+
+        // 두 번째 호출은 삭제할 게 없어 0건(멱등).
+        assertThat(notificationService.deleteAll(NotificationRecipient.hospital(hospitalId)).deletedCount()).isZero();
+    }
+
     private Notification createHospitalNotification(String content) {
+        return createHospitalNotificationForHospital(hospitalId, content);
+    }
+
+    private Notification createHospitalNotificationForHospital(long targetHospitalId, String content) {
         Notification saved = notificationService.create(
                 NotificationRecipientType.HOSPITAL,
-                hospitalId,
+                targetHospitalId,
                 NotificationType.RESERVATION_CONFIRMED,
                 content,
                 NotificationResourceType.RESERVATION,
